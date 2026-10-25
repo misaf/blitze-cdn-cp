@@ -2,11 +2,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import (
-    OperatorDependency,
-    ServicesDependency,
-    require_operator,
-)
 from blitzecdn.capabilities.dns.api.models import (
     CdnSite,
     DnsRecord,
@@ -21,6 +16,11 @@ from blitzecdn.capabilities.dns.api.models import (
 )
 from blitzecdn.capabilities.dns.domain import PatchPolicy
 from blitzecdn.core.exceptions import ConflictError
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    ServicesDependency,
+    require_operator,
+)
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

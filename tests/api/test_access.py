@@ -7,8 +7,8 @@ import pytest
 from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import __main__ as server
-from blitzecdn.api.access import AllowedIPsMiddleware
+from blitzecdn.entrypoints.api import __main__ as server
+from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
 
 
 @pytest.mark.parametrize(

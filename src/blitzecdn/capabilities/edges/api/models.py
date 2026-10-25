@@ -12,9 +12,9 @@ from typing import Self
 
 from pydantic import Field, model_validator
 
-from blitzecdn.api.models import HostRun, Model
 from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
 from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
+from blitzecdn.entrypoints.api.models import HostRun, Model
 
 
 class Edge(Model):

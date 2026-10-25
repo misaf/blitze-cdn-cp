@@ -17,7 +17,7 @@ import typer
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 
 @domain_app.command("add")

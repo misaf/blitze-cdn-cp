@@ -5,7 +5,7 @@ import re
 import sys
 
 from blitzecdn.capabilities.tls import ansible
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
 _VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import (
+from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch, EdgeRemoval
+from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     ServicesDependency,
     require_operator,
 )
-from blitzecdn.api.models import HostRun, as_operation
-from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch, EdgeRemoval
+from blitzecdn.entrypoints.api.models import HostRun, as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

@@ -45,10 +45,10 @@ class FailureKind(StrEnum):
     the command line and "the service is down, retry" over HTTP — so the kind
     is decided once, here, and each layer only projects it.
 
-    So the taxonomy lives here and the projections live in the delivery layers.
-    Core names *what happened*; `blitzecdn.cli.main` decides what exit code says
-    that to a shell and `blitzecdn.api.app` decides what status code says it to
-    a client. Neither may invent a kind, and `tests/contract/test_delivery_parity.py`
+    So the taxonomy lives here and the projections live in the delivery layers. Core
+    names *what happened*; `blitzecdn.entrypoints.cli.main` decides what exit code says
+    that to a shell and `blitzecdn.entrypoints.api.app` decides what status code says it
+    to a client. Neither may invent a kind, and `tests/contract/test_delivery_parity.py`
     fails if either stops covering one.
     """
 

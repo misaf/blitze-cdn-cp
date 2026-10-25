@@ -2,8 +2,8 @@ import pytest
 from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import create_app
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
+from blitzecdn.entrypoints.api import create_app
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
@@ -13,7 +13,7 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
         built.append(True)
         raise AssertionError("construction must happen in lifespan")
 
-    monkeypatch.setattr("blitzecdn.api.app.Infrastructure.build", build)
+    monkeypatch.setattr("blitzecdn.entrypoints.api.app.Infrastructure.build", build)
     control_plane_app(settings)
     assert built == []
 
@@ -152,10 +152,16 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         operation("pool")
         return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
 
-    monkeypatch.setattr("blitzecdn.api.app.Infrastructure.build", lambda *a, **k: None)
-    monkeypatch.setattr("blitzecdn.api.app.build_services", lambda _infra: None)
-    monkeypatch.setattr("blitzecdn.api.app.build_api", lambda _services: control)
-    monkeypatch.setattr("blitzecdn.api.app.ThreadPoolExecutor", pool)
+    monkeypatch.setattr(
+        "blitzecdn.entrypoints.api.app.Infrastructure.build", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "blitzecdn.entrypoints.api.app.build_services", lambda _infra: None
+    )
+    monkeypatch.setattr(
+        "blitzecdn.entrypoints.api.app.build_api", lambda _services: control
+    )
+    monkeypatch.setattr("blitzecdn.entrypoints.api.app.ThreadPoolExecutor", pool)
     with (
         pytest.raises(RuntimeError, match=f"failed {failure}"),
         TestClient(create_app(settings)),

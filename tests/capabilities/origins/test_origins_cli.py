@@ -23,7 +23,7 @@ from control_plane_fixtures import (
 )
 from typer.testing import CliRunner
 
-from blitzecdn.cli import main as cli
+from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
 

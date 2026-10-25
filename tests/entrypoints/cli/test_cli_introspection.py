@@ -18,8 +18,8 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 REQUIRES_CAPABILITIES = {
     "test_plugins_shows_a_settings_value_and_only_a_secrets_presence": (

@@ -25,7 +25,7 @@ def test_the_control_plane_admits_the_port_its_api_actually_listens_on():
     held to the constant the listener uses, the way the Dockerfile path is
     already held to `blitzecdn.docker.CONTROL_PLANE_DOCKERFILE`.
     """
-    from blitzecdn.api.__main__ import API_PORT
+    from blitzecdn.entrypoints.api.__main__ import API_PORT
 
     defaults = _defaults_of(_role("blitzecdn_controlplane"))
     assert defaults["blitzecdn_controlplane_api_port"] == API_PORT

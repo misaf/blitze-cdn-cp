@@ -18,7 +18,7 @@ from blitzecdn.capabilities.tls.contract import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 
 @domain_app.command("ssl")

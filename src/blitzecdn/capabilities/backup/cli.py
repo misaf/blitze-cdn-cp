@@ -13,7 +13,7 @@ from blitzecdn.capabilities.backup.wiring import (
     build_restore_guard,
     build_restore_journal,
 )
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 backup_app = typer.Typer(
     no_args_is_help=True,

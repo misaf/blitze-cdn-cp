@@ -43,10 +43,10 @@ from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
 from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
 

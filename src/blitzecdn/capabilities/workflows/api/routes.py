@@ -7,9 +7,9 @@ through the same endpoint.
 
 from fastapi import APIRouter, Depends, Query
 
-from blitzecdn.api.dependencies import ServicesDependency, require_operator
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.workflows.api.models import Workflow
+from blitzecdn.entrypoints.api.dependencies import ServicesDependency, require_operator
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

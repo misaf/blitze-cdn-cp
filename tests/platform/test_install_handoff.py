@@ -4,7 +4,7 @@ import subprocess
 from control_plane_fixtures import FakeRunner, build_application
 
 from blitzecdn.composition import Repository
-from blitzecdn.install_handoff import finalize_standalone, install_wrapper
+from blitzecdn.entrypoints.install_handoff import finalize_standalone, install_wrapper
 
 
 def test_install_wrapper_pins_and_repoints_the_checkout(tmp_path):

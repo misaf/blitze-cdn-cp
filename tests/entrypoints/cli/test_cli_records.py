@@ -14,8 +14,8 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(

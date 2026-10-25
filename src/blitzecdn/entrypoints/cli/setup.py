@@ -19,9 +19,9 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.cli import common
-from blitzecdn.cli.root import app
 from blitzecdn.composition import migrate_database
+from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.root import app
 
 
 def _environment_file_body() -> str:

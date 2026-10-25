@@ -16,9 +16,6 @@ import typer
 import uvicorn
 
 from blitzecdn import ansible as core_ansible
-from blitzecdn.api import create_app
-from blitzecdn.cli import common
-from blitzecdn.cli.common import ExitCode
 from blitzecdn.core.features import (
     CapabilitySetting,
     EnvironmentKey,
@@ -27,6 +24,9 @@ from blitzecdn.core.features import (
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
+from blitzecdn.entrypoints.api import create_app
+from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.common import ExitCode
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.

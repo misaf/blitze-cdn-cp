@@ -15,7 +15,7 @@ import typer
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 
 @domain_app.command("under-attack")

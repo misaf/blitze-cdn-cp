@@ -1,6 +1,6 @@
 """The published shape of a workflow.
 
-Here rather than in `blitzecdn.api.models` with the frame and core's own
+Here rather than in `blitzecdn.entrypoints.api.models` with the frame and core's own
 shapes, because the journal is this capability's. What a client is shown stays
 a decision separate from what the domain holds — the fields are restated rather
 than re-exported — which is the arrangement `deployments` and every installed
@@ -14,8 +14,8 @@ from typing import Any
 
 from pydantic import Field
 
-from blitzecdn.api.models import Model
 from blitzecdn.capabilities.workflows.domain import WorkflowKind, WorkflowStatus
+from blitzecdn.entrypoints.api.models import Model
 
 __all__ = ["Workflow", "WorkflowStep"]
 

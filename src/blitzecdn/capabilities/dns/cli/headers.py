@@ -14,7 +14,7 @@ import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, domain_app
 from blitzecdn.capabilities.dns.domain import EditVisitorHeaders
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 
 @domain_app.command("visitor-headers")

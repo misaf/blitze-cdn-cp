@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.api.models import Model
 from blitzecdn.capabilities.releases.domain import SettingOrigin
+from blitzecdn.entrypoints.api.models import Model
 
 
 class SettingSource(Model):

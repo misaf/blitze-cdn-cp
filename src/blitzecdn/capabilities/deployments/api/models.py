@@ -14,13 +14,13 @@ from datetime import datetime
 
 from pydantic import Field
 
-from blitzecdn.api.models import AnsibleRun, HostRun, Model
-from blitzecdn.api.requests import FleetRequest, RequestModel
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
     TargetPhase,
     TargetStatus,
 )
+from blitzecdn.entrypoints.api.models import AnsibleRun, HostRun, Model
+from blitzecdn.entrypoints.api.requests import FleetRequest, RequestModel
 
 
 class Deployment(Model):

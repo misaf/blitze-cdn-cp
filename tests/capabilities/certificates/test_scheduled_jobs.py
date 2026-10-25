@@ -19,8 +19,8 @@ from __future__ import annotations
 from control_plane_fixtures import with_capability_settings
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import create_app
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.api import create_app
 
 
 def schedules(settings) -> dict[str, tuple[int, int]]:

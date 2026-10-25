@@ -10,7 +10,7 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.cli import main as cli
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_site_visitor_headers_command(settings, monkeypatch):

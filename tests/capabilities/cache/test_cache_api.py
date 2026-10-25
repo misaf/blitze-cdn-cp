@@ -10,7 +10,7 @@ stopped being contributed would 404 here.
 from control_plane_fixtures import FakeRunner, ansible_run, host_run, serve
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import create_app
+from blitzecdn.entrypoints.api import create_app
 
 _HEADERS = {"X-API-Key": "x" * 32}
 

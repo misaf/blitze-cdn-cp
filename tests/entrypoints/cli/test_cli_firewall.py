@@ -11,8 +11,8 @@ from control_plane_fixtures import (
     build_application,
 )
 
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):

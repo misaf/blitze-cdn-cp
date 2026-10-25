@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends
 
-from blitzecdn.api.dependencies import (
-    OperatorDependency,
-    ServicesDependency,
-    require_operator,
-)
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.origins.api.models import (
     OriginCheckRequest,
     OriginReport,
 )
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    ServicesDependency,
+    require_operator,
+)
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

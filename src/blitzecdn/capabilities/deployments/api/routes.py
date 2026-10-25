@@ -1,11 +1,5 @@
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import (
-    OperatorDependency,
-    ServicesDependency,
-    require_operator,
-)
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.deployments.api.models import (
     Deployment,
     DeploymentTarget,
@@ -14,6 +8,12 @@ from blitzecdn.capabilities.deployments.api.models import (
     DriftRequest,
     RollbackRequest,
 )
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    ServicesDependency,
+    require_operator,
+)
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

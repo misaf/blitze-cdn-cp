@@ -12,8 +12,12 @@ import pytest
 import yaml
 from paths import CORE_ANSIBLE
 
-from blitzecdn import host_runtime
-from blitzecdn.host_runtime import HostRuntime, HostRuntimeError, ServiceDefinitions
+from blitzecdn.host import host_runtime
+from blitzecdn.host.host_runtime import (
+    HostRuntime,
+    HostRuntimeError,
+    ServiceDefinitions,
+)
 
 
 @pytest.fixture

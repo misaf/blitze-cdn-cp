@@ -38,8 +38,8 @@ forbidden_modules =
     yaml
     sqlalchemy
     sqlmodel
-    blitzecdn.api
-    blitzecdn.cli
+    blitzecdn.entrypoints.api
+    blitzecdn.entrypoints.cli
     blitzecdn.composition
     # Whole packages, not module names: `core.runtime` is everything of core's
     # that touches the machine and `core.persistence` everything that touches
@@ -71,8 +71,8 @@ forbidden_modules =
     yaml
     sqlalchemy
     sqlmodel
-    blitzecdn.api
-    blitzecdn.cli
+    blitzecdn.entrypoints.api
+    blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.core.ansible
     blitzecdn.core.persistence
@@ -85,10 +85,10 @@ type = forbidden
 source_modules =
     blitzecdn.capabilities.**.adapters
 forbidden_modules =
-    blitzecdn.api
-    blitzecdn.cli
+    blitzecdn.entrypoints.api
+    blitzecdn.entrypoints.cli
     blitzecdn.composition
-    blitzecdn.worker
+    blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
 [importlinter:contract:entry-persistence]
@@ -97,8 +97,8 @@ type = forbidden
 # `api/` and `cli` stay outside `adapters/`: they are not private the way an
 # adapter is, and `deployments.api.models` is a published representation.
 source_modules =
-    blitzecdn.api
-    blitzecdn.cli
+    blitzecdn.entrypoints.api
+    blitzecdn.entrypoints.cli
     blitzecdn.capabilities.**.api
     blitzecdn.capabilities.**.cli
 forbidden_modules =
@@ -149,15 +149,15 @@ forbidden_modules =
     sqlalchemy
     sqlmodel
     blitzecdn.ansible
-    blitzecdn.api
+    blitzecdn.entrypoints.api
     blitzecdn.capabilities
-    blitzecdn.cli
+    blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.docker
-    blitzecdn.host_runtime
-    blitzecdn.install_handoff
+    blitzecdn.host.host_runtime
+    blitzecdn.entrypoints.install_handoff
     blitzecdn.providers
-    blitzecdn.worker
+    blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
 [importlinter:contract:core-layers]
@@ -177,17 +177,17 @@ type = forbidden
 # that produces it.
 source_modules =
     blitzecdn.ansible
-    blitzecdn.api
+    blitzecdn.entrypoints.api
     blitzecdn.capabilities
-    blitzecdn.cli
+    blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.core
     blitzecdn.docker
-    blitzecdn.host_runtime
-    blitzecdn.install_handoff
+    blitzecdn.host.host_runtime
+    blitzecdn.entrypoints.install_handoff
     blitzecdn.providers
 forbidden_modules =
-    blitzecdn.worker
+    blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
 [importlinter:contract:no-service-locator]
@@ -216,8 +216,8 @@ source_modules =
 forbidden_modules =
     fastapi
     typer
-    blitzecdn.api
-    blitzecdn.cli
+    blitzecdn.entrypoints.api
+    blitzecdn.entrypoints.cli
     blitzecdn.**.api
     blitzecdn.**.cli
     blitzecdn.**.feature
@@ -230,8 +230,8 @@ type = forbidden
 # contribute rather than somebody forgetting to wire it. `api/models.py`
 # translates domain values and has to name them; it is outside the rule.
 source_modules =
-    blitzecdn.api.app
-    blitzecdn.cli.main
+    blitzecdn.entrypoints.api.app
+    blitzecdn.entrypoints.cli.main
 forbidden_modules =
     blitzecdn.capabilities
 allow_indirect_imports = True

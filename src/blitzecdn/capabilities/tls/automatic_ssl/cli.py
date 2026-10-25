@@ -9,8 +9,8 @@ from __future__ import annotations
 import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.cli import common
-from blitzecdn.cli.common import ExitCode
+from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.common import ExitCode
 
 ssl_app = typer.Typer(
     no_args_is_help=True,

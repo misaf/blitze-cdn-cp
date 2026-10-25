@@ -6,13 +6,13 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
-from blitzecdn.api.dependencies import get_services
 from blitzecdn.capabilities.deployments.api import routes as deployment_routes
 from blitzecdn.capabilities.diagnostics.api import readiness as diagnostics
 from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
 from blitzecdn.capabilities.dns.api import routes as site_routes
 from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
+from blitzecdn.entrypoints.api.dependencies import get_services
 
 
 def test_routes_are_domain_modules_and_services_are_a_dependency():

@@ -4,13 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
-from blitzecdn.api.dependencies import (
-    OperatorDependency,
-    ServicesDependency,
-    WorkerPoolDependency,
-    require_operator,
-)
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.tls.api.models import (
     CertificateInfo,
     CertificateRequest,
@@ -20,6 +13,13 @@ from blitzecdn.capabilities.tls.api.models import (
     RenewalResult,
     RenewRequest,
 )
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    ServicesDependency,
+    WorkerPoolDependency,
+    require_operator,
+)
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

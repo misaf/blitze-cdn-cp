@@ -70,11 +70,15 @@ def test_the_api_and_the_worker_are_the_only_persistent_services():
         "blitzecdn-worker",
         "blitzecdn-cli",
     }
-    assert services["blitzecdn-api"]["command"] == ["python", "-m", "blitzecdn.api"]
+    assert services["blitzecdn-api"]["command"] == [
+        "python",
+        "-m",
+        "blitzecdn.entrypoints.api",
+    ]
     assert services["blitzecdn-worker"]["command"] == [
         "python",
         "-m",
-        "blitzecdn.worker",
+        "blitzecdn.entrypoints.worker",
     ]
     assert services["blitzecdn-api"]["restart"] == "unless-stopped"
     assert services["blitzecdn-worker"]["restart"] == "unless-stopped"
@@ -153,7 +157,7 @@ def test_host_wrapper_delegates_to_the_installed_sdk_runner():
     source = install["ansible.builtin.copy"]["src"].replace(
         "{{ role_path }}", str(ROLE)
     )
-    assert Path(source).resolve() == REPO_ROOT / "src/blitzecdn/host_runtime.py"
+    assert Path(source).resolve() == REPO_ROOT / "src/blitzecdn/host/host_runtime.py"
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():

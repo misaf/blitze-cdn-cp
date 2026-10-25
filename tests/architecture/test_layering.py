@@ -207,8 +207,8 @@ def _is_entry(path: Path) -> bool:
 def _entry_files() -> list[Path]:
     return [
         *(path for path in _capability_files() if _is_entry(path)),
-        *(_SOURCE / "api").rglob("*.py"),
-        *(_SOURCE / "cli").rglob("*.py"),
+        *(_SOURCE / "entrypoints/api").rglob("*.py"),
+        *(_SOURCE / "entrypoints/cli").rglob("*.py"),
     ]
 
 
@@ -340,11 +340,14 @@ def _deployment_artifacts() -> list[Path]:
         REPO_ROOT / "pyproject.toml",
         REPO_ROOT / "justfile",
         *sorted(CORE_ANSIBLE.rglob("*.j2")),
+        # The role that copies the host runner out of the package.
+        *sorted(CORE_ANSIBLE.rglob("tasks/*.yml")),
     ]
 
 
 def test_a_loose_module_at_the_root_starts_a_process():
-    """`blitzecdn/` holds the processes. Everything else is in a package.
+    """`entrypoints/` and `host/` hold the processes. Everything else is in a
+    package, and the package root holds no loose module at all.
 
     The root was answering two questions at once and answering neither.
     `bootstrap.py`, `persistence.py` and `scheduler.py` — how a control plane is
@@ -355,12 +358,12 @@ def test_a_loose_module_at_the_root_starts_a_process():
 
     A process is checked rather than declared: something outside Python has to
     name the module, because that is what starting a process looks like from
-    here. `dramatiq blitzecdn.worker` is in the controller's compose file and
-    `python -m blitzecdn.install_handoff` is in `install.sh`, so both are
-    answerable without trusting a list in this test. The host SDK runner is
-    copied out of the package and launched by its script path because the host
-    does not install the application. A helper dropped at the
-    root is named by nothing and fails.
+    here. `python -m blitzecdn.entrypoints.worker` is in the controller's
+    compose file and `python -m blitzecdn.entrypoints.install_handoff` is in
+    `install.sh`, so both are answerable without trusting a list in this test.
+    The two `host/` scripts are launched by their script paths, because the
+    host does not install the application. A helper dropped beside them, or at
+    the package root, is named by nothing and fails.
 
     `api/` and `cli/` are processes too and are packages, because each has a
     surface — dependencies, models, the root Typer app — that a single module
@@ -372,10 +375,21 @@ def test_a_loose_module_at_the_root_starts_a_process():
     )
     offenders = [
         f"{path.name} is not started by anything outside Python"
+        for path in sorted(
+            [
+                *SOURCE.glob("*.py"),
+                *(SOURCE / "entrypoints").glob("*.py"),
+                *(SOURCE / "host").glob("*.py"),
+            ]
+        )
+        if path.name != "__init__.py"
+        and path.parent != SOURCE
+        and f"blitzecdn.{path.parent.name}.{path.stem}" not in artifacts
+        and f"/{path.parent.name}/{path.name}" not in artifacts
+    ] + [
+        f"{path.name} is a loose module at the package root"
         for path in sorted(SOURCE.glob("*.py"))
         if path.name != "__init__.py"
-        and f"blitzecdn.{path.stem}" not in artifacts
-        and f"/{path.name}" not in artifacts
     ]
     assert offenders == []
 
@@ -763,10 +777,10 @@ def test_the_compiler_accepts_only_captured_values():
 
 #: The modules that start a process, and the one container each may build.
 _PROCESS_ENTRY_POINTS = {
-    "api/app.py": "build_api",
-    "cli/common.py": "build_cli",
-    "worker.py": "build_worker",
-    "install_handoff.py": "build_install_handoff",
+    "entrypoints/api/app.py": "build_api",
+    "entrypoints/cli/common.py": "build_cli",
+    "entrypoints/worker.py": "build_worker",
+    "entrypoints/install_handoff.py": "build_install_handoff",
 }
 
 #: What of composition each delivery layer may name: its own container, and for

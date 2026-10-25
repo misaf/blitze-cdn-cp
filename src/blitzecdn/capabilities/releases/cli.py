@@ -18,7 +18,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Release
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 release_app = typer.Typer(help="Compiled desired state: what the fleet is served.")
 
