@@ -11,11 +11,8 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.runtime.resources import package_directory
 
-#: The Jinja fragments this capability contributes to the edge's Nginx
-#: configuration, resolved under the same guard its roles are. A sibling of
-#: ``ansible/`` rather than a child: the controller renders these into each
-#: release's configuration, so they are not part of any role this package
-#: ships.
+#: The Nginx fragments this capability contributes, rendered into each
+#: release on the controller rather than shipped inside a role.
 NGINX_TEMPLATES = (
     package_directory(
         __name__,

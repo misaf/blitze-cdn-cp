@@ -1,14 +1,7 @@
 """The compiler: what the fleet should be serving, as an addressable value.
 
-Contributes routes and commands and nothing else — no Ansible role, no
-desired-state variables, no edge module. That is the shape of a capability
-which *assembles* what the others contribute rather than contributing anything
-of its own: a reader looking for "where does the compiler put its own
-variables into the document" should find here that it has none.
-
-Required, like `dns` and `edges`. A control plane without it would have no way
-to answer what an edge should serve, so it would not be a degraded control
-plane but a wrong one.
+Contributes routes and commands only; it assembles what other capabilities
+contribute and adds no variables of its own.
 """
 
 from __future__ import annotations

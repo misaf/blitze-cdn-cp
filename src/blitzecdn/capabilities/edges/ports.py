@@ -9,26 +9,13 @@ from blitzecdn.core.domain.runs import AnsibleRun
 
 
 class EdgeRunner(Protocol):
-    """Everything edge operations run against the fleet.
-
-    One method. ``run_origin_check`` is not here: it travels with the play it
-    runs, and ``origins`` declares its own port over core's generic
-    ``run_playbook`` primitive. ``host_limit`` is required here and
-    never defaulted — an absent limit means "every edge" elsewhere, which for a
-    decommission would empty the fleet.
-    """
+    """What edge operations run against the fleet; ``host_limit`` is always required."""
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
 
 
 class EdgeStore(Protocol):
-    """The fleet. The Ansible inventory is derived from this, not the reverse.
-
-    The ``blitzecdn`` inventory plugin reads these same rows at the start of
-    every run, so writing an edge here *is* publishing it to Ansible. There is
-    no second artefact that could disagree with the database about which hosts
-    exist.
-    """
+    """The fleet; writing an edge here is publishing it to the Ansible inventory."""
 
     def list_edges(self) -> list[Edge]: ...
 
@@ -49,16 +36,8 @@ class EdgeStore(Protocol):
 class OriginProbe(Protocol):
     """A site's origin: how to reach it, and what the controller sees of it.
 
-    ``to_probe`` renders an origin for whoever is going to connect to it, which
-    for the operator-facing check is the *edges*: ``origins`` runs a
-    play, because the controller's routes, resolver and egress rules are not
-    the ones that carry traffic, and an origin allow-listing the edges refuses
-    the controller while working perfectly.
-
-    ``check`` is the controller connecting for itself, and survives for exactly
-    one caller: the advisory origin check inside certificate preflight, which
-    has to answer in milliseconds during issuance and cannot run a playbook. It
-    is advisory there precisely because of the vantage point.
+    ``to_probe`` renders it for the edges; ``check`` serves only certificate
+    preflight's advisory check.
     """
 
     def to_probe(self, site: CdnSite) -> dict[str, object]: ...

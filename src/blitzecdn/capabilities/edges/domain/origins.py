@@ -1,10 +1,7 @@
 """One edge's answer about one site's origin.
 
-Only the row. The *fleet report* — every edge's answer, read per site — belongs
-to ``origins`` with the play that produces it. The row lives here because it
-has a second producer that runs no play at all: the controller's own advisory
-probe inside certificate preflight, which has to answer in milliseconds during
-issuance.
+The row only; the fleet report is ``origins``'. It lives here because
+certificate preflight's controller probe produces it too.
 """
 
 from __future__ import annotations
@@ -18,17 +15,10 @@ from blitzecdn.capabilities.tls.contract import SslMode
 class OriginCheck(BaseModel):
     """One edge's answer about one site's origin.
 
-    Two separate answers, because the fixes differ. ``reachable`` false means
-    DNS, routing, a firewall, or the wrong port — the edge got nothing back at
-    all. ``tls_verified`` false with ``reachable`` true means the origin
-    answered but presented a certificate that is not valid for the SNI this
-    edge sends, which is the site's ``origin_sni`` or the origin's certificate,
-    and nothing to do with the network. ``tls_verified`` is ``None`` for an HTTP
-    origin or Full mode, where verification is deliberately not attempted.
-
-    ``status`` is whatever the origin answered a ``HEAD /`` with, and is not
-    judged: a 404 or a 403 still proves the origin is up and talking, which is
-    the whole of what this check claims to know.
+    ``reachable`` false is a network problem; ``tls_verified`` false with
+    ``reachable`` true is a certificate mismatch for the SNI sent; ``None`` when
+    verification is not attempted. ``status`` is unjudged: any answer means the
+    origin is up.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

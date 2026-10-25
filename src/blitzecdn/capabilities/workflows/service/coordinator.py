@@ -1,11 +1,7 @@
 """Recording checkpoints around work SQLite cannot roll back.
 
-The capability's decisions: when a workflow opens, what closing one means for
-an exception that escaped, how many finished ones are kept, and what a
-controller that restarted mid-flight does with whatever it finds unfinished.
-
-A service over a store over a table, so a capability; the two capabilities that
-keep a journal reach it through a port.
+When a workflow opens, what an escaping exception means on close, how many
+finished ones are kept, and what a restart does with unfinished ones.
 """
 
 from __future__ import annotations
@@ -55,9 +51,7 @@ class WorkflowCoordinator:
         self.journal = journal
         self.clock = clock
         self.uow = uow
-        #: How many finished workflows to keep. Applied when one closes, so the
-        #: policy runs whenever the thing it bounds happens rather than needing
-        #: a timer that may never have been installed.
+        #: How many finished workflows to keep, pruned whenever one closes.
         self.retention = retention
 
     @contextmanager
@@ -108,13 +102,10 @@ class WorkflowCoordinator:
     def reconcile_interrupted(
         self, *, resource_id: str | None = None
     ) -> list[Workflow]:
-        """Turn work interrupted by a restart into operator-visible state.
+        """Turn work interrupted by a restart into NEEDS_REVIEW.
 
-        Every unfinished workflow by default, which is right only at startup,
-        under the deployment lock, when nothing else can be mid-run. Given a
-        ``resource_id``, only that resource's: the worker abandoning one
-        deployment its predecessor died in must close that deployment's entry
-        without touching a certificate workflow the API is running right now.
+        Every unfinished workflow only at startup, under the deployment lock; given a
+        ``resource_id``, only that resource's, leaving work still running elsewhere.
         """
         with self.uow.transaction():
             recovered = [

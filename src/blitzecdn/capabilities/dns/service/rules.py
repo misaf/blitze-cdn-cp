@@ -1,10 +1,4 @@
-"""The rule editor.
-
-Every write goes through here so that two things hold for all of them: the
-zone exists, and the change is in the audit trail. Neither belongs in the
-store — one is a question about another capability's aggregate, and the other
-is a fact about an operator rather than about a row.
-"""
+"""The rule editor: every write checks the zone exists and is audited."""
 
 from __future__ import annotations
 
@@ -51,11 +45,7 @@ class RuleService:
         return self.rules.get_rule(domain, name)
 
     def resolve(self, domain: str, fqdn: str) -> ResolvedPolicy:
-        """How one hostname is served, and which rule decided it.
-
-        Reads rather than writes, and reads both halves: an override is only
-        an answer once the zone it overrides is in hand.
-        """
+        """How one hostname is served, and which rule decided it."""
         return resolve_policy(
             self.zones.get_domain(domain), self.rules.list_rules(domain), fqdn
         )
@@ -79,24 +69,14 @@ class RuleService:
     def update_rule(
         self, domain: str, name: str, patch: RulePatch, operator: str
     ) -> Rule:
-        """Merge a partial change into a stored rule.
-
-        ``overrides`` is replaced rather than merged when it is present; see
-        ``RulePatch``. Everything else is a scalar, so "unset means untouched"
-        needs nothing beyond ``exclude_unset``.
-        """
+        """Merge a partial change into a rule; ``overrides`` replaces wholesale."""
         changes = patch.model_dump(exclude_unset=True)
-        # Asked of the incoming overrides, not of the merged rule: a rule the
-        # issuer already wrote carries a controller-managed mode, and an
-        # operator editing that rule's ``match`` must not be refused for a
-        # value they did not send.
+        # Asked of the incoming overrides only, so editing an issuer-written rule's
+        # ``match`` is not refused for a mode the operator did not send.
         if "overrides" in changes:
             reject_issuer_owned_certificate(changes["overrides"])
         with self.uow.transaction():
-            # Read and written under one boundary. The issuer writes here too,
-            # through ``HostService``, and an operator changing ``match`` would
-            # otherwise write back a rule carrying the overrides as they were
-            # before the certificate landed in them.
+            # Read and written under one boundary, since the issuer writes rules too.
             current = self.rules.get_rule(domain, name)
             updated = Rule.model_validate({**current.model_dump(), **changes})
             saved = self.rules.replace_rule(updated, expected=current)

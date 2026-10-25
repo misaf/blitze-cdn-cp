@@ -41,20 +41,13 @@ class ZoneStore(Protocol):
 
 
 class RuleReader(Protocol):
-    """The read a resolver needs, and the only one a reader should be handed.
-
-    Narrower than ``RuleStore`` on purpose: resolving a hostname reads the
-    rules of a zone and must never be able to write one.
-    """
+    """Read-only rule access for resolution."""
 
     def list_rules(self, domain: str | None = None) -> list[Rule]: ...
 
 
 class RuleOverrides(RuleReader, Protocol):
-    """Rule access for certificate activation and automatic SSL upgrades.
-
-    Writeback targets the rule overrides when a rule produced the derived host;
-    otherwise the host service updates the zone."""
+    """Rule access for writing certificate and automatic SSL results back to a rule."""
 
     def get_rule(self, domain: str, name: str) -> Rule: ...
 
@@ -74,23 +67,15 @@ class RuleStore(RuleOverrides, Protocol):
 class ZoneReader(Protocol):
     """The zone a rule overrides, read and never written.
 
-    Two callers want it for two reasons. The rule editor wants to know the zone
-    exists: a rule for a zone we do not serve is an override that can never
-    apply, and the foreign key would refuse it anyway — but as an integrity
-    error the operator has to decode rather than as a sentence naming the zone.
-    The resolver wants the policy itself, because an override is only half an
-    answer; the zone is the other half.
-
-    One read serves both, and the rule editor may do nothing else to a zone.
+    The editor checks it exists, to name a missing zone clearly; the resolver needs
+    its policy.
     """
 
     def get_domain(self, name: str) -> Domain: ...
 
 
 class SiteReader(Protocol):
-    """Read-only access to derived virtual hosts for other capabilities.
-
-    Changing a host requires editing its source zone, rule, or record."""
+    """Read-only derived virtual hosts; change one through its zone, rule or record."""
 
     def list_sites(self) -> list[CdnSite]: ...
 
@@ -100,9 +85,7 @@ class SiteReader(Protocol):
 class ZoneEditor(Protocol):
     """Desired-state validation required by deployments before convergence."""
 
-    #: Ways canonical state contradicts itself. A deploy asks before it
-    #: converges anything, because the contradictions are the kind that would
-    #: otherwise reach an edge as a valid-looking config serving the wrong site.
+    #: Contradictions in canonical state, checked before a deploy converges any.
     def validation_errors(self) -> list[str]: ...
 
 

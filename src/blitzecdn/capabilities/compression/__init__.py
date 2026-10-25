@@ -1,8 +1,4 @@
-"""Response compression policy and edge resources.
-
-Shipped with the application. Contracts stay pure; services and concrete
-providers are assembled explicitly by composition.
-"""
+"""Response compression policy and edge resources."""
 
 from blitzecdn.capabilities.compression.contract import (
     CompressionMode,

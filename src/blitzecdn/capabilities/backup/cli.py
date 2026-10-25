@@ -131,13 +131,8 @@ def restore(
         # still converged to whatever the previous desired state was.
         typer.echo("Run 'blitzecdn deploy' to converge the edges on restored state.")
     if BackupComponent.CONFIG in manifest.components:
-        # The same gap one layer down. The archive carries BLITZE_ALLOWED_IPS,
-        # because who may reach the API describes an organisation rather than a
-        # machine, but this host's firewall was converged against whatever list
-        # it had before. The API now enforces the archive's list while the host
-        # still admits packets for the old one, and the direction that matters
-        # is the one where the old list was wider. The installer reconciles
-        # both; nothing else does, so it is said here rather than discovered.
+        # The archive's BLITZE_ALLOWED_IPS now governs the API, but the host
+        # firewall still admits the old list until the installer reconciles it.
         typer.echo(
             "Run 'sudo /opt/blitzecdn/install.sh update' on an installed host to "
             "converge its firewall on the restored API access list."

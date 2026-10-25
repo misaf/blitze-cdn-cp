@@ -1,10 +1,4 @@
-"""The two health checks that decide whether this node can do work at all.
-
-It must be able to read its own database, and it must be able to reach the
-queue, because a controller that can accept a deployment and never run it is
-worse than one that refuses it. A capability with its own liveness question
-contributes its own check rather than editing `/health`.
-"""
+"""The two health checks: the database must be readable and the queue reachable."""
 
 from __future__ import annotations
 

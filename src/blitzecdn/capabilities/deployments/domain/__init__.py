@@ -1,9 +1,6 @@
 """A deployment: the run, its status, its transitions, and what it found.
 
-What it converged *to* is not here. That is a release, and it belongs to the
-capability that compiles one — a deployment holds the identifier and nothing
-more, so "what should the fleet serve" is answerable without a deployment in
-hand.
+What it converged to is a release, which it names by identifier only.
 """
 
 from blitzecdn.capabilities.deployments.domain.deployment import (

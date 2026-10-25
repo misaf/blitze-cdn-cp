@@ -63,9 +63,7 @@ class CacheStatsReport(Model):
 
 class PurgeRequest(FleetRequest):
     entries: list[PurgeEntry] = Field(default_factory=list, max_length=500)
-    #: Empty the cache instead of removing named entries. Kept as its own flag
-    #: rather than "no entries means everything" so a caller whose filter
-    #: matched nothing cannot empty the fleet's cache by accident.
+    #: A separate flag, so a filter matching nothing never empties the cache.
     purge_all: bool = False
 
 

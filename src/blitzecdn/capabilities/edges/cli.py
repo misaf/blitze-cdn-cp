@@ -1,9 +1,4 @@
-"""`edge` — the fleet roster itself, and the image the fleet runs.
-
-Add an edge, update one, remove one — and ask what the runtime image those
-edges serve from has to be built with. Checking origins belongs to `origins`,
-with the play it runs.
-"""
+"""`edge` — the fleet roster, and the build arguments for its runtime image."""
 
 from __future__ import annotations
 
@@ -246,23 +241,14 @@ def edge_image_spec(
 ) -> None:
     """Print the build arguments the edge runtime image is built from.
 
-    The image needs one thing from this control plane that it cannot work out
-    for itself: which Nginx dynamic modules to carry. They are declared by the
-    capabilities that need them, and this
-    command emits them, in the form `docker build --build-arg` takes:
+    The image needs to know which Nginx dynamic modules to carry, as declared by
+    the capabilities, in the form `docker build --build-arg` takes:
 
         docker build $(blitzecdn edge image spec | sed 's/^/--build-arg /') \\
             "$(python -c 'import blitzecdn.assets.docker as d; print(d.EDGE_CONTEXT)')"
 
-    What it prints is the *superset* an image should carry, not what one edge
-    loads. An image is shared by fleets whose attached capabilities differ, so
-    it carries every module the shipped capabilities declare and each edge
-    mounts its own narrower `load_module` list over the image's, so the
-    published image can serve any subset of them.
-
-    The features are loaded here rather than taken from a control plane because
-    the answer depends only on what is installed: this runs in an image build,
-    where there is no database to open and no fleet to read.
+    This is the superset every image should carry; each edge mounts its own
+    narrower `load_module` list. Needs no database, so it runs in an image build.
     """
     modules = resolve_edge_modules(common.installed_features().ansible_contributions())
     if json_output:
@@ -280,10 +266,8 @@ def edge_image_spec(
             json_output=True,
         )
         return
-    # One `NAME=value` line per build argument, which is exactly what both
-    # `docker build --build-arg` and the `build-args:` input of the GitHub
-    # build action accept. Values are space separated because that is what the
-    # Dockerfile's `for` loops split on.
+    # One `NAME=value` per build argument, as `docker build --build-arg` and the
+    # GitHub build action take; values space separated for the Dockerfile's loops.
     typer.echo(
         "ENABLED_MODULES=" + " ".join(module.name for module in modules if module.build)
     )

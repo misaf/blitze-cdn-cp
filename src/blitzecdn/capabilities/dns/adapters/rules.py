@@ -1,9 +1,4 @@
-"""Persistence for the per-hostname overrides on a zone's policy.
-
-Its own module beside the zone store rather than inside it: the rules are their
-own table with their own ordering, and a store that held both would be the one
-place every zone read and every rule read had to go through.
-"""
+"""Persistence for the per-hostname overrides on a zone's policy."""
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -22,12 +17,7 @@ class RuleStore:
         self._db = database
 
     def list_rules(self, domain: str | None = None) -> list[Rule]:
-        """Every rule, in the order a hostname is matched against them.
-
-        Ordered here rather than by the caller because "first match wins" is
-        only meaningful against one order, and the store is the one place every
-        reader goes through.
-        """
+        """Every rule, in the order hostnames are matched against them (first wins)."""
         query = select(RuleRow).order_by(
             col(RuleRow.domain), col(RuleRow.priority), col(RuleRow.name)
         )
@@ -57,11 +47,8 @@ class RuleStore:
     def replace_rule(self, rule: Rule, *, expected: Rule | None = None) -> Rule:
         """Write a stored rule. ``domain`` and ``name`` are its identity.
 
-        ``expected`` makes it a compare-and-swap, for the same reason the zone
-        store has one: ``overrides`` is replaced wholesale rather than merged,
-        so an editor that read a rule, changed one key and wrote the mapping
-        back would silently drop whatever another writer added in between.
-        The certificate issuer is one such writer, and it writes unattended.
+        ``expected`` makes it a compare-and-swap: ``overrides`` is replaced wholesale,
+        and the certificate issuer writes unattended.
         """
         if expected is not None:
             self._db.require_transaction("replace_rule(expected=...)")

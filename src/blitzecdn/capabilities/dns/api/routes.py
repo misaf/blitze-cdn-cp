@@ -65,14 +65,10 @@ def delete_domain(
 
 @router.get("/v1/hosts", response_model=list[CdnSite])
 def list_hosts(control: ServicesDependency) -> list[CdnSite]:
-    """The virtual hosts the zones and their rules resolve to.
+    """The virtual hosts the zones and their rules resolve to; read-only.
 
-    Its own collection rather than a sub-resource of a zone, because a host is
-    not inside one: it belongs to a zone *and* to whichever rule claimed its
-    hostnames, and one of the two would have had to be the parent.
-
-    Read-only, and there is no writing counterpart. Nothing authors these — to
-    change one, change the zone, the rule or the records it came from.
+    Its own collection, because a host belongs to a zone and to whichever rule
+    claimed its hostnames. Change it through those.
     """
     return [CdnSite.from_domain(host) for host in control.sites.list_sites()]
 
@@ -141,10 +137,7 @@ def delete_record(
 def dns_export(control: ServicesDependency) -> dict[str, Any]:
     """Desired DNS state for whatever is authoritative for these zones.
 
-    Unmodelled, and an envelope rather than a bare list. A client consuming
-    this is being handed instructions for a system BlitzeCDN does not operate,
-    so ``publication`` travels with them and says so — a caller cannot read the
-    records without meeting the fact that nothing here publishes them.
+    An envelope, so ``publication`` makes plain that nothing here publishes it.
     """
     return control.dns.dns_export()
 
@@ -206,11 +199,5 @@ def resolve_hostname(
     ],
     control: ServicesDependency,
 ) -> ResolvedPolicy:
-    """How a hostname is served, and which rule decided it.
-
-    The endpoint an operator reaches for when a hostname is not behaving like
-    its zone: it answers with the merged policy *and* the rule's name, so the
-    next question — which rule — does not need a second request and a manual
-    match against the list.
-    """
+    """How a hostname is served, and which rule decided it, in one response."""
     return ResolvedPolicy.from_domain(control.rules.resolve(domain, hostname))

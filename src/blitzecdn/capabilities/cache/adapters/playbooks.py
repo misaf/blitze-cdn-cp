@@ -1,10 +1,4 @@
-"""The two plays this capability runs, and the documents they are given.
-
-What a :class:`PurgeEntry` looks like to Ansible is this capability's
-knowledge. Core keeps only the generic primitive — run this play, with these
-variables, against these hosts — because the shared Ansible adapter every
-capability reaches through cannot know any capability's domain types.
-"""
+"""The two plays this capability runs, and the documents they are given."""
 
 from __future__ import annotations
 
@@ -26,13 +20,7 @@ def purge_entry_to_ansible(entry: PurgeEntry) -> dict[str, str]:
 class CachePlaybooks:
     """``CacheRunner``, over the control plane's generic playbook primitive.
 
-    The plays and the roles they name ship with this capability and are located
-    through :mod:`blitzecdn.capabilities.cache.ansible`. Core is told the *path* —
-    it stages
-    the variables, expands the host limit against the fleet it records, and
-    applies the timeout — and never what the play is for. Detaching this
-    package therefore removes the Python that asks for a purge and the Ansible
-    that carries one out together, which is what makes the capability whole.
+    The plays ship with this capability; core is given only their paths.
     """
 
     def __init__(self, fleet: FleetPlaybooks) -> None:

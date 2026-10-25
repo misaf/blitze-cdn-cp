@@ -1,9 +1,8 @@
 """Partial zone policy updates, also used to validate rule overrides.
 
-Unset fields leave stored values unchanged. The complete zone is validated
-after merging a patch so that constraints across fields are checked together.
-``_assert_patch_covers_settings`` runs at import time to reject field or type drift
-between the zone and its patch model."""
+Unset fields are untouched; the merged zone is validated as a whole. Drift
+between the zone and this model is refused at import.
+"""
 
 from __future__ import annotations
 
@@ -31,24 +30,11 @@ __all__ = ["DomainPatch", "reject_issuer_owned_certificate"]
 def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
     """Refuse an operator edit that claims controller-managed TLS material.
 
-    Called from the two places an operator authors policy — updating a zone,
-    and authoring a rule's overrides — and from neither of the writes the
-    certificates capability makes, which reach the store through
-    ``replace_domain`` and ``replace_rule`` without passing here.
-
-    The check cannot live on ``DomainPatch`` itself even though both callers
-    speak in patches, because ``HostService.activate_managed_certificate``
-    records a rule's issued certificate *as* an overrides mapping, and that
-    mapping is the one thing that legitimately carries ``requested``. Nor can
-    it live on ``Domain``: a zone holds the mode perfectly well once the issuer
-    has written it. What is being checked is not the value but who is setting
-    it, and the entry point is the only place that knows.
-
-    Without it the mode is merely *inconsistent* rather than refused, and the
-    failure is quiet: ``CdnSite`` rejects a controller-managed mode whose paths
-    are not the ones derived from the host's name, ``derive_hosts`` drops the
-    host it could not build instead of raising, and the zone's hostnames stop
-    being served until ``blitzecdn validate`` names them.
+    Called only from the operator authoring paths. The issuer writes a rule's
+    certificate as an overrides mapping carrying ``requested`` through
+    ``replace_rule``, so the check is about who sets the value, which only the
+    entry point knows. Without it the zone's hostnames go silently dark until
+    ``blitzecdn validate`` names them.
     """
     mode = changes.get("certificate_mode")
     if mode is None:
@@ -65,16 +51,8 @@ def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
 class DomainPatch(BaseModel):
     """A partial update to a zone: every field optional, unset means untouched.
 
-    This is a flat editing command, distinct from the nested policy stored on
-    ``Domain``. Its fields remain explicit for static checking, and
-    ``_assert_patch_covers_settings`` refuses field or type drift against the
-    contained contracts' setting definitions.
-
-    Generating these fields with ``create_model`` would remove the duplication
-    outright, but the generated class is opaque to mypy — every ``DomainPatch``
-    field access in the API and the CLI would stop being type-checked. Keeping
-    the fields visible and checking the parity at import buys the same
-    guarantee without giving up static checking.
+    Fields are written out, not generated with ``create_model``, so mypy checks
+    every access; ``_assert_patch_covers_settings`` refuses drift at import.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -106,18 +84,7 @@ class DomainPatch(BaseModel):
 
 
 def _without_none(annotation: object) -> object:
-    """``T`` from ``T | None``, so a patch field and its zone field compare.
-
-    Applied to both sides rather than only to the patch. Several zone fields
-    are themselves optional — ``origin_sni`` is ``str | None`` on the zone as
-    well as on the patch — and stripping ``None`` from just one side would
-    report every one of them as a type mismatch, which is how a check like this
-    ends up deleted for crying wolf. What survives is the question worth
-    asking: do the two agree on the type once "unset" is set aside.
-
-    ``Optional[T]`` is ``Union[T, None]`` at runtime whichever spelling was
-    used, so this reads the union's arms rather than the syntax.
-    """
+    """``T`` from ``T | None`` on both sides, so optional zone fields compare."""
     if get_origin(annotation) is not UnionType and get_origin(annotation) is not Union:
         return annotation
     arms = [arm for arm in get_args(annotation) if arm is not type(None)]
@@ -127,17 +94,8 @@ def _without_none(annotation: object) -> object:
 def _assert_patch_covers_settings() -> None:
     """Refuse to import if a zone setting cannot be patched, or patched wrongly.
 
-    Runs at import rather than only under pytest. The failures this guards
-    against — a setting an operator can set on a zone and never change again,
-    or one whose patch takes a different type than the zone stores — are silent
-    everywhere else, so the process should not start with either.
-
-    Three checks, because there are three ways to drift: a field can be absent,
-    it can be present but required (an unset field would then stop meaning
-    "untouched"), or it can be present and optional while carrying a type the
-    zone will refuse. The last one is why this is not just a name comparison: a
-    zone field widened from ``int`` to ``int | str`` and not widened here fails
-    only when an operator finally sends the new form.
+    Checks each setting is present, optional, and of a type the zone accepts —
+    failures that would otherwise appear only when an operator first tries.
     """
     patchable = set(SitePolicy.setting_fields())
     missing = sorted(patchable - set(DomainPatch.model_fields))

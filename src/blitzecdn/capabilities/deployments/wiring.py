@@ -1,20 +1,9 @@
 """How the deployments capability is built, and what it runs.
 
-The same shape as :mod:`blitzecdn.capabilities.dns.wiring` and the only
-built-in with real assembly to do. ``DeploymentService`` is three dataclasses
-and a writer before it is a service, and that three-part shape is the
-capability's own: what belongs in ``DeploymentPolicy`` rather than in
-``DeploymentExecution`` is a question about deployments, answered by the people
-changing deployments, and answering it in the composition root would put it in
-the one file that is supposed to know *which* concrete things are wired and not
-how any capability is put together internally — where adding a collaborator
-here means editing that file.
-
-What it runs is recovery at startup and the drift check. Republishing queued
-deployments and marking orphaned runs abandoned has to happen while holding the
-fleet-wide deployment lock, and once per node. That is what a feature's startup
-is for: it runs when the API process starts, never from a CLI invocation, which
-would take that lock on every command an operator typed.
+Assembling ``DeploymentService`` from its parts is a deployments decision, so
+it lives here rather than in the composition root. Startup recovery runs from
+the API process — once per node, under the deployment lock, never per CLI
+command — along with the drift check.
 """
 
 from __future__ import annotations

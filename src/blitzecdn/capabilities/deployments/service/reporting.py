@@ -1,16 +1,7 @@
 """Reading a recorded deployment as an answer to a question.
 
-A deployment row is written by the convergence path and then read by several
-callers who each want something different from it: an operator asking what
-drifted, the certificate service asking whether a vhost is actually on the
-edges. Those readings are rules — which runs count, and what a run's result is
-allowed to be taken as evidence of — and they have their own reason to change:
-none of them takes the deployment lock, moves a record through the transition
-table, or runs Ansible.
-
-Written as functions over ``DeploymentStore`` for the same reason
-``service.rollback`` is: the service still owns the lock and the ordering, and
-this owns only what a stored run means.
+Which runs count, and what a result is evidence of. Functions over
+``DeploymentStore``: no lock, no transitions, no Ansible.
 """
 
 from __future__ import annotations
@@ -34,14 +25,7 @@ def drift_report(
     targets: DeploymentTargets,
     deployment_id: str,
 ) -> DriftReport:
-    """Read a recorded check-mode run as a drift report.
-
-    Derived from the stored deployment rather than only from a live run, so the
-    CLI and the API share one interpretation and an operator can revisit the
-    answer a scheduled check produced without re-running it. The stored result
-    is the structured one, so this reads the same object a live run produced
-    rather than re-deriving anything.
-    """
+    """Read a recorded check-mode run as a drift report, live or revisited later."""
     deployment = deployments.get_deployment(deployment_id)
     if not deployment.check_mode:
         raise ConflictError(
@@ -49,10 +33,7 @@ def drift_report(
             "previewing them, so its result describes what it did, not "
             "what had drifted. Run 'blitzecdn drift' instead."
         )
-    # The edges this check never reached, read from their own rows. A rollout
-    # stops at the first edge that failed, and those after it are recorded
-    # SKIPPED — which is the honest answer to "is the fleet in sync": we have
-    # no answer for them at all.
+    # Edges after a failure are SKIPPED: unanswered, so not in sync.
     unreached = tuple(
         target.edge
         for target in targets.targets(deployment_id)
@@ -64,20 +45,14 @@ def drift_report(
 def site_is_deployed(
     deployments: DeploymentStore, releases: Releases, site_name: str
 ) -> bool:
-    """Whether the most recent real deployment carried this site.
+    """Whether the newest successful real deployment carried this site.
 
-    Check-mode runs are skipped: they proved the play parses, not that any edge
-    is serving the vhost. A run narrowed by ``host_limit`` counts, because it
-    did install the site somewhere — which makes this check necessary rather
-    than sufficient, the same caveat rollback carries about canaries. Only the
-    newest successful run is consulted; an older one listing the site says
-    nothing about whether it is still deployed.
+    Check-mode runs prove nothing about serving and are skipped. A canary counts,
+    so this is necessary, not sufficient.
     """
     deployment = deployments.latest_successful_applied()
     if deployment is None:
         return False
     release = releases.get(deployment.release_id)
-    # The compiled sites, not a fresh derivation from today's state: the
-    # question is what that run actually carried, and re-deriving would
-    # answer it from a zone edited since.
+    # What that run carried, not a re-derivation from today's zones.
     return any(entry.name == site_name for entry in release.sites)

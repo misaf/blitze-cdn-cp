@@ -1,14 +1,4 @@
-"""Convergence history, and the reasons a convergence is owed.
-
-Part of the one description of what is on disk. The rules `core.persistence`
-sets out still hold — a column per queryable fact, JSON for a value object no
-query reaches, no invariants here that the domain model does not own — and
-Alembic still compares against `Base.metadata`, which these rows register
-themselves in by importing that base.
-
-A table belongs beside the store that reads it, so the capability that owns
-a store owns the table under it and adding a column edits no shared module.
-"""
+"""Convergence history, and the per-edge progress of each rollout."""
 
 from __future__ import annotations
 
@@ -23,13 +13,9 @@ from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
 class DeploymentRow(Base, table=True):
-    """Convergence history.
+    """Convergence history; ``result`` is one serialized ``AnsibleRun``.
 
-    ``result`` is the JSON of one :class:`~blitzecdn.core.domain.runs.AnsibleRun`:
-    per-host counters, the tasks that changed, the tasks that failed. Raw
-    stdout and stderr are deliberately not here — they are the largest thing a
-    run produces and every reader would have to re-parse them to learn
-    anything. They live in a log file the result names, outside the database.
+    Raw output stays in the log file the result names, not in the database.
     """
 
     __tablename__ = "deployments"
@@ -43,19 +29,11 @@ class DeploymentRow(Base, table=True):
             "rollback_of IS NULL OR rollback_of != id",
             name="deployments_no_self_rollback_check",
         ),
-        # Every status query here orders by `created_at` — the queued run to
-        # start next, the newest successful one to roll back to — so the two
-        # belong in one index. A bare `status` index left the sort to a temp
-        # b-tree, and this serves the status-only lookups just as well.
+        # Status queries order by `created_at`, so one composite index serves both.
         Index("ix_deployments_status_created_at", "status", "created_at"),
-        # A foreign key nothing reads, indexed for what it costs to *write*:
-        # SQLite verifies no row still points at a deployment before deleting
-        # it, and without this that verification is a table scan per row.
-        # Pruning deletes in bulk, which would make it quadratic.
+        # Indexed so SQLite's foreign-key check on bulk prune is not a scan per row.
         Index("ix_deployments_rollback_of", "rollback_of"),
-        # Read by rollback selection ("the newest successful run of a
-        # different release") and by release pruning ("which releases is
-        # something still pointing at").
+        # Read by rollback selection and by release pruning.
         Index("ix_deployments_release_id", "release_id"),
     )
 
@@ -72,37 +50,21 @@ class DeploymentRow(Base, table=True):
     finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
     error: str | None = None
-    #: The compiled release this deployment converged, by its short digest.
-    #: A foreign key rather than an embedded document: the release is immutable
-    #: and content-addressed, so two deployments of unchanged state name one
-    #: row instead of storing the same desired state twice.
+    #: The converged release, by short digest; immutable, so shared across runs.
     release_id: str = Field(foreign_key="releases.id")
-    #: For a rollback: the digest of the release *inputs* as canonical state
-    #: stood when this rollback was queued. Adoption compares it against canonical state
-    #: again and refuses if it moved, because ``replace_all_records`` restores
-    #: wholesale and would otherwise delete a record written while the rollback
-    #: was converging — silently, with nothing left to say it existed.
-    #:
-    #: A digest rather than a second reference: all this needs to answer is
-    #: "the same or not", and the state it is about is the *current* one, which
-    #: no release row necessarily exists for.
-    #: ``NULL`` on an ordinary deployment, which adopts nothing.
+    #: For a rollback: the digest of canonical inputs when it was queued. Adoption
+    #: refuses if state moved since, because restoring wholesale would silently
+    #: delete records written meanwhile. ``NULL`` for an ordinary deployment.
     canonical_digest: str | None = None
-    #: Incremented each time a worker takes this deployment over. Every write
-    #: to a target row names the generation it was read at, so a worker that
-    #: was paused past its lease cannot record a result for a rollout that has
-    #: since been resumed by somebody else.
+    #: Incremented on each takeover; target writes name it, fencing stale workers.
     generation: int = Field(sa_column=Column(Integer, nullable=False, default=0))
 
 
 class DeploymentTargetRow(Base, table=True):
     """One edge's progress through one deployment.
 
-    Rows rather than a JSON column on the deployment, because every field here
-    is queried: which edge to do next, which failed, which were never
-    attempted. A blob would make "resume this rollout" a read-modify-write of
-    the whole fleet's progress under a lock, which is exactly the shape that
-    loses a concurrent writer's update.
+    Rows, not JSON, because each field is queried, and a blob would make resuming
+    a read-modify-write of the whole fleet that loses concurrent updates.
     """
 
     __tablename__ = "deployment_targets"

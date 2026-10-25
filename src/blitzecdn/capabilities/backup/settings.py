@@ -1,17 +1,9 @@
-"""This capability's own configuration, read from what the controller was given.
+"""This capability's own configuration, resolved without a control plane.
 
-One setting, and the interesting part is where it is read from. Backup's
-commands are built from ``Settings`` alone and open no repository — that is
-deliberate, since a controller whose database will not open is exactly when a
-restore is wanted — so no application services are built on this path and no
-``platform.capability_config`` to ask.
-
-:func:`~blitzecdn.core.features.resolve_feature_configuration` is core's answer
-to that: the same resolution the composition root performs, for one
-contribution, against the staged configuration ``Settings`` already carries.
-The cross-feature half — a name two capabilities claim, a name nobody claims —
-is a question about the whole installation and is still answered once, at
-startup, by the control plane. This resolves a value.
+Backup's commands open no repository — a broken database is when a restore is
+wanted — so this resolves its one contribution with
+:func:`~blitzecdn.core.features.resolve_feature_configuration`; cross-feature
+checks still run at control-plane startup.
 """
 
 from __future__ import annotations
@@ -30,24 +22,16 @@ __all__ = ["CONFIGURATION", "BackupConfig"]
 
 BACKUP_DIR = "BLITZE_BACKUP_DIR"
 
-#: Under the state directory in a checkout, and repointed at
-#: ``/var/backups/blitzecdn`` by the managed configuration a real installation
-#: gets. Both are right for where they are: a developer should not need a
-#: privileged directory to take a backup, and an installed controller should
-#: not keep its backups inside the directory an uninstall removes.
-#:
-#: Declared relative, which is what says "under this controller's state" without
-#: this package having to know where that is. Core resolves it.
+#: Relative, so under the state directory in a checkout; an installed
+#: controller is configured to ``/var/backups/blitzecdn``, outside what an
+#: uninstall removes.
 CONFIGURATION = ConfigurationContribution(
     feature="backup",
     settings=(
         CapabilitySetting(
             name=BACKUP_DIR,
             default=Path("backups"),
-            # Not portable. An archive carries the operator's decisions onto a
-            # rebuilt controller, and where *the dead host* kept its backups is
-            # not one of them: restoring it would point the new controller's
-            # archives at a path belonging to the machine it is replacing.
+            # Not portable: it describes the dead host, not an operator decision.
             portable=False,
             summary=(
                 "Where archives are written. A relative path is taken as under "

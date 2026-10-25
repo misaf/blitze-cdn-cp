@@ -69,9 +69,7 @@ class EdgeStore:
         row.private_key_file = edge.private_key_file
         row.public_addresses = list(edge.public_addresses)
         row.ssh_sources = list(edge.ssh_sources)
-        # `None` survives as NULL rather than becoming `[]`: an edge that has
-        # declared nothing and an edge that declares no capability are
-        # different statements, and only the second should refuse a site.
+        # `None` stays NULL: declaring nothing differs from declaring no capability.
         row.capabilities = (
             None if edge.capabilities is None else list(edge.capabilities)
         )

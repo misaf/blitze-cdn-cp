@@ -1,7 +1,4 @@
-"""Read-only controller reporting: doctor, audit and the API server.
-
-Cache statistics stay with the cache capability that owns their report and
-operations. Diagnostics assembles controller-level observations through ports."""
+"""Read-only controller reporting: doctor, audit, plugins and the API server."""
 
 from __future__ import annotations
 
@@ -105,10 +102,7 @@ def plugins(
                 "configuration": [
                     {
                         "name": key.name,
-                        # Which of the two kinds this is, rather than a
-                        # boolean called `secret` — there are exactly two, an
-                        # operator reads the word, and the field name is not
-                        # then one a credential scanner has to be told about.
+                        # The kind as a word, not a boolean `secret`.
                         "kind": "secret",
                         "required": key.required,
                         "minimum_bytes": key.minimum_bytes,
@@ -127,9 +121,7 @@ def plugins(
                     {
                         "name": setting.name,
                         "kind": "setting",
-                        # The resolved value, which a setting may show and a
-                        # secret may not — that difference is the whole reason
-                        # the two are declared as different things.
+                        # A setting may show its value; a secret may not.
                         "value": str(
                             control.capability_config.for_feature(
                                 feature.name
@@ -153,22 +145,9 @@ def plugins(
 def ansible_roles_path() -> None:
     """Print `ANSIBLE_ROLES_PATH` for this set of installed capabilities.
 
-    Core's roles first, then each contributing distribution's, ordered by
-    feature name — the exact value the composition root hands the runner, from
-    the exact function that composes it. A caller invoking `ansible-playbook`
-    directly needs that same path; writing it out by hand would let a checkout
-    syntax-check an edge play against a role set no deployment would ever
-    resolve, and nothing would say so.
-
-    Composing it here rather than restating it also brings the refusals along.
-    A capability shipping a role name core already owns is caught by the same
-    check that catches it at startup, in a command that costs nothing to run,
-    rather than by an operator noticing that an edge converges a role nobody
-    wrote.
-
-    The features are loaded here rather than taken from a control plane because
-    the answer depends only on what is installed: this runs in a lint step,
-    where there is no database to open and no fleet to read.
+    Core's roles first, then each feature's by name: the exact value the runner
+    gets, from the same function, refusals included. Needs no database, so it
+    runs in a lint step.
     """
     search = resolve_role_search_path(
         core_ansible.ROLES_PATH, common.installed_features().ansible_contributions()
@@ -180,21 +159,10 @@ def ansible_roles_path() -> None:
 def ansible_slots() -> None:
     """Print the capability role lists core's own plays run, as extra-vars.
 
-    Three slots, one document, in the form `ansible-playbook --extra-vars`
-    takes:
-
         ansible-playbook edge.yml --extra-vars "$(blitzecdn ansible slots)"
 
-    A slot list is not something a caller can write out correctly by reading
-    the repository, which is what separates this from the search path above.
-    Whether a role converges in the edge slot, the host slot or the
-    decommission slot is a fact the *contributing feature* declares, and a
-    hand-written copy drifts from it in both directions.
-
-    Empty lists are emitted rather than omitted. Core's plays default them, so
-    an absent key and an empty one converge identically — but a caller
-    diffing this output wants to see that a slot is empty rather than guess
-    whether the question was asked.
+    Which slot a role converges in is the contributing feature's declaration.
+    Empty lists are printed, not omitted.
     """
     contributions = common.installed_features().ansible_contributions()
     common.emit(
@@ -248,24 +216,13 @@ def doctor(
         "python_supported": True,
         "state_dir": str(settings.state_dir),
         "api_auth_configured": bool(settings.api_keys),
-        # Who the API answers, beside what it requires of them, so an operator
-        # asking whether this host is exposed need not read the environment
-        # file. An empty list here is the report that the listener is
-        # loopback-only.
-        #
-        # The list, not a "publicly bound" verdict: the binding is the
-        # entrypoint's decision, and `blitzecdn serve` takes an explicit
-        # --host, so a boolean would be this command guessing about a process
-        # it is not part of. What it can state without inventing anything is
-        # the list the gate enforces wherever that process is listening.
+        # Who the API admits, so exposure is visible without reading the environment
+        # file; empty means loopback only. The list, not a verdict: binding is the
+        # entrypoint's choice.
         "api_allowed_ips": list(settings.allowed_ips),
         "configuration_errors": settings.validate_runtime(),
-        # Stated on the readiness report because its absence is the kind of
-        # thing an operator discovers from a customer. Every other line here
-        # says whether a thing this control plane does is working; this one
-        # says that publishing DNS is a thing it does not do, so a fleet that
-        # is otherwise perfectly ready still serves nobody until something
-        # else answers for these hostnames.
+        # Stated outright: nothing publishes DNS, so a ready fleet still serves nobody
+        # until something answers for its hostnames.
         "dns_publication": common.services().dns.publication().model_dump(mode="json"),
     }
     resolver_report = check_resolver(settings) if resolver_check else None

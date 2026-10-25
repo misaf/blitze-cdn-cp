@@ -1,9 +1,4 @@
-"""Convergence history, and the drift reading of a check-mode run.
-
-A ``Deployment`` is the record: who asked, which release, and — once it has
-finished — the :class:`~blitzecdn.core.domain.runs.AnsibleRun` it produced. A
-``DriftReport`` is the same run read as a question rather than an instruction.
-"""
+"""Convergence history, and the drift reading of a check-mode run."""
 
 from __future__ import annotations
 
@@ -21,13 +16,9 @@ from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 class DeploymentRequirementKind(StrEnum):
     """A durable reason the current desired state has to reach the fleet.
 
-    A requirement outlives the process that raised it: certificate material
-    written to the control plane is not on an edge until a deployment converges,
-    and a crash in between must not lose that fact. The set is closed and small
-    — every kind has to be understood by the deployment service that clears it
-    and by the scheduler that acts on it — so it is an enum rather than a string
-    a caller can invent. The value is what persistence stores, so adding a
-    member needs no migration and renaming one does.
+    Outlives the process that raised it, so a crash between writing certificate
+    material and converging it loses nothing. A closed enum because the service
+    and the scheduler must both understand every kind; the value is stored.
     """
 
     CERTIFICATES = "certificates"
@@ -49,9 +40,7 @@ class DeploymentStatus(StrEnum):
         return cls.SUCCEEDED if run.status is RunStatus.SUCCEEDED else cls.FAILED
 
 
-#: The two kinds of journal entry this capability opens, named here because
-#: this is the capability that does the work: the journal keeps no closed list
-#: of every capability that might open an entry.
+#: The two journal entry kinds this capability opens.
 DEPLOYMENT_WORKFLOW: WorkflowKind = "deployment"
 ROLLBACK_WORKFLOW: WorkflowKind = "rollback"
 
@@ -66,10 +55,7 @@ TERMINAL_STATUSES = frozenset(
     }
 )
 
-#: The one table that decides which transitions are real, owned here rather
-#: than by whichever store happens to enforce it first. Anything not on the
-#: left never changes; anything missing from a row on the right is a
-#: programming error, not a state the model can reach.
+#: The lawful transitions; anything else is a programming error.
 DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
     DeploymentStatus.QUEUED: frozenset(
         {
@@ -89,13 +75,9 @@ DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
 
 
 def aborted_run(exc: BaseException, *, interrupted: bool, now: datetime) -> AnsibleRun:
-    """A result for a deployment that never got a run of its own.
+    """A result for a deployment whose runner raised before Ansible reported anything.
 
-    The runner raised before Ansible reported anything — a misconfiguration
-    it refused to start with, or the process being interrupted. There are no
-    hosts to describe, so this records why in the same shape every other
-    outcome uses rather than leaving ``result`` empty and making every
-    reader handle a second way of saying "it failed".
+    Recorded in the same shape as any other outcome so readers handle one form.
     """
     return AnsibleRun(
         id=uuid4().hex,
@@ -113,11 +95,7 @@ def aborted_run(exc: BaseException, *, interrupted: bool, now: datetime) -> Ansi
 
 
 def abandoned_run(reason: str, *, now: datetime) -> AnsibleRun:
-    """A result for a deployment ended because whoever was running it is gone.
-
-    The shape :func:`aborted_run` gives, for the case with no exception to
-    name: the process that would have raised is the one that died.
-    """
+    """A result for a deployment whose process died, in :func:`aborted_run`'s shape."""
     return AnsibleRun(
         id=uuid4().hex,
         playbook="",
@@ -135,13 +113,10 @@ def is_terminal(status: DeploymentStatus) -> bool:
 
 
 def require_transition(current: DeploymentStatus, target: DeploymentStatus) -> None:
-    """Refuse a transition the lifecycle does not contain.
+    """Refuse a transition the lifecycle does not contain, with ``ValueError``.
 
-    Raises ``ValueError`` for a step that can never happen — a terminal
-    deployment changing, or a jump past a required one. This is a programming
-    error, distinct from ``ConflictError``, which is a race: two processes
-    racing to move the same deployment, where the loser's *expected* state is
-    stale even though the step itself is lawful.
+    A programming error, unlike ``ConflictError``, which is a race over a lawful
+    step.
     """
     if target not in DEPLOYMENT_TRANSITIONS.get(current, frozenset()):
         raise ValueError(
@@ -156,44 +131,26 @@ class Deployment(BaseModel):
     status: DeploymentStatus
     operator: Operator
     check_mode: bool
-    #: The compiled release this run converges, by its short digest.
-    #:
-    #: A reference rather than a copy. A release is content-addressed, so the
-    #: same state is the same id — an hourly drift check writes no copy of
-    #: unchanged state, and "did anything change since the last deploy" is a
-    #: string comparison.
+    #: The compiled release this run converges, by short digest; equal state is
+    #: an equal id, so "did anything change" is a string comparison.
     release_id: str
-    #: Host pattern this run was narrowed to, or ``None`` for every edge.
-    #:
-    #: Recorded rather than derived because it changes what a green result
-    #: means. A canary that succeeded against one edge is not evidence the
-    #: fleet converged, and a rollback targeting it would restore a release
-    #: most edges never received — which is why ``successful_rollback_target``
-    #: skips limited runs.
+    #: Host pattern this run was narrowed to, or ``None`` for every edge. A green
+    #: canary is not a converged fleet, so rollback selection skips limited runs.
     host_limit: str | None = None
     rollback_of: str | None = None
-    #: For a rollback: the canonical desired state it started from, as the
-    #: digest of those release inputs.
-    #: Adoption refuses if canonical state no longer matches, because restoring
-    #: wholesale over a concurrent record write would delete it silently.
+    #: For a rollback: the digest of canonical inputs it started from; adoption
+    #: refuses if state has moved since.
     canonical_digest: str | None = None
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
-    #: What Ansible reported, or ``None`` while queued or running. This is the
-    #: whole of what the deployment knows about the fleet; the raw output it
-    #: names in ``result.log_path`` is for an operator to read, not for code.
+    #: What Ansible reported, or ``None`` while queued or running.
     result: AnsibleRun | None = None
     #: A rollout or verification failure independent of Ansible's exit code.
     error: str | None = None
 
     def start(self, *, now: datetime) -> Deployment:
-        """This deployment, running from ``now``.
-
-        Raises ``ValueError`` when the lifecycle has no such step. Persisting
-        the result is the store's job, and it refuses the write if another
-        process moved the row first.
-        """
+        """This deployment, running from ``now``; the store refuses a moved row."""
         require_transition(self.status, DeploymentStatus.RUNNING)
         return self.model_copy(
             update={"status": DeploymentStatus.RUNNING, "started_at": now}
@@ -226,13 +183,7 @@ class Deployment(BaseModel):
 
     @property
     def unattempted(self) -> tuple[str, ...]:
-        """Edges this deployment aimed at and never reached.
-
-        A failed fleet deploy stops at the batch that failed, so the edges after
-        it keep their previous configuration. That is the difference between
-        "the deploy failed" and "the fleet is now running two configurations",
-        and it is not visible anywhere in ``hosts``.
-        """
+        """Edges this deployment aimed at and never reached, still on the old config."""
         return self.result.unattempted if self.result else ()
 
     @property
@@ -242,27 +193,16 @@ class Deployment(BaseModel):
 
     @property
     def abandoned(self) -> bool:
-        """Whether this ended because whoever was converging it went away.
-
-        Explicit interruption is terminal. A process killed before it can
-        record that outcome instead leaves RUNNING work eligible for recovery.
-        """
+        """Whether this ended because whoever was converging it went away."""
         return self.status is DeploymentStatus.ABANDONED
 
 
 class DriftReport(BaseModel):
     """Whether the fleet still matches the state the control plane declares.
 
-    Deploy answers "make it so"; this answers "is it still so". It is derived
-    from a check-mode run, so ``changed`` counts tasks that *would* act, not
-    tasks that did — and each host names them, so an operator sees which
-    configuration moved rather than only how many tasks would run.
-
-    Two honest limits on reading it. A host that is unreachable is reported as
-    such rather than as drift — we did not learn anything about its
-    configuration. And a task the role skips under check mode cannot be
-    counted, so this floors rather than exactly measures the difference: it
-    reliably tells you drift exists, and undercounts rather than invents it.
+    Derived from a check-mode run, so ``changed`` counts tasks that would act, each
+    named. Unreachable hosts are reported as such, not as drift, and tasks a role
+    skips under check mode go uncounted: this undercounts, never invents.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -280,14 +220,8 @@ class DriftReport(BaseModel):
     ) -> DriftReport:
         """Read a recorded check-mode deployment as a drift report.
 
-        ``unattempted`` is supplied by the caller rather than taken from the
-        run, because the run does not know. A rollout walks the fleet edge by
-        edge and stops at the first failure, so "which edges did this check
-        never reach" is a set of rows rather than an inference from one
-        result's host list — and a caller reading a stored deployment back has
-        those rows to hand. What the run still carries is the *last* run's own
-        view, which is kept as a floor: a check that stopped inside one edge's
-        batch is still a check with edges left unanswered.
+        ``unattempted`` comes from the target rows the caller holds, since a run's own
+        host list cannot know which edges a stopped rollout never reached.
         """
         return cls(
             deployment_id=deployment.id,
@@ -299,14 +233,7 @@ class DriftReport(BaseModel):
 
     @property
     def in_sync(self) -> bool:
-        """True only if every targeted host was reached and none would change.
-
-        An unattempted edge makes this false rather than being ignored. The
-        question is whether the fleet matches desired state, and an edge the
-        check never got to is one we have no answer for — reporting in sync on
-        the strength of the batch that did run would be answering a narrower
-        question than the one asked.
-        """
+        """True only if every targeted edge was reached and none would change."""
         return (
             bool(self.hosts)
             and not self.unattempted

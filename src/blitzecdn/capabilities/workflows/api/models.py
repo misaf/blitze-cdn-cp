@@ -1,11 +1,4 @@
-"""The published shape of a workflow.
-
-Here rather than in `blitzecdn.entrypoints.api.models` with the frame and core's own
-shapes, because the journal is this capability's. What a client is shown stays
-a decision separate from what the domain holds — the fields are restated rather
-than re-exported — which is the arrangement `deployments` and every installed
-package use.
-"""
+"""The published shape of a workflow, restated from the domain model."""
 
 from __future__ import annotations
 

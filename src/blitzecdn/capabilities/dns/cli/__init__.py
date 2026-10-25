@@ -1,16 +1,9 @@
 """`domain`, `record`, `rule` and `dns` — the zone editor's command groups.
 
-dns founds the `domain` group but ships only the commands about the zone
-itself and the visitor headers serving owns. A command that edits another
-capability's contract — `domain cache`, `domain ssl`, `domain firewall` — is
-contributed by that capability and joins the group at registration, so an
-exemption written for one contract's commands covers those and no others.
-
-`DOMAIN_ORDER` below is the reading order of the whole group, contributed
-commands included. A command missing from it refuses to start the command
-line rather than being sorted quietly to the end, because a command that works
-but that nobody reading `--help` finds where it belongs is the failure it
-prevents.
+dns founds `domain` but ships only the zone commands and visitor headers; a
+command editing another capability's contract is contributed by it.
+`DOMAIN_ORDER` is the whole group's `--help` order, and a command missing from
+it stops the CLI from starting.
 """
 
 from blitzecdn.capabilities.dns.cli import (  # noqa: F401 - registration

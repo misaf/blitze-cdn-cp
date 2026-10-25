@@ -1,10 +1,7 @@
-"""TLS controller settings, scoped to their owning capability.
+"""TLS controller settings: certbot, ACME identity, intervals and budgets.
 
-Certbot, ACME identity, reconciliation/renewal intervals and execution budgets
-are declared as CapabilitySetting values and resolved from CapabilityConfig.
-The application root constructs one immutable CertificateConfig for its services.
-Shared certificate storage paths remain in core Settings because both TLS and
-backup use them."""
+Shared certificate storage paths stay in core ``Settings``; backup uses them too.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +12,7 @@ from blitzecdn.core.features import CapabilityConfig, CapabilitySetting
 
 __all__ = ["SETTINGS", "CertificateConfig"]
 
-#: The controller-side names this package owns. Spelled once here, read from
-#: the declaration below and from :meth:`CertificateConfig.from_capability_config`,
-#: so a rename cannot half-happen.
+#: The controller-side names this capability owns, spelled once.
 CERTBOT = "BLITZE_CERTBOT"
 ACME_DEFAULT_EMAIL = "BLITZE_ACME_DEFAULT_EMAIL"
 ACME_CA_DOMAIN = "BLITZE_ACME_CA_DOMAIN"
@@ -26,11 +21,8 @@ RENEWAL_INTERVAL = "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS"
 RENEWAL_BUDGET = "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS"
 SCAN_INTERVAL = "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS"
 
-#: What this capability asks an operator to configure, with the bounds core can
-#: enforce without knowing what any of it means. The bounds are the ones the
-#: `Settings` fields carried, kept rather than re-derived: a zero interval
-#: disables its job, which is how every one of them is turned off, and the
-#: ceilings are the point past which a "recurring" job has stopped recurring.
+#: What this capability asks an operator to configure. A zero interval
+#: disables its job.
 SETTINGS = (
     CapabilitySetting(
         name=CERTBOT,
@@ -97,20 +89,12 @@ class CertificateConfig:
     renewal_interval_seconds: int
     renewal_budget_seconds: int
     scan_interval_seconds: int
-    #: ``None`` rather than the empty string the setting resolves to. A request
-    #: that names no address and finds none configured has to be refused, and
-    #: the service says so by testing for a missing value — which an empty
-    #: string is not, in the one language where it would matter.
+    #: ``None`` rather than ``""``, so the service can refuse a missing address.
     default_email: str | None = None
 
     @classmethod
     def from_capability_config(cls, config: CapabilityConfig) -> CertificateConfig:
-        """Read this package's own configuration, typed and already scoped.
-
-        ``config`` holds the names this package declared and nothing else, so
-        each read below is checked against the declaration rather than looked
-        up hopefully in a dictionary of everything the controller was given.
-        """
+        """Read this capability's own scoped configuration, typed."""
         email = config.text(ACME_DEFAULT_EMAIL).strip().lower()
         return cls(
             certbot=config.text(CERTBOT),
@@ -124,16 +108,10 @@ class CertificateConfig:
 
 
 def _ca_domain(value: str) -> str:
-    """Reject an empty or malformed CA identity rather than blocking issuance.
+    """Reject an empty or malformed CA identity.
 
-    The CAA check asks whether this name appears in the record's allowed
-    issuers. Empty never appears, so an unset value would turn a passing
-    preflight into a permanent, unexplained refusal.
-
-    This is the validation core deliberately does not do. Presence and length
-    are the two rules a control plane can apply to a value it cannot interpret;
-    "is this a CA identity" needs to know what the value is *for*, which is
-    knowledge of the capability that asks a CA for a certificate.
+    The CAA check looks for this name among allowed issuers; an empty one would
+    make every preflight fail without explanation.
     """
     candidate = value.strip().lower().rstrip(".")
     if (

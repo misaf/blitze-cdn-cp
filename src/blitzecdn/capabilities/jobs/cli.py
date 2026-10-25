@@ -1,9 +1,4 @@
-"""Looking at the durable work queue from an operator's terminal.
-
-These commands inspect jobs and schedules without creating or retrying work.
-A recorded lease identifies the previous owner and its deadline, not proof that
-its process is alive. Recovery remains the worker's responsibility.
-"""
+"""Inspecting the durable work queue; nothing here creates or retries work."""
 
 from __future__ import annotations
 
@@ -19,12 +14,7 @@ job_app = typer.Typer(help="Durable background work: what is queued and what ran
 
 
 def _schedules() -> Sequence[Schedule]:
-    """Every registered schedule, newest information first.
-
-    A helper rather than the expression inline, because the expression reaches
-    through two objects to get there and reads worse than the sentence it
-    stands for.
-    """
+    """Every registered schedule, newest information first."""
     return common.services().job_scheduler.schedules.list_schedules()
 
 
@@ -92,12 +82,7 @@ def job_show(
 
 @job_app.command("schedules")
 def job_schedules(json_output: common.JsonOutput = False) -> None:
-    """Recurring work, and when each piece of it is next due.
-
-    Durable, so this is what will actually happen rather than what an
-    in-process timer currently intends: a controller restarted an hour from now
-    resumes these times instead of resetting them.
-    """
+    """Recurring work, and when each piece is next due; durable across restarts."""
     common.emit(
         [
             {

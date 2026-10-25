@@ -1,11 +1,7 @@
 """Reading compiled releases from the command line.
 
-Five verbs and no way to create one, for the same reason the routes are
-read-only: a release is what canonical state compiles to, so the way to get a
-different one is to change a zone, a rule or a record. ``blitzecdn release
-show`` with no argument compiles the current state and records nothing, which
-is the question an operator actually has before a deploy — "what am I about to
-send, and why does this hostname look like that".
+Read-only like the routes. ``release show`` with no argument compiles current
+state and records nothing: "what am I about to send".
 """
 
 from __future__ import annotations
@@ -24,13 +20,7 @@ release_app = typer.Typer(help="Compiled desired state: what the fleet is served
 
 
 def _summary(release: Release) -> dict[str, object]:
-    """What a release is, flattened for a terminal.
-
-    The digests are the point of it. ``id`` addresses the release, ``artifacts``
-    says what each rendered document hashes to, and ``inputs_digest`` says which
-    canonical state produced them — so "is the fleet serving what we think"
-    is a comparison an operator can make by eye.
-    """
+    """What a release is, flattened for a terminal, digests first."""
     return {
         "id": release.id,
         "digest": release.digest,

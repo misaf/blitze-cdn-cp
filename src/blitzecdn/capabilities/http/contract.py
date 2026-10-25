@@ -1,21 +1,9 @@
 """The HTTP capability's configuration contract.
 
-The scheme, the public proxy port sets, and the one protocol switch a site
-owns. ``serving`` contains :class:`ProtocolPolicy` as a named policy value.
-
-The contract is deliberately wider than what this capability implements.
-HTTP/1.1 and HTTP/2 are invariants of the managed edge and carry no policy;
-HTTP/3 is a switch a site opts into, and the code that turns it into a QUIC
-listener is the ``http3`` provider. The *field* stays here so that a stored
-site asking for HTTP/3 still loads when an edge cannot serve it — the control
-plane then refuses the deployment by name through
-:attr:`required_capabilities`, rather than failing to read its own database or
-quietly serving the site over HTTP/2 as though nothing had been asked for.
-
-The request body limit sits here for the opposite reason. It is a property of
-how the edge reads an HTTP request rather than of an optional provider: core
-nginx enforces it with a directive that is always compiled in, so the field
-asks for no capability token and a site carrying it converges on any edge.
+HTTP/1.1 and HTTP/2 are edge invariants with no policy. The HTTP/3 field lives
+here even though the ``http3`` slice implements it, so a site asking for it
+loads anywhere and is refused by name where it cannot be served. The body size
+limit uses a core nginx directive and requests nothing.
 """
 
 from collections.abc import Mapping
@@ -39,17 +27,10 @@ DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
 
 
 class MaxUploadSize(StrEnum):
-    """Largest visitor request body one site accepts.
+    """Largest visitor request body one site accepts, as an nginx size.
 
-    Members are nginx sizes, rendered straight into ``client_max_body_size``. A
-    closed set rather than a free size string on purpose: the tiers are the
-    product decision, and carrying them in the type means the API, the CLI and
-    the role's ``choices`` all reject an unknown value without any of them
-    growing a validator of its own.
-
-    nginx's own compiled-in default is 1m, which is not one of these. A site
-    that has never been configured accepts more than nginx's default, not
-    less, so nothing that succeeds against an unmanaged edge starts failing.
+    A closed set, so API, CLI and role reject unknown values alike. Every tier is
+    above nginx's 1m default.
     """
 
     SMALL = "100m"
@@ -69,11 +50,7 @@ class ProtocolPolicy(CapabilityPolicy):
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
-        """Implementation capabilities requested by this stable policy.
-
-        Empty for a site served over HTTP/1.1 and HTTP/2, which every managed
-        edge does with nothing installed beside the control plane.
-        """
+        """``http3`` when HTTP/3 is enabled; nothing for HTTP/1.1 and HTTP/2."""
         if not self.http3_enabled:
             return {}
         return {"http3": ("http3_enabled",)}

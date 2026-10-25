@@ -1,11 +1,7 @@
-"""Turning "every four hours" into rows, durably and exactly once per firing.
+"""Turning intervals into queued jobs, exactly once per firing.
 
-The scheduler is not a timer. It is a function of the clock and a table: ask it
-to tick, and it enqueues every schedule whose time has come, moving each one
-forward with a compare-and-swap so that two controllers ticking at the same
-instant produce one enqueue between them rather than two.
-
-A due row is still due after a restart, which an in-memory timer is not.
+A function of the clock and a table; each firing advances its schedule by
+compare-and-swap, so two controllers enqueue once between them.
 """
 
 from __future__ import annotations
@@ -26,15 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ScheduleSpec:
-    """What a feature's scheduled job says about its own cadence.
-
-    A small value rather than `core.features.ScheduledJob` itself, because this
-    capability must not import the feature machinery to know how often to do
-    something. The composition root translates one into the other, which is
-    also where "a lease of zero means twice the interval" is resolved — a
-    default belongs where the two vocabularies meet, not in the registry and
-    not in the store.
-    """
+    """A scheduled job's cadence and lease, without the feature machinery."""
 
     __slots__ = ("interval_seconds", "jitter_seconds", "lease_seconds", "name")
 
@@ -69,19 +57,10 @@ class JobScheduler:
         self.clock = clock
 
     def register(self, specs: Sequence[ScheduleSpec]) -> Sequence[Schedule]:
-        """Make the table say what this installation's features contribute.
+        """Make the table match this installation's contributed schedules.
 
-        Idempotent, because it runs on every process start. An existing
-        schedule keeps its ``next_run_at`` — a controller restarted every few
-        minutes, which is what a crash loop or a rolling upgrade looks like,
-        must not push every schedule permanently into the future — and a
-        schedule no feature contributes is removed, so it does not produce one
-        "no such job" per interval.
-
-        A schedule seen for the first time is due one interval from now rather
-        than immediately. Starting a process must not be a way to trigger every
-        piece of maintenance at once, and on a fresh installation there is
-        nothing for any of them to do yet.
+        Idempotent and preserving ``next_run_at``; uncontributed schedules are removed.
+        A new schedule is first due one interval from now, not at startup.
         """
         now = self.clock()
         registered = [
@@ -104,13 +83,9 @@ class JobScheduler:
         return registered
 
     def tick(self, *, now: datetime | None = None) -> Sequence[str]:
-        """Enqueue every schedule that is due, and say which ones those were.
+        """Enqueue every due schedule, each with its advance in one transaction.
 
-        Each firing advances its schedule and enqueues its job in one
-        transaction. An enqueue failure leaves the schedule due for another
-        tick. A concurrent scheduler must win the schedule's compare-and-swap
-        before publishing; an already pending or running job deliberately
-        skips this interval without adding a duplicate.
+        A failed enqueue leaves it due; an in-flight job skips this interval.
         """
         moment = now or self.clock()
         fired: list[str] = []

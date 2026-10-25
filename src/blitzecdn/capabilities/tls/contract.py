@@ -1,13 +1,7 @@
-"""The TLS capability's configuration contract.
+"""The TLS capability's configuration contract: modes, versions and managed paths.
 
-Pure values: the modes, versions and managed paths that describe how a site's
-TLS is *configured*. The behaviour they name — issuing, uploading, renewing and
-publishing material, and the Automatic SSL/TLS scan that upgrades ``ssl_mode``
-— lives in ``tls.certificates`` and ``tls.automatic_ssl``.
-
-This module imports nothing but ``core`` and another capability's policy
-contract, which is what lets ``dns`` compose it without depending on the TLS
-implementation that consumes ``CdnSite``.
+Pure values; issuance and the Automatic SSL/TLS scan live in
+``tls.certificates`` and ``tls.automatic_ssl``.
 """
 
 import re
@@ -22,20 +16,9 @@ from blitzecdn.core.domain.policy import CapabilityPolicy
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
 
-#: Every character a certificate path may contain.
-#:
-#: Here rather than in ``core.domain.validation`` for the reason that module
-#: states about itself: a shape with exactly one consumer belongs with the
-#: contract that validates against it, and this one has exactly the consumer
-#: below. ``CERTIFICATE_ROOTS`` already lives here for the same reason.
-#:
-#: The set is what an nginx directive argument may safely hold, not what a
-#: filesystem will accept. ``ssl_certificate {{ path }};`` in the nginx role's
-#: ``site.conf.j2`` interpolates the value unquoted, so a path containing a
-#: semicolon or a newline does not name an unusual file — it ends the directive
-#: and starts one of the author's choosing, on every edge the site converges to.
-#: The three checks below therefore bound *where* the path points; this one
-#: bounds what it is able to say once it is written into the config.
+#: Every character a certificate path may contain. ``site.conf.j2`` writes it
+#: unquoted into ``ssl_certificate``, so a semicolon or newline would end the
+#: directive and start one of the author's choosing on every edge.
 CERTIFICATE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
@@ -87,10 +70,10 @@ class SslMode(StrEnum):
     def origin_scheme_for(
         self, visitor_scheme: HttpScheme, visitor_port: int
     ) -> HttpScheme:
-        """Return the origin scheme for one visitor request.
+        """The origin scheme for one visitor request.
 
-        Full modes mirror visitor transport. Flexible uses HTTP behind visitor
-        HTTPS/443 and falls back to HTTPS on alternate HTTPS proxy ports.
+        Full modes mirror visitor transport; Flexible uses HTTP behind HTTPS/443 and
+        HTTPS behind alternate HTTPS proxy ports.
         """
         if visitor_scheme is HttpScheme.HTTP:
             return HttpScheme.HTTP
@@ -134,11 +117,7 @@ class MinimumTlsVersion(StrEnum):
 
 
 class CertificateMode(StrEnum):
-    """How the site's edge certificate material is managed.
-
-    The four split in two along ``issuer_owned``: who is entitled to write the
-    mode and the pair of paths that must agree with it.
-    """
+    """How the site's edge certificate material is managed."""
 
     DISABLED = "disabled"
     EXISTING = "existing"
@@ -147,18 +126,10 @@ class CertificateMode(StrEnum):
 
     @property
     def issuer_owned(self) -> bool:
-        """Whether the certificates capability, not an operator, sets this.
+        """Whether the certificates capability, not an operator, sets this mode.
 
-        ``uploaded`` and ``requested`` name material the control plane put on
-        the edge itself, under a path derived from the *derived host's* name.
-        Only the issuer knows that name — a zone produces several hosts, its
-        own and one per rule — so only the issuer can write the mode and the
-        two paths consistently. ``CdnSite`` refuses the pair when they
-        disagree, and the operator-facing edits refuse the mode outright.
-
-        ``disabled`` and ``existing`` are the operator's: the first says the
-        host serves no TLS, the second points at material somebody else put on
-        the box, which the control plane neither issues nor renews.
+        ``uploaded`` and ``requested`` use paths derived from the host's name, which
+        only the issuer knows; ``disabled`` and ``existing`` are the operator's.
         """
         return self in {CertificateMode.UPLOADED, CertificateMode.REQUESTED}
 
@@ -181,15 +152,8 @@ class TlsPolicy(CapabilityPolicy):
     def validate_remote_path(cls, value: str | None) -> str | None:
         """Bound where an edge certificate path may point, and what it may say.
 
-        On the contract that declares the two fields, so that every model
-        containing this value — ``CdnSite`` and ``Domain`` alike — uses one
-        rule. A rule about one capability's own fields belongs to that
-        capability, and two copies of a security check could be tightened
-        separately.
-
-        A deploy copies these paths as root, which is what the traversal and
-        root checks are about. The character check is about the other end: the
-        value is rendered unquoted into an nginx directive.
+        A deploy copies these paths as root, hence the traversal and root checks; the
+        value is rendered unquoted into nginx, hence the character check.
         """
         if value is None:
             return None
@@ -211,15 +175,10 @@ class TlsPolicy(CapabilityPolicy):
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
-        """Operational certificate capabilities requested by this TLS policy.
+        """The certificate capabilities this policy requests.
 
-        Existing edge material needs no issuing operation. Controller-managed
-        material and Automatic SSL require the certificates runtime capability.
-
-        Managed material is named ahead of the automatic scan because it is the
-        more specific answer: a site that both uploads material and asks for
-        the scan is refused over ``certificate_mode``, which is the setting an
-        operator would clear to make the deployment legal.
+        Managed material and Automatic SSL need ``certificates``; existing material
+        needs nothing. Managed material is named first, as the setting to clear.
         """
         if self.certificate_mode in {
             CertificateMode.UPLOADED,

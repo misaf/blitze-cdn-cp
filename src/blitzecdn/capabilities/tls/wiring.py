@@ -1,8 +1,7 @@
 """How certificate management is built, and what it renders and runs.
 
-Rendering reads verified source paths from the certificate store, never from
-the certificate service: the release compiler is built before that service,
-and what a site renders to must not depend on what a service holds.
+Rendering reads verified paths from the certificate store, never the service,
+which is built after the release compiler.
 """
 
 from __future__ import annotations
@@ -54,10 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
 
 
-#: This distribution's version, asked of the environment rather than
-#: written down here: it is what ``FeatureMetadata.version`` reports and
-#: what ``blitzecdn plugins`` shows an operator, so the one number that
-#: must not drift from ``pyproject.toml`` is not copied out of it.
+#: The installed distribution's version, read from metadata.
 __version__ = distribution_version(__name__)
 
 
@@ -163,11 +159,7 @@ _RESERVED_SUFFIXES = (".test", ".invalid", ".localhost", ".example")
 
 
 def unissuable_names(site: CdnSite) -> Sequence[ValidationIssue]:
-    """Refuse a site whose ACME request can never be answered.
-
-    What a public CA will issue for is knowledge of the capability that asks
-    one, so it belongs here rather than in the zone editor's validation.
-    """
+    """Refuse a site whose ACME request can never be answered."""
     if (
         not site.policy.enabled
         or site.policy.tls.certificate_mode is not CertificateMode.REQUESTED
@@ -253,9 +245,7 @@ def certificates_operations(
                 interval_seconds=config.renewal_interval_seconds,
                 run=renew,
                 jitter_seconds=min(3600, config.renewal_interval_seconds // 10),
-                # The one job that declares its own lease. A sweep is bounded
-                # by its budget rather than by its cadence, so "twice the
-                # interval" — every other job's default — is not its floor.
+                # The one job with its own lease: a sweep is bounded by its budget.
                 lease_seconds=deployment_timeout_seconds + budget,
             ),
             ScheduledJob(

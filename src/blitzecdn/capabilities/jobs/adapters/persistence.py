@@ -1,14 +1,7 @@
-"""The job and schedule tables, and the compare-and-swap each write is.
+"""The job and schedule tables, where every write is a compare-and-swap.
 
-Every write here is conditional. That is the whole of how two controller
-processes stay out of each other's way without a lock: SQLite's ``BEGIN
-IMMEDIATE`` serialises writers, and each statement names the state it expected
-to find, so the loser of a race updates zero rows and is told so rather than
-overwriting the winner's work.
-
-The claim is the one to read closely. It selects a runnable job and then
-updates that row *by id and by fence*, so a second process that selected the
-same row in the same instant finds the fence already moved and takes nothing.
+``BEGIN IMMEDIATE`` serialises writers and each statement names the state it
+expects, so a race's loser updates zero rows. A claim updates by id and fence.
 """
 
 from __future__ import annotations
@@ -61,34 +54,22 @@ class JobStore:
         )
         with self._db.session() as session:
             try:
-                # A savepoint, because the session may be a caller's: a
-                # deployment is submitted with its job in one transaction, and
-                # a refused insert must undo only itself. Caught at the
-                # session's level instead, the failed flush would leave the
-                # caller's whole transaction unusable.
+                # A savepoint, so a refused insert undoes only itself inside a caller's
+                # transaction.
                 with session.begin_nested():
                     session.add(row)
                     session.flush()
             except IntegrityError:
-                # The partial unique index refused it: a job with this dedupe
-                # key is still pending or running. Caught rather than checked
-                # for, because a check followed by an insert is a race with
-                # exactly the window this index exists to close.
+                # The partial unique index refused it: this dedupe key is still in
+                # flight.
                 return None
             return _job(row)
 
     def claim(
         self, *, worker: str, now: datetime, lease_seconds: int
     ) -> JobClaim | None:
-        # Under `transaction()`, so BEGIN IMMEDIATE: a claim reads a row and
-        # then writes it, and in a deferred transaction an API enqueue
-        # committing between the two turns the write into a snapshot-busy
-        # error no `busy_timeout` waits out — the hazard
-        # `Database.require_transaction` documents. The fence kept that
-        # *safe*; it still surfaced as a worker-loop failure and a lost poll.
-        # Reserving the writer first makes a colliding enqueue wait instead.
-        # The price is an idle poll taking that reservation too, for an empty
-        # transaction measured in microseconds.
+        # BEGIN IMMEDIATE, so an enqueue committing between the claim's read and
+        # write waits instead of raising snapshot-busy.
         with self._db.transaction(), self._db.session() as session:
             while True:
                 row = session.scalars(
@@ -97,11 +78,8 @@ class JobStore:
                         or_(
                             (col(JobRow.status) == JobStatus.PENDING.value)
                             & (col(JobRow.available_at) <= now),
-                            # Crash recovery, and not a separate sweep: a
-                            # running job whose lease has expired is a job
-                            # whose worker stopped renewing, whether it died,
-                            # hung or was killed. Nothing has to observe the
-                            # death.
+                            # Crash recovery: an expired lease means its worker stopped
+                            # renewing.
                             (col(JobRow.status) == JobStatus.RUNNING.value)
                             & (col(JobRow.leased_until).is_not(None))
                             & (col(JobRow.leased_until) <= now),
@@ -116,13 +94,9 @@ class JobStore:
                     row.status == JobStatus.RUNNING.value
                     and row.attempts >= row.max_attempts
                 ):
-                    # Retired here, and then the next candidate is looked
-                    # for, rather than claimed. `max_attempts` is otherwise
-                    # enforced only when a handler raises, so a job that
-                    # takes its worker down with it — the OOM killer, a
-                    # SIGKILL after the stop grace period — never reached the
-                    # check: every expired lease handed it out again and it
-                    # stayed `running` for ever, reported nowhere.
+                    # Retired here: `max_attempts` is otherwise checked only when a
+                    # handler raises, so a job that kills its worker would be re-leased
+                    # forever.
                     self._abandon(session, row, now=now)
                     continue
                 break
@@ -132,9 +106,8 @@ class JobStore:
                     update(JobRow)
                     .where(
                         col(JobRow.id) == row.id,
-                        # By the fence it was read at. Two processes selecting
-                        # the same row in the same instant both try this, and
-                        # the second matches nothing.
+                        # By the fence it was read at; a concurrent claimer matches
+                        # nothing.
                         col(JobRow.fence) == row.fence,
                     )
                     .values(
@@ -157,15 +130,8 @@ class JobStore:
     def _abandon(session: Session, row: JobRow, *, now: datetime) -> None:
         """Fail a job whose every attempt ended with its worker gone.
 
-        Under the fence it was read at, like a claim, and with the fence moved
-        on: a worker that was only paused and comes back holding the last claim
-        must find it no longer matches, rather than completing a job this has
-        already reported failed. A row another process changed in between
-        matches nothing, and the caller's next select sees what it became.
-
-        An error an earlier attempt raised is kept after the abandonment
-        rather than replaced by it: the attempts that raised and the ones that
-        died may share a cause, and the traceback is the only trace of it.
+        Under the fence it was read at, then moved, so a paused worker cannot later
+        complete it. An earlier attempt's error is kept: it may share the cause.
         """
         error = (
             f"abandoned after {row.attempts} attempt(s): each worker that claimed "
@@ -206,9 +172,7 @@ class JobStore:
                             finished_at=now,
                             leased_until=None,
                             leased_by=None,
-                            # Cleared so the partial unique index stops binding:
-                            # a finished job must not keep the next firing of
-                            # the same scheduled work out of the queue.
+                            # Cleared so the partial unique index frees the next firing.
                             dedupe_key=None,
                         )
                     )
@@ -312,12 +276,7 @@ class JobStore:
             return [_job(row) for row in session.scalars(statement.limit(limit)).all()]
 
     def prune(self, keep: int) -> int:
-        """Drop finished jobs beyond the newest ``keep``.
-
-        Finished only. A pending job is work nobody has done and a running one
-        is work somebody is doing, and a retention policy that could remove
-        either would be a retention policy that loses deployments.
-        """
+        """Drop finished jobs beyond the newest ``keep``; never unfinished ones."""
         finished = (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value)
         with self._db.session() as session:
             survivors = (
@@ -344,10 +303,8 @@ class ScheduleStore:
     def upsert(self, schedule: Schedule) -> Schedule:
         """Register a schedule, leaving an existing one's next firing alone.
 
-        Registration runs on every process start. Writing ``next_run_at``
-        unconditionally would mean a controller restarted every few minutes —
-        which is what an upgrade or a crash loop looks like — pushed every
-        schedule permanently into the future and ran nothing at all.
+        Runs on every start; resetting ``next_run_at`` would let a crash loop
+        postpone every schedule forever.
         """
         with self._db.session() as session:
             row = session.get(ScheduleRow, schedule.name)
@@ -369,12 +326,7 @@ class ScheduleStore:
             return _schedule(row)
 
     def forget(self, names: Sequence[str]) -> int:
-        """Remove every schedule not in ``names``.
-
-        A feature removed while its schedule was registered would otherwise
-        leave a row the worker enqueues forever and resolves to nothing — one
-        `NotFoundError` per interval.
-        """
+        """Remove every schedule not in ``names``, so removed features stop firing."""
         with self._db.session() as session:
             return _rows_affected(
                 session.execute(
@@ -406,9 +358,8 @@ class ScheduleStore:
                         update(ScheduleRow)
                         .where(
                             col(ScheduleRow.name) == name,
-                            # The compare-and-swap. Two controllers may both see
-                            # this schedule as due; exactly one moves it, and
-                            # only that one goes on to enqueue the work.
+                            # The compare-and-swap: of two controllers, exactly one
+                            # enqueues.
                             col(ScheduleRow.next_run_at) == expected,
                         )
                         .values(next_run_at=next_run_at, last_run_at=ran_at)

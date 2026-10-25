@@ -1,11 +1,4 @@
-"""What a purge is, and what the cache is doing.
-
-Two modules because there are two kinds of value with nothing in common but
-the capability: `purge.py` is an instruction and its per-edge outcome,
-`statistics.py` is a reading taken from logs the edges wrote anyway. The
-package is the capability's public face, so `blitzecdn.capabilities.cache.domain` is the
-whole of what anything outside imports.
-"""
+"""What a purge is (`purge`), and what the cache is doing (`statistics`)."""
 
 from blitzecdn.capabilities.cache.domain.purge import PurgeEntry, PurgeResult
 from blitzecdn.capabilities.cache.domain.statistics import (

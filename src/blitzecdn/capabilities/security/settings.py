@@ -1,23 +1,7 @@
-"""This capability's own configuration, read from what the controller was given.
+"""This capability's own configuration, from its scoped ``CapabilityConfig``.
 
-A capability that needs a setting has to get it from somewhere, and the two
-obvious answers are both wrong. A field on core's ``Settings`` would put the
-name of one capability in the model core owns. Reading ``os.environ`` directly
-would miss the controller's ``.env``, which core merges and the process never
-exports.
-
-So this package declares the key it owns in its Ansible contribution, and core
-hands back exactly that: ``platform.capability_config.for_feature("security")``,
-a ``CapabilityConfig`` holding this package's keys and no other package's,
-already merged from the environment and the controller's ``.env``. Composition
-rejects an unclaimed or multiply claimed name and forwards only resolved
-package-owned keys to the Ansible subprocess.
-
-The length rule travels with the declaration rather than living here. A secret
-that is present but too short is a value an operator can fix, so core refuses
-it at composition — before a service is built, naming the key and this
-capability — rather than leaving it to be discovered by the first site that
-turns Under Attack Mode on.
+Core merges the environment and ``.env`` and hands back only the keys this
+capability declared; the secret's minimum length is enforced at composition.
 """
 
 from __future__ import annotations
@@ -30,19 +14,12 @@ from blitzecdn.core.features import CapabilityConfig
 
 __all__ = ["MINIMUM_SECRET_BYTES", "SECRET_VARIABLE", "SecurityConfig"]
 
-#: The controller-side *name* of the fleet challenge secret — never its value,
-#: which is only ever read from the environment. One constant, spelled here and
-#: in the role's defaults, so the two cannot drift.
-#:
-#: The linters see a capitalised string with "SECRET" in it and assume a
-#: hardcoded credential; both are told otherwise here rather than by renaming
-#: the constant into something that describes it less well.
+#: The challenge secret's variable name, never its value; shared with the
+#: role defaults. Not a hardcoded credential, whatever the linters think.
 SECRET_VARIABLE = "BLITZE_UNDER_ATTACK_SECRET"  # noqa: S105  # nosec B105
 
-#: Shortest key the challenge will sign with. An HMAC-SHA256 secret below its
-#: block size buys nothing, and a short one here is nearly always a placeholder
-#: somebody meant to replace. Declared to core on the contribution beside this
-#: module, which is what enforces it; public so the two cannot drift.
+#: Shortest signing key accepted: shorter HMAC-SHA256 keys are usually
+#: placeholders. Declared to core, which enforces it.
 MINIMUM_SECRET_BYTES = 32
 
 
@@ -54,23 +31,14 @@ class SecurityConfig:
 
     @classmethod
     def from_capability_config(cls, config: CapabilityConfig) -> SecurityConfig:
-        """Read this package's own configuration, typed and already scoped.
-
-        ``config`` holds the keys this package declared and nothing else, so
-        the name below is checked against the declaration rather than looked up
-        hopefully in a dictionary of everything the controller was given.
-        """
+        """Read this capability's own scoped configuration, typed."""
         return cls(under_attack_secret=config.secret(SECRET_VARIABLE))
 
     @property
     def challenge_available(self) -> bool:
-        """Whether an edge could serve a challenge at all.
+        """Whether an edge could serve a challenge: a secret is configured.
 
-        Presence only. A secret shorter than :data:`MINIMUM_SECRET_BYTES` never
-        reaches here — core refuses the controller's configuration at
-        composition against the length this package declared — so the one
-        remaining case is a controller that set nothing, which is a supported
-        state and not an error: it is only a deployment this capability has to
-        refuse, and only for a site that asks for the challenge.
+        Length was checked at composition; an absent secret is legal and only refuses
+        sites that ask for the challenge.
         """
         return bool(self.under_attack_secret.get_secret_value())

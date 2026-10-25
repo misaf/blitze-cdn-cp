@@ -1,29 +1,10 @@
 """One unit of durable background work, and the rules its lifecycle obeys.
 
-A job is a row, in the SQLite file that already holds the control plane's
-entire durable state. The workload does not need more: there is one deployment
-at a time — a cross-process lock says so — and a handful of scheduled jobs on
-intervals measured in hours. What it does need is work that survives a restart
-of the process that queued it, a scheduled job that cannot run twice at once,
-and a worker whose lease expiring means another worker may take over without
-the first one being able to finish underneath it.
-
-Three ideas do all of that, and each is one column.
-
-**Availability.** ``available_at`` is when a job may next be claimed. It carries
-the initial delay, the backoff after a failure, and nothing else — a job is
-runnable when its time has come and no queue ordering is needed beyond that.
-
-**Leasing.** A claim sets ``leased_until`` and hands the worker a token. A
-worker that dies simply stops renewing, and the lease expires; nothing has to
-notice the death for the work to become claimable again.
-
-**Fencing.** ``fence`` increments on every claim, and finishing a job requires
-the token the claim returned. A worker that was paused past its lease — a long
-GC, a suspended container, a network partition it did not notice — comes back
-holding a stale token and is refused, so it cannot mark as succeeded a job
-another worker has since re-run. This is the part a lease alone does not give
-you, and the part that makes "at least once" safe to rely on.
+``available_at`` is when a job may next be claimed, carrying delay and backoff.
+A claim sets ``leased_until``; a dead worker stops renewing and its job becomes
+claimable with nothing having to notice. ``fence`` increments per claim and
+finishing requires the claim's token, so a worker paused past its lease cannot
+complete a job someone else re-ran.
 """
 
 from __future__ import annotations
@@ -51,17 +32,11 @@ __all__ = [
     "is_terminal",
 ]
 
-#: How long a claim is good for when the caller expresses no opinion. Long
-#: enough that an ordinary convergence finishes inside it, short enough that a
-#: dead worker's job is claimable again within a maintenance window.
+#: The default lease: long enough for a convergence, short enough to recover.
 DEFAULT_LEASE_SECONDS = 900
 
-#: The ceiling on retry backoff. Bounded rather than unbounded because the
-#: failures this retries are transient by assumption — a busy lock, an edge
-#: that was briefly unreachable — and a job that has been sleeping for hours is
-#: one nobody is still waiting for. A job that exhausts its attempts fails
-#: permanently and says so, which is a better answer than one that retries
-#: forever and is therefore never reported.
+#: Retry backoff ceiling. Retried failures are transient; a job out of
+#: attempts fails and is reported rather than retrying forever.
 MAX_BACKOFF_SECONDS = 300
 
 _BASE_BACKOFF_SECONDS = 2
@@ -84,14 +59,7 @@ def is_terminal(status: JobStatus) -> bool:
 
 
 def backoff_for(attempt: int) -> timedelta:
-    """How long to wait before a failed job's next attempt.
-
-    Exponential from two seconds, capped at :data:`MAX_BACKOFF_SECONDS`. No
-    jitter, and that is not an oversight: there is one worker process and the
-    thundering-herd problem jitter solves does not exist here. Adding it would
-    make the retry schedule unpredictable in tests for no benefit anyone can
-    point at in production.
-    """
+    """Exponential backoff from two seconds, capped; no jitter with one worker."""
     seconds = min(_BASE_BACKOFF_SECONDS ** max(attempt, 1), MAX_BACKOFF_SECONDS)
     return timedelta(seconds=seconds)
 
@@ -102,22 +70,12 @@ class Job(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
-    #: What this job *is*, resolved by the worker against its handler table.
-    #: A string rather than an enum because a feature this repository has never
-    #: heard of contributes work through the scheduled-job kind, and a closed
-    #: set here would mean core enumerating what it cannot know.
+    #: The handler kind, as a string so contributed job kinds need no enum.
     kind: str
-    #: The handler's arguments, as JSON. Small on purpose: a payload that
-    #: carried desired state would be a second copy of it, so a deployment job
-    #: carries a deployment id and a scheduled job carries a name.
+    #: The handler's arguments as JSON: an id or a name, never desired state.
     payload: dict[str, Any] = Field(default_factory=dict)
     status: JobStatus = JobStatus.PENDING
-    #: What makes this job single-flight, or ``None`` for one that is not.
-    #:
-    #: Unique across jobs that have not finished, so enqueueing a scheduled job
-    #: while the last copy is still pending or running is refused by the
-    #: database rather than by a check somebody remembered to write. It cannot
-    #: outlive the job it guards, because it *is* a column on the job.
+    #: Single-flight key, or ``None``; unique among unfinished jobs.
     dedupe_key: str | None = None
     #: Claims that executed or disappeared without recording an outcome.
     #: Explicit deferral before execution refunds its claim's increment.
@@ -140,13 +98,7 @@ class Job(BaseModel):
         return self.attempts >= self.max_attempts
 
     def claimable_at(self, now: datetime) -> bool:
-        """Whether this job may be claimed at ``now``.
-
-        Two ways in. A pending job whose time has come, and a running job whose
-        lease has expired — the second is crash recovery, and it needs no
-        separate sweep or startup pass precisely because it is the same
-        question asked of the same row.
-        """
+        """Whether this job may be claimed: due and pending, or its lease lapsed."""
         if self.status is JobStatus.PENDING:
             return self.available_at <= now
         if self.status is JobStatus.RUNNING:
@@ -155,14 +107,7 @@ class Job(BaseModel):
 
 
 class JobClaim(BaseModel):
-    """A job, and the proof that this worker is the one running it.
-
-    The two travel together because neither is useful alone: a worker holding a
-    job without its fence cannot complete it, and a fence without the job names
-    nothing. Returning them as one value is what stops a caller from finishing
-    a job with a token it read back out of the table afterwards — by which time
-    it may belong to somebody else.
-    """
+    """A job and the fence token proving this worker runs it, returned together."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -181,40 +126,26 @@ class Done:
 
 @dataclass(frozen=True, slots=True)
 class Retry:
-    """The work failed in a way another attempt may not; back off and retry.
-
-    Spends the attempt it ran under, so a job that keeps returning this ends
-    failed once its attempts are exhausted.
-    """
+    """Failed in a way another attempt may not; back off, spending the attempt."""
 
     reason: str
 
 
 @dataclass(frozen=True, slots=True)
 class Defer:
-    """The work could not start; put it back without spending an attempt.
-
-    For contention that clears on its own, such as the fleet-wide deployment
-    lock being held by another deployment.
-    """
+    """Could not start, e.g. the deployment lock is held; requeue without spending."""
 
     reason: str
 
 
 @dataclass(frozen=True, slots=True)
 class Fail:
-    """The work failed, and a retry would meet the same answer.
-
-    Only the handler can tell: a deployment that finished failed is failed on
-    every redelivery, so its job fails at once with the recorded reason.
-    """
+    """Failed, and a retry would meet the same answer; fail at once."""
 
     reason: str
 
 
-#: What a handler reports. An exception escaping a handler is not one of
-#: these: it is an unexpected error, retried like ``Retry`` and logged with its
-#: traceback.
+#: What a handler reports; an escaping exception is retried like ``Retry``.
 JobOutcome = Done | Retry | Defer | Fail
 
 #: The one ``Done``, so a handler can say ``return DONE``.

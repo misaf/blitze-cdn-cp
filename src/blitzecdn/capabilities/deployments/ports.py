@@ -26,39 +26,23 @@ from blitzecdn.core.ports.operations import EventRecorder
 
 
 class RuleRestore(Protocol):
-    """Putting the rules back, for a rollback that adopts an older release.
+    """Restore the rules wholesale, for a rollback that adopts an older release.
 
-    One method, not the rule editor: a rollback replaces the table wholesale
-    and never edits a rule, so the port it holds should not be able to.
-
-    A rollback must restore them rather than leave them alone. The zone rows go
-    out and back during an adoption, and a rule is keyed to its zone with ON
-    DELETE CASCADE — so a rollback that ignored rules would not preserve them,
-    it would delete every one.
+    Required, not optional: rules cascade-delete with their zone, which adoption
+    rewrites.
     """
 
     def replace_all_rules(self, rules: list[Rule]) -> None: ...
 
 
 class SettingRestore(Protocol):
-    """Putting the fleet settings back, for a rollback that adopts a release.
-
-    Wholesale, like the rules: the release carries the complete set its edges
-    were converged with, so a setting added since is withdrawn with it.
-    """
+    """Restore the fleet settings wholesale, for a rollback that adopts a release."""
 
     def replace_all_settings(self, settings: Mapping[str, Any]) -> None: ...
 
 
 class DeploymentRequirements(Protocol):
-    """The durable reasons a convergence is still owed to the fleet.
-
-    Typed by
-    :class:`~blitzecdn.capabilities.deployments.domain.DeploymentRequirementKind`
-    rather than by a bare string: the kinds are a closed set every caller has to
-    agree on, and a typo in one of three call sites would otherwise raise a
-    requirement nothing ever clears.
-    """
+    """The durable reasons a convergence is still owed to the fleet, by typed kind."""
 
     def require(self, kind: DeploymentRequirementKind) -> None: ...
 
@@ -103,9 +87,8 @@ class DeploymentStore(Protocol):
 class DeploymentGateway(Protocol):
     """What the certificate service needs from the deployment service.
 
-    Issuance asks whether a site is actually on the edges (HTTP-01 cannot
-    validate a vhost nothing serves). Reconciliation queues a deployment for
-    what it issued; Automatic SSL/TLS still converges inline.
+    Whether a site is on the edges (HTTP-01 needs a served vhost), and a way to
+    queue or run the convergence its material requires.
     """
 
     def site_is_deployed(self, site_name: str) -> bool: ...
@@ -124,12 +107,9 @@ class QueueBackgroundRunner(Protocol):
 
 
 class DeploymentLocker(Protocol):
-    """Holds the fleet-wide "one deployment at a time" lock.
+    """The fleet-wide deployment lock, without any way to run a playbook.
 
-    Separate from :class:`DeploymentRunner` because certificate issuance needs
-    exactly this and no way to run a playbook: it takes the lock so an ACME
-    challenge cannot land halfway through a convergence, and a port that also
-    offered ``run`` would let it start one.
+    Issuance holds it so an ACME challenge never lands mid-convergence.
     """
 
     def lock(self) -> AbstractContextManager[Any]: ...
@@ -138,25 +118,16 @@ class DeploymentLocker(Protocol):
 class DeploymentRunner(DeploymentLocker, Protocol):
     """Converges the fleet, under the lock it inherits.
 
-    Both methods answer with an :class:`~blitzecdn.core.domain.runs.AnsibleRun`, which
-    is the whole of what the application layer learns about a run. There is
-    deliberately no way through this port to reach the raw output.
-
-    Narrow on purpose. One adapter runs every playbook the control plane has,
-    but the purge, stats, origin-check and decommission plays are not
-    deployment concerns and are declared by the capabilities that do own them —
-    ``cache.ports.CacheRunner``, ``edges.ports.EdgeRunner``. Naming them all
-    here made every one of those capabilities depend on this package to reach its
-    own playbook, which is how the capability graph came to have cycles in it.
+    Answers only with an :class:`~blitzecdn.core.domain.runs.AnsibleRun`, never raw
+    output. Other capabilities' plays are declared on their own ports.
     """
 
     #: ``variables`` is supplied rather than assumed so validation never writes
     #: over the desired-state file a concurrent deploy is converging.
     def validate(self, variables: Path) -> AnsibleRun: ...
 
-    #: ``tags`` is what makes staging separable from activating. An empty
-    #: selection runs the whole play; ``("stage",)`` runs the preparation the
-    #: edge play tags that way and nothing that changes what the edge serves.
+    #: An empty selection runs the whole play; ``("stage",)`` stages without
+    #: activating.
     def run(
         self,
         *,
@@ -167,30 +138,17 @@ class DeploymentRunner(DeploymentLocker, Protocol):
 
 
 class LogReader(Protocol):
-    """Reads back a run log, for showing an operator what Ansible said.
-
-    Narrow on purpose. Application code may quote a log into a message; it may
-    not branch on one, and a port with a single tail-reading method is what
-    keeps that distinction enforceable rather than merely intended.
-    """
+    """Reads back a run log tail, for quoting to an operator, never for branching."""
 
     def __call__(self, path: Path | str | None, *, limit: int) -> str: ...
 
 
 class YamlWriter(Protocol):
-    """Publishes the desired-state document Ansible reads.
+    """Publishes the desired-state document Ansible reads, atomically.
 
-    A port rather than a bare ``Callable`` so it reads like its neighbours and
-    can carry the one thing about it that matters: the write has to be atomic.
-    A deploy renders this file while holding the deployment lock and Ansible
-    reads it moments later, so a reader must never observe a partial document —
-    an edge converged from half a desired state is worse than one that did not
-    converge at all.
-
-    Positional-only, because the parameters of a function-shaped port are an
-    implementation's business: the adapter may name its second argument
-    ``payload`` and take extra keyword arguments with defaults, and none of
-    that is something a caller here should have to match.
+    Ansible reads it moments after a deploy writes it; a partial document must
+    never be observable. Positional-only, so implementations may name parameters
+    freely.
     """
 
     def __call__(self, path: Path, document: dict[str, object], /) -> None: ...
@@ -199,15 +157,9 @@ class YamlWriter(Protocol):
 class Releases(Protocol):
     """Compiling desired state, and reading back what was compiled.
 
-    The whole of what a deployment knows about configuration. It does not
-    derive a virtual host, merge a rule, ask a feature for a variable or render
-    a document — it asks for a release and converges the artifact in it, which
-    is what keeps "what should the fleet serve" answerable in one place and
-    answerable after the fact.
-
-    ``compile`` records nothing and ``prepare`` records the result; the
-    distinction matters because validating is something an operator does
-    repeatedly while fixing a fleet, and it should not write history.
+    All a deployment knows about configuration: it converges a release's artifact
+    and derives nothing itself. ``compile`` records nothing, so repeated
+    validation writes no history; ``prepare`` records.
     """
 
     def inputs(self) -> ReleaseInputs: ...
@@ -226,16 +178,11 @@ class Releases(Protocol):
 class WorkflowProgress(Protocol):
     """The checkpoint sink a convergence writes its progress to.
 
-    `fail` is here and `checkpoint` is not optional because this capability
-    uses both: a convergence that finishes with errors it handled marks the
-    workflow failed without raising, which is the one case the surrounding
-    context manager cannot infer for itself.
+    ``fail`` lets a convergence that handled its errors mark the workflow failed
+    without raising.
     """
 
-    #: Both arguments positional and neither defaulted, which is what the
-    #: coordinator hands out: `checkpoint` is a closure it builds per run
-    #: rather than a method, so a port that gave `details` a default would
-    #: describe something no implementation offers.
+    #: Both positional and required, matching the closure the coordinator builds.
     checkpoint: Callable[[str, dict[str, Any] | None], Workflow]
 
     def fail(self, error: str) -> None: ...
@@ -253,12 +200,7 @@ class WorkflowRun(Protocol):
 
 
 class Workflows(Protocol):
-    """Opening a journal entry, and recovering the ones a restart abandoned.
-
-    Declared rather than imported: the journal is another capability, and a
-    service importing another capability's service is the edge the layering
-    rules refuse.
-    """
+    """Opening a journal entry, and recovering the ones a restart abandoned."""
 
     def run(
         self, kind: WorkflowKind, operator: str, resource_id: str | None = None
@@ -295,14 +237,7 @@ __all__ = [
 
 
 class DeploymentTargets(Protocol):
-    """Per-edge rollout progress, and the fence every write to it names.
-
-    ``claim_generation`` is the whole of the concurrency story. Taking a
-    deployment over increments it; every subsequent write names the value the
-    claim returned, so a worker that was paused past its lease updates zero
-    rows and is told so rather than recording an outcome for an edge somebody
-    else has since converged.
-    """
+    """Per-edge rollout progress, and the fence every write to it names."""
 
     def claim_generation(self, deployment_id: str) -> int: ...
 
@@ -337,14 +272,9 @@ class DeploymentTargets(Protocol):
 class EdgeAddresses(Protocol):
     """Which edges a run reaches, and where each answers from outside.
 
-    Two questions with one answer behind them, which is why they are one port.
-    ``selected`` expands a host limit into the edges a rollout will walk, using
-    the same matcher the Ansible runner uses to build its ``--limit`` — so
-    "which edges does this deployment aim at" cannot have two answers.
-
-    ``public_address`` is the address a *visitor* arrives on, not the one the
-    controller connects to over SSH. They differ on any NAT'd or multi-homed
-    edge, and verification is a question about the side the world sees.
+    ``selected`` uses the same matcher as the Ansible ``--limit``.
+    ``public_address`` is where a visitor arrives, which differs from the SSH
+    address on NAT'd or multi-homed edges.
     """
 
     def selected(self, host_limit: str | None) -> Sequence[str]: ...
@@ -353,12 +283,7 @@ class EdgeAddresses(Protocol):
 
 
 class ServingVerifier(Protocol):
-    """Whether an edge actually answers for what it was told to serve.
-
-    Declared as a port so the rollout can be tested without a network, and
-    narrow so it can never become a general HTTP client living inside a
-    deployment service.
-    """
+    """Whether an edge actually answers for what it was told to serve."""
 
     def verify(
         self, *, edge: str, address: str, sites: Sequence[CdnSite], release_digest: str

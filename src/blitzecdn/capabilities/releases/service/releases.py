@@ -1,14 +1,8 @@
 """Compiling the current desired state, and keeping what was compiled.
 
-The service is thin on purpose: the decisions are all in
-:func:`~blitzecdn.capabilities.releases.service.compiler.compile_release`, which
-is a pure function, and everything here is the I/O that function refuses to do
-— reading canonical state, reading which edges exist, and putting the result on
-record.
-
-That split is the point of the capability. "What would this state compile to"
-is answerable without a database because the answer does not need one; "what
-did we compile, and when" needs one and gets exactly one.
+Thin by design: the decisions are in the pure
+:func:`~blitzecdn.capabilities.releases.service.compiler.compile_release`;
+this does the I/O it refuses to do.
 """
 
 from __future__ import annotations
@@ -62,10 +56,7 @@ class ReleaseService:
         self.releases = releases
         self.contributors = contributors
         self.site_checks = site_checks
-        #: What this control plane ships. A sequence captured at composition
-        #: rather than a registry: the features cannot change inside a process,
-        #: and a service that could ask again would invite a compilation whose
-        #: inputs moved underneath it.
+        #: The shipped features, captured once; they cannot change within a process.
         self.capabilities = tuple(capabilities)
         self.allow_empty_sites = allow_empty_sites
         self.uow = uow
@@ -77,21 +68,11 @@ class ReleaseService:
         return self.state.release_inputs()
 
     def compile(self, *, host_limit: str | None = None) -> Release:
-        """Compile the current state without recording anything.
-
-        What ``blitzecdn validate`` asks. Nothing is written, so asking is free
-        and asking twice gives the same answer — which is what lets an operator
-        check a fix without adding a row to the history of what the fleet was
-        asked to serve.
-        """
+        """Compile the current state without recording anything."""
         return compile_release(self.capture(host_limit=host_limit))
 
     def capture(self, *, host_limit: str | None = None) -> Compilation:
-        """Snapshot database facts together, then resolve external resources.
-
-        Feature I/O is outside this transaction unless an admitting command
-        already owns one. Compilation itself receives only the captured value.
-        """
+        """Snapshot database facts together, then resolve external resources."""
         with self.uow.transaction():
             inputs = self.inputs()
             targets = self.targets.targets(host_limit=host_limit)
@@ -105,13 +86,7 @@ class ReleaseService:
         )
 
     def prepare(self, *, host_limit: str | None = None) -> Release:
-        """Compile the current state and put it on record.
-
-        The step a deployment takes before it converges anything. Recording is
-        idempotent by digest, so preparing unchanged state twice yields one row
-        and the same identifier — and a deployment that names that identifier
-        is naming a document nothing can subsequently edit.
-        """
+        """Compile the current state and put it on record, idempotently by digest."""
         # Admission and material collection share the write boundary. A
         # captured resource must become retained before collection can run.
         with self.uow.transaction():
@@ -127,13 +102,9 @@ class ReleaseService:
     def _record_configuration(self, release: Release) -> None:
         """Render a prepared release once and keep what it rendered to.
 
-        A deployment ships these bytes, and a rollback months later ships the
-        same ones whatever the templates have become. Rendered outside the
-        write transaction — it takes seconds, and the database has one writer
-        — and only when nothing is on record: unchanged state is prepared
-        again on every drift check. An interruption between the two writes
-        leaves a release with no configuration, which the next preparation of
-        it fills in and a deployment refuses to ship.
+        Rendered outside the write transaction (it takes seconds) and only when
+        nothing is recorded. If interrupted, the next preparation fills it in, and a
+        deployment refuses to ship a release without one.
         """
         try:
             self.releases.configuration(release.id)
@@ -147,13 +118,7 @@ class ReleaseService:
         return self.releases.configuration(release_id)
 
     def render(self, release: Release) -> ConfigurationBundle:
-        """The edge configuration tree this release renders to.
-
-        The recorded rendering for a prepared release, so what an operator
-        reviews is what a deployment ships; a fresh rendering for one that was
-        only compiled. Refused, as its artifact is, for a release an installed
-        capability objected to: there is no document to render.
-        """
+        """The configuration tree this release renders to, recorded if prepared."""
         try:
             return self.releases.configuration(release.id)
         except NotFoundError:

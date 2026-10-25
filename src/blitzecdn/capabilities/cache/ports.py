@@ -1,10 +1,4 @@
-"""What the cache capability needs from the outside world.
-
-The consumer owns the port. These two describe what *this* package calls, and
-nothing here says how it is satisfied — in production by one Ansible adapter
-the control plane already has, in a test by an object that records what it was
-asked to run.
-"""
+"""What the cache capability needs from the outside world."""
 
 from __future__ import annotations
 
@@ -19,18 +13,10 @@ __all__ = ["CacheRunner", "FleetPlaybooks"]
 
 
 class FleetPlaybooks(Protocol):
-    """Run one named play across the edges in scope.
+    """Run one named play across the edges in scope, without the deployment lock.
 
-    The single primitive a capability borrows from the control plane's
-    Ansible adapter, published as ``ApplicationServices.fleet``. It is
-    deliberately generic: core stages the variables, expands the host limit
-    against the fleet it records, and applies the timeout, and it learns
-    nothing about what any particular play is for. A package that this
-    repository has never heard of runs its own play through the same method.
-
-    Takes no deployment lock. Everything reached this way is an operation
-    rather than a convergence, and a purge that had to wait for a deploy would
-    be useless exactly when it matters.
+    Core's generic primitive: it stages variables, expands the limit and applies
+    the timeout, knowing nothing of the play.
     """
 
     def run_playbook(
@@ -44,12 +30,7 @@ class FleetPlaybooks(Protocol):
 
 
 class CacheRunner(Protocol):
-    """The two plays this capability runs, in the terms it thinks in.
-
-    Both answer with an :class:`~blitzecdn.core.domain.runs.AnsibleRun`: statistics
-    come back on ``HostRun.report``, published by the role as the
-    ``blitzecdn_report`` fact, and nothing here reads Ansible's output.
-    """
+    """The two plays this capability runs; statistics arrive on ``HostRun.report``."""
 
     def run_cache_purge(
         self,

@@ -14,12 +14,10 @@ from blitzecdn.capabilities.releases.domain.release import (
 
 
 class Compilation(BaseModel):
-    """An explicit boundary between resolving resources and compiling a release.
+    """The boundary between resolving resources and compiling a release.
 
-    Canonical state is captured as encoded text because rule overrides contain
-    mappings. Holding the original model would let a later edit change the
-    input to a compilation already prepared. Feature results are canonical
-    documents for the same reason; no callable or service enters this value.
+    Canonical state is captured as encoded text and feature results as canonical
+    documents, so a later edit cannot change a prepared compilation.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

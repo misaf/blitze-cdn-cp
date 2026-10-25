@@ -1,9 +1,4 @@
-"""Declare zones, their policy, their rules, their records — and what edges get.
-
-The flat site document every edge role reads is rendered by
-:mod:`blitzecdn.capabilities.dns.wiring`: the capability that composes a
-virtual host is the one that projects it.
-"""
+"""Declare zones, policy, rules and records; wiring renders the edge document."""
 
 from __future__ import annotations
 

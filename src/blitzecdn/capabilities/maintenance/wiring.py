@@ -1,7 +1,4 @@
-"""How the maintenance capability is built.
-
-The same shape as :mod:`blitzecdn.capabilities.dns.wiring`.
-"""
+"""How the maintenance capability is built."""
 
 from __future__ import annotations
 
@@ -14,9 +11,5 @@ __all__ = ["build_maintenance_service"]
 def build_maintenance_service(
     *, jobs: JobTable, deployments: Deployments
 ) -> MaintenanceService:
-    """Wire the runner of scheduled jobs, and of the convergence they ask for.
-
-    ``jobs`` is the resolved table. The composition root resolves it once,
-    after every service a contributed job closes over has been built.
-    """
+    """Wire the job runner; ``jobs`` is resolved after every service exists."""
     return MaintenanceService(jobs=jobs, deployments=deployments)

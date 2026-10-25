@@ -19,24 +19,14 @@ cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect, issue and renew managed TLS certificates."
 )
 
-#: What ``upload`` will read from a file, matching the two ``read`` bounds the
-#: upload route passes to its multipart parts. Stated once here and once there
-#: rather than shared, because they are bounding different things — a request
-#: body the control plane did not choose to accept, and a local file the
-#: operator named — and only the second can say "that is not a PEM, check the
-#: path" instead of dropping the connection.
+#: Upload size bounds, matching the API's multipart limits; checked here so a
+#: wrong path gets a clear message.
 PEM_CERTIFICATE_LIMIT = 1_048_576
 PEM_PRIVATE_KEY_LIMIT = 262_144
 
 
 def _read_material(path: Path, limit: int) -> bytes:
-    """The file's bytes, or a CLI error naming the path that was wrong.
-
-    Refuses an oversized file by its size rather than by truncating to the
-    limit: a chain cut off mid-PEM would reach the parser as a malformed
-    certificate, and the operator would go looking at the certificate instead
-    of at the path they typed.
-    """
+    """The file's bytes, or a CLI error naming the path; oversize is refused."""
     try:
         material = path.read_bytes()
     except OSError as error:
@@ -164,9 +154,7 @@ def cert_renew(
             deployment.model_dump(mode="json") if deployment is not None else None
         )
     common.emit(output, json_output=json_output)
-    # Only the prose summary is suppressed under --json. The exit code below
-    # still has to fire: --json is the scheduled-run path, and that is exactly
-    # the caller that has nothing but the exit code to alert on.
+    # --json suppresses only the prose; the exit code still alerts scheduled runs.
     if not json_output:
         if result.renewed and not deploy_after:
             typer.echo(
@@ -339,9 +327,7 @@ def cert_acme_hook(
         },
     )
     if not run.succeeded:
-        # certbot shows this to the operator when issuance fails, so it has to
-        # be the useful line: run.summary() names the task and the edge, and
-        # the full output stays in the run log it points at.
+        # certbot shows this line on failure: the summary names the task and edge.
         _acme_fail(
             f"{run.summary()} (full output: {run.log_path})",
             ExitCode.DEPLOYMENT_FAILED,

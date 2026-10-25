@@ -1,20 +1,14 @@
 """Derive virtual hosts from zones, rules, and proxied records.
 
-Group hostnames by their zone, winning rule, and origin — not by policy
-equality: rules with identical settings remain distinct so later edits preserve
-identity, and hostnames proxied to different origins cannot share one server
-block, because a block has one upstream. Only groups containing proxied records
-produce a server block.
+Hostnames group by zone, winning rule, and origin — not by policy equality, so
+identical rules keep their identity, and different origins split because a
+server block has one upstream. Only groups with proxied records are served. A
+group whose policy no longer composes is dropped and reported, so one broken
+zone cannot fail every read.
 
-A group whose policy no longer composes is dropped and reported rather than
-raised on, so one broken zone cannot fail every read that derives hosts.
-
-Host names also determine managed certificate paths: ``example-com`` for a
-zone and ``example-com--api`` for its ``api`` rule. When a zone and rule group
-spans more than one origin, the first keeps the plain name and each further
-origin adds a slug — ``example-com`` for the first, ``example-com--203-0-113-9``
-for the next. Renaming a rule changes the derived host identity and certificate
-path; this function does not move files.
+Names are certificate paths: ``example-com`` for a zone, ``example-com--api``
+for its ``api`` rule, and an origin slug for each origin after the first.
+Renaming a rule changes the name; nothing here moves files.
 """
 
 from __future__ import annotations
@@ -40,17 +34,12 @@ __all__ = [
     "unservable_hosts",
 ]
 
-#: Two hyphens between the zone and the rule, because one is legal inside both
-#: a zone label and a rule name: `example-com-api` could be the `api` rule of
-#: `example.com` or the whole policy of `example-com-api.net`, and a
-#: certificate directory that two different exceptions can claim is a
-#: certificate one of them gets by accident.
+#: Two hyphens, because one is legal in both a zone label and a rule name and
+#: `example-com-api` would be ambiguous.
 _SEPARATOR = "--"
 
-#: A slug from an origin kept short enough that base + "--" + slug still fits a
-#: host name; a 253-character origin must not push a certificate directory past
-#: what HOST_NAME accepts. Truncation uses a digest so distinct origins stay
-#: distinct.
+#: Origin slugs are truncated with a digest so base + "--" + slug stays a valid
+#: host name and distinct origins stay distinct.
 _SLUG_LIMIT = 40
 
 #: Bits of the digest appended when a slug is truncated. Deterministic where
@@ -70,11 +59,7 @@ def _origin_slug(origin: str) -> str:
     if not slug:
         slug = "origin"
     if len(slug) > _SLUG_LIMIT:
-        # A stable name suffix, not a secret or a key. `usedforsecurity=False`
-        # is that claim stated to the interpreter rather than only to the
-        # reader: it leaves the digest byte-identical, keeps this working on a
-        # FIPS build where an unqualified sha1 raises, and satisfies both ruff
-        # and bandit without a suppression comment.
+        # A name suffix, not a security use; also keeps FIPS builds working.
         digest = hashlib.sha1(origin.encode(), usedforsecurity=False).hexdigest()
         suffix = digest[: _SLUG_DIGEST_BITS // 4]
         slug = f"{slug[:_SLUG_LIMIT]}-{suffix}"
@@ -82,12 +67,10 @@ def _origin_slug(origin: str) -> str:
 
 
 def _unique_name(candidate: str, used: set[str]) -> str:
-    """A name not yet used by another derived host, appending a counter if needed.
+    """A name not yet used by another derived host, with a counter if needed.
 
-    Collisions are possible although rare: an origin slug can spell a rule name
-    (``api.example.com`` and a rule literally named ``api-example-com``), and
-    one group's plain name can equal another's slugged one. Resolving collisions
-    in the order groups are visited keeps the outcome deterministic.
+    An origin slug can spell a rule name, so collisions are possible; visiting
+    groups in order keeps the result deterministic.
     """
     if candidate not in used:
         return candidate
@@ -102,21 +85,10 @@ def _unique_name(candidate: str, used: set[str]) -> str:
 class UnservableHost:
     """Hostnames whose policy no longer composes into a virtual host.
 
-    A derivation reads state it did not author. Zones and rules are edited
-    through services that validate, but a rollback adopts a snapshot wholesale,
-    a restore writes rows directly, and the certificates capability reaches
-    ``replace_domain`` and ``replace_rule`` without passing the entry-point
-    guards — so the composition can be handed a zone whose certificate pair
-    names a host that no longer exists, or a rule whose overrides contradict
-    the zone underneath them.
-
-    Raising on one of those would make every read of the fleet fail for one
-    broken zone: ``list_sites`` derives all of them together, and the API's
-    handler reports a ``ValidationError`` as a 422, so a corrupt *stored* row
-    would come back to an operator as though their request were malformed.
-    Dropping the host is the answer the rest of the code already assumes —
-    ``dns.domain.patch`` says so in prose — and this type is what makes the
-    drop visible instead of silent.
+    Rollbacks, restores and the certificate issuer write state without the editor's
+    guards, so a derivation can meet contradictory policy. Raising would fail every
+    fleet read (and surface a stored row as a 422); dropping the host and recording
+    why makes the drop visible.
     """
 
     #: The hostnames that stop being served. Never empty.
@@ -140,14 +112,7 @@ class UnservableHost:
 
 
 def _reason(exc: ValidationError) -> str:
-    """What a model refused, without pydantic's frame around it.
-
-    The messages only. An operator reading ``blitzecdn validate`` is being told
-    which combination of settings is impossible, and the field locations repeat
-    what the message already names — while the model and error counts around
-    them describe the derivation's internals rather than the zone they have to
-    go and fix.
-    """
+    """What a model refused, as messages only, without pydantic's framing."""
     return "; ".join(
         str(error["msg"]).removeprefix("Value error, ") for error in exc.errors()
     )
@@ -160,18 +125,8 @@ def derive_hosts(
 ) -> list[CdnSite]:
     """Every virtual host the fleet should serve, in a stable order.
 
-    One per group of hostnames that resolve alike: the zone's own policy, and
-    each rule that some proxied record matched. A group is identified by its
-    zone, its winning rule, and the origin its records proxy to, because a
-    server block has a single upstream; hostnames on one policy but different
-    origins split into separate sites.
-
-    The origin always exists — a proxied record's ``value`` is where the edge
-    fetches from — but a site can be absent, because state this function did
-    not author can present policy that no longer agrees. Those groups are
-    dropped rather than raised on; :func:`unservable_hosts` is the same
-    derivation asked for what it dropped and why, and
-    ``DnsService.validation_errors`` is where an operator meets the answer.
+    Groups that no longer compose are dropped; :func:`unservable_hosts` reports
+    them, and ``DnsService.validation_errors`` shows them to an operator.
     """
     hosts, _ = _derive(domains, rules, records)
     return hosts
@@ -182,14 +137,7 @@ def unservable_hosts(
     rules: Sequence[Rule],
     records: Sequence[DnsRecord],
 ) -> list[UnservableHost]:
-    """What :func:`derive_hosts` dropped from this state, and why.
-
-    The same derivation, asked the other question. Two functions over one
-    implementation rather than a second pass that re-decides what is servable:
-    a second answer here would be free to disagree with the first, and the
-    disagreement would read as "validate says the fleet is fine and the
-    hostnames are still dark".
-    """
+    """What :func:`derive_hosts` dropped, and why, from the same derivation."""
     _, refused = _derive(domains, rules, records)
     return refused
 
@@ -206,9 +154,7 @@ def _derive(
         if rule.domain in rules_by_zone:
             rules_by_zone[rule.domain].append(rule)
 
-    # Keyed rather than appended: a hostname's A and AAAA record resolve
-    # through the same rule and fail identically, and one dark hostname should
-    # be reported once.
+    # Keyed, so a hostname's A and AAAA records are reported once.
     refusals: dict[tuple[str | None, tuple[str, ...]], str] = {}
 
     hostnames: dict[tuple[str, str | None, str], list[str]] = {}
@@ -219,16 +165,11 @@ def _derive(
         try:
             resolved = resolve_policy(zone, rules_by_zone[zone.name], record.fqdn)
         except ValidationError as exc:
-            # The rule that won this hostname produces a merged zone the zone's
-            # own invariants refuse. It fails here, before any group exists, so
-            # there is no derived host name to name — the hostname is what the
-            # operator has to go and look at anyway.
+            # The winning rule's merge is invalid before any group exists, so the
+            # hostname is what gets reported.
             refusals[(None, (record.fqdn,))] = _reason(exc)
             continue
-        # `dict.fromkeys` further down keeps this de-duplicated: the A and the
-        # AAAA record for one hostname resolve to the same group — same origin,
-        # or validation has already refused — and must contribute one
-        # `server_name`, not two.
+        # A and AAAA records for one hostname contribute one `server_name`.
         hostnames.setdefault((zone.name, resolved.rule, record.value), []).append(
             record.fqdn
         )
@@ -251,16 +192,12 @@ def _derive(
                 names = hostnames[(zone_name, rule_name, origin)]
                 if not names:
                     continue
-                # The first origin of a group keeps the plain name so that the
-                # common one-origin case needs no suffix; further
-                # origins add a slug, and a name already taken gets a counter.
+                # The first origin keeps the plain name; later ones add a slug.
                 candidate = (
                     base if index == 0 else f"{base}{_SEPARATOR}{_origin_slug(origin)}"
                 )
-                # Claimed even when the group turns out to be unservable. A
-                # name is a certificate directory, so the host that follows a
-                # broken one must not move into its place and then move back
-                # when the break is fixed.
+                # Claimed even when unservable: a name is a certificate
+                # directory, and the next host must not take it meanwhile.
                 name = _unique_name(candidate, used)
                 used.add(name)
                 server_names = tuple(dict.fromkeys(names))
@@ -287,12 +224,7 @@ def _derive(
 
 
 def _policy_for(zone: Domain, rules: Sequence[Rule], rule_name: str | None) -> Domain:
-    """The zone's policy with one named rule applied, or none of them.
-
-    Applied by name rather than by re-resolving a hostname: the group already
-    knows which rule won, and asking again with one of its hostnames would make
-    the answer depend on a member of the group rather than on the group.
-    """
+    """The zone's policy with the group's named rule applied, or the zone's own."""
     if rule_name is None:
         return zone
     rule = next(item for item in rules if item.name == rule_name)
@@ -304,16 +236,9 @@ def host_source(
 ) -> tuple[str, str | None] | None:
     """The zone and rule a derived host name came from, or ``None``.
 
-    The inverse of :func:`host_name` (and of the origin-slugged names
-    :func:`derive_hosts` adds when a group spans several origins), computed by
-    asking that function rather than by taking the name apart. Splitting on the
-    separator would be a second, weaker copy of the naming rule: it would have
-    to know that a zone's dots become hyphens, and it would answer confidently
-    for a name no zone could ever produce.
-
-    Several names can claim one name — ``example-com--api`` is ``api``'s plain
-    name and ``example.com``'s ``api``-slugged one — so the longest base that
-    exactly equals or prefixes the name wins.
+    Computed by asking :func:`host_name` rather than splitting the name, which
+    would answer confidently for names no zone produces. Where several bases claim
+    a name, the longest matching base wins.
     """
     candidates: list[tuple[str, str, str | None]] = []
     for domain in domains:

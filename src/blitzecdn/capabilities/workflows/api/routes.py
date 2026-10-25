@@ -1,9 +1,4 @@
-"""Reading the journal.
-
-Two routes, owned by the journal rather than by any one caller of it: a
-deployment and a certificate issuance both keep a workflow and read it back
-through the same endpoint.
-"""
+"""Reading the journal, for every kind of workflow."""
 
 from fastapi import APIRouter, Depends, Query
 

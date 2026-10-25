@@ -1,11 +1,4 @@
-"""Durable background work, and when recurring work is next due.
-
-Part of the one description of what is on disk. The rules `core.persistence`
-sets out still hold — a column per queryable fact, JSON for a value object no
-query reaches — and every column here is queried: a claim filters on status and
-availability, a lease sweep on expiry, and the single-flight guarantee is a
-unique index rather than a check somebody remembered to write.
-"""
+"""Durable background work, and when recurring work is next due."""
 
 from __future__ import annotations
 
@@ -30,11 +23,8 @@ class JobRow(Base, table=True):
         ),
         CheckConstraint("attempts >= 0", name="jobs_attempts_check"),
         CheckConstraint("max_attempts >= 1", name="jobs_max_attempts_check"),
-        # The single-flight guarantee, enforced by the database rather than by
-        # application code. Partial, so it binds only while a job is unfinished:
-        # a scheduled job that ran an hour ago must not stop the next firing,
-        # and a finished row keeping its key would do exactly that. Being a
-        # column on the job, it cannot outlive the work it guards.
+        # Single-flight, enforced by a partial unique index binding only while the
+        # job is unfinished.
         Index(
             "ix_jobs_dedupe_key_unfinished",
             "dedupe_key",
@@ -68,12 +58,7 @@ class JobRow(Base, table=True):
 
 
 class ScheduleRow(Base, table=True):
-    """When one recurring job is next allowed to be enqueued.
-
-    Durable so an outage cannot silently swallow a firing: a controller that
-    starts and finds a schedule overdue enqueues it, rather than resetting an
-    in-memory timer and waiting out another whole interval.
-    """
+    """When one recurring job may next be enqueued, durable across outages."""
 
     __tablename__ = "job_schedules"
     __table_args__ = (

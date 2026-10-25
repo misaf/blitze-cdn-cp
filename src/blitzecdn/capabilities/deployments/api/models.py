@@ -1,11 +1,6 @@
 """The HTTP representations this capability publishes, and the bodies it takes.
 
-``Deployment`` is this capability's shape even though `certificates` returns
-one too: a renewal that triggers a convergence answers with what
-`deployments` published, imported from here rather than restated. The result
-inside it is core's `AnsibleRun`, and the durable progress a caller polls is
-core's `Workflow` — a deployment is one kind of workflow, not the definition
-of one.
+``Deployment`` is reused by other capabilities that answer with a convergence.
 """
 
 from __future__ import annotations
@@ -28,9 +23,7 @@ class Deployment(Model):
     status: DeploymentStatus
     operator: str
     check_mode: bool
-    #: The compiled release this run converged. The link between "what did we
-    #: deploy" and "what does that mean", which a client follows to
-    #: ``GET /v1/releases/{id}`` for the artifact digests and the explanation.
+    #: The converged release; follow ``GET /v1/releases/{id}`` for its artifacts.
     release_id: str
     host_limit: str | None = None
     rollback_of: str | None = None
@@ -43,13 +36,7 @@ class Deployment(Model):
 
 
 class DeploymentTarget(Model):
-    """One edge's progress through one deployment.
-
-    Published because the question it answers has no other home: an operator
-    or a dashboard looking at a failed fleet deploy needs to know which edges
-    are on the new configuration and which are still on the old, and a
-    fleet-wide result can only report the second as an absence.
-    """
+    """One edge's progress through one deployment: which edges are on which config."""
 
     edge: str
     status: TargetStatus

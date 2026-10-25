@@ -1,25 +1,10 @@
 """Converging a fleet one edge at a time, with the progress written down.
 
-The policy is canary first and stop on the first failure, applied here rather
-than by ``serial`` batching inside the play, so each edge's progress is a row
-and a rollout can be resumed. What that buys is in
-:mod:`~blitzecdn.capabilities.deployments.domain.target`; what this module owns
-is the ordering, the fence, and the decision about what a failure means.
-
-Fencing
--------
-Taking a deployment over increments its generation, and every write to a target
-row names the generation it was read at. A worker paused past its job lease —
-the queue's lease says who *may* converge; this says whose result is *recorded*
-— comes back to find its generation stale and its writes matching nothing. It
-is stopped by the fence rather than by being asked to notice it has been away.
-
-Stopping
---------
-The first edge to fail stops the rollout, and the edges after it are recorded
-SKIPPED rather than FAILED. That distinction is load-bearing: a skipped edge is
-still serving whatever it had and nothing is known to be wrong with it, and
-reporting one as a failure sends an operator to look at a host that is fine.
+Canary first and stop at the first failure, done here rather than by ``serial``
+in the play, so progress is a row and a rollout can resume. Each takeover bumps
+a generation that every target write names: the queue's lease says who may
+converge, the fence says whose result is recorded. Edges after a failure are
+SKIPPED, not FAILED — they are still serving what they had.
 """
 
 from __future__ import annotations
@@ -57,10 +42,8 @@ class RolloutOutcome:
     """What a rollout did, per edge, and whether the fleet reached the release."""
 
     targets: tuple[DeploymentTarget, ...]
-    #: The last Ansible result produced, kept because the deployment record
-    #: still carries one and an operator still reads it. A per-edge rollout has
-    #: several; this is the one that decided the outcome — the first failure,
-    #: or the last success.
+    #: The deciding Ansible result — first failure, or last success — which the
+    #: deployment record carries.
     run: AnsibleRun | None
     #: Why the rollout stopped, when it stopped early.
     error: str | None = None
@@ -81,12 +64,7 @@ class RolloutOutcome:
 
     @property
     def unattempted(self) -> tuple[str, ...]:
-        """Edges this rollout aimed at and never touched.
-
-        The difference between "the deploy failed" and "the fleet is now
-        running two configurations", which a fleet-wide run could only report
-        as an absence.
-        """
+        """Edges this rollout aimed at and never touched."""
         return tuple(
             target.edge
             for target in self.targets
@@ -111,10 +89,7 @@ class Rollout:
         self.runner = runner
         self.addresses = addresses
         self.verifier = verifier
-        #: Puts the release's artifact where Ansible will read it. A callable
-        #: rather than a port, because it is one bound method of the service
-        #: that owns this rollout and giving it a Protocol of its own would be
-        #: naming a seam that has one side.
+        #: A bound method of the owning service; a Protocol would name a one-sided seam.
         self.publish = publish
         self.clock = clock
 
@@ -128,21 +103,14 @@ class Rollout:
     ) -> RolloutOutcome:
         """Take every edge through the phases, stopping at the first failure.
 
-        ``check`` narrows the whole rollout to its ``VALIDATE`` phase: a
-        check-mode run reports what would change on each edge and changes
-        nothing, so staging, activating and verifying are all things it must
-        not do. That is what makes ``blitzecdn plan`` and the hourly drift
-        check safe to run against a live fleet.
+        ``check`` limits the rollout to ``VALIDATE``, which is what makes ``plan`` and
+        the drift check safe on a live fleet.
         """
         fence = self.targets.claim_generation(deployment_id)
         self.targets.plan(deployment_id, edges, fence=fence)
         phases = self._phases(check)
-        # The artifact is published once, here, and not once per edge: it is a
-        # fact about the deployment rather than about any host, and every edge
-        # in a rollout converges the same bytes. Doing it before the loop also
-        # means a fleet with no edges registered still gets this release's
-        # desired state on disk, so an operator can look at what would have
-        # been sent.
+        # Published once per deployment, before the loop, so even an empty fleet has
+        # the release's desired state on disk to inspect.
         self.publish(release)
 
         last_run: AnsibleRun | None = None
@@ -209,20 +177,14 @@ class Rollout:
         fence: int,
         check: bool,
     ) -> tuple[str | None, AnsibleRun | None]:
-        """One edge through every phase. Returns the failure, or ``None``.
+        """One edge through every phase; returns the failure, or ``None``.
 
-        Every phase is idempotent, so a resumed edge re-runs the phase it was
-        interrupted in rather than this having to reason about how far into it
-        a dead process had got. Re-publishing an artifact, re-checking a play
-        and re-converging an already-converged edge all cost time and change
-        nothing.
+        Every phase is idempotent, so a resumed edge simply re-runs its interrupted one.
         """
         if not self.targets.begin(
             deployment_id, target.edge, fence=fence, now=self.clock()
         ):
-            # The fence moved: another worker owns this rollout now. Reporting
-            # a failure here would be this worker's opinion about an edge it no
-            # longer has any claim on.
+            # The fence moved: another worker owns this rollout now.
             return "the rollout was taken over by another worker", None
 
         last_run: AnsibleRun | None = None
@@ -232,13 +194,8 @@ class Rollout:
             try:
                 produced = self._run_phase(phase, target.edge, release, check=check)
             except ExecutionError as exc:
-                # Ansible could not be executed at all: a missing binary, an
-                # unreadable inventory, a controller that is misconfigured. That
-                # is not this edge's failure and no other edge would fare
-                # better, so the row is closed out honestly and the error goes
-                # up to the caller, which fails the deployment and re-raises.
-                # Swallowing it here would report a fleet-wide breakage as one
-                # edge declining to converge.
+                # Ansible could not run at all: a controller fault, not this
+                # edge's. Close the row and re-raise to fail the deployment.
                 detail = self._withdraw(phase, target.edge, str(exc), check=check)
                 self._fail(
                     deployment_id,
@@ -264,9 +221,7 @@ class Rollout:
                         phase, target.edge, f"{type(exc).__name__}: {exc}", check=check
                     ),
                 ), last_run
-            # PREPARE produces no tool result. VERIFY observes the public
-            # listener before committing the edge-local journal; its commit
-            # result must not clear a failed activation's original report.
+            # VERIFY's commit result must not clear a failed activation's report.
             last_run = produced or last_run
             if produced is not None and not produced.succeeded:
                 return self._fail(
@@ -319,17 +274,11 @@ class Rollout:
     ) -> AnsibleRun | None:
         """Do one phase for one edge, or nothing when the phase is not a run.
 
-        PREPARE is shared controller work and produces no run. VERIFY makes
-        the external request first, then commits the pending activation with
-        an explicit tool run. Observation failures raise; a failed tool result
-        remains distinct from a phase that could not be executed.
+        VERIFY observes first, then commits the activation with a tool run.
+        Observation failures raise; a failed tool result is reported, not raised.
         """
         if phase is TargetPhase.PREPARE:
-            # Nothing to do per edge: `converge` published the artifact once,
-            # before the loop. The phase is still recorded on every target
-            # because a target's row is meant to tell that edge's whole story
-            # without joining anything — "this edge got as far as prepare"
-            # reads correctly whether or not the work was shared.
+            # Shared work done once in `converge`, still recorded on every target.
             return None
         if phase is TargetPhase.VALIDATE:
             return self.runner.run(check=True, host_limit=edge)
@@ -345,12 +294,10 @@ class Rollout:
     def _withdraw(
         self, phase: TargetPhase, edge: str, detail: str, *, check: bool
     ) -> str:
-        """Withdraw an uncommitted activation, preserving both failure reports.
+        """Withdraw an uncommitted activation, keeping both failure reports.
 
-        The remote journal, rather than controller memory, owns the previous
-        pointer and runtime definition. This also works after worker restart
-        between ACTIVATE and VERIFY. Never describe a failed rollback as a
-        restored service, and keep the activation's tool result intact.
+        The edge's journal holds the previous state, so this works across a worker
+        restart. A failed withdrawal is never reported as a restored service.
         """
         if check or phase not in (TargetPhase.ACTIVATE, TargetPhase.VERIFY):
             return detail
@@ -367,14 +314,9 @@ class Rollout:
         )
 
     def _verify(self, edge: str, release: Release) -> None:
-        """Require the edge to answer for what the release says it serves.
+        """Require the edge to answer for what the release says it serves; raise if not.
 
-        Raises rather than returning a result, because from the rollout's point
-        of view an edge that does not answer is indistinguishable from a phase
-        that could not run: both mean this edge did not reach the release.
-
-        An edge with no verification address is unverified and fails this phase.
-        The caller must supply an address instead of silently recording success.
+        An edge with no verification address fails rather than passing silently.
         """
         address = self.addresses.public_address(edge)
         if address is None:
@@ -395,12 +337,7 @@ class Rollout:
 
 
 def _already_done(reached: TargetPhase, phase: TargetPhase) -> bool:
-    """Whether a resumed edge has already completed this phase.
-
-    Compared by position rather than by equality, because "already done" means
-    "at or before the phase this edge last completed" and an enum has no order
-    of its own worth relying on.
-    """
+    """Whether a resumed edge has already completed this phase, by phase order."""
     from blitzecdn.capabilities.deployments.domain import PHASE_ORDER
 
     return PHASE_ORDER.index(phase) <= PHASE_ORDER.index(reached)

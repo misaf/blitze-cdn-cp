@@ -1,14 +1,4 @@
-"""The workflow journal, as it is stored.
-
-Part of the one description of what is on disk, and held to the rules
-`core.persistence` sets out: a column per queryable fact, JSON for a value no
-query reaches, and no invariant here that `domain` does not own. Alembic still
-compares against `Base.metadata`, which this row registers itself in by
-importing that base.
-
-Here rather than in `core.persistence.tables` for the reason every capability's
-table sits beside the store that reads it: the journal is this capability's.
-"""
+"""The workflow journal, as it is stored."""
 
 from __future__ import annotations
 
@@ -29,10 +19,8 @@ class WorkflowRow(Base, table=True):
 
     __tablename__ = "workflows"
     __table_args__ = (
-        # The shape of a kind, because the set of them is not this table's to
-        # know: a capability names its own. What SQL can be sure of is
-        # non-empty, lowercase and bounded — the same guarantee `WorkflowKind`
-        # gives in Python.
+        # Kinds are named by capabilities; SQL checks only shape, as `WorkflowKind`
+        # does.
         CheckConstraint(
             "kind <> '' AND length(kind) <= 64 AND kind = lower(kind)",
             name="workflows_kind_check",
@@ -44,9 +32,7 @@ class WorkflowRow(Base, table=True):
         # `created_at`, not `updated_at`: every query here orders by the
         # former and none by the latter.
         Index("workflows_status_idx", "status", "created_at"),
-        # And the same column alone, for the unfiltered list, which is a full
-        # scan and a sort without it. `deployments` is this table's twin and
-        # carries the same pair.
+        # The column alone, for the unfiltered list.
         Index("ix_workflows_created_at", "created_at"),
     )
 

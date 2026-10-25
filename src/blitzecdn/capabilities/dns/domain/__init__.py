@@ -1,8 +1,7 @@
-"""Canonical zones, records, rules, and their effective-host projection.
+"""Canonical zones, records, rules, and the virtual hosts derived from them.
 
-DNS owns authoring and derivation. Shared serving policy and virtual-host
-values live in the serving module, so compilation and execution can consume
-those contracts without importing DNS lifecycle concerns.
+Shared serving policy lives in `serving`, so compilation and execution consume
+it without importing DNS lifecycle concerns.
 """
 
 from blitzecdn.capabilities.dns.domain.commands import (

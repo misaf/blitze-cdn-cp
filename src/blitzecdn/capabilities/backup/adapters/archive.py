@@ -1,9 +1,4 @@
-"""The archive container, and the private directory backups are built in.
-
-One format for every backup — gzipped tar — chosen because it is the format an
-operator already has a tool for on a host where BlitzeCDN will not start. A
-backup that can only be read by the thing that is broken is not a backup.
-"""
+"""The archive container — gzipped tar, readable where BlitzeCDN won't start."""
 
 from __future__ import annotations
 
@@ -23,9 +18,7 @@ from blitzecdn.core.exceptions import ConfigurationError
 #: one is a few hundred bytes; anything approaching this is not a manifest.
 _MAX_MEMBER_BYTES = 1_048_576
 
-#: Members are not a stream we consume lazily — the whole list is checked
-#: before anything is extracted — so a cap keeps a hostile archive from
-#: exhausting memory during the check that was supposed to protect us.
+#: The whole member list is checked before extraction, so cap it.
 _MAX_MEMBERS = 100_000
 
 
@@ -42,13 +35,10 @@ class TarArchive:
     """Gzipped tar, written atomically and read only after it is checked."""
 
     def write(self, source: Path, destination: Path) -> None:
-        """Pack ``source``'s contents into a new archive at ``destination``.
+        """Pack ``source`` into a new archive at ``destination``, never overwriting.
 
-        Built beside the destination and linked into place, so a reader never
-        sees a half-written archive and a crash leaves a temporary file rather
-        than a truncated backup. ``os.link`` rather than ``os.replace`` is what
-        makes "never overwrite" true against a concurrent writer: replace would
-        happily clobber a file that appeared after the earlier existence check.
+        Built beside it and hard-linked into place, so readers never see a partial file
+        and a concurrent writer's file is never clobbered.
         """
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         descriptor, temporary_name = tempfile.mkstemp(
@@ -56,9 +46,7 @@ class TarArchive:
         )
         temporary = Path(temporary_name)
         try:
-            # The archive carries private keys. It is created 0600 before a
-            # byte is written, not chmod-ed afterwards, so there is no window
-            # in which it is readable.
+            # Created 0600 before any byte is written; it carries private keys.
             os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "wb") as stream:
                 with tarfile.open(fileobj=stream, mode="w:gz") as archive:
@@ -77,13 +65,7 @@ class TarArchive:
 
     @staticmethod
     def _add(archive: tarfile.TarFile, path: Path, name: str) -> None:
-        """Add one staged file, with nothing of this host recorded on it.
-
-        Ownership and the absolute path are deliberately dropped. A backup is
-        restored onto a host whose uids differ and whose install directory may
-        differ, and a tar that remembers `blitzecdn:1001` and
-        `/opt/blitzecdn/.state` would restore the wrong thing on it.
-        """
+        """Add one staged file without this host's ownership or absolute path."""
         if path.is_symlink():
             raise ConfigurationError(f"refusing to archive a symlink: {name}")
         if not (path.is_file() or path.is_dir()):
@@ -147,13 +129,7 @@ class TarArchive:
                 return stream.read(_MAX_MEMBER_BYTES + 1)[:_MAX_MEMBER_BYTES]
 
     def extract(self, archive: Path, destination: Path) -> None:
-        """Unpack a *previously validated* archive into a private directory.
-
-        The member rules are applied again here rather than trusted from the
-        caller. They are cheap, and this is the call that writes: a future
-        refactor that reorders the service must not be able to turn a check
-        that ran into a check that did not.
-        """
+        """Unpack a validated archive, re-checking every member as it writes."""
         destination.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self._open(archive) as handle:
             members = handle.getmembers()
@@ -165,19 +141,14 @@ class TarArchive:
                 )
                 if reason is not None:
                     raise ConfigurationError(reason)
-            # `filter="data"` is the standard library's own hardening — it
-            # strips ownership and refuses escapes and special files. Belt and
-            # braces with the rules above, which are the ones this project
-            # states and tests.
+            # `filter="data"` adds the standard library's hardening to our own rules.
             handle.extractall(destination, members=members, filter="data")
 
     @staticmethod
     @contextmanager
     def _open(archive: Path) -> Iterator[tarfile.TarFile]:
         try:
-            # This *is* the context manager; opening inside the `try`
-            # is what turns "not a tar file" into an operator-safe message
-            # rather than a traceback out of the standard library.
+            # Opened inside the `try` so "not a tar file" becomes a clear message.
             handle = tarfile.open(archive, mode="r:gz")  # noqa: SIM115
         except (tarfile.TarError, OSError, EOFError) as exc:
             raise ConfigurationError(f"{archive} is not a readable backup") from exc
@@ -190,12 +161,9 @@ class TarArchive:
 
 
 class TemporaryWorkspace:
-    """Somewhere private to stage a backup, removed however the caller leaves.
+    """Private staging for a backup, removed however the caller leaves.
 
-    Created under the state directory rather than `/tmp`: a staged backup is a
-    complete copy of the database and every private key, and `/tmp` is
-    world-readable, frequently a tmpfs too small to hold it, and on many hosts
-    shared with every other service.
+    Under the state directory, not `/tmp`: it holds the database and every key.
     """
 
     def __init__(self, root: Path) -> None:

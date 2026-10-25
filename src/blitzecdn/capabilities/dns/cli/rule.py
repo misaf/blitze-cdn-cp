@@ -1,16 +1,7 @@
-"""`rule` — the overrides that apply to some hostnames in a zone and not others.
+"""`rule` — overrides that apply to some hostnames in a zone and not others.
 
-The settings are given as ``--set name=value`` rather than as twenty typed
-flags, which is the opposite of how `domain` spells the same settings, so it is
-worth saying why. A `domain` command sets one named setting and can say in its
-signature what that setting takes. A rule holds *whichever* settings an
-operator wants to override, so the equivalent would be twenty optional flags
-per command with nineteen unset on every call — and the flag that is missing
-from the list is invisible until somebody needs it.
-
-The values are validated against the same ``DomainPatch`` the API uses, so
-``--set cache_valid_success=nonsense`` is refused here for the reason it would
-be refused there, with the same message.
+Settings are given as ``--set name=value``, since a rule holds whichever
+settings it overrides, and validated against the API's ``DomainPatch``.
 """
 
 from __future__ import annotations
@@ -32,12 +23,7 @@ _SET_HELP = (
 
 
 def _parse_overrides(pairs: list[str]) -> dict[str, Any]:
-    """``name=value`` into the mapping a rule stores.
-
-    JSON first so that ``false``, ``0`` and ``null`` arrive as themselves
-    rather than as the strings that spell them; plain text otherwise, because
-    every duration and hostname a setting takes would need quoting if not.
-    """
+    """``name=value`` pairs, JSON-decoded where possible so ``false`` stays a bool."""
     overrides: dict[str, Any] = {}
     for pair in pairs:
         name, separator, value = pair.partition("=")

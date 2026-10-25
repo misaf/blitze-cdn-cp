@@ -1,9 +1,4 @@
-"""The `tls` contract\'s switches: encryption mode and minimum visitor version.
-
-Edits fields declared by :mod:`blitzecdn.capabilities.tls.contract`. Issuing and
-renewing the certificate those modes require is not here — that is
-`tls.certificates`, which contributes its own commands.
-"""
+"""The `tls` contract's switches: encryption mode and minimum visitor version."""
 
 from __future__ import annotations
 

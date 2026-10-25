@@ -1,8 +1,8 @@
-"""HTTP request and response models for zones, records, rules, and resolved hosts.
+"""HTTP models for zones, records, rules, and resolved hosts.
 
-Validation delegates to the DNS domain models. Explicit wire models keep
-OpenAPI shapes independent of internal representations; parity tests ensure
-that the zone API exposes every domain field."""
+Validation delegates to the domain models; parity tests check the zone API
+exposes every domain field.
+"""
 
 from __future__ import annotations
 
@@ -97,12 +97,7 @@ class Domain(ZonePolicy):
 
 
 class DomainPatch(Model):
-    """A partial update to a zone's policy. Unset fields are left alone.
-
-    ``name`` is absent: a zone is identified by its name and the records hang
-    off it, so a patch that could set one would be a rename that silently
-    orphaned them.
-    """
+    """A partial update to a zone's policy; the name, its identity, is not patchable."""
 
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
@@ -163,10 +158,8 @@ class DnsRecord(Model):
 class RecordPatch(Model):
     """A partial update to a record. ``proxied`` and ``value`` are independent.
 
-    A record always carries a value, so flipping the edge on or off never
-    touches the address: ``{"proxied": false}`` makes the value public, and
-    ``{"proxied": true}`` makes it the origin. ``value`` is still patchable on
-    its own to repoint a hostname.
+    Flipping ``proxied`` never touches the address: off makes it public, on makes
+    it the origin.
     """
 
     value: str | None = None
@@ -178,12 +171,7 @@ class RecordPatch(Model):
 
 
 class CdnSite(ZonePolicy):
-    """One virtual host, as the fleet will be asked to serve it.
-
-    Published without the two identity fields a zone has, and with the two a
-    host has instead: ``name`` is derived from the zone and the rule that
-    produced it, and ``server_names`` is the hostnames that resolved here.
-    """
+    """One virtual host: a derived ``name`` and the hostnames resolving to it."""
 
     name: str
     server_names: tuple[str, ...]
@@ -195,13 +183,7 @@ class CdnSite(ZonePolicy):
 
 
 class RuleBody(Model):
-    """What a rule matches and what it changes, shared by the read and the write.
-
-    ``overrides`` is the published patch body — the same twenty optional fields
-    an operator would send to change the zone itself. Publishing it as a typed
-    body rather than a free-form object is what lets a generated client say
-    that ``cache_valid_success`` takes a string before the request is sent.
-    """
+    """What a rule matches and changes; ``overrides`` is the typed zone patch body."""
 
     priority: int = Field(default=100, ge=1, le=1000)
     match: str = "*"
@@ -229,12 +211,7 @@ class RuleCreate(RuleBody):
 
     @model_validator(mode="after")
     def valid_rule(self) -> Self:
-        """Round-tripped through the domain model, minus the zone it is in.
-
-        The zone arrives on the path, so the one rule that cannot be checked
-        here is that the match falls inside it. The service checks that against
-        the real zone, which is where it belongs anyway.
-        """
+        """Validated by the domain model; the service checks the zone match."""
         self.to_domain("example.invalid", match="*")
         return self
 
@@ -252,11 +229,7 @@ class RuleCreate(RuleBody):
 
 
 class RulePatch(Model):
-    """A partial update to a rule. Unset fields are left alone.
-
-    ``overrides`` is replaced wholesale when present rather than merged; see
-    the domain model for why a rule cannot accumulate settings it can't shed.
-    """
+    """A partial update to a rule; ``overrides``, when present, replaces wholesale."""
 
     priority: int | None = Field(default=None, ge=1, le=1000)
     match: str | None = None
@@ -271,13 +244,7 @@ class RulePatch(Model):
 
 
 class ResolvedPolicy(Model):
-    """How one hostname is served once the zone and its rules are both read.
-
-    ``policy`` is the zone as it applies to this hostname — the same shape the
-    zone itself is published as, with the winning rule's overrides already in
-    it — and ``rule`` names the rule that applied. Both, because "why is this
-    hostname not caching" needs the answer and the reason in one response.
-    """
+    """How one hostname is served, and which rule decided it."""
 
     fqdn: str
     rule: str | None = None

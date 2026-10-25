@@ -1,11 +1,6 @@
 """The zone itself: add one, look at it, repoint its origin, remove it.
 
-What this capability owns outright. Everything else in this package edits a
-field that belongs to some other capability's contract, or a record.
-
-What is not here is the list of hostnames a zone serves. Those are its proxied
-records, added and removed with 'blitzecdn record add' and
-'blitzecdn record proxy'.
+Its hostnames are its proxied records, managed with 'blitzecdn record'.
 """
 
 from __future__ import annotations
@@ -71,12 +66,7 @@ def domain_show(
 
 
 def _cleared(no_request_host: bool, no_sni: bool) -> frozenset[str]:
-    """The origin fields an explicit `--no-*` asked to put back to the default.
-
-    `None` is a real value for both — it means "use the visitor's Host", and
-    "follow the request host" — so it cannot double as "the operator did not
-    mention this". These two names are how the patch is told the difference.
-    """
+    """The origin fields an explicit `--no-*` reset, since `None` is a real value."""
     asked = {"origin_request_host": no_request_host, "origin_sni": no_sni}
     return frozenset(field for field, clear in asked.items() if clear)
 
@@ -143,10 +133,7 @@ def domain_origin(
     }
     if not named:
         raise typer.BadParameter("give at least one of --request-host or --sni")
-    # Built from the dict rather than by keyword: a patch applies the fields
-    # that were *set*, and `origin_sni=None` passed for an option nobody named
-    # would clear the override instead of leaving it alone. Going through the
-    # dict is what keeps "not mentioned" and "explicitly cleared" distinct.
+    # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
     identity = zone.policy.origin.origin_request_host or "the visitor's Host header"
     report(
@@ -194,9 +181,7 @@ def domain_remove(
 ) -> None:
     """Remove a zone and every record in it.
 
-    The sites those records routed to are left alone. They stop being reachable
-    at the next deploy, because nothing answers for their hostnames any more,
-    and their configuration survives for a record that points back at them.
+    Its virtual hosts are withdrawn at the next deploy.
     """
     if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()

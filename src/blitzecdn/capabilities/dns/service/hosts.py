@@ -1,9 +1,7 @@
-"""Derived virtual hosts and certificate/automatic SSL writeback.
+"""Derived virtual hosts, and certificate and automatic SSL writeback.
 
-Zones, rules, and records are canonical desired state. Virtual hosts are
-derived by ``dns.domain.hosts`` and are never stored independently. The
-writes here read inside the transaction they write in, so what they check is
-what they commit against."""
+Writes read inside the transaction they write in.
+"""
 
 from __future__ import annotations
 
@@ -49,9 +47,7 @@ class HostService:
     # -- The virtual hosts, derived ------------------------------------
 
     def list_sites(self) -> list[CdnSite]:
-        """Derive all virtual hosts from current zones, rules, and records.
-
-        This implements the ``SiteReader`` contract exposed as ``platform.sites``."""
+        """Derive all virtual hosts from current zones, rules, and records."""
         return derive_hosts(
             self.zones.list_domains(),
             self.rules.list_rules(),
@@ -59,13 +55,7 @@ class HostService:
         )
 
     def get_site(self, name: str) -> CdnSite:
-        """One virtual host by its derived name.
-
-        A linear scan of a derivation rather than a keyed read. The set is one
-        entry per zone plus one per rule that claims a hostname, which is the
-        same order of magnitude as the zones themselves, and a lookup index
-        over a derived value would be the projection this change removed.
-        """
+        """One virtual host by its derived name, by scanning the derivation."""
         for site in self.list_sites():
             if site.name == name:
                 return site
@@ -76,13 +66,7 @@ class HostService:
     def activate_managed_certificate(
         self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
     ) -> CdnSite:
-        """Record a managed certificate against whatever produced this host.
-
-        The zone, or the rule that bent it. Which one is recovered from the
-        host's name, because that name is a function of exactly those two
-        things. Writing to the zone in both cases would give a rule's hostnames
-        a certificate issued for somebody else's names.
-        """
+        """Record a managed certificate on the zone or rule that produced this host."""
         certificate_path, certificate_key_path = managed_certificate_paths(
             site.name, version
         )
@@ -100,22 +84,9 @@ class HostService:
     ) -> CdnSite | None:
         """Persist an upgrade only while the host remains enrolled in Auto.
 
-        The scan that proposes the upgrade probes origins over the network and
-        takes as long as that does, so the state it decided against is old by
-        the time it gets here. Both guards are therefore asked again — inside
-        the transaction, against the canonical rows, at the moment of writing.
-        An operator who opts out of Auto or picks a stronger mode while a scan
-        is running wins, because the guard they lose to is the one that runs
-        after them or not at all.
-
-        Re-reading inside the Unit of Work is what makes that true rather than
-        nearly true: ``transaction`` reserves the SQLite writer with ``BEGIN
-        IMMEDIATE`` before the read, so no operator write can land between the
-        two guards and the ``replace_domain`` they are guarding. Read outside
-        it — which is what this did — and the guards are answers about a zone
-        that may already have changed, which is precisely the case they exist
-        for. The cost is the write lock held across a derivation; this runs on
-        a reconciliation interval, not on a request.
+        The scan ran long before this, so both guards are re-checked inside the
+        ``BEGIN IMMEDIATE`` transaction: an operator who opts out or picks a stronger
+        mode meanwhile wins.
         """
         with self.uow.transaction():
             current = self.get_site(site_name)
@@ -136,12 +107,7 @@ class HostService:
         return self.get_site(site_name)
 
     def _apply_to_source(self, site: CdnSite, changes: Mapping[str, Any]) -> None:
-        """Write settings onto the zone or the rule this host was derived from.
-
-        A rule takes them as *overrides*, not as a merge into the zone: a rule
-        that already differs from its zone would otherwise have the issuer's
-        certificate silently applied to every other hostname in the zone.
-        """
+        """Write settings onto the source zone, or as overrides on the source rule."""
         source = host_source(
             self.zones.list_domains(), self.rules.list_rules(), site.name
         )
@@ -156,10 +122,8 @@ class HostService:
             )
             return
         rule = self.rules.get_rule(domain, rule_name)
-        # `model_validate` and not `model_copy`: the latter runs no validators,
-        # and this is the branch an issuer takes unattended. It has to satisfy
-        # `_validate_overrides` — every key a zone setting, every value one the
-        # zone would accept — which the issuer's own mode and paths do.
+        # `model_validate`, not `model_copy`, so the unattended issuer's write is
+        # validated.
         self.rules.replace_rule(
             Rule.model_validate(
                 {**rule.model_dump(), "overrides": {**rule.overrides, **changes}}

@@ -1,14 +1,4 @@
-"""The zones, their policy, the rules that bend it, and their records, stored.
-
-Part of the one description of what is on disk. The rules `core.persistence`
-sets out still hold — a column per queryable fact, JSON for a value object no
-query reaches, no invariants here that the domain model does not own — and
-Alembic still compares against `Base.metadata`, which these rows register
-themselves in by importing that base.
-
-A table belongs beside the store that reads it, so the capability that owns
-a store owns the table under it and adding a column edits no shared module.
-"""
+"""The zones, their rules, and their records, stored."""
 
 from __future__ import annotations
 
@@ -23,14 +13,7 @@ from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
 class DomainRow(Base, table=True):
-    """A delegated zone and its policy. Holds no records; they are keyed below.
-
-    ``policy`` stays whole because nothing queries inside it: it is written and
-    read back as one document and validated by the domain model on the way out.
-    Each record's address is the origin the edge fetches from, so there is
-    nothing zone-level to ask "which zones proxy to this origin" about — every
-    zone that proxies anywhere can be answered from the records table.
-    """
+    """A delegated zone and its policy, kept whole as JSON; records are keyed below."""
 
     __tablename__ = "domains"
     __table_args__ = (
@@ -45,18 +28,9 @@ class DomainRow(Base, table=True):
 class DnsRecordRow(Base, table=True):
     """One record: an address, and whether the edge serves the hostname.
 
-    No policy column and no site reference. The policy is the zone's, and which
-    virtual host serves this hostname is computed from the zone, its rules and
-    the record's own address rather than stored — so what is left here is the
-    address (``value``, ``ttl``) and whether the edge answers instead
-    (``proxied``). ``value`` is the DNS answer when ``proxied`` is false and
-    the origin the edge fetches from when it is true.
-
-    The check constraints are the database's copy of the domain rules: a value
-    is always present, and it carries an address that matches its type. They
-    are written down twice deliberately — records also arrive from a restored
-    backup and from a rollback's wholesale rewrite, neither of which goes
-    through the editor.
+    ``value`` is the DNS answer when unproxied and the origin when proxied. The
+    check constraints repeat the domain rules because restores and rollbacks write
+    rows without the editor.
     """
 
     __tablename__ = "dns_records"
@@ -70,10 +44,7 @@ class DnsRecordRow(Base, table=True):
         ),
     )
 
-    # ON DELETE CASCADE is load-bearing rather than convenience: a record
-    # outliving its domain would keep deriving a virtual host for a zone we no
-    # longer serve. `PRAGMA foreign_keys` is enabled per connection in
-    # database.py, without which SQLite ignores this entirely.
+    # A record outliving its zone would keep deriving a virtual host for it.
     domain: str = Field(
         sa_column=Column(
             String, ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
@@ -88,13 +59,7 @@ class DnsRecordRow(Base, table=True):
 
 
 class RuleRow(Base, table=True):
-    """One override in a zone.
-
-    ``overrides`` stays whole because nothing queries inside it: it is written
-    and read back as one document and validated by the domain model on the way
-    out. ``match`` and ``priority`` are columns because ordering the rules of a
-    zone is the one thing every read of this table does.
-    """
+    """One override in a zone; ``match`` and ``priority`` are columns for ordering."""
 
     __tablename__ = "zone_rules"
     __table_args__ = (

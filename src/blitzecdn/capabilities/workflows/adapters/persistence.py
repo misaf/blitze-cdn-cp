@@ -1,14 +1,7 @@
-"""The journal, on the one SQLite database.
+"""The workflow journal store, with the read side the API publishes."""
 
-`WorkflowStore` satisfies `workflows.ports.WorkflowJournal`, and the read side
-the API publishes — `get` and `list_workflows` — is on the same object because
-there is one table and one owner of it.
-"""
-
-# SQLModel annotates a table attribute as its instance value (for example
-# ``str``), while SQLAlchemy turns that attribute into a SQL expression when
-# accessed on the class. Mypy cannot model that duality in the bulk statements
-# below, which SQLModel deliberately leaves to its SQLAlchemy foundation.
+# SQLModel types a column as its instance value; mypy cannot see the SQL
+# expression it becomes on the class in these bulk statements.
 
 from __future__ import annotations
 
@@ -70,9 +63,7 @@ class WorkflowStore:
             if row is None:
                 raise NotFoundError(f"workflow {workflow_id!r} does not exist")
             if step is not None:
-                # Rebound rather than appended in place: a JSON column is a
-                # plain list, and SQLAlchemy only notices a mutation it can see
-                # as an attribute set.
+                # Rebound, not appended: SQLAlchemy only notices attribute sets on JSON.
                 row.steps = [*row.steps, step.model_dump(mode="json")]
             row.status = status.value
             row.error = error
@@ -101,17 +92,9 @@ class WorkflowStore:
             return [self._workflow(row) for row in rows]
 
     def prune_finished(self, keep: int) -> int:
-        """Drop finished workflows beyond the newest ``keep``.
+        """Drop finished workflows beyond the newest ``keep``; unfinished ones never go.
 
-        Never an unfinished one. Those are what ``reconcile_interrupted`` turns
-        into NEEDS_REVIEW at startup, and a workflow removed before anyone
-        looked at it is the record of ambiguous external work — a certificate
-        the CA may have issued — disappearing.
-
-        NEEDS_REVIEW counts as finished for this and is therefore prunable,
-        which is deliberate: it is a terminal state an operator has been shown,
-        and keeping the newest ``keep`` of them is what retention means
-        everywhere else here.
+        NEEDS_REVIEW counts as finished: an operator has been shown it.
         """
         with self._db.session() as session:
             unfinished = (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
