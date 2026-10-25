@@ -67,7 +67,6 @@ _PUBLIC_CROSS_CAPABILITY_MODULES = {
     "domain",
     "contract",
     "ports",
-    "reporting",
 }
 
 #: Names that must never become a top-level capability package. Each is a
@@ -245,24 +244,15 @@ _CONCRETE_ADAPTERS = {
     "Repository",
 }
 
+
 #: `blitzecdn.composition` is the composition root for the control plane:
 #: `control_plane` wires the services, `repository` chooses which capability
 #: stores sit on one SQLite file, `scheduler` chooses which contributed jobs
 #: get triggers. Membership is the directory, so a fourth module added there is
-#: inside the allowance by being put where it belongs.
-#:
-#: `acme_hook` is the one composition root outside it, and deliberate: certbot
-#: runs it as a one-shot subprocess with no control plane in the picture, and it
-#: builds the two adapters an HTTP-01 challenge needs and nothing else. It is
-#: named here — a name, because it is the exception — so a second one does not
-#: appear quietly beside it.
-_COMPOSITION_EXCEPTIONS = {"acme_hook.py"}
-
-
+#: inside the allowance by being put where it belongs. There is no other: the
+#: certbot hook is a `cert` command and builds nothing of its own.
 def _is_composition(path: Path) -> bool:
-    return (
-        _SOURCE / "composition" in path.parents or path.name in _COMPOSITION_EXCEPTIONS
-    )
+    return _SOURCE / "composition" in path.parents
 
 
 def test_only_a_composition_root_names_a_concrete_adapter():

@@ -1,46 +1,77 @@
+"""`blitzecdn cert acme-hook`, the command certbot runs for an HTTP-01 challenge."""
+
 from types import SimpleNamespace
 
 from control_plane_fixtures import ansible_run, host_run
+from typer.testing import CliRunner
 
-from blitzecdn.capabilities.tls import acme_hook
+from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.entrypoints.cli import main as cli
+from blitzecdn.entrypoints.cli.common import ExitCode
+
+runner = CliRunner()
+
+_CHALLENGE = {
+    "CERTBOT_DOMAIN": "cdn.example.com",
+    "CERTBOT_TOKEN": "safe_token",
+    "CERTBOT_VALIDATION": "safe.validation",
+}
 
 
-def test_acme_hook_validates_and_runs(monkeypatch, settings):
+def _fleet(monkeypatch, settings, run):
     calls = []
-
-    def close():
-        calls.append({"repository": "closed"})
 
     class Fleet:
         def run_playbook(self, **values):
             calls.append(values)
-            return ansible_run(host_run("edge-a"))
+            return run
 
-    control = SimpleNamespace(settings=settings, fleet=Fleet(), close=close)
-    monkeypatch.setattr(acme_hook.common, "services", lambda: control)
-    monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "present"])
-    monkeypatch.setattr(
-        acme_hook,
-        "os",
-        SimpleNamespace(
-            environ={
-                "CERTBOT_DOMAIN": "cdn.example.com",
-                "CERTBOT_TOKEN": "safe_token",
-                "CERTBOT_VALIDATION": "safe.validation",
-            }
-        ),
-    )
-    assert acme_hook.main() == 0
+    control = SimpleNamespace(settings=settings, fleet=Fleet(), close=lambda: None)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
+    return calls
+
+
+def test_the_hook_validates_and_runs_the_challenge_play(monkeypatch, settings):
+    calls = _fleet(monkeypatch, settings, ansible_run(host_run("edge-a")))
+
+    result = runner.invoke(cli.app, ["cert", "acme-hook", "present"], env=_CHALLENGE)
+
+    assert result.exit_code == 0, result.output
     assert calls[0]["name"] == "acme-challenge"
     assert calls[0]["variables"]["blitzecdn_acme_action"] == "present"
-    assert calls[1] == {"repository": "closed"}
 
 
-def test_acme_hook_fails_closed(monkeypatch):
-    monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "bad"])
-    assert acme_hook.main() == 1
+def test_the_hook_fails_closed_before_any_play(monkeypatch, settings):
+    calls = _fleet(monkeypatch, settings, ansible_run(host_run("edge-a")))
 
-    monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "present"])
-    monkeypatch.setenv("CERTBOT_DOMAIN", "bad/domain")
-    monkeypatch.setenv("CERTBOT_TOKEN", "bad token")
-    assert acme_hook.main() == 1
+    bad_action = runner.invoke(cli.app, ["cert", "acme-hook", "bad"], env=_CHALLENGE)
+    bad_environment = runner.invoke(
+        cli.app,
+        ["cert", "acme-hook", "present"],
+        env=_CHALLENGE | {"CERTBOT_DOMAIN": "bad/domain", "CERTBOT_TOKEN": "bad token"},
+    )
+
+    assert bad_action.exit_code == ExitCode.INVALID_INPUT
+    assert bad_environment.exit_code == ExitCode.INVALID_INPUT
+    assert calls == []
+
+
+def test_a_failed_play_is_reported_to_certbot(monkeypatch, settings):
+    _fleet(
+        monkeypatch,
+        settings,
+        ansible_run(
+            host_run("edge-a", failed=1), status=RunStatus.FAILED, return_code=2
+        ),
+    )
+
+    result = runner.invoke(cli.app, ["cert", "acme-hook", "absent"], env=_CHALLENGE)
+
+    assert result.exit_code == ExitCode.DEPLOYMENT_FAILED
+    assert "full output:" in result.output
+
+
+def test_the_hook_is_hidden_from_help():
+    result = runner.invoke(cli.app, ["cert", "--help"])
+
+    assert "acme-hook" not in result.output

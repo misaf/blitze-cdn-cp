@@ -8,8 +8,7 @@ from blitzecdn.capabilities.deployments.ports import DeploymentGateway
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.edges.ports import OriginProbe
-from blitzecdn.capabilities.origins.domain import OriginReport
-from blitzecdn.capabilities.origins.reporting import edge_origins
+from blitzecdn.capabilities.origins.domain import OriginReport, edge_origins
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner

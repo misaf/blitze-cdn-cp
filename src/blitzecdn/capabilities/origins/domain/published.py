@@ -1,7 +1,9 @@
-"""Translate structured edge reports into public origin-check results.
+"""Read the origin report one edge published into this capability's values.
 
-One copy: the origin check and the Automatic SSL/TLS scan both read the report
-through this module, so a change to the row the role publishes is made once.
+Domain rather than adapter: it is a pure function from a recorded host run to
+`EdgeOriginChecks`, with no I/O. One copy: the origin check and the Automatic
+SSL/TLS scan both read the report through it, so a change to the row the role
+publishes is made once.
 
 Deliberately defensive at every step. The document comes off an edge's
 ``blitzecdn_report`` fact, which is Ansible's rendering of a role's variables:
@@ -15,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
-from blitzecdn.capabilities.origins.domain import EdgeOriginChecks
+from blitzecdn.capabilities.origins.domain.report import EdgeOriginChecks
 from blitzecdn.core.domain.runs import HostRun
 
 

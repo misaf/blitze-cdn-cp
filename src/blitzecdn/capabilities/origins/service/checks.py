@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.origins.domain import OriginReport
+from blitzecdn.capabilities.origins.domain import OriginReport, edge_origins
 from blitzecdn.capabilities.origins.ports import (
     OriginCheckRunner,
     OriginProbe,
     SiteReader,
 )
-from blitzecdn.capabilities.origins.reporting import edge_origins
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.core.ports.clock import Clock, system_clock

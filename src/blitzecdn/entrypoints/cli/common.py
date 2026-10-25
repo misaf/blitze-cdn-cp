@@ -78,9 +78,9 @@ def scope_services(context: typer.Context) -> None:
 def services() -> CliServices:
     """What a command calls. A command starts nothing.
 
-    Inside an invocation, built once and closed on exit. Outside one — the
-    ACME hook runs as its own script — each call builds afresh and the caller
-    closes what it got.
+    Inside an invocation, built once and closed on exit. Outside one — a test
+    calling a command function directly — each call builds afresh and the
+    caller closes what it got.
     """
     held = _invocation.get()
     if held is None:
