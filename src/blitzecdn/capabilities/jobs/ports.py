@@ -13,7 +13,13 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Protocol
 
-from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedule
+from blitzecdn.capabilities.jobs.domain import (
+    Job,
+    JobClaim,
+    JobOutcome,
+    JobStatus,
+    Schedule,
+)
 
 __all__ = ["JobHandler", "JobStore", "ScheduleStore"]
 
@@ -123,6 +129,9 @@ class JobHandler(Protocol):
     these and knows no more than that — which is what lets a deployment and a
     plugin-contributed maintenance run share one loop, one lease and one
     fencing rule without the loop knowing what either of them is.
+
+    It answers with a :data:`~blitzecdn.capabilities.jobs.domain.JobOutcome`.
+    Raising is reserved for what the handler did not expect.
     """
 
-    def __call__(self, payload: Mapping[str, Any]) -> None: ...
+    def __call__(self, payload: Mapping[str, Any]) -> JobOutcome: ...

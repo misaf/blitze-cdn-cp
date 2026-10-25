@@ -26,7 +26,13 @@ from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.jobs.composition import schedule_specs
-from blitzecdn.capabilities.jobs.domain import DeferredJobError, PermanentJobError
+from blitzecdn.capabilities.jobs.domain import (
+    DONE,
+    Defer,
+    Fail,
+    JobOutcome,
+    Retry,
+)
 from blitzecdn.capabilities.jobs.ports import JobHandler
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
@@ -253,12 +259,12 @@ def _job_handlers(
     """
     failed_states = TERMINAL_STATUSES - {DeploymentStatus.SUCCEEDED}
 
-    def deployment(payload: Mapping[str, Any]) -> None:
+    def deployment(payload: Mapping[str, Any]) -> JobOutcome:
         deployment_id = str(payload["deployment_id"])
         try:
             result = deployments.run_queued(deployment_id)
         except DeploymentBusyError as exc:
-            raise DeferredJobError(str(exc)) from exc
+            return Defer(str(exc))
         except Exception:
             # A runner error may already have finalized the deployment. Retry
             # delivery failures only while no terminal failure is on record.
@@ -266,17 +272,19 @@ def _job_handlers(
             if result.status not in failed_states:
                 raise
         if result.status in failed_states:
-            raise PermanentJobError(
+            return Fail(
                 f"deployment {result.id} ended as {result.status}: "
                 f"{result.detail or 'the deployment did not succeed'}"
             )
         if result.status is not DeploymentStatus.SUCCEEDED:
-            raise RuntimeError(
+            return Retry(
                 f"deployment {result.id} returned without a terminal outcome: "
                 f"{result.status}"
             )
+        return DONE
 
-    def scheduled(payload: Mapping[str, Any]) -> None:
+    def scheduled(payload: Mapping[str, Any]) -> JobOutcome:
         maintenance.run(str(payload["job"]))
+        return DONE
 
     return {DEPLOYMENT_JOB: deployment, SCHEDULED_JOB: scheduled}

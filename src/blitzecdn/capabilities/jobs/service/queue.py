@@ -29,11 +29,13 @@ from datetime import datetime, timedelta
 
 from blitzecdn.capabilities.jobs.domain import (
     DEFAULT_LEASE_SECONDS,
-    DeferredJobError,
+    Defer,
+    Done,
+    Fail,
     Job,
     JobClaim,
     JobStatus,
-    PermanentJobError,
+    Retry,
     backoff_for,
 )
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
@@ -150,17 +152,17 @@ class JobQueue:
         return claim.job
 
     def run(self, claim: JobClaim) -> None:
-        """Run a claimed job under its fence, recording success or failure.
+        """Run a claimed job under its fence and record what its handler said.
 
-        A handler that raises is a failure, except ``DeferredJobError``: work
-        that could not start is put back without spending an execution attempt.
-        A kind with no handler is a failure
-        too, and a permanent one — retrying it would produce the same missing
-        handler at each attempt. That happens when a plugin is uninstalled
-        while one of its jobs is still queued, which is why the message names
-        the kind rather than only reporting a lookup error. A handler that
-        raises :class:`PermanentJobError` is the other permanent case: it is
-        saying a retry would meet the same answer.
+        ``Done`` completes the job. ``Defer`` puts it back without spending an
+        execution attempt. ``Retry`` backs off and spends one; ``Fail`` fails
+        it at once. An exception escaping the handler is an error the handler
+        did not expect, retried like ``Retry`` and logged with its traceback.
+
+        A kind with no handler fails permanently: retrying would meet the same
+        missing handler. That happens when a feature that contributed a job
+        kind is removed while one of its jobs is still queued, which is why the
+        message names the kind.
         """
         job = claim.job
         handler = self.handlers.get(job.kind)
@@ -168,36 +170,41 @@ class JobQueue:
             self._fail(
                 claim,
                 f"no handler is registered for job kind {job.kind!r}; the "
-                "distribution that contributed it may have been uninstalled",
+                "feature that contributed it may have been removed",
                 permanent=True,
             )
             return
         try:
-            handler(job.payload)
-        except DeferredJobError as exc:
-            deferred = self.jobs.defer(
-                job.id,
-                claim.fence,
-                retry_at=self.clock() + timedelta(seconds=_DEFERRAL_SECONDS),
-                reason=str(exc),
-            )
-            if deferred:
-                _LOGGER.info(
-                    "job %s deferred without an execution attempt: %s", job.id, exc
-                )
-            else:
-                _LOGGER.warning("job %s deferral refused: its claim is stale", job.id)
-            return
-        except PermanentJobError as exc:
-            # Logged without a traceback: the handler raised this to report an
-            # outcome it understood, not because something went wrong in it.
-            _LOGGER.warning("job %s (%s) failed permanently: %s", job.id, job.kind, exc)
-            self._fail(claim, str(exc), permanent=True)
-            return
+            outcome = handler(job.payload)
         except Exception as exc:
             _LOGGER.exception("job %s (%s) failed", job.id, job.kind)
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)
             return
+        match outcome:
+            case Done():
+                pass
+            case Defer(reason=reason):
+                self._defer(claim, reason)
+                return
+            case Retry(reason=reason):
+                _LOGGER.warning(
+                    "job %s (%s) will be retried: %s", job.id, job.kind, reason
+                )
+                self._fail(claim, reason, permanent=False)
+                return
+            case Fail(reason=reason):
+                _LOGGER.warning(
+                    "job %s (%s) failed permanently: %s", job.id, job.kind, reason
+                )
+                self._fail(claim, reason, permanent=True)
+                return
+            case _:
+                self._fail(
+                    claim,
+                    f"the {job.kind!r} handler returned {outcome!r}, not a job outcome",
+                    permanent=True,
+                )
+                return
         if not self.jobs.complete(job.id, claim.fence, now=self.clock()):
             # The lease expired and somebody else took the job over while this
             # worker was inside the handler. The work was done twice, which the
@@ -231,6 +238,21 @@ class JobQueue:
         return self.jobs.prune(self.retention)
 
     # -- Internals -----------------------------------------------------
+
+    def _defer(self, claim: JobClaim, reason: str) -> None:
+        job = claim.job
+        deferred = self.jobs.defer(
+            job.id,
+            claim.fence,
+            retry_at=self.clock() + timedelta(seconds=_DEFERRAL_SECONDS),
+            reason=reason,
+        )
+        if deferred:
+            _LOGGER.info(
+                "job %s deferred without an execution attempt: %s", job.id, reason
+            )
+        else:
+            _LOGGER.warning("job %s deferral refused: its claim is stale", job.id)
 
     def _fail(self, claim: JobClaim, error: str, *, permanent: bool) -> None:
         now = self.clock()

@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from blitzecdn.capabilities.jobs.composition import schedule_specs
-from blitzecdn.capabilities.jobs.domain import JobStatus
+from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
     SCHEDULED_JOB,
@@ -304,6 +304,7 @@ def test_a_scheduled_job_runs_under_the_lease_its_schedule_declares(repository):
     def observe(_payload):
         (job,) = repository.jobs.list_jobs()
         leases.append(job.leased_until)
+        return DONE
 
     scheduler, queue = scheduler_for(
         repository, clock, handlers={SCHEDULED_JOB: observe}
@@ -324,6 +325,7 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
     def observe(_payload):
         (job,) = repository.jobs.list_jobs()
         leases.append(job.leased_until)
+        return DONE
 
     scheduler, queue = scheduler_for(
         repository, clock, handlers={DEPLOYMENT_JOB: observe}
@@ -342,7 +344,7 @@ def test_worker_bounds_finished_job_history_and_preserves_live_work(
 ):
     clock = Clock()
     scheduler, queue = scheduler_for(
-        repository, clock, handlers={"work": lambda _payload: None} if succeeds else {}
+        repository, clock, handlers={"work": lambda _payload: DONE} if succeeds else {}
     )
     queue.retention = 1
     running = repository.jobs.enqueue(kind="work", payload={}, available_at=clock())
