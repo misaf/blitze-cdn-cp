@@ -7,31 +7,61 @@ value *comes from* is :mod:`blitzecdn.core.config.loading`'s question.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Any, ClassVar, Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import (
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
+    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
-from blitzecdn.core.config.loading import settings_payload
+from blitzecdn.core.config.loading import settings_sources
 from blitzecdn.core.exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
     """Validated application settings assembled from environment and TOML.
 
-    :mod:`blitzecdn.core.config.loading` owns source precedence and the path
-    defaults that are relative to ``project_dir``; ``from_environment`` is the
-    seam between the two and does nothing but validate what that module
-    assembled.  ``BaseSettings`` owns typed coercion and the settings model
-    itself, so booleans, integers and secrets need no parallel hand-written
-    conversion layer.
+    :mod:`blitzecdn.core.config.loading` builds the sources and their order;
+    ``from_environment`` hands them to ``BaseSettings``, which merges and
+    coerces. What a value may be, including the comma-separated spellings an
+    environment variable needs, is validated here.
     """
+
+    #: The fields an operator sets, as `BLITZE_<FIELD>` or a `blitzecdn.toml`
+    #: key. Every other field is derived from the project directory.
+    OPERATOR_SETTINGS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "database_path",
+            "environment_path",
+            "deployment_timeout_seconds",
+            "output_limit_bytes",
+            "run_log_retention",
+            "history_retention",
+            "preflight_dns_timeout_seconds",
+            "preflight_dns_servers",
+            "required_capabilities",
+            "allow_empty_sites",
+            "origin_check_timeout_seconds",
+            "drift_check_interval_seconds",
+            "worker_poll_seconds",
+            "api_worker_threads",
+            "allowed_ips",
+            "api_keys",
+        }
+    )
+    #: Operator settings a committed file must never hold.
+    ENVIRONMENT_ONLY_SETTINGS: ClassVar[frozenset[str]] = frozenset({"api_keys"})
 
     model_config = SettingsConfigDict(
         extra="forbid",
@@ -48,14 +78,17 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # loading.py has already resolved the supported sources. Reading the
-        # process environment again would let unprefixed variables override
-        # model defaults, even when from_environment received an explicit {}.
+        # `from_environment` supplies its own sources. Constructed directly,
+        # the model takes its arguments and nothing else: reading the process
+        # environment here would let unprefixed variables override defaults.
         return (init_settings,)
 
     project_dir: Path
     state_dir: Path
-    database_path: Path
+    #: Relative to `project_dir` unless absolute, like `environment_path`.
+    database_path: Path = Field(
+        default=Path(".state/control-plane.db"), validate_default=True
+    )
     ansible_dir: Path
     #: The Ansible inventory *source*, which is the `blitzecdn` plugin's
     #: configuration rather than a list of hosts. The fleet itself comes from
@@ -66,8 +99,8 @@ class Settings(BaseSettings):
     deployment_lock_path: Path
     certificate_dir: Path
     #: Environment/secrets file. Installed controllers keep this under /etc;
-    #: checkouts use the project-local `.env`.
-    environment_path: Path
+    #: checkouts use the project-local `.env`. Relative to `project_dir`.
+    environment_path: Path = Field(default=Path(".env"), validate_default=True)
     #: Platform teardown play. Capability-specific plays resolve from their
     #: owning modules; this setting belongs to the platform edge lifecycle.
     decommission_playbook_path: Path
@@ -86,12 +119,12 @@ class Settings(BaseSettings):
     #: while being perfectly healthy for every other purpose. Empty means fall
     #: back to the host resolver, which is right for an air-gapped controller
     #: with its own view of public DNS.
-    preflight_dns_servers: tuple[str, ...] = ()
+    preflight_dns_servers: Annotated[tuple[str, ...], NoDecode] = ()
     #: Capabilities this installation's configuration depends on, by token.
     #:
     #: Additional capability tokens an operator requires, including external
     #: extensions. Missing requirements fail during application construction.
-    required_capabilities: tuple[str, ...] = ()
+    required_capabilities: Annotated[tuple[str, ...], NoDecode] = ()
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
     #: The generic answer to "a capability needs a credential", and
@@ -186,9 +219,58 @@ class Settings(BaseSettings):
     #: anyway, so more workers would only queue deeper.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
     #: Public API client IPv4 addresses/CIDRs. Empty keeps the API on loopback.
-    allowed_ips: tuple[str, ...] = ()
+    allowed_ips: Annotated[tuple[str, ...], NoDecode] = ()
     allow_empty_sites: bool = False
-    api_keys: dict[str, SecretStr] = Field(default_factory=dict)
+    #: `BLITZE_API_KEYS` as `operator:secret,...`, plus `BLITZE_API_KEY` as
+    #: the `default` operator.
+    api_keys: Annotated[dict[str, SecretStr], NoDecode] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def collect_api_keys(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "api_key" not in data and not isinstance(data.get("api_keys"), str):
+            return data
+        data = dict(data)
+        raw = data.get("api_keys", {})
+        keys = _parse_api_keys(raw) if isinstance(raw, str) else dict(raw)
+        single = data.pop("api_key", None)
+        if single:
+            if len(single) < 32:
+                raise ValueError("BLITZE_API_KEY must contain at least 32 characters")
+            keys.setdefault("default", SecretStr(single))
+        data["api_keys"] = keys
+        return data
+
+    @field_validator("preflight_dns_servers", mode="before")
+    @classmethod
+    def validate_dns_servers(cls, value: object) -> tuple[str, ...]:
+        """Addresses only: a hostname would need the resolver we distrust."""
+        servers = []
+        for part in _split(value, "preflight_dns_servers"):
+            try:
+                ip_address(part)
+            except ValueError as exc:
+                raise ValueError(
+                    f"preflight DNS server {part!r} is not an IP address"
+                ) from exc
+            servers.append(part)
+        return tuple(servers)
+
+    @field_validator("required_capabilities", mode="before")
+    @classmethod
+    def validate_capabilities(cls, value: object) -> tuple[str, ...]:
+        tokens: list[str] = []
+        for part in _split(value, "required_capabilities"):
+            if not part.replace("_", "").replace("-", "").isalnum():
+                raise ValueError(
+                    f"required capability {part!r} must be alphanumeric, "
+                    "such as 'backup'"
+                )
+            if part not in tokens:
+                tokens.append(part)
+        return tuple(tokens)
 
     @field_validator("allowed_ips", mode="before")
     @classmethod
@@ -234,20 +316,29 @@ class Settings(BaseSettings):
     @field_validator(
         "project_dir",
         "state_dir",
-        "database_path",
         "ansible_dir",
         "inventory_path",
         "playbook_path",
         "generated_vars_path",
         "deployment_lock_path",
         "certificate_dir",
-        "environment_path",
         "decommission_playbook_path",
         mode="before",
     )
     @classmethod
     def expand_path(cls, value: object) -> Path:
         return Path(str(value)).expanduser().resolve()
+
+    @field_validator("database_path", "environment_path", mode="before")
+    @classmethod
+    def anchor_path(cls, value: object, info: ValidationInfo) -> Path:
+        """Resolve a relative path against the project directory."""
+        if "project_dir" not in info.data:
+            raise ValueError(f"cannot resolve {info.field_name} without project_dir")
+        candidate = Path(str(value))
+        if not candidate.is_absolute():
+            candidate = info.data["project_dir"] / candidate
+        return candidate.expanduser().resolve()
 
     @property
     def run_dir(self) -> Path:
@@ -277,11 +368,15 @@ class Settings(BaseSettings):
         *,
         project_dir: Path | None = None,
     ) -> Self:
-        values = settings_payload(environment, project_dir=project_dir)
+        sources = settings_sources(cls, environment, project_dir=project_dir)
+        # `BaseSettings.__init__` by name: the field-derived signature type
+        # checkers synthesise for `cls(...)` does not carry `_build_sources`.
+        settings = cls.__new__(cls)
         try:
-            return cls.model_validate(values)
+            BaseSettings.__init__(settings, _build_sources=sources)
         except (TypeError, ValueError) as exc:
             raise ConfigurationError(f"invalid BlitzeCDN configuration: {exc}") from exc
+        return settings
 
     def validate_runtime(self, *, require_auth: bool = False) -> list[str]:
         errors: list[str] = []
@@ -300,3 +395,29 @@ class Settings(BaseSettings):
                 "not the Ansible source directory"
             )
         return errors
+
+
+def _split(value: object, name: str) -> list[str]:
+    """A list, or the comma-separated string an environment variable holds."""
+    if isinstance(value, str):
+        parts = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = [str(part) for part in value]
+    else:
+        raise ValueError(f"{name} must be a list or comma-separated")
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _parse_api_keys(raw: str) -> dict[str, SecretStr]:
+    keys: dict[str, SecretStr] = {}
+    for entry in filter(None, (part.strip() for part in raw.split(","))):
+        operator, separator, secret = entry.partition(":")
+        if not separator or not operator or len(secret) < 32:
+            raise ValueError(
+                "BLITZE_API_KEYS entries must be operator:secret with secrets "
+                "of at least 32 characters"
+            )
+        if operator in keys:
+            raise ValueError(f"duplicate API operator: {operator}")
+        keys[operator] = SecretStr(secret)
+    return keys
