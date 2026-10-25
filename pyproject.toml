@@ -76,6 +76,8 @@ dev = [
   "shellcheck-py>=0.10,<0.12",
   "types-PyYAML>=6.0.12,<7",
   "yamllint>=1.37,<2",
+  # Checks the import-direction contracts in `.importlinter` (`just lint`).
+  "import-linter>=2.3,<3",
 ]
 
 [project.scripts]

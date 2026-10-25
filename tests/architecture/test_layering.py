@@ -16,6 +16,13 @@ separately, and the layer rule that keeps the whole thing a DAG is asserted
 directly: **a contract never imports an implementation.**
 
     core  <  capability contracts  <  capability implementations
+
+Which module may import which is checked by import-linter: the contracts in
+`.importlinter`, run by `just lint`. What is left here is what an import graph
+cannot express — names and strings, files that must or must not exist, the
+declared capability graphs (an unused declared edge fails too), allowlists of
+which submodules another capability may name, and import cycles at module
+scope only.
 """
 
 from __future__ import annotations
@@ -32,21 +39,6 @@ from blitzecdn.composition import BUILTIN_FEATURES
 _SOURCE = SOURCE
 _COMPOSITION_ROOT = "blitzecdn.composition"
 _CAPABILITIES = _SOURCE / "capabilities"
-_IO_IMPORTS = (
-    "fastapi",
-    "starlette",
-    "typer",
-    "click",
-    "sqlite3",
-    "subprocess",
-    "ansible",
-    "dns",
-    "certbot",
-    "cryptography",
-    "yaml",
-    "sqlalchemy",
-    "sqlmodel",
-)
 
 
 #: A slice's parts are named by the directory they sit in, not by a list kept
@@ -71,24 +63,6 @@ def _is_domain(path: Path) -> bool:
     return "domain" in {part.removesuffix(".py") for part in parts} or "policy" in {
         part.removesuffix(".py") for part in parts
     }
-
-
-def _is_adapter(path: Path) -> bool:
-    """A capability's contact with the outside: everything under `adapters/`."""
-    return "adapters" in path.parts
-
-
-def _is_application(path: Path) -> bool:
-    """A capability's decisions: `service.py`, or everything under `service/`.
-
-    Application policy that lives beside a service rather than inside it is
-    held to the service rule, because moving code out of a service must not be
-    a way to escape it. That was four file names — `service.py`, `rollback.py`,
-    `reporting.py`, `validation.py` — and the three that were not `service.py`
-    were only on the list because somebody put them there.
-    """
-    parts = path.relative_to(_CAPABILITIES).parts
-    return "service" in {part.removesuffix(".py") for part in parts}
 
 
 _PUBLIC_CROSS_CAPABILITY_MODULES = {
@@ -138,33 +112,6 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
-def _runtime_imports(path: Path) -> set[str]:
-    """Imports that actually execute, ignoring `if TYPE_CHECKING:` blocks.
-
-    An annotation-only import cannot create a cycle and cannot pull a package
-    into a process, so where the rule is about *runtime* direction — what the
-    feature machinery loads, what a module makes the interpreter import — this
-    is the honest question to ask. Where the rule is about knowledge rather than
-    loading, `_imports` still counts every one.
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    typing_only = {
-        node
-        for branch in ast.walk(tree)
-        if isinstance(branch, ast.If) and ast.unparse(branch.test) == "TYPE_CHECKING"
-        for node in ast.walk(branch)
-    }
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if node in typing_only:
-            continue
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.add(node.module)
-    return found
-
-
 def _module_scope_imports(path: Path) -> set[str]:
     """Only the imports the interpreter runs while importing this module.
 
@@ -174,8 +121,9 @@ def _module_scope_imports(path: Path) -> set[str]:
     deliberately. Counting it as an edge would make the cycle test refuse the
     remedy for the problem it exists to detect.
 
-    Narrower than `_runtime_imports`, which only drops `TYPE_CHECKING`: this
-    also drops anything nested in a `def`, `async def` or `class` body.
+    So this drops `TYPE_CHECKING` blocks and anything nested in a `def`,
+    `async def` or `class` body. import-linter cannot ask this question: its
+    graph counts a deferred import like any other.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     deferred = {
@@ -195,14 +143,6 @@ def _module_scope_imports(path: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module)
     return found
-
-
-def _banned(imported: str, forbidden: tuple[str, ...]) -> bool:
-    root = imported.split(".")[0]
-    return any(
-        root == name or imported == name or imported.startswith(f"{name}.")
-        for name in forbidden
-    )
 
 
 def _capability_files() -> list[Path]:
@@ -261,80 +201,14 @@ def test_required_capability_packages_exist(capability: str):
     assert (_CAPABILITIES / capability / "__init__.py").is_file()
 
 
-def test_capability_domains_are_framework_and_io_independent():
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _capability_files()
-        if _is_domain(path)
-        for imported in sorted(_imports(path))
-        if _banned(
-            imported,
-            (
-                *_IO_IMPORTS,
-                "blitzecdn.api",
-                "blitzecdn.cli",
-                "blitzecdn.composition",
-                # Two packages, not seven module names. `core.runtime` is
-                # everything of core's that touches the machine and
-                # `core.persistence` everything that touches the database, so
-                # a module added to either is refused here the day it is
-                # written rather than when somebody remembers this tuple.
-                "blitzecdn.core.ansible",
-                "blitzecdn.core.persistence",
-                "blitzecdn.core.runtime",
-            ),
-        )
-    ]
-    assert offenders == []
-
-
-def test_capability_services_depend_on_contracts_not_concrete_adapters():
-    forbidden = (
-        *_IO_IMPORTS,
-        "blitzecdn.api",
-        "blitzecdn.cli",
-        "blitzecdn.composition",
-        "blitzecdn.core.ansible",
-        "blitzecdn.core.persistence",
-        "blitzecdn.core.runtime.broker",
-    )
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _capability_files()
-        if _is_application(path)
-        for imported in sorted(_imports(path))
-        if _banned(imported, forbidden) or ".adapters" in imported
-    ]
-    assert offenders == []
-
-
-def test_capability_adapters_never_import_entry_layers_or_composition():
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _capability_files()
-        if _is_adapter(path)
-        for imported in sorted(_imports(path))
-        if _banned(
-            imported,
-            (
-                "blitzecdn.api",
-                "blitzecdn.cli",
-                "blitzecdn.composition",
-                "blitzecdn.worker",
-            ),
-        )
-    ]
-    assert offenders == []
-
-
 #: A capability's contact with a caller: everything under `api/` and `cli`.
 #:
 #: This was a set of file names — `cli.py`, `routes.py`, `readiness.py` — and a
 #: name it did not list was a delivery module under no rule at all.
 #: `readiness.py` was on it because somebody remembered; a slice growing a
 #: `commands.py` or a `websocket.py` would not have been. It is the same defect
-#: `_is_domain` and `_is_adapter` were written to fix, left in the one place
-#: the fix had not reached.
+#: the positional `domain/` and `adapters/` rules were written to fix, left in
+#: the one place the fix had not reached.
 #:
 #: Both are positional now, like `adapters/`. `cli` was still a name — and so
 #: was exact — until `sites/cli.py` became `sites/cli/`, at which point matching
@@ -360,20 +234,6 @@ def _entry_files() -> list[Path]:
         *(_SOURCE / "api").rglob("*.py"),
         *(_SOURCE / "cli").rglob("*.py"),
     ]
-
-
-def test_entry_adapters_never_reach_persistence_or_database_directly():
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _entry_files()
-        for imported in sorted(_imports(path))
-        if _banned(
-            imported,
-            ("blitzecdn.core.persistence",),
-        )
-        or ".persistence" in imported
-    ]
-    assert offenders == []
 
 
 def test_cross_capability_imports_use_contract_modules():
@@ -461,48 +321,6 @@ def test_only_a_composition_root_names_a_concrete_adapter():
     assert offenders == []
 
 
-def test_core_carries_no_cross_capability_application_service():
-    """`core` is what a capability builds on, not a place to put a workflow.
-
-    `MaintenanceService` lived here and orchestrated three capabilities, which
-    pointed the arrow back from the foundation into the tree it supports and
-    hid a genuine vertical slice where nobody would look for it. It is
-    `capabilities/maintenance` now.
-    """
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in (_SOURCE / "core").rglob("*.py")
-        for imported in sorted(_imports(path))
-        if imported.startswith("blitzecdn.capabilities.")
-        and imported.endswith((".service", ".adapters"))
-    ]
-    assert offenders == []
-
-
-def test_core_imports_no_capability():
-    """The layer rule, checked rather than described.
-
-    `core.ansible` took `EdgeStore` and projected `CdnSite`; `core.persistence`
-    bundled four capability stores and held a fifth slice's table and store.
-    All of it was the foundation reaching up into the tree it supports, and the
-    fix was one of two: core declares the port — `ports.fleet.FleetRoster` —
-    and the capability satisfies it, or the code was the capability's all along
-    and moved there.
-
-    Runtime imports only. The hookspecs annotate a parameter with `CdnSite`
-    under `TYPE_CHECKING`, which is a specification naming its argument type
-    and not a direction the interpreter ever takes;
-    `test_the_plugin_infrastructure_depends_on_no_capability` holds that line.
-    """
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in sorted((_SOURCE / "core").rglob("*.py"))
-        for imported in sorted(_runtime_imports(path))
-        if imported.startswith("blitzecdn.capabilities")
-    ]
-    assert offenders == []
-
-
 def test_core_names_no_capability_even_in_a_string():
     """The same rule, asked of the text rather than of the import graph.
 
@@ -545,99 +363,6 @@ def test_core_names_no_capability_even_in_a_string():
             and "blitzecdn.capabilities" in node.value
             and id(node) not in docstrings
         )
-    assert offenders == []
-
-
-#: Core's own floor: values, protocols, and the exception hierarchy every layer
-#: may name. Membership is the directory, so a module joins the rule by being
-#: put where it belongs — the bargain `_is_domain` and `_is_adapter` make for a
-#: capability, and the lesson `core` learned when its infrastructure had to be
-#: enumerated by module name in three separate tuples: a list covers the modules
-#: somebody remembered to list, and the next one written is unguarded.
-_CORE_KERNEL = ("domain", "ports", "exceptions.py")
-
-#: What the kernel may name inside `blitzecdn`: itself. An allowlist rather than
-#: a denylist here, because the direction being protected is *downward* — the
-#: kernel is the bottom, so everything else in the package is above it and the
-#: interesting question is what could possibly be below.
-_CORE_KERNEL_IMPORTS = (
-    "blitzecdn.core.domain",
-    "blitzecdn.core.ports",
-    "blitzecdn.core.exceptions",
-)
-
-
-def _core_kernel_files() -> list[Path]:
-    root = _SOURCE / "core"
-    return sorted(
-        path
-        for name in _CORE_KERNEL
-        for path in ((root / name).rglob("*.py") if "." not in name else [root / name])
-    )
-
-
-def test_core_domain_and_ports_are_framework_and_io_independent():
-    """The twin of the capability rule above, pointed at the floor it stands on.
-
-    `core/domain/__init__.py` says of itself that nothing in it "opens a file, a
-    socket, a subprocess or a database, and the layering test holds that by
-    refusing this package the imports that would". That test was this one, and
-    until now it did not exist: every core rule in this file guards the boundary
-    *between* core and the capability tree — `test_core_imports_no_capability`
-    and its two neighbours — and none of them looks inside core at all. Nothing
-    refused `core.domain.audit` an import of `core.persistence.engine`.
-
-    What rests on the property is the published SDK. `_PUBLIC_SDK_PREFIXES` in
-    `published_surface.py` admits `core.domain` and `core.ports` *whole*, while
-    `core.runtime` and `core.persistence` publish one named module at a time —
-    `resources`, `filesystem`, `process`, `schema` — because those do I/O and
-    each one is a separate promise. The comment there says the two packages are
-    publishable "by construction". This is the construction: an I/O module added
-    to `core/domain/` would join the public SDK the moment it was written, and
-    the only thing that would have caught it was somebody remembering why the
-    prefix list has two shapes in it.
-
-    `pydantic` is allowed and is deliberately absent from `_IO_IMPORTS`: every
-    value in `core/domain` is a pydantic model, and validating a value is not
-    reaching for the machine. `core/exceptions.py` is in the kernel because it
-    is what FEATURES.md calls the one module every layer may name — a leaf with
-    no imports at all, and a rule that let it grow one would be describing the
-    package it used to be.
-    """
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _core_kernel_files()
-        for imported in sorted(_imports(path))
-        if _banned(imported, _IO_IMPORTS)
-        or (
-            imported.startswith("blitzecdn")
-            and not _banned(imported, _CORE_KERNEL_IMPORTS)
-        )
-    ]
-    assert offenders == []
-
-
-def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
-    """The worker imports the composition root; nothing imports the worker.
-
-    The second half is the one that matters. A capability that reached for
-    `blitzecdn.worker` would make the process that *consumes* durable work a
-    dependency of the code that *produces* it, and the composition root — which
-    the worker builds itself from — would then be importing its own consumer.
-
-    The queue itself is checked the same way. It is a capability now rather
-    than a module under `core.runtime`, so the rule is the ordinary capability
-    rule: it may not reach the composition root or an entry layer, and
-    `test_capability_services_depend_on_contracts_not_concrete_adapters`
-    already refuses the first. What is left here is the worker.
-    """
-    assert "blitzecdn.composition" in _imports(_SOURCE / "worker.py")
-    offenders = [
-        str(path.relative_to(_SOURCE))
-        for path in _SOURCE.rglob("*.py")
-        if path.name != "worker.py"
-        and any(name.startswith("blitzecdn.worker") for name in _imports(path))
-    ]
     assert offenders == []
 
 
@@ -1086,140 +811,6 @@ def test_every_capability_declares_itself_through_a_feature_module():
         and not {"policy", "domain"}.intersection(
             part.removesuffix(".py") for part in path.parts
         )
-    ]
-    assert offenders == []
-
-
-def test_no_capability_or_provider_names_the_composition_root():
-    """Nothing the composition root builds may reach back for it.
-
-    Not a service, an adapter, a builder or a feature: each receives its
-    collaborators as named arguments. A module that reached for the root would be
-    resolving its collaborators at call time instead of receiving them, which
-    is the service-locator shape this design refuses. Not even for typing.
-
-    A capability's *entry* modules are outside the rule for the same reason
-    `cli/common.py` is: a command has to get its services from somewhere.
-    """
-    entry = set(_entry_files())
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in [
-            *_capability_files(),
-            *sorted((_SOURCE / "providers").rglob("*.py")),
-        ]
-        if path not in entry
-        for imported in sorted(_imports(path))
-        if imported.startswith(_COMPOSITION_ROOT)
-    ]
-    assert offenders == []
-
-
-def test_a_runtime_module_imports_no_delivery_layer():
-    """`runtime.py` is what the composition root imports to bind behaviour.
-
-    Delivery modules import the composition root, so a runtime module that
-    imported one would make composing the application an import cycle. A
-    feature's routes and commands are declared in `feature.py`, which the
-    registry loads by name instead.
-    """
-    delivery = ("fastapi", "typer", "blitzecdn.api", "blitzecdn.cli")
-    runtimes = [
-        *_CAPABILITIES.glob("*/runtime.py"),
-        *(_SOURCE / "providers").glob("*/runtime.py"),
-    ]
-    assert runtimes
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in sorted(runtimes)
-        for imported in sorted(_runtime_imports(path))
-        if imported.startswith(delivery)
-        or ".api" in imported
-        or imported.endswith((".cli", ".feature"))
-    ]
-    assert offenders == []
-
-
-def test_the_entry_layers_import_no_capability_at_all():
-    """The point of the whole exercise, asserted where it can be checked.
-
-    `api/app.py` used to name seventeen router modules and `cli/main.py` eleven
-    command groups, so adding a capability meant editing both. They ask the feature
-    registry now, and a capability that appears in neither list is a capability that
-    forgot to contribute — not one somebody forgot to wire.
-
-    Only these two modules. `api/models.py` translates domain values into the
-    published HTTP representations and has to name them; that is a
-    *translation*, and it is the assembly that had to stop knowing the
-    capability list.
-    """
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in (_SOURCE / "api/app.py", _SOURCE / "cli/main.py")
-        for imported in sorted(_imports(path))
-        if imported.startswith("blitzecdn.capabilities")
-    ]
-    assert offenders == []
-
-
-def test_the_plugin_infrastructure_depends_on_no_capability():
-    """`core.features` is the mechanism, not a participant in it.
-
-    Runtime imports only. The hookspecs annotate their arguments with the
-    control plane and with `CdnSite`, because a specification with untyped
-    parameters would be no specification at all — but nothing is imported to
-    do it, so the direction the interpreter actually takes stays one way.
-    """
-    offenders = [
-        f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in (_SOURCE / "core/features").rglob("*.py")
-        for imported in sorted(_runtime_imports(path))
-        if imported.startswith(("blitzecdn.capabilities", _COMPOSITION_ROOT))
-    ]
-    assert offenders == []
-
-
-#: Modules whose whole value is that they are functions of their arguments.
-#:
-#: A pure module can be run twice and compared, run in a test with nothing
-#: installed, and reasoned about without knowing what else has happened. Each
-#: of those properties is lost silently — a `datetime.now()` deep in a helper
-#: does not fail anything, it just makes the output stop being reproducible —
-#: so the property is asserted rather than left to review.
-_PURE_MODULES = ("capabilities/releases/service/compiler.py",)
-
-#: What a pure module may not reach for. Beyond the I/O imports every domain
-#: module is already held to: a clock, a random source, the environment, and
-#: the filesystem.
-_IMPURE_SOURCES = (
-    "datetime",
-    "time",
-    "random",
-    "secrets",
-    "os",
-    "pathlib",
-    "socket",
-    "urllib",
-    "httpx",
-    "requests",
-)
-
-
-def test_the_compiler_is_a_function_of_its_arguments():
-    """Compiling a release reads no clock, no environment and no disk.
-
-    This is what makes a release content-addressed rather than merely hashed:
-    two compilations of the same canonical state, on installations with the
-    same capabilities, aimed at the same edges, produce the same digest. A
-    single `datetime.now()` anywhere under here would break that without
-    breaking anything that fails loudly — every release would simply become a
-    new release, and every "has anything changed" comparison would answer yes.
-    """
-    offenders = [
-        f"{name} imports {imported}"
-        for name in _PURE_MODULES
-        for imported in sorted(_imports(_SOURCE / name))
-        if _banned(imported, (*_IO_IMPORTS, *_IMPURE_SOURCES))
     ]
     assert offenders == []
 
