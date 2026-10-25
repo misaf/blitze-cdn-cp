@@ -80,7 +80,7 @@ after its services have been wired.
 - [Host service](../../src/blitzecdn/capabilities/dns/service/hosts.py)
 - [Host service tests](../../tests/capabilities/dns/test_host_service.py)
 - [Host derivation](../../src/blitzecdn/capabilities/dns/domain/hosts.py)
-- [Composition root](../../src/blitzecdn/composition/control_plane.py)
+- [Process composition](../../src/blitzecdn/composition/processes.py)
 - [Convergence service](../../src/blitzecdn/capabilities/deployments/service/convergence.py)
 - [Rollback policy](../../src/blitzecdn/capabilities/deployments/service/rollback.py)
 - [Validation](../../src/blitzecdn/capabilities/deployments/service/validation.py)

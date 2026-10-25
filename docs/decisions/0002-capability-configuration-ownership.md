@@ -123,4 +123,4 @@ Core carries no capability's name.
 - [Staging from environment and TOML](../../src/blitzecdn/core/config/loading.py)
 - [Settings](../../src/blitzecdn/core/config/settings.py)
 - [A capability's own config](../../src/blitzecdn/capabilities/tls/config.py)
-- [Plugin resolution tests](../../tests/architecture/packages/test_package_capability_contracts.py)
+- [Feature configuration tests](../../tests/platform/test_config.py)
