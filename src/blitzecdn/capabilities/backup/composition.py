@@ -6,6 +6,7 @@ values do not discover installed packages or construct the control plane.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 from blitzecdn.capabilities.backup.adapters import (
@@ -17,7 +18,9 @@ from blitzecdn.capabilities.backup.adapters import (
     TemporaryWorkspace,
     TlsComponent,
 )
+from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
 from blitzecdn.capabilities.backup.config import BackupConfig
+from blitzecdn.capabilities.backup.ports import ServiceControl
 from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
 from blitzecdn.core.config import Settings
 from blitzecdn.core.persistence.schema import DatabaseSchema
@@ -29,6 +32,18 @@ from blitzecdn.core.runtime.resources import distribution_version
 #: what ``blitzecdn plugins`` shows an operator, so the one number that
 #: must not drift from ``pyproject.toml`` is not copied out of it.
 __version__ = distribution_version(__name__)
+
+
+def build_restore_journal(settings: Settings) -> RestoreJournal:
+    """The checkpoint shared by application restore and host publication."""
+    return RestoreJournal(
+        settings.state_dir / "restore-recovery",
+        defer_commit=os.environ.get("COMPOSE_RESTORE_OFFLINE") == "1",
+    )
+
+
+def build_restore_guard() -> ServiceControl:
+    return ComposeRestoreGuard()
 
 
 def build_backup_service(
@@ -54,10 +69,11 @@ def build_backup_service(
         ),
         archive=TarArchive(),
         schema=DatabaseSchema(settings),
-        services=ComposeRestoreGuard(),
+        services=build_restore_guard(),
         # Staged under the state directory rather than /tmp: a staged backup is
         # a complete copy of the database and every private key.
         workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
+        recovery=build_restore_journal(settings),
     )
 
 

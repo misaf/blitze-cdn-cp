@@ -131,6 +131,26 @@ the expected inventory, desired state, deployment/release history, credentials
 and exact TLS files; private keys should have mode 0600. Keep the old recovery
 copy until the replacement has passed a restore rehearsal.
 
+Restore keeps the previous selected components in a private `restore-recovery/`
+directory under the controller state directory. A component failure restores
+those copies, including credentials, symlinks, permissions and previously absent
+files. On an installed host they remain available until host configuration has
+also been published. Allow disk space for these copies as well as archive staging.
+
+If recovery itself fails, the installed wrapper leaves services stopped and
+reports the retained checkpoint. Do not delete it or start another restore.
+After resolving the reported filesystem problem, run:
+
+```bash
+blitzecdn backup recover
+```
+
+Use the host wrapper on an installed controller. For a source checkout, stop
+its API and worker before this command and restart them only after it succeeds.
+Recovery returns to the state before the attempted restore; it does not retry
+installing the archive. These checkpoints support interrupted process recovery,
+not a guarantee against disk loss or power failure.
+
 Restoring the controller does not change the running edges. Review validation
 and plan before any subsequent deploy; actual edge recovery still needs the
 deferred rehearsal. On a managed installation use the **host** `blitzecdn backup

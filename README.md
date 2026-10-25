@@ -331,6 +331,10 @@ SDK to run disposable application containers. It reads the managed service file
 at `/etc/blitzecdn/control-plane.compose.yml`; installation and image builds still
 use Compose. Restores stop the running API and worker, restore configuration and
 credentials, then recreate those services and wait for them to become healthy.
+If a restore or configuration publication fails, the previous components are
+recovered before services restart. If that recovery fails, services remain
+stopped and the checkpoint is retained; resolve the reported problem and run
+`blitzecdn backup recover` through the host wrapper.
 The host Python environment is required for this command as well as installation.
 
 Update an installed standalone server with:

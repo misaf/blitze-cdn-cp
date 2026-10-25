@@ -348,3 +348,35 @@ All five confirmed operating/recovery steps are complete. The user subsequently
 authorized the separate real Ubuntu edge rehearsal; its
 [preparation record](REAL_EDGE_REHEARSAL.md) documents the current evidence and
 remaining acceptance work. Further steps still require individual confirmation.
+
+## Restore transaction follow-up
+
+Restore now checkpoints the exact previous selected paths before applying any
+component. Application failures recover those copies before leaving the offline
+boundary. The managed host retains the checkpoint through configuration
+publication, recovers it on publication failure and declines to restart services
+if recovery fails. `backup recover` provides an explicit retry; its hidden
+host acknowledgement is the only other CLI addition. Other frozen surfaces and
+the database schema are unchanged. Host restore operations are serialized, with
+configuration captured inside that lock. See the operating guide for recovery
+instructions and storage requirements.
+
+Verification ran on the user's temporary Ubuntu 26.04/Python 3.14.4 server on
+2026-10-25, using an isolated checkout and dependency environment. No tests ran
+on the workstation and no live controller deployment was changed.
+
+- Eight failure cases, covering each component on existing and empty
+  controllers, failed with checkpoint protection disabled. With protection,
+  previous bytes, file modes, links and absent paths return before restart.
+- The main matrix passed **288 tests**, including backup, host lifecycle,
+  migrations, all architecture checks, installed-wheel lifecycle, frozen
+  contracts and recovery journeys. Installed-wheel dependencies used an
+  Aliyun transport copy of the lockfile with versions and hashes unchanged.
+- A final host-lock correction and its new regression passed **34 host and
+  contract checks**, making **289 distinct cases** across the selections.
+  Formatting, lint and strict types across 16 affected source files passed.
+- A subprocess killed after changing a protected file retained its checkpoint
+  and recovered its previous bytes. Managed acknowledgement and CLI recovery
+  were also exercised. Host publication, restart suppression and retry used
+  Docker test doubles; they do not establish a live Compose restore rehearsal.
+  Disk loss, power failure and every possible crash timing remain unverified.

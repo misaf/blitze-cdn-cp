@@ -73,6 +73,14 @@ class BackupComponentGateway(Protocol):
 
     def restore(self, staging: Path) -> None: ...
 
+    def recovery_paths(self) -> Sequence[Path]: ...
+
+
+class RestoreRecovery(Protocol):
+    """Preserve selected live paths and recover them if application fails."""
+
+    def protect(self, paths: Sequence[Path]) -> AbstractContextManager[None]: ...
+
 
 class SchemaVersions(Protocol):
     """Schema identity and preparation of a database before publication."""
@@ -91,9 +99,8 @@ class SchemaVersions(Protocol):
 class ServiceControl(Protocol):
     """Stop the control-plane services for the duration of a block.
 
-    A context manager rather than a stop/start pair so the services come back
-    whether the restore succeeded, failed, or raised — leaving a controller
-    stopped because a restore threw is the failure this shape prevents.
+    Component recovery runs inside this boundary. The managed host owns actual
+    restarts and must leave services stopped while a recovery checkpoint remains.
     """
 
     def stopped(self) -> AbstractContextManager[None]: ...
@@ -109,6 +116,7 @@ __all__ = [
     "ArchiveEntry",
     "ArchiveGateway",
     "BackupComponentGateway",
+    "RestoreRecovery",
     "SchemaVersions",
     "ServiceControl",
     "Workspace",

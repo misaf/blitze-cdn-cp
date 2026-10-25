@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import os
 import select
 import shutil
@@ -192,7 +193,7 @@ class HostRuntime:
 
     def execute(self, arguments: list[str]) -> int:
         backup = arguments[:1] == ["backup"]
-        restore = arguments[:2] == ["backup", "restore"]
+        restore = arguments[:2] in (["backup", "restore"], ["backup", "recover"])
         options = self.definitions.options("blitzecdn-cli")
         if "BLITZE_ALLOW_EMPTY_SITES" in os.environ:
             options["environment"]["BLITZE_ALLOW_EMPTY_SITES"] = os.environ[
@@ -206,30 +207,88 @@ class HostRuntime:
                         tempfile.TemporaryDirectory(prefix="blitzecdn-backup-")
                     )
                 )
-                self.stage_configuration(stage, options)
+                if not restore:
+                    self.stage_configuration(stage, options)
             if not restore:
                 # Nothing to start first. A disposable CLI container used to
                 # have to bring up the message broker its command would talk
                 # to; durable work lives in the state volume now, which this
                 # container already mounts.
                 return self.run_command(arguments, options)
-            # Complete discovery before stopping anything. A failed stop is still
-            # inside the recovery boundary, so every prior writer is recovered.
-            running = [
-                container
-                for service in WRITERS
-                for container in self.containers(service)
-            ]
+            if stage is None:
+                raise HostRuntimeError("Restore configuration was not staged")
+            return self.restore(arguments, options, stage)
+
+    def restore(
+        self, arguments: list[str], options: dict[str, Any], stage: Path
+    ) -> int:
+        state = next(
+            Path(source)
+            for source, mount in options["volumes"].items()
+            if mount["bind"] == "/opt/blitzecdn/.state"
+        )
+        with (state / ".restore.lock").open("a+b") as lock:
+            os.fchmod(lock.fileno(), 0o600)
             try:
-                for container in running:
-                    container.stop(timeout=30)
-                options["environment"]["COMPOSE_RESTORE_OFFLINE"] = "1"
-                status = self.run_command(arguments, options)
-                if status == 0 and stage is not None:
-                    self.publish_configuration(stage)
-                return status
-            finally:
-                self.recover(running)
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise HostRuntimeError("Another restore is already running") from error
+            self.stage_configuration(stage, options)
+            return self._restore(arguments, options, stage, state / "restore-recovery")
+
+    def _restore(
+        self,
+        arguments: list[str],
+        options: dict[str, Any],
+        stage: Path,
+        checkpoint: Path,
+    ) -> int:
+        if checkpoint.exists() and arguments[:2] != ["backup", "recover"]:
+            raise HostRuntimeError(
+                f"Unfinished restore at {checkpoint}; run 'blitzecdn backup recover'"
+            )
+        # Complete discovery before stopping anything. Even a failed stop must
+        # recover the previously running set if no unfinished writes remain.
+        running = [
+            container
+            for service in WRITERS
+            for container in (
+                self.containers(service, all_states=True)
+                if arguments[:2] == ["backup", "recover"]
+                else self.containers(service)
+            )
+        ]
+        try:
+            for container in running:
+                container.stop(timeout=30)
+            options["environment"]["COMPOSE_RESTORE_OFFLINE"] = "1"
+            status = self.run_command(arguments, options)
+            if status == 0:
+                self.finish_restore(stage, options, checkpoint)
+            return status
+        finally:
+            if checkpoint.exists():
+                try:
+                    if self.run_command(["backup", "recover"], options) != 0:
+                        raise HostRuntimeError("Could not recover previous components")
+                    self.finish_restore(stage, options, checkpoint)
+                except BaseException as error:
+                    raise HostRuntimeError(
+                        f"Restore recovery incomplete; services remain stopped. "
+                        f"Previous state is retained at {checkpoint}; "
+                        "retry with 'blitzecdn backup recover'."
+                    ) from error
+            self.recover(running)
+
+    def finish_restore(
+        self, stage: Path, options: dict[str, Any], checkpoint: Path
+    ) -> None:
+        self.publish_configuration(stage)
+        if checkpoint.exists():
+            if self.run_command(["backup", "commit-restore"], options) != 0:
+                raise HostRuntimeError("Could not finalize restored state")
+            if checkpoint.exists():
+                raise HostRuntimeError("Restore checkpoint was not finalized")
 
     def configuration_paths(self) -> dict[str, Path]:
         service = self.definitions.services["blitzecdn-cli"]

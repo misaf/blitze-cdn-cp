@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from unittest.mock import MagicMock
 
 import docker
@@ -33,6 +34,7 @@ def runtime(tmp_path, monkeypatch):
     service_file.write_text(source)
     (tmp_path / "blitzecdn.env").write_text('BLITZE_API_KEYS="operator:original"\n')
     (tmp_path / "blitzecdn.toml").write_text("[blitzecdn]\nallow_empty_sites = false\n")
+    (tmp_path / "state").mkdir()
     monkeypatch.setattr(host_runtime.os, "chown", lambda *args: None)
     monkeypatch.setattr(host_runtime.os, "fchown", lambda *args: None)
     client = MagicMock()
@@ -134,6 +136,138 @@ def test_database_only_restore_preserves_configuration_inode(runtime, monkeypatc
     assert runtime.execute(["backup", "restore", "archive", "--yes"]) == 0
     assert target.stat().st_ino == inode
     runtime.client.containers.create.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [None, "command", "publish", "rollback"])
+def test_restore_checkpoint_covers_host_publication_and_failed_recovery(
+    runtime, monkeypatch, failure
+):
+    api, worker = container("blitzecdn-api"), container("blitzecdn-worker")
+    monkeypatch.setattr(
+        runtime,
+        "containers",
+        lambda service, **kwargs: [api if service == "blitzecdn-api" else worker],
+    )
+    targets = runtime.configuration_paths()
+    original = {name: path.read_bytes() for name, path in targets.items()}
+    checkpoint = targets["blitzecdn.env"].parent / "state/restore-recovery"
+    state = {"database": "original"}
+    calls = []
+
+    def command(arguments, options):
+        action = arguments[1]
+        calls.append(action)
+        stage = next(
+            host_runtime.Path(source)
+            for source, mount in options["volumes"].items()
+            if mount["bind"] == "/run/blitzecdn-backup"
+        )
+        if action == "restore":
+            checkpoint.mkdir()
+            state["database"] = "restored"
+            (stage / "blitzecdn.toml").write_text(
+                "[blitzecdn]\nallow_empty_sites = true\n"
+            )
+            (stage / "blitzecdn.env").write_text("BLITZE_API_KEYS=operator:restored\n")
+            return 42 if failure == "command" else 0
+        if action == "recover":
+            if failure == "rollback":
+                return 42
+            state["database"] = "original"
+            for name, content in original.items():
+                (stage / name).write_bytes(content)
+        else:
+            assert action == "commit-restore"
+            shutil.rmtree(checkpoint)
+        return 0
+
+    monkeypatch.setattr(runtime, "run_command", command)
+    replace = host_runtime.os.replace
+    failed = []
+
+    def fail_second_publication(source, destination):
+        if (
+            failure in {"publish", "rollback"}
+            and destination == targets["blitzecdn.env"]
+            and not failed
+        ):
+            failed.append(True)
+            raise OSError("configuration publication failed")
+        replace(source, destination)
+
+    monkeypatch.setattr(host_runtime.os, "replace", fail_second_publication)
+    recovered = []
+
+    def restart(previous):
+        assert previous == [api, worker]
+        if failure:
+            assert state["database"] == "original"
+            assert {
+                name: path.read_bytes() for name, path in targets.items()
+            } == original
+        recovered.extend(previous)
+
+    monkeypatch.setattr(runtime, "recover", restart)
+    if failure in {"publish", "rollback"}:
+        with pytest.raises((OSError, HostRuntimeError)):
+            runtime.execute(["backup", "restore", "archive", "--yes"])
+    else:
+        assert runtime.execute(["backup", "restore", "archive", "--yes"]) == (
+            42 if failure == "command" else 0
+        )
+    if failure == "rollback":
+        assert recovered == []
+        assert checkpoint.exists()
+        # An explicit retry recovers the stopped services too.
+        failure = "command"
+        assert runtime.execute(["backup", "recover"]) == 0
+        assert recovered == [api, worker]
+        assert not checkpoint.exists()
+    else:
+        assert recovered == [api, worker]
+        assert not checkpoint.exists()
+        assert calls == (
+            ["restore", "commit-restore"]
+            if failure is None
+            else ["restore", "recover", "commit-restore"]
+        )
+
+
+def test_restore_refuses_a_concurrent_host_operation(runtime, monkeypatch):
+    lock_path = (
+        runtime.configuration_paths()["blitzecdn.env"].parent / "state/.restore.lock"
+    )
+    with lock_path.open("a+b") as lock:
+        host_runtime.fcntl.flock(lock.fileno(), host_runtime.fcntl.LOCK_EX)
+        with pytest.raises(HostRuntimeError, match="already running"):
+            runtime.execute(["backup", "restore", "archive", "--yes"])
+    runtime.client.containers.create.assert_not_called()
+
+
+def test_restore_captures_configuration_under_the_host_lock(runtime, monkeypatch):
+    lock_path = (
+        runtime.configuration_paths()["blitzecdn.env"].parent / "state/.restore.lock"
+    )
+    capture = runtime.stage_configuration
+    captured = []
+
+    def capture_under_lock(stage, options):
+        with (
+            lock_path.open("a+b") as competing,
+            pytest.raises(BlockingIOError),
+        ):
+            host_runtime.fcntl.flock(
+                competing.fileno(),
+                host_runtime.fcntl.LOCK_EX | host_runtime.fcntl.LOCK_NB,
+            )
+        captured.append(stage)
+        capture(stage, options)
+
+    monkeypatch.setattr(runtime, "stage_configuration", capture_under_lock)
+    monkeypatch.setattr(runtime, "containers", lambda service: [])
+    monkeypatch.setattr(runtime, "run_command", lambda *args: 0)
+    assert runtime.execute(["backup", "restore", "archive", "--yes"]) == 0
+    assert len(captured) == 1
 
 
 def test_recovery_uses_restored_environment_and_attempts_worker_after_api_failure(
