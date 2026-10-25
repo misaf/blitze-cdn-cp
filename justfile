@@ -124,10 +124,12 @@ release-version version:
 
 # --- the gates, in CI order ---------------------------------------------
 
-# Format and lint every distribution in the workspace.
+# Format and lint every distribution in the workspace, and check the import
+# contracts in `.importlinter`.
 lint:
     uv run ruff format --check src tests
     uv run ruff check src tests
+    uv run lint-imports
 
 # Rewrite what `lint` would complain about.
 fmt:

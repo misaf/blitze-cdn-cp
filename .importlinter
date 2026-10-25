@@ -1,0 +1,271 @@
+# Import direction, checked by `lint-imports` (part of `just lint`).
+#
+# Every contract here is a rule about which module may import which, and
+# nothing else. Rules about names, strings, files, attributes or the declared
+# capability graph stay in `tests/architecture/test_layering.py`, which says
+# why each one cannot be put here.
+#
+# Direct imports only (`allow_indirect_imports`): the rules were written about
+# what a module names, and a transitive path through a permitted neighbour is
+# that neighbour's business. Imports under `if TYPE_CHECKING:` count unless a
+# contract ignores one by name.
+#
+# The I/O list repeats in several contracts because INI has no variables. It
+# is the set of libraries that reach the machine or a framework: changing it
+# means changing every contract that carries it.
+
+[importlinter]
+root_package = blitzecdn
+include_external_packages = True
+
+[importlinter:contract:capability-values]
+name = A capability's domain and contract are framework- and I/O-free
+type = forbidden
+source_modules =
+    blitzecdn.capabilities.**.domain
+    blitzecdn.capabilities.**.policy
+forbidden_modules =
+    fastapi
+    starlette
+    typer
+    click
+    sqlite3
+    subprocess
+    ansible
+    dns
+    certbot
+    cryptography
+    yaml
+    sqlalchemy
+    sqlmodel
+    blitzecdn.api
+    blitzecdn.cli
+    blitzecdn.composition
+    # Whole packages, not module names: `core.runtime` is everything of core's
+    # that touches the machine and `core.persistence` everything that touches
+    # the database, so a module added to either is refused the day it is
+    # written.
+    blitzecdn.core.ansible
+    blitzecdn.core.persistence
+    blitzecdn.core.runtime
+allow_indirect_imports = True
+
+[importlinter:contract:capability-services]
+name = A capability's services depend on ports, never on adapters or I/O
+type = forbidden
+# `service.py` or anything under `service/`: application policy moved beside a
+# service is held to the service rule, so moving code out is no way around it.
+source_modules =
+    blitzecdn.capabilities.**.service
+forbidden_modules =
+    fastapi
+    starlette
+    typer
+    click
+    sqlite3
+    subprocess
+    ansible
+    dns
+    certbot
+    cryptography
+    yaml
+    sqlalchemy
+    sqlmodel
+    blitzecdn.api
+    blitzecdn.cli
+    blitzecdn.composition
+    blitzecdn.core.ansible
+    blitzecdn.core.persistence
+    blitzecdn.core.runtime.broker
+    blitzecdn.**.adapters
+allow_indirect_imports = True
+
+[importlinter:contract:capability-adapters]
+name = A capability's adapters never reach an entry layer or the composition root
+type = forbidden
+source_modules =
+    blitzecdn.capabilities.**.adapters
+forbidden_modules =
+    blitzecdn.api
+    blitzecdn.cli
+    blitzecdn.composition
+    blitzecdn.worker
+allow_indirect_imports = True
+
+[importlinter:contract:entry-persistence]
+name = Delivery code never reaches persistence directly
+type = forbidden
+# `api/` and `cli` stay outside `adapters/`: they are not private the way an
+# adapter is, and `deployments.api.models` is a published representation.
+source_modules =
+    blitzecdn.api
+    blitzecdn.cli
+    blitzecdn.capabilities.**.api
+    blitzecdn.capabilities.**.cli
+forbidden_modules =
+    blitzecdn.**.persistence
+allow_indirect_imports = True
+
+[importlinter:contract:core-below-capabilities]
+name = Core imports no capability and not the composition root
+type = forbidden
+# The foundation never reaches up into the tree it supports: core declares a
+# port and a capability satisfies it, or the code was the capability's and
+# moves there. `core.features` is the mechanism, not a participant in it.
+source_modules =
+    blitzecdn.core
+forbidden_modules =
+    blitzecdn.capabilities
+    blitzecdn.composition
+# Annotations only: a contribution type names the value it is handed, and
+# nothing is imported at run time to do it.
+ignore_imports =
+    blitzecdn.core.features.registry -> blitzecdn.capabilities.serving.domain
+    blitzecdn.core.features.types.feature -> blitzecdn.capabilities.serving.domain
+allow_indirect_imports = True
+
+[importlinter:contract:core-kernel]
+name = Core's kernel names nothing above it and no I/O
+type = forbidden
+# Values, protocols and the exception hierarchy every layer may name. The
+# kernel is the bottom, so everything else in the package is above it.
+# `core-layers` below keeps the rest of core classified, so a new core package
+# cannot sit beside the kernel unnoticed.
+source_modules =
+    blitzecdn.core.domain
+    blitzecdn.core.ports
+    blitzecdn.core.exceptions
+forbidden_modules =
+    fastapi
+    starlette
+    typer
+    click
+    sqlite3
+    subprocess
+    ansible
+    dns
+    certbot
+    cryptography
+    yaml
+    sqlalchemy
+    sqlmodel
+    blitzecdn.ansible
+    blitzecdn.api
+    blitzecdn.capabilities
+    blitzecdn.cli
+    blitzecdn.composition
+    blitzecdn.docker
+    blitzecdn.host_runtime
+    blitzecdn.install_handoff
+    blitzecdn.providers
+    blitzecdn.worker
+allow_indirect_imports = True
+
+[importlinter:contract:core-layers]
+name = Core's infrastructure sits on its kernel
+type = layers
+containers =
+    blitzecdn.core
+layers =
+    ansible : config : features : persistence : runtime
+    domain : ports : exceptions
+exhaustive = True
+
+[importlinter:contract:worker-is-a-consumer]
+name = Nothing imports the worker
+type = forbidden
+# The process that consumes durable work is never a dependency of the code
+# that produces it.
+source_modules =
+    blitzecdn.ansible
+    blitzecdn.api
+    blitzecdn.capabilities
+    blitzecdn.cli
+    blitzecdn.composition
+    blitzecdn.core
+    blitzecdn.docker
+    blitzecdn.host_runtime
+    blitzecdn.install_handoff
+    blitzecdn.providers
+forbidden_modules =
+    blitzecdn.worker
+allow_indirect_imports = True
+
+[importlinter:contract:no-service-locator]
+name = Nothing the composition root builds reaches back for it
+type = forbidden
+# Each service, adapter, builder and feature receives its collaborators as
+# named arguments. A capability's routes and commands get their services
+# through `api.dependencies` and `cli.common`, never by naming the root.
+source_modules =
+    blitzecdn.capabilities
+    blitzecdn.providers
+forbidden_modules =
+    blitzecdn.composition
+allow_indirect_imports = True
+
+[importlinter:contract:runtime-not-delivery]
+name = A runtime module imports no delivery layer
+type = forbidden
+# The composition root imports `runtime.py` to bind behaviour, and delivery
+# imports the composition root, so the other direction would be a cycle.
+# Routes and commands are declared in `feature.py`, loaded by name.
+source_modules =
+    blitzecdn.capabilities.*.runtime
+    blitzecdn.providers.*.runtime
+forbidden_modules =
+    fastapi
+    typer
+    blitzecdn.api
+    blitzecdn.cli
+    blitzecdn.**.api
+    blitzecdn.**.cli
+    blitzecdn.**.feature
+allow_indirect_imports = True
+
+[importlinter:contract:assembly-names-no-capability]
+name = The application and CLI assemblies name no capability
+type = forbidden
+# They ask the feature registry, so a capability missing from both forgot to
+# contribute rather than somebody forgetting to wire it. `api/models.py`
+# translates domain values and has to name them; it is outside the rule.
+source_modules =
+    blitzecdn.api.app
+    blitzecdn.cli.main
+forbidden_modules =
+    blitzecdn.capabilities
+allow_indirect_imports = True
+
+[importlinter:contract:pure-compiler]
+name = Compiling a release reads no clock, environment, network or disk
+type = forbidden
+# Two compilations of the same captured state produce the same digest. One
+# `datetime.now()` anywhere under here would make every release a new release
+# without failing anything loudly.
+source_modules =
+    blitzecdn.capabilities.releases.service.compiler
+forbidden_modules =
+    fastapi
+    starlette
+    typer
+    click
+    sqlite3
+    subprocess
+    ansible
+    dns
+    certbot
+    cryptography
+    yaml
+    sqlalchemy
+    sqlmodel
+    datetime
+    time
+    random
+    secrets
+    os
+    pathlib
+    socket
+    urllib
+    httpx
+    requests
+allow_indirect_imports = True
