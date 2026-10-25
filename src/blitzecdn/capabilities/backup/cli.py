@@ -7,7 +7,11 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.backup.composition import build_backup_service
+from blitzecdn.capabilities.backup.composition import (
+    build_backup_service,
+    build_restore_guard,
+    build_restore_journal,
+)
 from blitzecdn.capabilities.backup.domain import BackupComponent
 from blitzecdn.cli import common
 
@@ -35,6 +39,27 @@ _ONLY = typer.Option(
         + ". Omit for a full disaster-recovery backup."
     ),
 )
+
+
+@backup_app.command("recover")
+def recover() -> None:
+    """Recover the previous state retained by an unfinished restore.
+
+    Stop the controller first; on an installed host use the host wrapper.
+    """
+    with build_restore_guard().stopped():
+        journal = build_restore_journal(common.settings())
+        journal.rollback()
+        if not journal.defer_commit:
+            journal.commit()
+    typer.echo("Previous controller state recovered.")
+
+
+@backup_app.command("commit-restore", hidden=True)
+def commit_restore() -> None:
+    """Host acknowledgement that restored configuration has been published."""
+    with build_restore_guard().stopped():
+        build_restore_journal(common.settings()).commit()
 
 
 @backup_app.command("create")

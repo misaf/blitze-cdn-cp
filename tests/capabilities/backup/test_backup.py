@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import sqlite3
+import subprocess
+import sys
 import tarfile
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -26,6 +29,7 @@ from blitzecdn.capabilities.backup.adapters.components import (
     AcmeComponent,
     TlsComponent,
 )
+from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 from blitzecdn.capabilities.backup.composition import build_backup_service
 from blitzecdn.capabilities.backup.config import BackupConfig
@@ -801,6 +805,130 @@ def test_staged_database_failure_preserves_every_live_component(
     assert service.services.calls == []
 
 
+@pytest.mark.parametrize("existing", [True, False])
+def test_restore_checkpoint_cannot_capture_itself(tmp_path, existing):
+    state = tmp_path / "state"
+    if existing:
+        state.mkdir()
+    journal = RestoreJournal(state / "restore-recovery")
+    with (
+        pytest.raises(ConfigurationError, match="inside a saved tree"),
+        journal.protect([state]),
+    ):
+        pytest.fail("live writes must not start")
+    assert not journal.root.exists()
+
+
+def _restore_state(service):
+    def state(path):
+        if path.is_symlink():
+            return ("link", os.readlink(path))
+        if path.is_file():
+            return ("file", path.read_bytes(), path.stat().st_mode & 0o777)
+        if path.is_dir():
+            return ("directory", {child.name: state(child) for child in path.iterdir()})
+        return None
+
+    return {
+        path: state(path)
+        for component in service._components.values()
+        for path in component.recovery_paths()
+    }
+
+
+@pytest.mark.parametrize("component", list(BackupComponent))
+@pytest.mark.parametrize("existing", [True, False])
+def test_later_restore_failure_recovers_all_previous_components_before_restart(
+    populated, tmp_path, monkeypatch, component, existing
+):
+    configuration = load_control_plane_plugins().configuration_contributions()
+    source = build_backup_service(populated, configuration=configuration)
+    archive = source.create(destination=tmp_path / "restore.tar.gz")
+    if existing:
+        target = populated
+        store = Repository(target.database_path)
+        store.zones.create_domain(Domain(name="newer.example"))
+        store.close()
+        key = target.certificate_dir / "example-com/privkey-aa.pem"
+        key.write_bytes(b"newer private key")
+        key.chmod(0o640)
+        (target.state_dir / "id_ed25519.pub").unlink()
+        target.environment_path.write_text("BLITZE_API_KEYS=operator:newer\n")
+    else:
+        fresh = tmp_path / "fresh-controller"
+        fresh.mkdir()
+        target = _relocated(populated, fresh)
+    service = build_backup_service(target, configuration=configuration)
+    before = _restore_state(service)
+    gateway = service._components[component]
+    restore = gateway.restore
+
+    def fail_after_replacement(staging):
+        restore(staging)
+        raise RuntimeError("later restore step failed")
+
+    class VerifyRestart:
+        @contextmanager
+        def stopped(self):
+            try:
+                yield
+            finally:
+                assert _restore_state(service) == before
+
+    service.services = VerifyRestart()
+    monkeypatch.setattr(gateway, "restore", fail_after_replacement)
+
+    with pytest.raises(RuntimeError, match="later restore step failed"):
+        service.restore(archive)
+
+    assert _restore_state(service) == before
+    assert not (target.state_dir / "restore-recovery").exists()
+
+
+def test_failed_restore_recovery_keeps_checkpoint_for_explicit_retry(
+    populated, tmp_path, monkeypatch
+):
+    service = build_backup_service(
+        populated,
+        configuration=load_control_plane_plugins().configuration_contributions(),
+    )
+    archive = service.create(destination=tmp_path / "restore.tar.gz")
+    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key.write_bytes(b"newer live key")
+    before = _restore_state(service)
+    gateway = service._components[BackupComponent.TLS]
+    restore = gateway.restore
+
+    def fail(staging):
+        restore(staging)
+        raise RuntimeError("restore failed")
+
+    journal = service.recovery
+    copy = journal._copy
+
+    def fail_recovery(source, destination):
+        if source.parent == journal.root:
+            raise OSError("recovery disk unavailable")
+        copy(source, destination)
+
+    monkeypatch.setattr(gateway, "restore", fail)
+    monkeypatch.setattr(journal, "_copy", fail_recovery)
+    service.services = _RecordingServices()
+    with pytest.raises(ExecutionError, match="previous state remains"):
+        service.restore(archive)
+    assert (journal.root / "manifest.json").is_file()
+    assert journal.root.stat().st_mode & 0o777 == 0o700
+    with pytest.raises(ConfigurationError, match="unfinished restore"):
+        service.restore(archive)
+
+    monkeypatch.setattr(cli.common, "settings", lambda: populated)
+    result = runner.invoke(cli.app, ["backup", "recover"])
+
+    assert result.exit_code == 0, result.output
+    assert _restore_state(service) == before
+    assert not journal.root.exists()
+
+
 def test_restore_publishes_the_migrated_staged_database(populated, monkeypatch):
     service = build_backup_service(
         populated,
@@ -830,6 +958,71 @@ def test_restore_publishes_the_migrated_staged_database(populated, monkeypatch):
             ("migrated.example",)
         ]
     assert service.services.calls == ["stop", "start"]
+
+
+def test_managed_restore_retains_previous_state_until_host_acknowledgement(
+    populated, monkeypatch
+):
+    monkeypatch.setenv("COMPOSE_RESTORE_OFFLINE", "1")
+    service = build_backup_service(
+        populated,
+        configuration=load_control_plane_plugins().configuration_contributions(),
+    )
+    archive = service.create()
+    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key.write_bytes(b"previous live key")
+    before = _restore_state(service)
+    service.services = _RecordingServices()
+    service.restore(archive)
+    journal = populated.state_dir / "restore-recovery"
+    assert journal.is_dir()
+    assert key.read_bytes() == b"PRIVATE KEY"
+    monkeypatch.setattr(cli.common, "settings", lambda: populated)
+
+    recovered = runner.invoke(cli.app, ["backup", "recover"])
+    assert recovered.exit_code == 0, recovered.output
+    assert _restore_state(service) == before
+    assert journal.is_dir()
+    committed = runner.invoke(cli.app, ["backup", "commit-restore"])
+    assert committed.exit_code == 0, committed.output
+    assert not journal.exists()
+
+
+def test_killed_restore_process_leaves_a_recoverable_checkpoint(tmp_path):
+    live = tmp_path / "live"
+    live.write_bytes(b"previous state")
+    journal = RestoreJournal(tmp_path / "restore-recovery")
+    script = """
+import signal, sys
+from pathlib import Path
+from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
+live = Path(sys.argv[1])
+with RestoreJournal(Path(sys.argv[2])).protect([live]):
+    live.write_bytes(b'partially restored state')
+    print('ready', flush=True)
+    signal.pause()
+"""
+    with subprocess.Popen(  # noqa: S603 - fixed interpreter, script and test paths
+        [sys.executable, "-c", script, str(live), str(journal.root)],
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as child:
+        try:
+            assert child.stdout is not None
+            assert select.select([child.stdout], [], [], 10)[0]
+            assert child.stdout.readline().strip() == "ready"
+            child.kill()
+            child.wait(timeout=10)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=10)
+    assert live.read_bytes() == b"partially restored state"
+    assert journal.root.is_dir()
+    journal.rollback()
+    journal.commit()
+    assert live.read_bytes() == b"previous state"
+    assert not journal.root.exists()
 
 
 @pytest.mark.parametrize("component_type", [TlsComponent, AcmeComponent])
@@ -1187,6 +1380,7 @@ def test_a_backup_service_without_a_component_refuses_to_restore_it(
         schema=DatabaseSchema(populated),
         services=_RecordingServices(),
         workspace=TemporaryWorkspace(tmp_path / "work"),
+        recovery=RestoreJournal(tmp_path / "recovery"),
     )
     with pytest.raises(ConfigurationError, match="cannot restore: tls"):
         partial.restore(archive)

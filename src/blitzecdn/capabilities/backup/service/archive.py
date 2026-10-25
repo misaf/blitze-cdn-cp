@@ -32,6 +32,7 @@ from blitzecdn.capabilities.backup.domain import (
 from blitzecdn.capabilities.backup.ports import (
     ArchiveGateway,
     BackupComponentGateway,
+    RestoreRecovery,
     SchemaVersions,
     ServiceControl,
     Workspace,
@@ -64,6 +65,7 @@ class BackupService:
         schema: SchemaVersions,
         services: ServiceControl,
         workspace: Workspace,
+        recovery: RestoreRecovery,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.policy = policy
@@ -71,6 +73,7 @@ class BackupService:
         self.schema = schema
         self.services = services
         self.workspace = workspace
+        self.recovery = recovery
         self.clock = clock or (lambda: datetime.now(UTC))
         self._components = {gateway.component: gateway for gateway in components}
 
@@ -195,8 +198,12 @@ class BackupService:
             # Everything above changes staging only. Live writes start here.
             offline = any(gateway.requires_offline for gateway in gateways)
             with self.services.stopped() if offline else nullcontext():
-                for gateway in gateways:
-                    gateway.restore(staging / gateway.component.value)
+                paths = [
+                    path for gateway in gateways for path in gateway.recovery_paths()
+                ]
+                with self.recovery.protect(paths):
+                    for gateway in gateways:
+                        gateway.restore(staging / gateway.component.value)
         return manifest
 
     # -- Validation ----------------------------------------------------

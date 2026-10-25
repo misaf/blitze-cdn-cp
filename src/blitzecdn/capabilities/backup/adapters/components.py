@@ -191,6 +191,13 @@ class DatabaseComponent:
     def present(self) -> bool:
         return self._path.is_file()
 
+    def recovery_paths(self) -> tuple[Path, ...]:
+        return (
+            self._path,
+            self._path.with_name(self._path.name + "-wal"),
+            self._path.with_name(self._path.name + "-shm"),
+        )
+
     def export(self, staging: Path) -> None:
         staging.mkdir(parents=True, exist_ok=True, mode=0o700)
         target = staging / DATABASE_MEMBER
@@ -267,6 +274,9 @@ class _DirectoryComponent:
     def present(self) -> bool:
         root = self._root
         return root.is_dir() and any(root.iterdir())
+
+    def recovery_paths(self) -> tuple[Path, ...]:
+        return (self._root,)
 
     def export(self, staging: Path) -> None:
         links: dict[str, str] = {}
@@ -375,6 +385,9 @@ class ConfigComponent:
 
     def _portable_config(self, key: str) -> bool:
         return is_portable_config_key(key) and key not in self._machine_specific
+
+    def recovery_paths(self) -> tuple[Path, ...]:
+        return tuple(self._files.values())
 
     @property
     def _files(self) -> dict[str, Path]:
