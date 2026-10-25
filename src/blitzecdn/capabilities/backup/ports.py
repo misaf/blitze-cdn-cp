@@ -75,13 +75,17 @@ class BackupComponentGateway(Protocol):
 
 
 class SchemaVersions(Protocol):
-    """The database's schema identity, for recording and for compatibility."""
+    """Schema identity and preparation of a database before publication."""
 
     def current(self) -> str | None: ...
 
     def of(self, path: Path) -> str | None: ...
 
     def known(self, revision: str) -> bool: ...
+
+    def migrate(self, path: Path) -> None:
+        """Upgrade and verify a staged database without touching live state."""
+        ...
 
 
 class ServiceControl(Protocol):

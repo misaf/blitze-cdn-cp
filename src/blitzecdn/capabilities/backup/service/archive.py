@@ -187,7 +187,12 @@ class BackupService:
             for gateway in gateways:
                 gateway.validate(staging / gateway.component.value)
             self._check_staged_schema(manifest, staging)
-            # Everything above this line reads. Everything below it writes.
+            if BackupComponent.DATABASE in manifest.components:
+                # Check the archived revision before upgrading it. Migration
+                # and metadata verification must finish on the private copy
+                # before any live component is replaced.
+                self.schema.migrate(staging / "database" / "blitzecdn.db")
+            # Everything above changes staging only. Live writes start here.
             offline = any(gateway.requires_offline for gateway in gateways)
             with self.services.stopped() if offline else nullcontext():
                 for gateway in gateways:
