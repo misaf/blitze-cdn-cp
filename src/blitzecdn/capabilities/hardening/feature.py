@@ -1,9 +1,9 @@
-"""Declare the application's edge-host hardening provider."""
+"""Declare the application's edge-host hardening capability."""
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.hardening import __version__, ansible
 from blitzecdn.core.features import AnsibleContribution, Feature, FeatureMetadata
-from blitzecdn.providers.hardening import __version__, ansible
 
 FEATURES = (
     Feature(

@@ -1,4 +1,4 @@
-"""The application's http3 runtime provider.
+"""The http3 slice of the http capability: edge roles and Nginx fragments.
 
 This implementation and its edge resources ship in the BlitzeCDN distribution.
 Configuration controls their use; the installed application always includes them.

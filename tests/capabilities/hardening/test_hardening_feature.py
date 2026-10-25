@@ -9,6 +9,8 @@ out of the teardown slot leaves a decommissioned host public-key-only against a
 control plane that has forgotten it exists.
 """
 
+from blitzecdn.capabilities.hardening import __version__, ansible
+from blitzecdn.capabilities.hardening.feature import FEATURES
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.features import FeatureMetadata
 from blitzecdn.core.features.resolution import (
@@ -16,8 +18,6 @@ from blitzecdn.core.features.resolution import (
     resolve_host_capability_roles,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.providers.hardening import __version__, ansible
-from blitzecdn.providers.hardening.feature import FEATURES
 
 (FEATURE,) = FEATURES
 

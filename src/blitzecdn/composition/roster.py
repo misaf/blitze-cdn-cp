@@ -17,6 +17,7 @@ from blitzecdn.capabilities.deployments.service.convergence import DeploymentSer
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
 from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
+from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
@@ -37,7 +38,6 @@ from blitzecdn.core.features import (
     load_features,
 )
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
-from blitzecdn.providers.http3.wiring import RENDERING as HTTP3_RENDERING
 
 __all__ = [
     "BUILTIN_FEATURES",
@@ -154,13 +154,13 @@ ROSTER: tuple[RosterEntry, ...] = (
         rendering=_security_rendering,
     ),
     RosterEntry("blitzecdn.capabilities.origins.feature"),
-    RosterEntry("blitzecdn.providers.geoip.feature"),
-    RosterEntry("blitzecdn.providers.hardening.feature"),
+    RosterEntry("blitzecdn.capabilities.security.geoip.feature"),
+    RosterEntry("blitzecdn.capabilities.hardening.feature"),
     RosterEntry(
-        "blitzecdn.providers.http3.feature",
+        "blitzecdn.capabilities.http.http3.feature",
         rendering=lambda _inputs: HTTP3_RENDERING,
     ),
-    RosterEntry("blitzecdn.providers.resolver.feature"),
+    RosterEntry("blitzecdn.capabilities.resolver.feature"),
 )
 
 #: The feature modules alone, in roster order.

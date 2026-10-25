@@ -9,9 +9,9 @@ written in one role and removed in another, and the pair only works while they
 agree. Core used to hold the second copy and could not be asked to keep
 agreeing with a wheel it may not have installed.
 
-Read through :data:`blitzecdn.providers.hardening.ansible.ROLES_PATH`, the same path a
-deployment resolves the roles by, rather than a directory in the checkout that
-an installed wheel would not have.
+Read through :data:`blitzecdn.capabilities.hardening.ansible.ROLES_PATH`, the
+same path a deployment resolves the roles by, rather than a directory in the
+checkout that an installed wheel would not have.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from blitzecdn.providers.hardening import ansible
+from blitzecdn.capabilities.hardening import ansible
 
 SSHD = ansible.ROLES_PATH / "blitzecdn_hardening_sshd"
 FAIL2BAN = ansible.ROLES_PATH / "blitzecdn_hardening_fail2ban"

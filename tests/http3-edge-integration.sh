@@ -55,7 +55,7 @@ in_edge() { docker exec "${edge}" bash -lc "$1"; }
 # at run time, so this harness resolves `blitzecdn_geoip` and
 # `blitzecdn_security` the same way a deployment does rather than from a
 # directory in the checkout.
-readonly ROLES_PATH='/workspace/src/blitzecdn/assets/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/providers/geoip/ansible/roles:/workspace/src/blitzecdn/providers/hardening/ansible/roles:/workspace/src/blitzecdn/providers/http3/ansible/roles:/workspace/src/blitzecdn/providers/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
+readonly ROLES_PATH='/workspace/src/blitzecdn/assets/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/capabilities/security/geoip/ansible/roles:/workspace/src/blitzecdn/capabilities/hardening/ansible/roles:/workspace/src/blitzecdn/capabilities/http/http3/ansible/roles:/workspace/src/blitzecdn/capabilities/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
 converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }

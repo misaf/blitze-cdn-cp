@@ -8,6 +8,8 @@ a capability that puts a file on a host must be able to take it off again
 without core knowing the path.
 """
 
+from blitzecdn.capabilities.resolver import __version__, ansible
+from blitzecdn.capabilities.resolver.feature import FEATURES
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.features import FeatureMetadata
 from blitzecdn.core.features.resolution import (
@@ -15,8 +17,6 @@ from blitzecdn.core.features.resolution import (
     resolve_host_capability_roles,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.providers.resolver import __version__, ansible
-from blitzecdn.providers.resolver.feature import FEATURES
 
 (FEATURE,) = FEATURES
 

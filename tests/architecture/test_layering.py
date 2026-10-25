@@ -481,10 +481,12 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "diagnostics": set(),
     "dns": {"serving"},
     "edges": {"serving"},
+    "hardening": set(),
     "http": {"dns", "serving"},
     "jobs": set(),
     "maintenance": {"deployments"},
     "releases": {"dns", "edges", "serving"},
+    "resolver": set(),
     "security": {"dns", "serving"},
     "serving": set(),
     # `releases` because certificate collection keeps every version a retained
@@ -692,12 +694,8 @@ def test_no_capability_port_declares_another_capability_s_playbook():
 
 
 def _feature_modules() -> list[Path]:
-    return sorted(
-        [
-            *_CAPABILITIES.glob("*/feature.py"),
-            *(_SOURCE / "providers").glob("*/feature.py"),
-        ]
-    )
+    # Recursive: a nested slice such as `http/http3` declares its own feature.
+    return sorted(_CAPABILITIES.rglob("feature.py"))
 
 
 def _module_name(path: Path) -> str:

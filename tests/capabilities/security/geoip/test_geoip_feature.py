@@ -8,6 +8,8 @@ attaching it is the only thing that makes a country-aware site deployable.
 
 from control_plane_fixtures import build_application
 
+from blitzecdn.capabilities.security.geoip import __version__
+from blitzecdn.capabilities.security.geoip.feature import FEATURES
 from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import (
@@ -15,8 +17,6 @@ from blitzecdn.composition import (
     load_registry,
 )
 from blitzecdn.core.features import FeatureMetadata
-from blitzecdn.providers.geoip import __version__
-from blitzecdn.providers.geoip.feature import FEATURES
 
 (FEATURE,) = FEATURES
 

@@ -264,7 +264,6 @@ ansible-check:
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         src/blitzecdn/assets/ansible/playbooks/*.yml \
         src/blitzecdn/capabilities \
-        src/blitzecdn/providers \
         tests/integration/*.yml
 
 # Lint the two Dockerfiles this distribution ships.

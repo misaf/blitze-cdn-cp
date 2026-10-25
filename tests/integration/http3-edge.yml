@@ -54,7 +54,7 @@
           template: /workspace/src/blitzecdn/capabilities/cache/nginx/cache-http.conf.j2
         - plugin: geoip
           name: geoip-http.conf.j2
-          template: /workspace/src/blitzecdn/providers/geoip/nginx/geoip-http.conf.j2
+          template: /workspace/src/blitzecdn/capabilities/security/geoip/nginx/geoip-http.conf.j2
         - plugin: security
           name: security-http.conf.j2
           template: /workspace/src/blitzecdn/capabilities/security/nginx/security-http.conf.j2
@@ -64,7 +64,7 @@
           template: /workspace/src/blitzecdn/capabilities/compression/nginx/compression-server.conf.j2
         - plugin: http3
           name: http3-server.conf.j2
-          template: /workspace/src/blitzecdn/providers/http3/nginx/http3-server.conf.j2
+          template: /workspace/src/blitzecdn/capabilities/http/http3/nginx/http3-server.conf.j2
         - plugin: security
           name: security-server.conf.j2
           template: /workspace/src/blitzecdn/capabilities/security/nginx/security-server.conf.j2
@@ -78,10 +78,10 @@
           template: /workspace/src/blitzecdn/capabilities/cache/nginx/cache-upstream.conf.j2
         - plugin: geoip
           name: geoip-upstream.conf.j2
-          template: /workspace/src/blitzecdn/providers/geoip/nginx/geoip-upstream.conf.j2
+          template: /workspace/src/blitzecdn/capabilities/security/geoip/nginx/geoip-upstream.conf.j2
         - plugin: http3
           name: http3-upstream.conf.j2
-          template: /workspace/src/blitzecdn/providers/http3/nginx/http3-upstream.conf.j2
+          template: /workspace/src/blitzecdn/capabilities/http/http3/nginx/http3-upstream.conf.j2
         - plugin: security
           name: security-upstream.conf.j2
           template: /workspace/src/blitzecdn/capabilities/security/nginx/security-upstream.conf.j2

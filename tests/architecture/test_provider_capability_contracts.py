@@ -118,7 +118,7 @@ def test_the_country_settings_derive_their_token_generically_in_core():
         f"{path.relative_to(SOURCE)} names the geoip token"
         for path in sorted(SOURCE.rglob("*.py"))
         if path.relative_to(SOURCE).as_posix() not in _GEOIP_AWARE_CONTRACTS
-        and not path.is_relative_to(SOURCE / "providers/geoip")
+        and not path.is_relative_to(SOURCE / "capabilities/security/geoip")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value == "geoip"
     ]

@@ -6,9 +6,9 @@ resource defining `$blitzecdn_country`; each is a place where core and this
 package have to agree without either importing the other.
 
 Core's side is read through the shared contract helpers; this package's side is
-read through :data:`blitzecdn.providers.geoip.ansible.ROLES_PATH` — the same path a
-deployment resolves the role by, rather than a directory in the checkout that
-an installed wheel would not have.
+read through :data:`blitzecdn.capabilities.security.geoip.ansible.ROLES_PATH` —
+the same path a deployment resolves the role by, rather than a directory in the
+checkout that an installed wheel would not have.
 """
 
 from typing import Any
@@ -24,7 +24,7 @@ from contract_support import (
     run_role_tasks,
 )
 
-from blitzecdn.providers.geoip import ansible
+from blitzecdn.capabilities.security.geoip import ansible
 
 ROLE = ansible.ROLES_PATH / ansible.EDGE_ROLE
 TASKS = ROLE / "tasks/main.yml"
