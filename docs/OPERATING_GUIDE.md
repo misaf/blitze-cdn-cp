@@ -116,6 +116,13 @@ when the lock becomes available; no API restart or duplicate submission is
 needed. Failures after execution starts, and expired claims left by dead
 workers, still use the bounded retry budget.
 
+A queued deployment's job succeeds only when the saved deployment succeeded.
+Failed, timed-out and explicitly abandoned deployments fail their jobs, including
+on redelivery, without rerunning a finished deployment. Inspect its recorded
+reason with `blitzecdn status DEPLOYMENT_ID`; fix the cause before submitting a
+new deployment or rollback. Delivery errors that leave the deployment unfinished
+remain retryable.
+
 ## Rebuild from an archive
 
 The following is the demonstrated **source-checkout CLI** restore path. Use a

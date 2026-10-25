@@ -182,6 +182,160 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings):
     assert repository.workflows.list_workflows(10)[0].error
 
 
+@pytest.mark.parametrize("rollback", [False, True])
+@pytest.mark.parametrize("failure", ["ansible", "timeout", "verification", "runner"])
+def test_terminal_deployment_failure_fails_its_real_job_without_retry(
+    settings, monkeypatch, rollback, failure
+):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner()
+    probe = FakeServingProbe()
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=runner,
+        serving_probe=probe,
+        process=ProcessKind.WORKER,
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    if rollback:
+        target = control.deployments.deploy("alice")
+        queued = control.deployments.submit_rollback("alice", target.id)
+    else:
+        queued = control.deployments.submit_deployment("alice")
+    if failure == "runner":
+
+        def cannot_execute(**kwargs):
+            raise ExecutionError("runner unavailable")
+
+        monkeypatch.setattr(runner, "run", cannot_execute)
+    elif failure == "verification":
+        probe.served = False
+    else:
+        runner.results = [
+            ansible_run(
+                host_run("edge-a", failed=1, failure="configuration refused"),
+                status=RunStatus.TIMED_OUT
+                if failure == "timeout"
+                else RunStatus.FAILED,
+                return_code=124 if failure == "timeout" else 2,
+            )
+        ]
+
+    assert control.job_runner.tick()
+
+    result = control.deployments.get_deployment(queued.id)
+    expected = (
+        DeploymentStatus.TIMED_OUT if failure == "timeout" else DeploymentStatus.FAILED
+    )
+    assert result.status is expected
+    (job,) = control.job_queue.list_jobs()
+    assert job.status is JobStatus.FAILED
+    assert job.attempts == 1
+    assert job.dedupe_key is None
+    assert result.id in job.last_error
+    assert expected.value in job.last_error
+    assert result.detail in job.last_error
+    assert not control.job_runner.tick()
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        DeploymentStatus.SUCCEEDED,
+        DeploymentStatus.FAILED,
+        DeploymentStatus.TIMED_OUT,
+        DeploymentStatus.ABANDONED,
+    ],
+)
+def test_redelivered_job_reports_the_saved_terminal_deployment(settings, terminal):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner()
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=runner,
+        process=ProcessKind.WORKER,
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    claim = control.job_queue.claim(lease_seconds=1)
+    assert claim is not None
+    repository.deployments.transition(
+        queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+    )
+    repository.deployments.transition(
+        queued.id,
+        DeploymentStatus.RUNNING,
+        terminal,
+        error=None
+        if terminal is DeploymentStatus.SUCCEEDED
+        else "saved failure detail",
+    )
+    later = datetime.now(UTC) + timedelta(seconds=5)
+    control.job_queue.clock = lambda: later
+
+    assert control.job_runner.tick()
+
+    job = control.job_queue.get(claim.job.id)
+    expected = (
+        JobStatus.SUCCEEDED
+        if terminal is DeploymentStatus.SUCCEEDED
+        else JobStatus.FAILED
+    )
+    assert job.status is expected
+    assert job.attempts == 2
+    assert runner.host_limits == []
+    assert control.deployments.get_deployment(queued.id).status is terminal
+    if terminal is not DeploymentStatus.SUCCEEDED:
+        assert "saved failure detail" in job.last_error
+    assert not control.job_runner.tick()
+
+
+@pytest.mark.parametrize("failure", [ExecutionError, RuntimeError])
+def test_delivery_errors_before_deployment_execution_remain_retryable(
+    settings, monkeypatch, failure
+):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
+        process=ProcessKind.WORKER,
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    run = control.deployments.run_queued
+    calls = []
+
+    def fail_once(deployment_id):
+        calls.append(deployment_id)
+        if len(calls) == 1:
+            raise failure("delivery unavailable")
+        return run(deployment_id)
+
+    monkeypatch.setattr(control.deployments, "run_queued", fail_once)
+    assert control.job_runner.tick()
+    (waiting,) = control.job_queue.list_jobs()
+    assert waiting.status is JobStatus.PENDING
+    assert waiting.attempts == 1
+    assert (
+        control.deployments.get_deployment(queued.id).status is DeploymentStatus.QUEUED
+    )
+    control.job_queue.clock = lambda: waiting.available_at
+
+    assert control.job_runner.tick()
+    assert control.job_queue.get(waiting.id).status is JobStatus.SUCCEEDED
+    assert control.job_queue.get(waiting.id).attempts == 2
+    assert (
+        control.deployments.get_deployment(queued.id).status
+        is DeploymentStatus.SUCCEEDED
+    )
+
+
 def test_submit_rollback_reports_conflicts_synchronously(settings):
     """Nothing to roll back to must surface as an error, not a queued record."""
     repository = Repository(settings.database_path)

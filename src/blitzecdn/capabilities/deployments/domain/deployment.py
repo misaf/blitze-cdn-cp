@@ -217,10 +217,8 @@ class Deployment(BaseModel):
     def abandoned(self) -> bool:
         """Whether this ended because whoever was converging it went away.
 
-        A question the job queue's deployment handler has to ask, as a
-        property rather than a comparison with :class:`DeploymentStatus` so
-        that asking it does not make `jobs` import this capability: the queue
-        depends on none, and only its composition module knows what a job does.
+        Explicit interruption is terminal. A process killed before it can
+        record that outcome instead leaves RUNNING work eligible for recovery.
         """
         return self.status is DeploymentStatus.ABANDONED
 

@@ -26,6 +26,10 @@ from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.composition import build_deployment_service
+from blitzecdn.capabilities.deployments.domain import (
+    TERMINAL_STATUSES,
+    DeploymentStatus,
+)
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
@@ -606,22 +610,33 @@ def _job_handlers(
     """What each kind of job does in the worker.
 
     Both handlers call a service already built for duplicate delivery:
-    ``run_queued`` returns the deployment untouched unless it is still QUEUED,
-    and a maintenance run is idempotent. That makes the queue's at-least-once
-    delivery safe, so neither handler de-duplicates.
+    ``run_queued`` leaves terminal deployments untouched and resumes unfinished
+    ones; maintenance runs are idempotent. The deployment's persisted outcome,
+    including on redelivery, determines whether its job succeeded.
     """
+    failed_states = TERMINAL_STATUSES - {DeploymentStatus.SUCCEEDED}
 
     def deployment(payload: Mapping[str, Any]) -> None:
-        # Explicitly abandoned work is terminal. A process killed before it
-        # finalized RUNNING instead resumes through the deployment service.
+        deployment_id = str(payload["deployment_id"])
         try:
-            result = deployments.run_queued(str(payload["deployment_id"]))
+            result = deployments.run_queued(deployment_id)
         except DeploymentBusyError as exc:
             raise DeferredJobError(str(exc)) from exc
-        if result.abandoned:
+        except Exception:
+            # A runner error may already have finalized the deployment. Retry
+            # delivery failures only while no terminal failure is on record.
+            result = deployments.get_deployment(deployment_id)
+            if result.status not in failed_states:
+                raise
+        if result.status in failed_states:
             raise PermanentJobError(
-                f"deployment {result.id} was abandoned: "
-                f"{result.detail or 'its worker stopped before it completed'}"
+                f"deployment {result.id} ended as {result.status}: "
+                f"{result.detail or 'the deployment did not succeed'}"
+            )
+        if result.status is not DeploymentStatus.SUCCEEDED:
+            raise RuntimeError(
+                f"deployment {result.id} returned without a terminal outcome: "
+                f"{result.status}"
             )
 
     def scheduled(payload: Mapping[str, Any]) -> None:
