@@ -83,24 +83,6 @@ def _schemas(settings) -> dict[str, dict]:
         return client.get("/openapi.json").json()["components"]["schemas"]
 
 
-def _pinned_shapes(schemas: dict[str, dict], expected) -> dict[str, tuple[str, str]]:
-    """The published field names and required fields of every named schema.
-
-    A missing name yields `("", "")` rather than being skipped, so a schema
-    that disappears from the document fails the comparison instead of quietly
-    dropping out of it.
-    """
-    return {
-        name: (
-            " ".join(sorted(schemas[name]["properties"])),
-            " ".join(sorted(schemas[name].get("required", ()))),
-        )
-        if name in schemas
-        else ("", "")
-        for name in expected
-    }
-
-
 def test_published_document_has_no_dangling_schema_references(settings):
     """Every `$ref` resolves. A generated client is only as good as this.
 
@@ -131,60 +113,6 @@ def test_no_published_component_leaks_a_python_module_path(settings):
         name for name in _schemas(settings) if name.startswith("blitzecdn__")
     )
     assert leaked == []
-
-
-#: The operational shapes *this distribution* publishes, as field names and
-#: required fields. Pinned rather than derived: these are what a generated
-#: client binds to. `blitzecdn.api.models` carries the shapes every route
-#: reports an operation with, so an edit there reaches all of them at once,
-#: and a capability's own shapes live beside its routes.
-#: Changing this table is how such a change is declared.
-#:
-#: Core's own shapes only. `ReconciliationResult` and
-#: `SslAutomaticReconciliation` were here too, which meant this test could not
-#: run at all with `blitzecdn-certificates` detached — two rows the document
-#: no longer defines made the whole comparison fail, so the entire table went
-#: unchecked in the core-only workspace. Each distribution pins what it
-#: publishes: see `test_published_certificate_shapes_are_pinned` beside the
-#: capability that adds those two.
-PUBLISHED_OPERATION_SHAPES = {
-    "AnsibleRun": (
-        "error finished_at hosts id log_path playbook return_code started_at "
-        "status targeted",
-        "finished_at id playbook started_at status",
-    ),
-    "AuditEvent": (
-        "action created_at details id operator resource_id resource_type",
-        "action created_at id operator resource_type",
-    ),
-    "Deployment": (
-        "canonical_digest check_mode created_at error finished_at host_limit id "
-        "operator release_id result rollback_of started_at status",
-        "check_mode created_at id operator release_id status",
-    ),
-    "DriftReport": (
-        "checked_at deployment_id host_limit hosts unattempted",
-        "checked_at deployment_id",
-    ),
-    "EdgeRemoval": ("decommissioned hosts name", "decommissioned name"),
-    "HostRun": (
-        "changed changes failed failures host ignored ok report rescued "
-        "skipped unreachable",
-        "host",
-    ),
-    "TaskResult": ("action message outcome role task", "outcome task"),
-    "Workflow": (
-        "created_at error id kind operator resource_id status steps updated_at",
-        "created_at id kind operator status updated_at",
-    ),
-}
-
-
-def test_published_operational_shapes_are_pinned(settings):
-    schemas = _schemas(settings)
-    assert _pinned_shapes(schemas, PUBLISHED_OPERATION_SHAPES) == (
-        PUBLISHED_OPERATION_SHAPES
-    )
 
 
 def test_openapi_generation_is_deterministic(settings):

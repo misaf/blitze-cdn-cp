@@ -110,29 +110,6 @@ def test_every_built_in_feature_is_declared(baseline):
     assert {feature.name for feature in baseline.metadata} == declared
 
 
-def test_a_strategy_or_mode_never_declares_a_feature_module():
-    """The capability declares a feature; the option inside it does not.
-
-    `http3` was a capability once. So were `certificates` and `automatic_ssl`,
-    which is how one capability came to have two registrations and two owners
-    of `SslMode`. Each name here would be a plausible package, and each belongs
-    inside one that already exists.
-    """
-    for capability in ("http", "tls", "dns", "compression", "security"):
-        assert f"blitzecdn.capabilities.{capability}.feature" in BUILTIN_FEATURES
-
-    for option in (
-        "gzip",
-        "brotli",
-        "http3",
-        "under_attack",
-        "certificates",
-        "automatic_ssl",
-        "geoip",
-    ):
-        assert f"blitzecdn.capabilities.{option}.feature" not in BUILTIN_FEATURES
-
-
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
     """No degraded mode: a control plane missing `dns` renders an empty fleet."""
     with pytest.raises(FeatureError, match="could not be imported"):

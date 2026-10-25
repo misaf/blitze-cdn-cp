@@ -371,8 +371,8 @@ def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
     """`load_module` is one list per process, so core composes it.
 
     Ordered by feature name like every other slot, so two controllers with the
-    same packages installed render the same file and an edge's configuration
-    tree does not change because pluggy registered in a different order.
+    same features render the same file and an edge's configuration tree does
+    not change because the roster lists them in a different order.
     """
     contributions = [
         AnsibleContribution(

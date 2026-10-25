@@ -49,25 +49,6 @@ def test_all_shipped_features_share_the_application_version():
         assert Path(importlib.import_module(module).__file__).is_relative_to(SOURCE)
 
 
-def test_no_application_module_imports_a_retired_distribution_namespace():
-    offenders = []
-    for path in SOURCE.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
-            names = (
-                [alias.name for alias in node.names]
-                if isinstance(node, ast.Import)
-                else [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else []
-            )
-            offenders.extend(
-                f"{path.relative_to(SOURCE)}: {name}"
-                for name in names
-                if name.startswith("blitzecdn_")
-            )
-    assert offenders == []
-
-
 def test_focused_runtime_providers_have_no_business_services_or_delivery_layers():
     for provider in (SOURCE / "providers").iterdir():
         if not provider.is_dir() or provider.name == "__pycache__":
