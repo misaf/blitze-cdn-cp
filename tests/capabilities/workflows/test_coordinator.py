@@ -1,15 +1,8 @@
 """What a workflow records around work SQLite cannot roll back.
 
-The coordinator had no test of its own. Its guarantees were exercised only
-through the things that use it — a control plane restarting in
-`tests/entrypoints`, a certificate being issued in the `certificates` wheel —
-so the rules it owns were asserted incidentally, in suites that would still
-pass if the reason for them changed. Failure recording, in particular, has
-three routes to `FAILED` and those tests reached one.
-
-The journal below is a real one, in a dictionary: `advance` builds a `Workflow`
-each time, so the model's own rule — a failed workflow explains itself — is
-part of what these assert rather than something a stub would let past.
+The journal is a real one in a dictionary: `advance` builds a `Workflow` each
+time, so the model's own rule (a failed workflow explains itself) is
+exercised.
 """
 
 from __future__ import annotations
@@ -157,11 +150,8 @@ def test_a_checkpoint_records_a_step_without_closing_the_workflow(coordinator, j
 def test_work_reporting_its_own_failure_closes_failed_without_raising(
     coordinator, journal
 ):
-    """`progress.fail` is for work that failed without an exception.
-
-    An ACME order the CA rejected is a failure the caller learns about in a
-    response body, not from a traceback, and the workflow has to say so — the
-    `else` branch reads `progress.error` for exactly this.
+    """`progress.fail` is for work that failed without an exception, such as an ACME
+    order the CA rejected.
     """
     with coordinator.run("certificate", "alice") as progress:
         progress.fail("the authority refused the order")
@@ -189,10 +179,8 @@ def test_an_exception_closes_the_workflow_failed_and_still_propagates(
 def test_an_interrupt_is_recorded_too(coordinator, journal):
     """`except BaseException`, deliberately.
 
-    A worker killed with SIGINT mid-issuance is precisely the case the journal
-    exists for, and `KeyboardInterrupt` does not inherit `Exception`. Catching
-    the narrower type would leave the entry `RUNNING` forever — recoverable
-    only by the restart path, and only if the process is restarted at all.
+    A worker killed with SIGINT mid-issuance is what the journal is for, and
+    `KeyboardInterrupt` is not an `Exception`.
     """
     with pytest.raises(KeyboardInterrupt), coordinator.run("deployment", "alice"):
         raise KeyboardInterrupt
@@ -211,11 +199,7 @@ def test_retention_is_applied_when_a_workflow_closes(coordinator, journal):
 
 
 def test_a_failed_workflow_is_not_pruned_by_its_own_closing(coordinator, journal):
-    """Pruning is in the `else` branch: a failure is what an operator reads.
-
-    Trimming the history in the same breath as recording a failure would let a
-    burst of failures push the oldest of them out before anyone saw it.
-    """
+    """Pruning is in the `else` branch: a failure is what an operator reads."""
     with pytest.raises(RuntimeError), coordinator.run("deployment", "alice"):
         raise RuntimeError("boom")
 
@@ -225,9 +209,7 @@ def test_a_failed_workflow_is_not_pruned_by_its_own_closing(coordinator, journal
 def test_every_journal_write_happens_inside_a_transaction(coordinator, uow):
     """Open, checkpoint and close are three writes and three boundaries.
 
-    Not one transaction held across the body: the work in the middle leaves the
-    process — a fleet converging, a CA answering — and holding SQLite's writer
-    for the length of it is what the journal exists to avoid.
+    The work in between leaves the process, so no transaction is held across it.
     """
     with coordinator.run("deployment", "alice") as progress:
         assert uow.opened == 1
@@ -267,11 +249,9 @@ def test_recovery_leaves_finished_work_alone(coordinator, journal):
 
 
 def test_recovery_reviews_in_one_transaction(coordinator, journal, uow):
-    """Two entries, one boundary: recovery is a single decision about the tree.
+    """Two entries, one boundary: recovery is a single decision.
 
-    Per-entry transactions would let a controller that dies partway through
-    recovery leave half its journal reviewed and half of it `RUNNING`, which is
-    the state recovery exists to eliminate.
+    Per-entry transactions could leave half the journal reviewed.
     """
     journal.create("one", "deployment", "alice")
     journal.create("two", "deployment", "alice")
@@ -284,10 +264,8 @@ def test_recovery_reviews_in_one_transaction(coordinator, journal, uow):
 def test_recovery_for_one_resource_leaves_everything_else_running(coordinator, journal):
     """What a worker may do, as opposed to what startup may.
 
-    A worker abandoning one deployment its predecessor died in runs while the
-    API is up, and the API may be in the middle of a certificate workflow of
-    its own. Reviewing every unfinished entry from there would mark live work
-    as needing review.
+    The API may be mid-workflow, so a worker reviews only the resource it
+    recovers.
     """
     journal.create("died-in", "deployment", "alice", "dep-1")
     journal.advance("died-in", WorkflowStatus.RUNNING)

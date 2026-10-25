@@ -23,10 +23,7 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
 ):
     """`record proxy` / `record unproxy` is the CDN switch for one hostname.
 
-    The site outlives the switch. Switching a record's proxy flag used to take
-    the whole virtual host away, policy included, because the record carried
-    the policy; here it takes the hostname on and off a site whose settings
-    stay configured.
+    The hostname moves on and off a site whose settings stay configured.
     """
     control = build_application(
         settings=settings,

@@ -80,13 +80,10 @@ def test_a_declared_nginx_resource_must_ship_in_the_package(tmp_path):
 
 
 def test_installed_packages_supply_only_package_owned_templates():
-    """Whatever is attached, every Nginx fragment comes out of a package.
+    """Every Nginx fragment comes from the capability that owns it.
 
-    Derived from what is installed rather than compared against a list of
-    names: this suite runs both with every optional distribution attached and
-    with none of them, and a fixed list would be wrong in one of those. The
-    invariant is the same either way — core contributes no fragment of its own,
-    and every fragment that exists ships inside the distribution that owns it.
+    Derived from what is installed rather than a list of names: core contributes
+    no fragment of its own.
     """
     features = load_registry()
     owners = {feature.name for feature in features.metadata}
@@ -115,14 +112,10 @@ def test_only_explicitly_claimed_environment_reaches_ansible(tmp_path):
 
 
 def test_a_package_reads_its_own_configuration_and_no_other_package_s(tmp_path):
-    """The scoped half of the same resolution, which is what a package reads.
+    """The scoped half of the same resolution, which is what a capability reads.
 
-    `capability_environment` used to be handed to a package whole, so a
-    capability that wanted its own credential was given every other
-    capability's as well and picked its own out by name. Here `geoip` cannot
-    reach the token beside it, and the key it did not declare is refused rather
-    than returned empty — the two mistakes look identical at the call site and
-    only one of them is a typo.
+    `geoip` cannot reach the token beside it, and a key it did not declare is
+    refused rather than returned empty, so a typo is told apart from an unset key.
     """
     roles = tmp_path / "roles"
     roles.mkdir()
@@ -152,10 +145,8 @@ def test_a_package_reads_its_own_configuration_and_no_other_package_s(tmp_path):
 def test_a_declared_key_is_present_and_empty_rather_than_absent(tmp_path):
     """An unset key is a state, not a missing entry.
 
-    A package that declared a key always gets it back, so reading one is never
-    a `.get(..., "")` against a dictionary that may or may not have heard of
-    it, and "the operator set nothing" stays distinguishable from "this
-    package never claimed the name".
+    A declared key always comes back, so "the operator set nothing" stays distinct
+    from "never claimed".
     """
     roles = tmp_path / "roles"
     roles.mkdir()
@@ -205,10 +196,8 @@ def test_a_required_key_that_is_unset_stops_the_control_plane(tmp_path):
 def test_a_value_shorter_than_the_capability_declared_is_refused(tmp_path):
     """The placeholder case, refused where it is cheap.
 
-    A signing secret somebody meant to replace used to start a controller, be
-    forwarded to every play, and be reported only by the first site that turned
-    the capability on. The length is a rule core can hold without knowing what the
-    value means, so it holds it.
+    Core can hold a length rule without knowing what the value means, so a
+    placeholder secret stops the controller instead of reaching every play.
     """
     roles = tmp_path / "roles"
     roles.mkdir()
@@ -232,9 +221,8 @@ def test_a_value_shorter_than_the_capability_declared_is_refused(tmp_path):
 def test_a_minimum_length_says_nothing_about_whether_a_key_is_required(tmp_path):
     """The two rules are independent, and Under Attack Mode needs them to be.
 
-    A controller with no signing secret is a working controller with one site
-    setting it will refuse. A controller with a four-character one is a
-    mistake. Only the second is fatal.
+    No signing secret is a working controller that refuses one site setting; a
+    four-character one is a mistake. Only the second is fatal.
     """
     roles = tmp_path / "roles"
     roles.mkdir()
@@ -284,9 +272,8 @@ def _setting(**overrides) -> ConfigurationContribution:
 def test_a_setting_a_controller_never_configured_is_its_declared_default(tmp_path):
     """Which is the whole difference between a setting and a secret.
 
-    A secret is asked whether it is *set*, because core cannot supply one. A
-    setting always has a value, so no package carries an "or the default"
-    expression at every read — the declaration is the default.
+    A secret is asked whether it is set; a setting always has a value, and the
+    declaration is the default.
     """
     contribution = _setting(name="BLITZE_RENEWAL", default=43_200)
 
@@ -413,11 +400,9 @@ def test_the_environment_outranks_the_committed_file(tmp_path):
 def test_a_secret_may_never_be_set_in_the_committed_file(tmp_path):
     """`.env` is 0600 and uncommitted; `blitzecdn.toml` is neither.
 
-    A capability's non-secret settings belong in the committed file, which is
-    why keys core does not recognise are staged from it at all. A *secret*
-    must not be, however a package documents it — so the two origins stay
-    apart and a declared `EnvironmentKey` appearing in the file is refused
-    with the spelling an operator used.
+    Non-secret capability settings belong in the committed file; a declared
+    `EnvironmentKey` appearing there is refused, with the spelling the operator
+    used.
     """
     contribution = ConfigurationContribution(
         feature="security",
@@ -433,10 +418,7 @@ def test_a_secret_may_never_be_set_in_the_committed_file(tmp_path):
 def test_a_setting_is_not_forwarded_to_ansible(tmp_path):
     """Only secrets reach the subprocess; a setting is the controller's.
 
-    A setting has a resolved value whether or not an operator supplied one, so
-    forwarding the staged strings would send Ansible whichever subset happened
-    to be set rather than the answer. A role that needs the value reads it
-    from desired state or from its own defaults.
+    A role that needs a setting reads it from desired state or its own defaults.
     """
     contributions = [
         ConfigurationContribution(

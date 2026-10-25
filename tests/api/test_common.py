@@ -34,9 +34,8 @@ def test_health_is_public_and_controls_require_auth(settings):
 def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
     """A distinct check from the database, even on one file.
 
-    A schema that has not been migrated has a database and no `jobs` table, and
-    a controller in that state accepts deployments it can never run. The two
-    fail differently and are fixed differently.
+    An unmigrated schema has a database and no `jobs` table, and would accept
+    deployments it can never run.
     """
     monkeypatch.setattr(
         "blitzecdn.composition.infrastructure._queue_reachable", lambda _queue: False
@@ -54,9 +53,8 @@ def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
 def test_openapi_declares_the_api_key_as_a_security_scheme(settings):
     """The key is authentication, not a header to be typed into every request.
 
-    Clients that generate from the schema (Swagger UI, Postman) only offer a
-    collection-level credential when the operations reference a security
-    scheme, so a regression back to `Header(...)` has to fail here.
+    Schema-driven clients offer a collection-level credential only when
+    operations reference a security scheme.
     """
     with TestClient(control_plane_app(settings)) as client:
         schema = client.get("/openapi.json").json()
@@ -98,9 +96,7 @@ def test_health_reports_unavailable_when_persistence_will_not_answer(
 ):
     """A probe on uvicorn is not a probe on the control plane.
 
-    It answered ok unconditionally, so a database gone unreadable — or one on a
-    schema this release refuses — still reported healthy to whatever was
-    watching. 503 rather than an error body: the caller reads the status.
+    An unreadable or refused database reports 503; the caller reads the status.
     """
     with TestClient(control_plane_app(settings)) as client:
         assert client.get("/health").status_code == 200

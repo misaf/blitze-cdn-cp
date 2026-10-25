@@ -1,16 +1,11 @@
 """The agreements this capability's roles have with the edge core converges.
 
-These moved here with the roles. `blitzecdn_cache` and `blitzecdn_cache_stats` each
-recompute or re-read something `blitzecdn_nginx` configured, and nothing at run
-time can tell a disagreement from an ordinary empty result: a purge aimed at
-the wrong directory reports success having deleted nothing, and a reader aimed
-at the wrong log reports a hit ratio of zero, which looks like a broken cache
-rather than a broken reader. These are the only guards.
+`blitzecdn_cache` and `blitzecdn_cache_stats` recompute or re-read what
+`blitzecdn_nginx` configured, and a disagreement looks like an empty result: a
+purge deleting nothing, or a hit ratio of zero. These are the only guards.
 
-Core's side is read through the shared contract helpers; this package's side is
-read through :data:`blitzecdn.capabilities.cache.ansible.ROLES_PATH` — the same path a
-deployment resolves the roles by, rather than a directory in the checkout that
-an installed wheel would not have.
+This side is read through :data:`blitzecdn.capabilities.cache.ansible.ROLES_PATH`,
+the path a deployment resolves the roles by.
 """
 
 import hashlib
@@ -33,12 +28,7 @@ NGINX_DIR = ansible.ROLES_PATH.parent.parent / "nginx"
 
 
 def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
-    """The contribution is only true if the directory really carries the roles.
-
-    Everything below reads these two directories, so a wheel built without its
-    Ansible tree would make the rest of this file fail with `FileNotFoundError`
-    rather than with the thing it is actually about.
-    """
+    """The contribution is only true if the directory really carries the roles."""
     assert ansible.ROLES_PATH.is_dir()
     assert sorted(path.name for path in ansible.ROLES_PATH.iterdir()) == [
         "blitzecdn_cache_config",
@@ -76,11 +66,8 @@ def _contract_value(*path: str) -> Any:
 def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
     """A purge computes file paths from these; a mismatch purges nothing.
 
-    blitzecdn_cache runs in its own play — `blitzecdn cache purge` converges
-    nothing else — so it keeps its own defaults rather than reading the
-    contract. That leaves these literals as the only guard, and they are
-    compared against the contract because the contract is what the edge was
-    built from.
+    blitzecdn_cache runs in its own play, so it keeps its own defaults; they are
+    compared against the contract the edge was built from.
     """
     assert _defaults_of(CACHE_ROLE_DIR)[cache_key] == _contract_value(*expected), (
         f"{cache_key} in blitzecdn_cache disagrees with blitzecdn_edge_runtime."
@@ -116,11 +103,7 @@ def test_stats_role_reads_the_log_the_nginx_role_writes():
 
 
 def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
-    """The role computes <md5[-1]>/<md5[-3:-1]>/<md5>, which is levels=1:2 only.
-
-    If the nginx template ever emits different levels, the purge role must stop
-    claiming it can compute paths rather than silently deleting wrong ones.
-    """
+    """The role computes <md5[-1]>/<md5[-3:-1]>/<md5>, which is levels=1:2 only."""
     template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
     assert "levels=1:2" in template
     spec = yaml.safe_load(
@@ -132,10 +115,8 @@ def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
 def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     """One URL is several entries, and leaving one behind still serves it.
 
-    The site template puts the listener port, request method and normalized
-    encoding in the key, so the purge role has to sweep all three dimensions.
-    nginx caches GET and HEAD by default and the template does not narrow
-    proxy_cache_methods.
+    The key includes the listener port, request method and normalized encoding,
+    so the purge sweeps all three. nginx caches GET and HEAD by default.
     """
     site_template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
     assert "$scheme$server_port$request_method$host{{ cache_uri }}" in site_template
@@ -185,9 +166,8 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
                     "hosts": "localhost",
                     "gather_facts": False,
                     "vars": variables,
-                    # Run through "Compute the cache files". The remaining
-                    # tasks chown a manifest to root, which a unit test neither
-                    # needs nor has permission to do.
+                    # Run through "Compute the cache files"; the rest chown a manifest
+                    # to root.
                     "tasks": [
                         *role_tasks[:5],
                         {
@@ -220,10 +200,8 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
 def test_the_stats_role_publishes_through_the_agreed_report_fact():
     """The channel a role returns a payload on is a contract like any other.
 
-    `blitzecdn_cache_stats` is the only role that returns data rather than an
-    outcome, and the control plane finds it by looking for one fact name. If
-    the role renamed it, every collection would come back empty with every edge
-    reporting success — the silent-no-op failure this suite exists to catch.
+    The control plane looks for one fact name; a rename would make every
+    collection come back empty while every edge reports success.
     """
     tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
     adapter = (PROJECT_DIR / "src/blitzecdn/core/ansible/events.py").read_text(
@@ -243,29 +221,24 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
 def test_nothing_private_is_cached_or_served_from_cache():
     """The exclusions a shared cache has to get right, asserted one by one.
 
-    Three of the four are nginx's own defaults and the risk is that a future
-    edit switches them off — `proxy_ignore_headers` is the one directive that
-    would, and its absence is checked rather than assumed:
+    Three are nginx defaults that only `proxy_ignore_headers` would switch off, so
+    its absence is checked:
 
     * a response carrying `Set-Cookie` is not cached;
-    * a response carrying `Cache-Control: private`, `no-cache` or `no-store`,
-      or an `Expires` in the past, is not cached;
-    * only GET and HEAD are cached, because `proxy_cache_methods` is left at
-      its default and the purge role agrees with that.
+    * a response carrying `Cache-Control: private`, `no-cache` or `no-store`, or
+      an `Expires` in the past, is not cached;
+    * only GET and HEAD are cached, `proxy_cache_methods` being left at its
+      default.
 
-    The fourth is not a default and had to be added. A shared cache must not
-    store a response to an *authorized* request and hand it to the next
-    visitor, and nginx has nothing to say about the request's credentials — so
-    an origin that authorizes a request and answers without a `Cache-Control`
-    of its own would have that answer cached under a key no credential is part
-    of. Both directives are required: bypass alone still stores the private
-    answer, and no_cache alone still serves an entry stored earlier.
+    The fourth was added: a response to an authorized request is neither stored
+    nor served from cache. Both directives are needed: bypass alone still stores,
+    and no_cache alone still serves an earlier entry.
     """
     template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
 
     assert "proxy_cache_bypass $http_upgrade $http_authorization;" in template
     assert "proxy_no_cache $http_upgrade $http_authorization;" in template
-    # Nothing anywhere in this distribution's nginx fragments may tell nginx to
+    # None of this capability's nginx fragments may tell nginx to
     # disregard what the origin said about cacheability.
     for fragment in sorted(NGINX_DIR.glob("*.conf.j2")):
         assert "proxy_ignore_headers" not in fragment.read_text(encoding="utf-8"), (

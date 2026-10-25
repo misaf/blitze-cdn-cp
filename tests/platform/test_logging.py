@@ -23,11 +23,7 @@ def test_normal_logging_keeps_routine_migration_chatter_out_of_cli_output():
 
 
 def test_context_attached_by_a_caller_survives_formatting():
-    """`extra=` is the only way structured context reaches a log line.
-
-    Dropped, the JSON was four fixed fields and prose — nothing to filter on
-    when the question is "what happened to this deployment".
-    """
+    """`extra=` is the only way structured context reaches a log line."""
     record = logging.LogRecord(
         "test", logging.INFO, __file__, 1, "converged", None, None
     )

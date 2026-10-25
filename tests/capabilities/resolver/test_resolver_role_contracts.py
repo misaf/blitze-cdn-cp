@@ -1,14 +1,10 @@
 """What this capability's roles promise the host, asserted where they live.
 
-These moved here with the role, and one of them is new: the drop-in path is
-written in two places now — the role that creates it and the role that removes
-it — and the pair only works while they agree. Core used to hold the second
-copy and could not be asked to keep agreeing with a wheel it may not have
-installed.
+The drop-in path is written by one role and removed by another, and the pair
+only works while they agree.
 
-Read through :data:`blitzecdn.capabilities.resolver.ansible.ROLES_PATH`, the same path a
-deployment resolves the roles by, rather than a directory in the checkout that
-an installed wheel would not have.
+Read through :data:`blitzecdn.capabilities.resolver.ansible.ROLES_PATH`, the
+path a deployment resolves the roles by.
 """
 
 from __future__ import annotations
@@ -45,14 +41,9 @@ def _tasks(role: Path) -> list[dict[str, Any]]:
 def test_the_role_that_writes_the_drop_in_and_the_role_that_removes_it_agree() -> None:
     """One path, spelled in two roles, and nothing else checks the pair.
 
-    The teardown role carries its own copy on purpose — it runs on a host that
-    is no longer being converged, whose inventory entry is about to be deleted,
-    so reading the other role's default would make the removal depend on the
-    converging role's variables still resolving. That is the same reason core's
-    `blitzecdn_edge_teardown` carries copies of the paths *it* removes. The cost of
-    a copy is that it can drift, and drift here is silent: the decommission
-    reports success and the host keeps resolving through BlitzeCDN's servers
-    forever.
+    The teardown role keeps its own copy so removal does not depend on the
+    converging role resolving. Drift would be silent: the host keeps BlitzeCDN's
+    resolvers forever.
     """
     written = next(
         task["ansible.builtin.template"]["dest"]
@@ -65,13 +56,10 @@ def test_the_role_that_writes_the_drop_in_and_the_role_that_removes_it_agree() -
 
 
 def test_managing_resolution_is_off_until_a_fleet_asks_for_it() -> None:
-    """Attaching the distribution must not change a single host on its own.
+    """Attaching the capability must not change a single host on its own.
 
-    Both halves of the default are load-bearing. The package is attached by
-    default so that a controller upgraded in place keeps managing the hosts it
-    already was; the role is disabled by default so that attaching it manages
-    nobody who had not asked. Flipping this would silently replace the resolver
-    on every edge in every fleet that merely took the upgrade.
+    The role is disabled by default, so only fleets that ask have their resolver
+    replaced.
     """
     assert _defaults(RESOLVER)["blitzecdn_resolver_enabled"] is False
 
@@ -79,10 +67,7 @@ def test_managing_resolution_is_off_until_a_fleet_asks_for_it() -> None:
 def test_an_enabled_role_with_nothing_to_point_at_fails_closed() -> None:
     """The empty-list case is the one that resolves nothing at all.
 
-    A drop-in with `Domains=~.` and no `DNS=` claims every domain and answers
-    none of them, which takes the host's DNS away entirely rather than
-    replacing it. Same shape as an empty firewall source list, and refused for
-    the same reason.
+    `Domains=~.` with no `DNS=` claims every domain and answers none.
     """
     assertions = [
         task["ansible.builtin.assert"]
@@ -99,11 +84,9 @@ def test_an_enabled_role_with_nothing_to_point_at_fails_closed() -> None:
 def test_the_role_proves_the_running_resolver_is_honest() -> None:
     """Writing the file is not the result; answering truthfully is.
 
-    A resolver that returns an address for a reserved `.invalid` name invents
-    answers, and every name-based check on that host — origin lookups, CAA
-    preflight, the controller's own doctor probe — then compares against
-    fiction while looking healthy. The probe runs after the handler flush, so
-    what it queries is the resolver this role just installed.
+    A resolver answering a reserved `.invalid` name invents answers, and every
+    name-based check on the host then compares against fiction. The probe runs
+    after the handler flush.
     """
     tasks = _tasks(RESOLVER)
     names = [task["name"] for task in tasks]
@@ -124,11 +107,7 @@ def test_the_role_proves_the_running_resolver_is_honest() -> None:
 def test_the_teardown_role_restores_the_host_before_the_verdict() -> None:
     """It restarts resolved inline rather than notifying a handler.
 
-    Handlers flush at the end of the play, which in the decommission play is
-    after `blitzecdn_edge_teardown` has already asserted the host is clean and
-    passed the verdict on the whole run. A host that is about to leave
-    inventory has to have its own resolver back *before* then, and this role
-    has to be the thing that fails the decommission if it does not.
+    Handlers flush after `blitzecdn_edge_teardown` has passed its verdict.
     """
     tasks = _tasks(TEARDOWN)
 
@@ -142,11 +121,8 @@ def test_the_teardown_role_restores_the_host_before_the_verdict() -> None:
 def test_the_teardown_role_removes_the_drop_in_whatever_the_fleet_now_says() -> None:
     """Unguarded by `blitzecdn_resolver_enabled`, deliberately.
 
-    A host is usually decommissioned by a controller whose configuration has
-    drifted from the one that converged it. A fleet that enabled the role once
-    and turned it off later would, with a guard here, leave the drop-in behind
-    on every host it ever decommissioned — and nothing could reach those hosts
-    again to notice.
+    The decommissioning controller's configuration may have drifted; a guard
+    would leave the drop-in on hosts nothing can reach again.
     """
     for task in _tasks(TEARDOWN):
         assert "blitzecdn_resolver_enabled" not in str(task.get("when", ""))

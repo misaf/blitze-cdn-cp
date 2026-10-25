@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.edge_render import (
     _contract,
     _render,
@@ -63,9 +60,7 @@ def test_the_default_site_sends_the_address_and_not_the_country(desired_state):
 def test_connecting_ip_enabled_sends_the_nginx_connection_address():
     """`$remote_addr`, and nothing a client can write.
 
-    The peer address of the accepted connection is the only value at the edge
-    that a request header cannot influence, and it renders identically for IPv4
-    and IPv6 — nginx fills the variable from the socket.
+    nginx fills it from the socket, identically for IPv4 and IPv6.
     """
     rendered = _render(_with_visitor_headers(connecting_ip=True))
 
@@ -83,10 +78,8 @@ def test_connecting_ip_enabled_sends_the_nginx_connection_address():
 def test_connecting_ip_disabled_clears_the_header_rather_than_forwarding_it():
     """Off must not mean "pass the visitor's own version through".
 
-    nginx forwards request headers it was not told about, so omitting the
-    directive would hand the origin a BZ-Connecting-IP the client wrote. An
-    empty value is dropped from the upstream request and takes the client's
-    header with it.
+    nginx forwards headers it was not told about; an empty value drops the
+    client's header from the upstream request.
     """
     rendered = _render(_with_visitor_headers(connecting_ip=False))
 
@@ -97,11 +90,8 @@ def test_connecting_ip_disabled_clears_the_header_rather_than_forwarding_it():
 def test_ip_country_reads_the_variable_the_capability_defines():
     """The same $blitzecdn_country the firewall rules test, not a second lookup.
 
-    Core's half only. The `geoip2` block that *defines* the variable is the
-    `blitzecdn-geoip` distribution's, and that both sides spell the name the
-    same way is asserted in that package's own tests, which can read both.
-    Repeating it here would make this suite fail on a checkout where the
-    optional distribution is not installed.
+    Core's half only; the `geoip2` block defining it is the GeoIP capability's,
+    tested there.
     """
     rendered = _render(_with_visitor_headers(ip_country=True))
 
@@ -121,9 +111,8 @@ def test_ip_country_disabled_clears_the_header_rather_than_forwarding_it():
 def test_a_spoofed_bz_header_is_replaced_in_every_state():
     """Whatever the switches say, the BZ- namespace is written by the edge.
 
-    Both directives are emitted unconditionally — one carries a value, the
-    other clears the name — so a client-supplied BZ-Connecting-IP or
-    BZ-IPCountry can never reach the origin unmodified.
+    Both directives are emitted unconditionally, one with a value and one
+    clearing the name.
     """
     for headers in (
         {"connecting_ip": True, "ip_country": True},
@@ -145,8 +134,7 @@ def test_a_spoofed_bz_header_is_replaced_in_every_state():
 def test_visitor_headers_never_reach_the_cache_key():
     """Two visitors from different countries share one cached object.
 
-    Putting either header in the key would multiply every entry by the number
-    of distinct client addresses, which is the whole cache.
+    Keying on either header would multiply every entry by the client count.
     """
     rendered = _render(
         _with_visitor_headers(connecting_ip=True, ip_country=True),
@@ -182,10 +170,8 @@ def test_the_acme_challenge_location_carries_no_visitor_headers():
 
 
 def test_missing_visitor_headers_preserve_pre_upgrade_behavior():
-    """A running older control plane may deploy through an updated role.
-
-    The role's defaults apply, which means the visitor address is sent and the
-    country is not — exactly what both sides do once the controller catches up.
+    """With the block absent, the role's defaults send the address and not the
+    country, matching the domain's.
     """
     site = _with_visitor_headers()
     del site["visitor_headers"]

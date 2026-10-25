@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.contracts import (
     _role_defaults,
 )
@@ -62,13 +58,9 @@ def test_always_use_https_redirects_http_when_enabled():
 def test_always_use_https_uses_a_permanent_redirect():
     """Cloudflare-compatible status code: 301, not 308.
 
-    308 preserves the request method, which is the safer redirect in general and
-    the wrong one here — Cloudflare answers Always Use HTTPS with a permanent
-    301, and a client that follows it differently from a Cloudflare-fronted
-    origin is a compatibility difference the operator cannot see. Every path
-    that redirects — the plain HTTP location, both Under Attack Mode challenge
-    endpoints, and the named redirect location — uses the same code, so the
-    template is checked whole rather than one rendering at a time.
+    Cloudflare answers Always Use HTTPS with 301. Every redirecting path (plain
+    HTTP, both Under Attack Mode endpoints, the named redirect location) uses it,
+    so the template is checked whole.
     """
     template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
     security_template = (
@@ -86,13 +78,9 @@ def test_always_use_https_uses_a_permanent_redirect():
 def test_always_use_https_redirects_every_http_listener_without_its_port():
     """Redirect semantics are unchanged by port preservation, deliberately.
 
-    The thirteen proxy ports are two independent sets, not seven pairs: 8080's
-    counterpart is not 8443, and Cloudflare publishes no mapping between them.
-    Carrying an HTTP-only port such as 8080 or 2052 into the Location would
-    invent one and send the visitor to an endpoint the edge does not serve, so
-    the redirect stays scheme-only. ``$host`` carries no port, which is what
-    makes every HTTP listener land on the default 443 — a listener the site
-    always serves once it serves TLS at all, so the redirect cannot loop.
+    The HTTP and HTTPS proxy ports are independent sets with no mapping, so the
+    redirect stays scheme-only. ``$host`` carries no port, landing on 443, which a
+    TLS site always serves, so it cannot loop.
     """
     site = _mode_site(SslMode.FULL, serves_tls=True, always_use_https=True)
     rendered = _render(site_to_ansible(site))
@@ -125,13 +113,11 @@ def _redirects(rendered: str) -> bool:
     "mode", [SslMode.OFF, SslMode.FLEXIBLE, SslMode.FULL, SslMode.FULL_STRICT]
 )
 def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
-    """The second rule written twice, pinned the same way as the first.
+    """The redirect rule is written twice, so the two are pinned together.
 
-    ``always_use_https`` is inert unless the site serves TLS, and the template
-    gates on ``tls and always_use_https`` while the control plane answers
-    ``CdnSite.redirects_http_to_https``. Assert the rendering against the
-    property for every mode, in both the normal and the Under Attack Mode
-    request flow, so neither copy can move alone.
+    The template gates on ``tls and always_use_https``; the control plane answers
+    ``CdnSite.redirects_http_to_https``. Checked for every mode in both the normal
+    and Under Attack Mode flow.
     """
     site = _mode_site(
         mode,
@@ -149,12 +135,8 @@ def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
 def test_ssl_off_ignores_always_use_https_instead_of_looping():
     """Off serves no HTTPS listener, so the redirect must not be emitted.
 
-    Cloudflare removes the Always Use HTTPS control from the dashboard while the
-    encryption mode is Off. BlitzeCDN keeps the stored preference — the record
-    API still accepts the combination, in either order — and renders it inert,
-    which is the only outcome that cannot send a visitor to a port the edge does
-    not answer on. A permanent 301 to a dead port is worse than a temporary one:
-    browsers cache it.
+    The stored preference is kept but inert, as Cloudflare does; a cached 301 to
+    a dead port would be worse.
     """
     site = _mode_site(SslMode.OFF, serves_tls=False, always_use_https=True)
     rendered = _render(site_to_ansible(site))
@@ -176,13 +158,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
 
 
 def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
-    """The mitigation endpoints redirect with the same code as the proxy path.
-
-    A site in Under Attack Mode with Always Use HTTPS has three HTTP-side
-    redirects — the two challenge endpoints and the named location the guarded
-    request falls through to — and one of them keeping 308 would answer some
-    visitors differently from the rest.
-    """
+    """The mitigation endpoints redirect with the same code as the proxy path."""
     site = _mode_site(
         SslMode.FULL,
         serves_tls=True,

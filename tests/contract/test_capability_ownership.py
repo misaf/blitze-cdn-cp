@@ -1,13 +1,8 @@
 """Every edge-visible setting has exactly one owning capability.
 
-The ownership rule, checked where it actually bites: on the document the
-control plane hands Ansible, and on the template that renders it. The layering
-tests prove the *packages* are arranged correctly; nothing there would notice a
-field two capabilities both declare, a field no capability declares, or a
-setting that reaches the desired state and is then never rendered.
-
-The last one is the quiet failure that matters: an operator sets a switch, the
-API accepts it, the deployment converges, and the edge behaves exactly as it
+Checked on the document handed to Ansible and the template that renders it:
+no field declared twice, none undeclared, and none that reaches desired state
+and is never rendered. The last is the quiet failure: the edge behaves as it
 did before.
 """
 
@@ -33,9 +28,8 @@ from blitzecdn.capabilities.tls.contract import TlsPolicy
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")
-#: The whole role. A site setting reaches the edge through the template that
-#: renders it *or* through the tasks that act on it — `certificate_mode` is the
-#: second kind: it selects which material `main.yml` copies and what
+#: The whole role. A setting reaches the edge through the template or through
+#: tasks: `certificate_mode` selects which material `main.yml` copies and what
 #: `validate.yml` insists on, and never appears in a directive.
 _ROLE_TEXT = "".join(
     path.read_text(encoding="utf-8")
@@ -51,8 +45,7 @@ _RENDERER_TEXT = (SOURCE / "core/ansible/rendering.py").read_text(encoding="utf-
 _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 
 #: Which capability's policy class declares which slice of the flat site
-#: document. The class is the source of truth — this names the owner, and the
-#: fields come from the model, so a knob cannot be added without landing here.
+#: document. Fields come from the model, so a new setting must land here.
 _CAPABILITY_POLICIES = {
     "cache": CachePolicy,
     "compression": CompressionPolicy,
@@ -117,10 +110,8 @@ def test_the_nginx_template_reads_only_fields_a_capability_owns():
 def test_every_edge_visible_setting_reaches_the_nginx_template():
     """A switch the desired state carries and the template never reads is inert.
 
-    `ssl_automatic_mode` is the one deliberate exception: whether the control
-    plane may raise a site's encryption mode for it is a decision taken here,
-    and the edge only ever sees the `ssl_mode` it produced. Named so a second
-    cannot join it silently.
+    `ssl_automatic_mode` is the one deliberate exception: the controller acts on
+    it and the edge sees only the resulting `ssl_mode`.
     """
     site = CdnSite(
         name="alpha",

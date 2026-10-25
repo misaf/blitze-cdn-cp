@@ -16,13 +16,9 @@ from blitzecdn.entrypoints.api.dependencies import get_services
 
 
 def test_routes_are_domain_modules_and_services_are_a_dependency():
-    """Every router this *distribution* ships, and where its endpoints live.
+    """Every router the control plane itself ships, and where its endpoints live.
 
-    Scoped to the control plane's own routers on purpose. An optional
-    distribution's routes are its own to hold — `packages/blitzecdn-cache`
-    asserts the identical properties over `/v1/cache/*` — and a core test that
-    named them would fail the moment the package it was asserting about was
-    detached, which is the supported operation this whole boundary exists for.
+    Capability routers are asserted in their own suites.
     """
     routers = (
         diagnostics,
@@ -86,11 +82,7 @@ def _schemas(settings) -> dict[str, dict]:
 def test_published_document_has_no_dangling_schema_references(settings):
     """Every `$ref` resolves. A generated client is only as good as this.
 
-    It did not hold. `HostRun` pointed at `...TaskResult-Input__1`, a component
-    the document never defined, so any validator or client generator run over
-    it failed on a model at the centre of every deployment response. See the
-    `separate_input_output_schemas` comment in `api/app.py` for how a duplicate
-    schema pydantic later collapsed left the references behind.
+    See the `separate_input_output_schemas` comment in `api/app.py`.
     """
     with TestClient(control_plane_app(settings)) as client:
         document = client.get("/openapi.json").json()
@@ -104,10 +96,8 @@ def test_published_document_has_no_dangling_schema_references(settings):
 def test_no_published_component_leaks_a_python_module_path(settings):
     """A component is named after its class, and that name is the contract.
 
-    Pydantic disambiguates two same-named classes by qualifying *both* with
-    their module path, so a second `Deployment` anywhere would publish
-    `blitzecdn__api__operations__Deployment` and rename the original as a side
-    effect. One class per published name is what keeps that from happening.
+    Pydantic qualifies both same-named classes with their module paths, so a
+    second `Deployment` would rename the first. One class per published name.
     """
     leaked = sorted(
         name for name in _schemas(settings) if name.startswith("blitzecdn__")
@@ -118,11 +108,8 @@ def test_no_published_component_leaks_a_python_module_path(settings):
 def test_openapi_generation_is_deterministic(settings):
     """The same source must publish byte-identical documents.
 
-    Client generators diff one build against the last, and treat a reordered
-    `components` block or a renamed disambiguated schema as a real change.
-    Schema generation walks sets and dicts of models, so a document that
-    shuffles between builds would turn that into noise hiding the one change
-    that mattered.
+    Client generators diff builds, and schema generation walks sets and dicts, so
+    nondeterminism would be noise hiding real changes.
     """
     first = json.dumps(_schemas(settings), sort_keys=False)
     second = json.dumps(_schemas(settings), sort_keys=False)

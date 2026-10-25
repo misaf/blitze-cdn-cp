@@ -20,20 +20,16 @@ from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_setup_and_edge_workflow(tmp_path, monkeypatch):
-    """Register, list, update and remove an edge — with no inventory file.
+    """Register, list, update and remove an edge, with no inventory file.
 
-    `setup` no longer creates one. The fleet is a table, and Ansible reads it
-    through the `blitzecdn` inventory plugin, so the roster these commands
-    change *is* the inventory rather than something that has to be written out
-    to become one.
+    Ansible reads the fleet table through the `blitzecdn` inventory plugin, so the
+    roster is the inventory.
     """
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(cli.app, ["setup"])
     assert result.exit_code == 0
     assert not (tmp_path / "ansible/inventory/hosts.yml").exists()
-    # The inventory plugin refuses a database that does not exist, so a fresh
-    # install where `setup` left none could not run a single playbook — every
-    # one of them failed to parse its inventory before reaching a task.
+    # The inventory plugin refuses a missing database, so `setup` must create one.
     assert cli.Settings.from_environment(
         {}, project_dir=tmp_path
     ).database_path.exists()
@@ -80,11 +76,7 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
 
 
 def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
-    """Who added this host, and when.
-
-    Unanswerable before: the CLI held the inventory file and rewrote it
-    directly, so nothing about the fleet ever reached the audit trail.
-    """
+    """Who added this host, and when."""
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(cli.app, ["setup"]).exit_code == 0
     settings = cli.Settings.from_environment({}, project_dir=tmp_path)

@@ -1,14 +1,8 @@
 """`blitzecdn origin check`, from the command line.
 
-These three moved here from the control plane's CLI suite with the command
-itself. They belong here twice over: the command exists only while this
-distribution is installed, so a core-only run of the control plane's suite
-would fail on a surface core no longer contributes.
-
-What the exit codes mean is the contract worth holding. 0 with a silent edge is
-deliberate — an edge that said nothing has not reported a *failure*, and an
-operator scripting this must be able to tell "an origin is unreachable" from
-"one edge did not answer".
+The exit codes are the contract. 0 with a silent edge is deliberate: an edge
+that said nothing reported no failure, so a script can tell an unreachable
+origin from an edge that did not answer.
 """
 
 from __future__ import annotations
@@ -38,10 +32,8 @@ def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
 ):
     """The fleet answers, so the answer is per edge as well as per site.
 
-    An origin no edge can reach is down; one only some edges can reach is a
-    routing or allow-list problem. Reporting which edges failed is what lets an
-    operator tell those apart, and is the whole reason the check moved off the
-    controller.
+    No edge reaching an origin means it is down; only some means a routing or
+    allow-list problem.
     """
     control = cli_control_plane(
         settings,

@@ -1,39 +1,11 @@
 """The prose points at things that exist.
 
-Roughly three lines in ten of this distribution are docstring or comment, and
-on purpose: comments here carry the argument rather than restate the line
-below. What nothing held until now is the other half of that bargain —
-a record describing an arrangement the code no longer has is worse than no
-record, and prose is the one part of the tree the compiler, ruff and mypy all
-read as whitespace.
+A Sphinx role (``:mod:`x```, ``:class:`x```, ``:func:`x```) is a claim about
+what is here now, so every one must resolve. A plain backtick is informal and
+may name the past; a reference that should be checked is written as a role.
 
-The drift this exists to catch is not hypothetical. When the `sites` capability
-collapsed into `dns`, twenty-odd docstrings kept describing the arrangement in
-the present tense, including the comment on `ALLOWED_CAPABILITY_DEPENDENCIES`
-itself — the table that *is* the rule — and a failure message in
-`test_the_composition_names_no_capability_token_at_all` that reported offenders
-under a directory that had not existed for two releases.
-
-So the rule is drawn where the codebase already draws it. A Sphinx role —
-``:mod:`x```, ``:class:`x```, ``:func:`x``` — is a claim about what is here
-now, and every one of the hundred-odd in the tree resolves. A plain backtick is
-informal, and the house style uses it for history on purpose: "this was
-`core.application.workflows`", "`sites` did it while a site was authored". That
-distinction is the whole of the test. It is why there is no allow-list below and
-no place for one: a reference that should be checked is written as a role, and
-one that describes the past is not.
-
-What this does *not* catch is the other half of that drift — a bare `sites` in
-prose, which is most of what went stale. There is no rule that separates a
-retired capability named in past tense from one named in error, so the honest
-options were an allow-list of dead names or nothing, and this suite has enough
-hand-maintained tables already. Write the claim you want checked as a role.
-
-Resolution is by import rather than by reading the tree, which is what makes a
-re-export count. ``:class:`~blitzecdn.core.features.ScheduledJob``` names the
-façade the ABI publishes rather than the module the dataclass is defined in, and
-that is the right thing for a docstring to say — so the check follows the same
-path a reader would.
+Resolution is by import, so a re-export counts: a role may name the façade a
+package publishes rather than the module that defines the object.
 """
 
 from __future__ import annotations
@@ -47,27 +19,19 @@ from pathlib import Path
 
 from support.paths import REPO_ROOT, SOURCE
 
-#: A Sphinx cross-reference role and the target inside it. The leading ``~`` is
-#: display sugar — it shortens the rendered label to the last component and says
-#: nothing about the target — so it is stripped before resolution.
+#: A Sphinx cross-reference role and its target. The leading ``~`` only shortens
+#: the rendered label, so it is stripped before resolution.
 _XREF = re.compile(r":(?:mod|class|func|attr|meth|data|exc):`~?([A-Za-z_][\w.]*)`")
 
-#: Only the dotted targets. A bare ``:func:`derive_hosts``` is Sphinx's
-#: same-module shorthand: resolving it needs the context Sphinx has and this
-#: test does not, and guessing at it would produce failures that are about the
-#: guess. The dotted ones are unambiguous, and they are the ones that go stale —
-#: a rename moves the module, and the short form has no module in it to be wrong.
+#: Only dotted targets. A bare ``:func:`derive_hosts``` is same-module shorthand
+#: that needs Sphinx's context to resolve.
 _MINIMUM_PARTS = 2
 
 
 def _cross_references() -> dict[str, set[Path]]:
     """Every dotted Sphinx target in the source tree, with the files that claim it.
 
-    Docstrings only, and only the four node types that carry one. A role
-    written in a ``#:`` comment is not read: comments are not addressable by
-    Sphinx, so a role in one is decoration rather than a link, and holding it to
-    the same standard would be holding it to a standard nothing enforces
-    downstream either.
+    Docstrings only: a role in a ``#:`` comment is not a Sphinx link.
     """
     found: dict[str, set[Path]] = defaultdict(set)
     for path in sorted(SOURCE.rglob("*.py")):
@@ -91,12 +55,9 @@ def _cross_references() -> dict[str, set[Path]]:
 def _resolves(target: str) -> bool:
     """Whether ``target`` names something reachable from a running interpreter.
 
-    A dotted target is some importable prefix followed by attribute access, and
-    which is which cannot be read off the string: ``a.b.c`` may be a module, or
-    a class in ``a.b``, or a method on a class in ``a``. So the longest
-    importable prefix is tried first and the remainder walked as attributes —
-    the order matters, because a package that re-exports a submodule's name
-    would otherwise answer for a target that names the submodule.
+    The longest importable prefix is tried first and the remainder walked as
+    attributes, so a package re-exporting a submodule's name cannot answer for a
+    target that names the submodule.
     """
     parts = target.split(".")
     for split in range(len(parts), 0, -1):
@@ -116,10 +77,8 @@ def _resolves(target: str) -> bool:
 def test_every_docstring_cross_reference_resolves():
     """A role names something that is here, or the prose is wrong.
 
-    Failing with the file that makes the claim rather than with the target
-    alone, because a stale reference is fixed by rewriting the sentence around
-    it — and the same dead name is usually written in several places at once,
-    which is the shape this reports.
+    Reported by the files making the claim, since the fix is rewriting the
+    sentence around it.
     """
     offenders = [
         f"{target} — named in " + ", ".join(sorted(str(path) for path in paths))
@@ -138,9 +97,7 @@ _MARKDOWN_LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 def test_every_relative_markdown_link_resolves():
     """A link in a tracked document points at a file that is in the checkout.
 
-    The decision records end in lists of the code they describe, and a move
-    breaks those links without failing anything else. External links are not
-    followed: whether a site is up is not a property of this tree.
+    External links are not followed.
     """
     tracked = subprocess.run(  # noqa: S603 - fixed argument list
         ["git", "-C", str(REPO_ROOT), "ls-files", "*.md"],  # noqa: S607 - git from PATH

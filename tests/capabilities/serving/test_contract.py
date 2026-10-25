@@ -15,9 +15,8 @@ from blitzecdn.capabilities.tls.contract import SslMode
 def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     """The ownership rule, asserted on the values themselves.
 
-    ``__module__`` is where a class was defined, not where it was imported
-    from, so this fails if a capability's contract is redefined or aliased into
-    ``dns`` rather than composed from its owner.
+    ``__module__`` is where a class was defined, so this fails if a contract is
+    redefined or aliased into ``dns``.
     """
     assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.contract"
     assert SslMode.__module__ == "blitzecdn.capabilities.tls.contract"
@@ -58,11 +57,7 @@ def test_composed_policy_persists_nested_values_and_projects_flat_settings():
 
 
 def test_max_upload_size_is_a_closed_set_the_http_capability_owns():
-    """A tier the enum does not name is refused, not passed through to nginx.
-
-    The point of the enum over a size string: nothing between here and the
-    rendered directive has to know what a valid nginx size looks like.
-    """
+    """A tier the enum does not name is refused, not passed through to nginx."""
     assert MaxUploadSize.__module__ == "blitzecdn.capabilities.http.contract"
     assert [tier.value for tier in MaxUploadSize] == ["100m", "200m"]
 

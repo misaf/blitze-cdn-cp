@@ -36,11 +36,7 @@ def _control(settings, repository):
 def test_a_zone_is_delegable_before_anything_is_served_from_it():
     """No origin, no TLS, no decisions. Adding a domain is one fact.
 
-    An origin need not be chosen here because it does not live here: each
-    proxied hostname names its own origin on its record. A placeholder in the
-    field that decides where traffic goes would be worse than an absence,
-    because an absence can be refused later — and this zone has no decision
-    to make until something is proxied.
+    Each proxied hostname names its own origin on its record.
     """
     zone = Domain(name="example.com")
     assert zone.policy.cache.cache_enabled
@@ -48,10 +44,10 @@ def test_a_zone_is_delegable_before_anything_is_served_from_it():
 
 
 def test_a_zone_refuses_what_a_site_refused(settings):
-    """The cross-field rules moved with the policy and still hold.
+    """The cross-field rules hold on the zone.
 
-    HTTP/3 without edge TLS is the one worth pinning: it is the pair that
-    reaches an edge as a config nginx accepts and no visitor can use.
+    HTTP/3 without edge TLS is the pair worth pinning: nginx accepts it and no
+    visitor can use it.
     """
     with pytest.raises(ValueError, match="http3_enabled=True requires ssl_mode"):
         Domain(
@@ -113,17 +109,11 @@ def test_a_zone_patch_that_would_break_a_pair_is_refused(settings):
 
 
 def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
-    """The mode belongs to the issuer, and an operator taking it de-serves the zone.
+    """The mode belongs to the issuer; an operator setting it de-serves the zone.
 
-    Not a validation nicety. `CdnSite` refuses a controller-managed mode whose
-    paths are not the ones derived from *that host's* name, `derive_hosts`
-    drops a host it cannot build rather than raising, and the result is a zone
-    whose hostnames quietly stop being served — visible only to
-    `blitzecdn validate`, which nobody runs before the traffic goes.
-
-    The zone itself cannot catch it: one zone derives several hosts, its own
-    and one per rule, so it cannot know which name the paths should have been
-    built from. Only the entry point knows who is asking.
+    `CdnSite` refuses managed paths not derived from that host's name, and
+    `derive_hosts` drops such a host. A zone derives several hosts, so only the
+    entry point knows who is asking.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -145,12 +135,7 @@ def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
 
 
 def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
-    """`existing` is the operator's mode, and the guard must not take it away.
-
-    Material somebody else put on the box, which the control plane neither
-    issues nor renews. It is the whole reason the guard names modes rather than
-    forbidding the three certificate fields outright.
-    """
+    """`existing` is the operator's mode, and the guard must not take it away."""
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
@@ -174,16 +159,10 @@ def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
 
 
 def test_a_rule_cannot_claim_a_controller_managed_certificate(settings):
-    """The other door into the same policy, and it was standing open too.
+    """A rule cannot author what `update_domain` refuses.
 
-    `_NOT_OVERRIDABLE` held only the zone's identity, so a rule could author
-    what `update_domain` now refuses.
-
-    Asked by the service rather than by `Rule`, and the difference is not
-    cosmetic: `_validate_overrides` runs on every rule the store rehydrates,
-    so refusing the mode there would make the issuer's own rules — which
-    legitimately carry it — unreadable, and `list_rules` would raise for the
-    whole fleet.
+    Asked by the service, not by `Rule`: `_validate_overrides` runs on every
+    rehydrated rule, and the issuer's own rules legitimately carry the mode.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -202,11 +181,10 @@ def test_a_rule_cannot_claim_a_controller_managed_certificate(settings):
 
 
 def test_a_rule_the_issuer_wrote_still_reads_back(settings):
-    """The regression the first placement of that guard caused, held down.
+    """A rule the issuer wrote still reads back.
 
-    `HostService.activate_managed_certificate` records an issued certificate
-    as a rule override, so a controller-managed mode is a value the store
-    legitimately holds. Refusing it on the way *out* took down every read.
+    `HostService.activate_managed_certificate` records an issued certificate as a
+    rule override, so the store legitimately holds that mode.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -316,9 +294,7 @@ def test_a_hostname_with_no_rule_is_served_by_its_zone():
 def test_the_first_matching_rule_wins_and_the_rest_are_not_merged():
     """Two rules match; the answer comes from one of them, whole.
 
-    Merging both would make the effective policy an intersection an operator
-    has to assemble in their head before they can predict a change. Priority
-    decides, and the result says which rule it was.
+    Priority decides, and the result says which rule it was.
     """
     zone = Domain(
         name="example.com",
@@ -351,11 +327,7 @@ def test_the_first_matching_rule_wins_and_the_rest_are_not_merged():
 
 
 def test_resolution_does_not_depend_on_the_order_it_is_handed():
-    """First match wins is about priority, not about list order.
-
-    The store returns them ordered, and this says a caller that assembled the
-    list some other way cannot get a different answer by accident.
-    """
+    """First match wins is about priority, not about list order."""
     zone = Domain(name="example.com")
     first = Rule(
         domain="example.com",
@@ -377,12 +349,7 @@ def test_resolution_does_not_depend_on_the_order_it_is_handed():
 
 
 def test_a_rule_that_merges_into_an_impossible_zone_is_refused():
-    """The pair rules are the zone's, and a rule cannot get around them.
-
-    HTTP/3 on a zone that serves no TLS is refused when the zone is written.
-    A rule turning it on for one hostname is the same broken pair arriving by
-    a different door, and it is refused at the same place.
-    """
+    """The pair rules are the zone's, and a rule cannot get around them."""
     zone = Domain(name="example.com")
     rule = Rule(
         domain="example.com", name="r", match="*", overrides={"http3_enabled": True}
@@ -488,12 +455,10 @@ def test_deleting_a_zone_takes_its_rules_with_it(settings):
 
 
 def test_a_rollback_restores_the_rules_the_release_was_compiled_from(settings):
-    """The sharp edge of putting rules in a zone: they cascade with it.
+    """Rules cascade with their zone, so release inputs must carry them.
 
-    ``adopt_inputs`` deletes the zone rows and writes them again, and a rule is
-    keyed to its zone with ON DELETE CASCADE. Release inputs that did not carry
-    rules would not merely fail to restore them — the adoption would delete
-    every rule in the installation on its way past.
+    ``adopt_inputs`` rewrites the zone rows and rules are keyed ON DELETE CASCADE;
+    without them in the inputs, adoption would delete every rule.
     """
     from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 
@@ -545,11 +510,8 @@ def test_a_rollback_restores_the_settings_the_release_was_compiled_from(settings
 def _competing_writer(control, write):
     """A Unit of Work that commits somebody else's write as the lock is taken.
 
-    Places a competing commit in the one window a read-modify-write has: after
-    this caller read, before it writes. The real boundary closes that window by
-    doing both under `BEGIN IMMEDIATE`, so what this asserts is that the read
-    happens inside the transaction — a property a threaded race can only
-    demonstrate on a good day.
+    The window is after this caller read and before it writes; this asserts the
+    read happens inside `BEGIN IMMEDIATE`.
     """
 
     class _Interfering:
@@ -565,15 +527,7 @@ def _competing_writer(control, write):
 def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
     """A zone patch is a whole document, so a stale read is a silent revert.
 
-    Both operators change one setting each. Merged onto a zone read before the
-    other landed, the second write carries the *old* value of the first one's
-    field alongside its own, and neither operator is told that a setting went
-    back. Reading inside the boundary is what makes the merge a merge: the
-    write is built from the document the write will replace, not from one that
-    stopped existing while the request was in flight.
-
-    Records were already written this way and zones were not, which left the
-    aggregate every hostname inherits from as the unprotected one.
+    Reading inside the boundary builds the write from the document it replaces.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -606,11 +560,8 @@ def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
 def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settings):
     """``overrides`` is replaced wholesale, so a stale read drops what it lacks.
 
-    The issuer writes a certificate into a rule's overrides unattended. An
-    operator who read that rule beforehand and then changes only its ``match``
-    writes the whole mapping back — without the certificate — and the rule's
-    hostnames lose the material they were just issued, with nothing in the
-    audit trail saying so.
+    An operator changing only ``match`` must not drop a certificate the issuer
+    wrote in between.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -638,17 +589,12 @@ def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settin
 def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings):
     """The compare-and-swap under the two editors, asked directly.
 
-    Reading inside the Unit of Work is what keeps a caller from assembling a
-    stale document; `expected` is what refuses one that got assembled anyway —
-    by a caller outside this package, or by a future edit that moves a read
-    back out. The second is the reason it is a check and not a convention:
-    conventions do not fail the build.
+    `expected` refuses a stale document however it was assembled.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
-    # `cache_enabled` is named so the update below is a real change: the seed
-    # fills in an "off" for a capability the core-only workspace does not have,
-    # and a patch that sets a value to what it already holds moves nothing.
+    # `cache_enabled` makes the update a real change: a patch to the current value
+    # moves nothing.
     seed_site(control, name="rule-host", record="api", cache_enabled=True)
 
     stale_zone = control.dns.get_domain("example.com")
@@ -673,11 +619,8 @@ def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings)
 def test_a_compare_and_swap_outside_a_unit_of_work_is_refused(settings):
     """Outside `BEGIN IMMEDIATE` the comparison and the update are not one act.
 
-    SQLite answers the upgrade from a deferred read to a write with a
-    snapshot-busy error no `busy_timeout` waits out, which reaches the caller
-    as something other than the conflict it is. The store says so up front
-    rather than leaving it to a docstring, which is the same call the record
-    store already makes.
+    SQLite would answer with a snapshot-busy error instead of the conflict, so
+    the store refuses up front.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)

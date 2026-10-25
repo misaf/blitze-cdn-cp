@@ -1,12 +1,7 @@
 """The baseline schema and guards against a damaged database.
 
-There is one revision and no installation older than it. Tests prove the
-baseline and SQLModel metadata create the same usable schema, and that a
-database missing a column or table is refused rather than half-used.
-
-These run Alembic against a real file rather than asserting on the scripts'
-text. A migration that imports cleanly and does the wrong thing is the whole
-failure mode worth catching.
+The baseline and SQLModel metadata create the same schema, and a database
+missing a column or table is refused. Alembic runs against a real file.
 """
 
 from __future__ import annotations
@@ -122,11 +117,9 @@ def test_the_revision_reported_is_the_one_stamped(tmp_path):
 def test_every_capability_table_module_reaches_the_metadata():
     """A table is on disk only if Alembic can see it.
 
-    A capability keeps its tables beside the store that reads them, so
-    `Base.metadata` is complete only once every one of those modules has been
-    imported. `migrations/env.py` is where that happens, and a new
-    `adapters/tables.py` that nobody added to it would not fail loudly: it
-    would look to autogenerate like a table somebody had dropped.
+    Tables live beside their stores, so `Base.metadata` is complete only once
+    `migrations/env.py` imports every table module; a missing one would look to
+    autogenerate like a dropped table.
     """
     declared = {
         path.parent.parent.name
@@ -145,12 +138,8 @@ def test_every_capability_table_module_reaches_the_metadata():
 def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     """The same check from the other end: metadata against a migrated file.
 
-    `Database()` runs Alembic's own comparison on the file it opens, so a table
-    the migration creates and the metadata does not know about — or the other
-    way round — is refused there rather than asserted here. What is left for
-    this test is the part that comparison cannot see: that the nine tables the
-    control plane is *supposed* to have are the nine it has, so dropping one
-    from both halves at once still fails.
+    `Database()` already compares metadata with the file; this pins the expected
+    table set, so dropping one from both halves still fails.
     """
     path = tmp_path / "control.db"
     DatabaseSchema.migrate(path)
@@ -169,10 +158,8 @@ def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
 
 
 def test_the_current_schema_has_no_upgrade_chain(tmp_path):
-    """One revision, because there is no installation older than it.
-
-    A second revision means something shipped. Until then a schema change is an
-    edit to the baseline, not a migration on top of it.
+    """One revision until something ships; until then schema changes edit the
+    baseline.
     """
     revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
     assert [revision.revision for revision in revisions.walk_revisions()] == ["0001"]

@@ -28,8 +28,7 @@ def _purge_run():
 def _site(control, name="cdn", domain="example.com", **policy):
     """A site to purge, and the hostname that reaches it.
 
-    ``name`` is the record label — purge matches on ``server_names``, so what
-    these tests care about is the hostname rather than the site's own name.
+    Purge matches on ``server_names``, so the hostname is what matters.
     """
     slug = f"{'wildcard' if name == '*' else name}-{domain.replace('.', '-')}"
     return seed_site(control, name=slug, domain=domain, record=name, **policy)
@@ -113,9 +112,8 @@ def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
 def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     """The cache key starts with $scheme, so the two are different entries.
 
-    A site without TLS is served entirely over port 80, so nothing of it is
-    stored under `https`. Purging that scheme computes a different MD5 and
-    deletes a file that was never written, while every edge reports success.
+    Purging an unserved scheme would delete nothing while every edge reports
+    success.
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])

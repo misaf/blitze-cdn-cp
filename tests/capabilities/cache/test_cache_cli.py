@@ -1,14 +1,7 @@
 """`blitzecdn cache purge` and `blitzecdn stats`, as an operator types them.
 
-These live with the distribution that contributes the commands. They were in
-`tests/entrypoints/cli/` while `cache` was a package inside the control
-plane, which meant detaching the capability would have taken a chunk of the
-core CLI suite with it — the package is the unit of modularity, so its tests
-move with it and the core suite keeps only what core still owns.
-
-The commands are reached through the real root `blitzecdn` application, not
-through this package's Typer objects directly: what is being held is that
-installing the distribution puts `cache purge` and `stats` on the command tree.
+Reached through the real root application, so these also hold that the
+commands are on the tree.
 """
 
 import json
@@ -38,9 +31,7 @@ def _purge_ok():
 def _purgeable_site(control):
     """A site serving TLS, because these tests purge `https://` URLs.
 
-    The scheme leads the cache key, so the control plane refuses a purge for a
-    scheme the site never serves. A site without TLS caches nothing under
-    https.
+    The scheme leads the cache key, so a purge for an unserved scheme is refused.
     """
     return seed_site(
         control,

@@ -1,10 +1,7 @@
 """The baseline HTTP capability: its policy contract and its listener stance.
 
-HTTP/3's *derivation* is not here. It moved out with the capability that owns
-it — `tests/capabilities/http/http3` — and what stays is the half core keeps
-whether or not that distribution is installed: the scheme, the port sets, the
-`http3_enabled` switch the stored site contract carries, and the baseline this
-feature writes into the fleet document.
+The scheme, port sets, the `http3_enabled` switch and the baseline written
+into the fleet document. HTTP/3's derivation is tested in `http/http3`.
 """
 
 from support.policy import TEST_CERTIFICATE_VERSION
@@ -67,8 +64,8 @@ def test_serving_a_site_over_http1_and_http2_needs_nothing_installed():
 def test_the_stable_contract_still_carries_the_http3_switch():
     """The field is core's, so a stored site asking for HTTP/3 always loads.
 
-    This is what makes "requested but not installed" a validation error the
-    control plane can phrase, rather than a row it cannot read back.
+    That makes "requested but not installed" a validation error rather than an
+    unreadable row.
     """
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert ProtocolPolicy(http3_enabled=True).required_capabilities == frozenset(
@@ -77,11 +74,10 @@ def test_the_stable_contract_still_carries_the_http3_switch():
 
 
 def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
-    """Constant, and not derived — the derivation belongs to `blitzecdn-http3`.
+    """Constant, not derived: the derivation belongs to the HTTP/3 provider.
 
-    Contributed rather than omitted because both variables are `required: true`
-    in the edge role's argument spec, so the document has one shape in every
-    installation and `blitzecdn-http3` replaces the values through `overrides`.
+    Both variables are required by the edge role, so the baseline writes them and
+    the provider replaces them through `overrides`.
     """
     contribution = baseline_listeners(
         (_site("bravo"), _site("alpha"), _site("disabled", enabled=False))
@@ -96,13 +92,7 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
 
 
 def test_a_registry_without_http3_refuses_a_site_that_requests_it():
-    """The one intended semantic change, asserted against the built-in set.
-
-    `load_registry()` is a control plane with no
-    optional
-    distribution installed at all, which is what an operator who never attached
-    `blitzecdn-http3` is running.
-    """
+    """A registry without HTTP/3 refuses a site that requests it."""
     from blitzecdn.composition import BUILTIN_FEATURES
     from blitzecdn.core.features import FeatureRegistry, load_features
 

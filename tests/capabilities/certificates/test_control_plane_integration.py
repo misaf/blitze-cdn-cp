@@ -1,12 +1,7 @@
 """Certificate work seen from the control plane, not from a route or a command.
 
-These four were in ``tests/entrypoints/test_control_plane.py``, named in a
-``REQUIRES_CERTIFICATES`` set so the shared fixtures would skip them when this
-wheel was detached. They also relied on the ``attach_certificate_test_services``
-monkeypatch to make ``control.certificates`` exist at all — a shape production
-core never has. Here they build the services through
-``blitzecdn.capabilities.tls.wiring``, which is the path the feature itself
-takes, so the wiring under test is the wiring that ships.
+The services are built through ``blitzecdn.capabilities.tls.wiring``, the
+path the feature itself takes.
 """
 
 from __future__ import annotations
@@ -29,9 +24,8 @@ from blitzecdn.core.exceptions import DeploymentBusyError
 def test_validate_rejects_acme_on_a_reserved_domain(settings):
     """No public CA issues for .test, so catch it before certbot is invoked."""
     control = certificate_control_plane(settings)
-    # The managed paths name the host a certificate was issued for, and a
-    # derived host is named after its zone — so a zone-wide policy carries the
-    # zone's own host name here, not the record's.
+    # Managed paths name the host a certificate was issued for, and a derived host
+    # is named after its zone.
     seed_site(
         control,
         name="vendra-test",
@@ -47,9 +41,8 @@ def test_validate_rejects_acme_on_a_reserved_domain(settings):
 def test_busy_external_work_does_not_create_a_false_workflow(settings):
     """A workflow starts only after this process owns the external-work lock.
 
-    Otherwise an API restart can see the journal entry, fail to acquire the
-    lock held by the real worker, and report the refused attempt as interrupted
-    work even though that attempt never touched an edge or a CA.
+    Otherwise a refused attempt could be reported as interrupted work it never
+    did.
     """
 
     class BusyRunner(FakeRunner):
@@ -74,10 +67,8 @@ def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
 ):
     """Lock contention is "come back later", not "the CA refused".
 
-    Issuance takes the deployment lock, so a fleet deploy can span a whole
-    sweep. Filed under `failed` it read exactly like a CA rejection, which is
-    the one thing a renewal report must not get wrong near an expiry — and the
-    next run picks the site up regardless.
+    Issuance takes the deployment lock, so a deploy can span a sweep; filing that
+    under `failed` would read like a CA rejection.
     """
     control = certificate_control_plane(settings)
     seed_site(control)
@@ -103,10 +94,8 @@ def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
 def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
     """The CA may have issued a certificate that reached no disk here.
 
-    That is a rate-limited issuance spent on nothing, and it is the state worth
-    recognising before retrying — so the journal has to distinguish it from an
-    interruption after the PEM was stored, which the next issuance corrects for
-    free. Both used to arrive as one undifferentiated NEEDS_REVIEW.
+    That spent a rate-limited issuance, so the journal distinguishes it from an
+    interruption after the PEM was stored.
     """
     configured = with_capability_settings(
         settings, acme_default_email="ops@example.com"

@@ -25,16 +25,13 @@ from blitzecdn.core.ansible.rendering import EdgeRenderer
 # ----------------------------------------------------------------------
 # Executing the role's validation tasks
 #
-# Everything above reads the role as data or renders its templates. Neither
-# evaluates a `when:` or an `assert`, and `--syntax-check` and ansible-lint do
-# not either — a conditional that raises at run time passes all of them. That
-# gap shipped a broken deploy once: `when: item.firewall is defined and
-# item.firewall` parses, lints, and then fails on ansible-core 2.19+ because
-# its result is a dict rather than a boolean.
+# Reading the role as data or rendering templates evaluates no `when:` or
+# `assert`, and neither do `--syntax-check` or ansible-lint: a conditional that
+# raises at run time passes all of them.
 #
-# roles/blitzecdn_nginx/tasks/validate.yml holds every task that inspects
-# desired state and refuses to proceed, and changes nothing on the host, so it
-# can be run here against real model output.
+# roles/blitzecdn_nginx/tasks/validate.yml inspects desired state, refuses to
+# proceed, and changes nothing on the host, so it runs here against real model
+# output.
 # ----------------------------------------------------------------------
 
 VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
@@ -87,9 +84,8 @@ def _run_validation(
         capture_output=True,
         text=True,
         cwd=tmp_path,
-        # pytest-cov's subprocess hook would otherwise make the Ansible
-        # child write statement-only coverage beside this run's branch data,
-        # which coverage refuses to combine.
+        # pytest-cov's subprocess hook would make the Ansible child write
+        # statement-only coverage that cannot combine with this run's branch data.
         env={
             key: value
             for key, value in os.environ.items()
@@ -110,10 +106,8 @@ def _run_nginx_build_capability(
 ):
     """Execute the build invariant against a fabricated `nginx -V` banner.
 
-    Nginx runs in a container now, so there is no binary on the host to fake.
-    The invariant was split out of the probe for exactly this: the assertions
-    read two variables, so a test can hand them the output of a build that does
-    not exist rather than needing an engine, an image and a network.
+    The invariant reads two variables, so a test can hand it a build that does
+    not exist instead of needing an engine and an image.
     """
     return _run_nginx_invariant(
         tmp_path,
@@ -132,10 +126,8 @@ def _run_nginx_build_capability(
 def _run_nginx_probe_invariant(tmp_path: Path, probe: dict[str, Any]):
     """Execute the probe invariant against a fabricated module result.
 
-    The result of a probe that never ran is the case worth covering, and it is
-    the one no engine will produce on demand: the assertion exists because a
-    module error leaves no `status` behind, and `default(1)` then reads that
-    absence as an image with no nginx in it.
+    A probe that never ran leaves no `status`, which `default(1)` would read as an
+    image without nginx; no engine produces that on demand.
     """
     return _run_nginx_invariant(
         tmp_path,
@@ -209,9 +201,8 @@ def test_nginx_invariant_rejects_an_unsupported_build_clearly(tmp_path):
 def test_nginx_probe_invariant_accepts_a_probe_that_ran(tmp_path):
     """Including one that ran and came back non-zero.
 
-    A container that started and exited badly is build-invariant.yml's to
-    judge, and it has the output to judge it with. This gate is only about
-    whether there is a result at all.
+    Judging that is build-invariant.yml's job; this gate only asks whether there
+    is a result.
     """
     result = _run_nginx_probe_invariant(tmp_path, {"status": 1, "container": {}})
     assert result.returncode == 0, result.stdout + result.stderr
@@ -220,10 +211,8 @@ def test_nginx_probe_invariant_accepts_a_probe_that_ran(tmp_path):
 def test_nginx_probe_invariant_separates_a_probe_that_never_ran(tmp_path):
     """The message must be about the probe, not about the image.
 
-    `failed_when: false` on the probe means a module error arrives here as a
-    result with no `status` in it, which `default(1)` would otherwise render as
-    an image with no nginx binary — sending whoever reads the failure to
-    inspect an image that was never opened.
+    With `failed_when: false`, a module error arrives as a result with no
+    `status`, which must not be reported as an image lacking nginx.
     """
     result = _run_nginx_probe_invariant(
         tmp_path,
@@ -270,13 +259,7 @@ def test_role_accepts_only_immutable_managed_certificate_destinations(
 
 
 def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_path):
-    """It reads the connection, not a database, so no capability gates it.
-
-    Kept in core although its GeoIP sibling moved: this asserts that
-    `blitzecdn_nginx` renders the header *without* consulting anything an
-    optional distribution provides, which is a statement about core's role and
-    would be untestable from a package that may not be installed.
-    """
+    """It reads the connection, not a database, so no capability gates it."""
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
     sites[0] = sites[0] | {
         "visitor_headers": {"connecting_ip": True, "ip_country": False}
@@ -290,11 +273,9 @@ def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_
 def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
     """Both halves of this control have to refuse it, not just the controller.
 
-    `*.192.0.2.1` satisfies the hostname shape check — every label of an IPv4
-    literal is a valid DNS label — and nginx renders `server_name *.192.0.2.1`
-    without complaint, then matches no request ever sent. The control plane
-    refuses it now, and this is the redundancy: the value reaches a directive
-    the role writes as root.
+    `*.192.0.2.1` passes the hostname shape check and nginx accepts it as a
+    `server_name` that matches nothing. The role writes it as root, so it refuses
+    it too.
     """
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
     sites[0] = sites[0] | {"server_names": ["*.192.0.2.1"]}
@@ -309,9 +290,8 @@ def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
 def test_role_rejects_an_ipv6_zone_index_on_the_origin(desired_state, tmp_path, field):
     """The role's half of the zone-index refusal in `hostname`.
 
-    The controller accepted `fe80::1%x;return 200 x` as an origin until it was
-    taught not to; this role is what kept it out of `proxy_pass`, by refusing
-    `%` in its character class. Held here so that remains true on its own.
+    The role refuses `%` in an origin, keeping values like `fe80::1%x;return 200 x`
+    out of `proxy_pass` on its own.
     """
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
     sites[0] = sites[0] | {field: "fe80::1%x;return 200 x"}
@@ -322,29 +302,15 @@ def test_role_rejects_an_ipv6_zone_index_on_the_origin(desired_state, tmp_path, 
     assert "Invalid CDN site" in result.stdout
 
 
-# Three suites that used to be here are not any more, and their absence is the
-# point rather than a gap:
-#
-#   * that the role refuses country rules and the BZ-IPCountry header without
-#     GeoIP, and that a MaxMind key never reaches an Nginx configuration —
-#     both now in `tests/capabilities/security/geoip/`, executed against that
-#     distribution's own role;
-#   * that the role refuses Under Attack Mode without the challenge capability,
-#     and that the signed njs module is written 0640 under `no_log` — now in
-#     `tests/capabilities/security/`.
-#
-# They moved with the implementation. A capability's refusal is asserted by the
-# capability that makes it, so uninstalling the distribution takes the rule,
-# the role and the test away together.
+# Capability refusals (GeoIP without its capability, Under Attack Mode without
+# the challenge) are asserted by the capability that makes them, under
+# `tests/capabilities/security/`.
 
 
 # ----------------------------------------------------------------------
 # Every installed capability's HTTP fragment is in a release's tree, and a
-# detached one's is not. The edge used to render the fragments and then prune
-# whatever was no longer wanted, and that prune once deleted every fragment it
-# had just written — `js_import` with them. A release's tree is now rendered on
-# the controller and staged as a fresh candidate, so there is nothing to prune;
-# what is held here is what the tree contains.
+# detached one's is not. The tree is rendered on the controller and staged as a
+# fresh candidate, so nothing is pruned on the edge.
 # ----------------------------------------------------------------------
 
 
@@ -396,15 +362,8 @@ def test_a_detached_capabilitys_fragment_is_not_in_the_release(settings):
 def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
     """A rule nothing matches is not a server block, and neither is a bare zone.
 
-    This used to be a joining problem and is now an arithmetic one. The
-    renderer published every site in the snapshot, so an operator who took the
-    last hostname off a site — one `record remove`, no site deleted — left
-    desired state carrying a site the role must reject, and *every* subsequent
-    converge failed on it, for that edge and every other one in the deployment.
-
-    Nothing stores a site now: a host exists because hostnames resolve to it,
-    so one with no hostnames cannot be constructed, let alone published. What
-    is left to check is that the derivation actually leaves them out.
+    A host exists because hostnames resolve to it, so one with none cannot be
+    published; this checks the derivation leaves them out.
     """
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)

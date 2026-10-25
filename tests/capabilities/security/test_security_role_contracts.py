@@ -1,16 +1,12 @@
 """The agreements this capability's edge role has with the core it converges on.
 
-`blitzecdn_security` puts the njs module that serves the challenge on an edge
-and contributes the Nginx resource that imports it. Nothing before Nginx's
-configuration test catches a disagreement: an
-import that names a file the role did not write fails `nginx -t`, which is a
-rolled-back deploy on every edge rather than a message naming the two
-distributions that stopped agreeing.
+`blitzecdn_security` installs the njs challenge module and contributes the
+Nginx resource that imports it. A disagreement surfaces only as a failed
+`nginx -t` on every edge.
 
-The role is read through :data:`blitzecdn.capabilities.security.ansible.ROLES_PATH` —
-the
-same path a deployment resolves it by, rather than a directory in the checkout
-that an installed wheel would not have.
+The role is read through
+:data:`blitzecdn.capabilities.security.ansible.ROLES_PATH`, the path a
+deployment resolves it by.
 """
 
 from typing import Any
@@ -67,9 +63,7 @@ def test_the_role_this_distribution_ships_is_where_it_says_it_is():
 def test_the_module_lands_where_the_container_mounts_it_read_only():
     """The njs directory is a contract path, mounted ro into both containers.
 
-    A module written anywhere else would be present on the host and absent
-    inside Nginx, and the `js_import` in the snippet below would fail the
-    configuration test rather than the deploy saying what is missing.
+    A module written elsewhere would be absent inside Nginx.
     """
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     modules = resolved["blitzecdn_edge_runtime"]["paths"]["modules"]
@@ -99,10 +93,8 @@ def test_the_snippet_imports_the_module_and_includes_the_key():
 
 
 def test_package_resources_dispatch_into_the_module_this_role_installs():
-    """Package Nginx resources name the njs functions its role provides.
-
-    The names cross a distribution boundary in both directions, so both sides
-    are asserted here — this is the only place that reads them together.
+    """The Nginx resources name the njs functions the role provides; this is the only
+    place both sides are read together.
     """
     site = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(NGINX.glob("*.j2"))
@@ -119,8 +111,8 @@ def test_package_resources_dispatch_into_the_module_this_role_installs():
 def test_the_secret_file_is_private_and_unlogged():
     """Mode and no_log are the whole protection; assert them, not the intent.
 
-    The secret lives only in the edge-local key include, root-only, outside
-    every configuration release; the njs module itself carries none.
+    The secret lives only in the root-only, edge-local key include, outside every
+    configuration release.
     """
 
     def walk(items):

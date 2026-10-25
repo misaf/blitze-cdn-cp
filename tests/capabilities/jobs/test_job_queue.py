@@ -1,10 +1,8 @@
 """Leases, fences, retries and crash recovery, against the real database.
 
-These use SQLite rather than a fake store on purpose. Every guarantee in this
-capability is a conditional UPDATE — a claim that names the fence it read, a
-completion that names the fence it was given — and a fake store would be a
-second implementation of exactly the thing under test, free to agree with the
-tests and disagree with the database.
+Every guarantee is a conditional UPDATE (a claim naming the fence it read, a
+completion naming the fence it was given), so a fake store would reimplement
+the thing under test.
 """
 
 from __future__ import annotations
@@ -103,11 +101,9 @@ def test_an_empty_queue_claims_nothing(repository):
 def test_a_second_copy_of_a_scheduled_job_is_refused_while_one_is_in_flight(
     repository,
 ):
-    """What the Redis `SET NX` key did, as a partial unique index.
+    """At most one in-flight copy of a scheduled job, as a partial unique index.
 
-    Unlike that key it cannot outlive the work it guards: it *is* a column on
-    the job, so a worker that dies cannot leave a lock behind that keeps the
-    next firing out of the queue for its whole TTL.
+    It is a column on the job, so a dead worker cannot leave a lock behind.
     """
     queue = queue_for(repository, handlers={})
 
@@ -140,10 +136,9 @@ def test_a_job_delivered_twice_runs_its_handler_twice_and_that_is_declared(
 ):
     """At-least-once, stated as a test rather than left to be discovered.
 
-    Exactly-once is not on offer here and could not honestly be: the handler's
-    side effects are outside this database's transaction. What makes it safe is
-    that both handlers were built for it — `run_queued` returns untouched
-    unless the deployment is still QUEUED, and a maintenance run is idempotent.
+    Handler side effects are outside this transaction. Handlers are built for it:
+    `run_queued` does nothing unless the deployment is still QUEUED, and a
+    maintenance run is idempotent.
     """
     clock = Clock()
     calls: list[int] = []
@@ -176,9 +171,8 @@ def test_a_job_delivered_twice_runs_its_handler_twice_and_that_is_declared(
 def test_a_worker_whose_lease_expired_cannot_complete_its_job(repository):
     """The fence, which is what a lease alone does not give you.
 
-    A worker paused past its lease — a long stop-the-world pause, a suspended
-    container — comes back holding a token that no longer matches, so it cannot
-    mark as succeeded a job another worker has since re-run.
+    A worker paused past its lease holds a stale token and cannot mark a re-run
+    job as succeeded.
     """
     clock = Clock()
     queue = queue_for(repository, clock=clock, handlers={})
@@ -197,11 +191,7 @@ def test_a_worker_whose_lease_expired_cannot_complete_its_job(repository):
 
 
 def test_two_workers_claiming_at_once_produce_one_owner(repository):
-    """The compare-and-swap on the fence, exercised through two queues.
-
-    Both may select the same row; the second's UPDATE names a fence that has
-    already moved and matches nothing.
-    """
+    """The compare-and-swap on the fence, exercised through two queues."""
     queue = queue_for(repository, handlers={})
     queue.jobs.enqueue(kind="work", payload={}, available_at=_START)
 
@@ -233,11 +223,7 @@ def test_a_renewed_lease_keeps_the_job_out_of_another_workers_reach(repository):
 
 
 def test_a_job_a_dead_worker_was_holding_becomes_claimable_again(repository):
-    """No sweep, no startup pass: the expired lease *is* the recovery.
-
-    A worker that dies simply stops renewing, and nothing has to observe the
-    death for the work to become claimable.
-    """
+    """No sweep, no startup pass: the expired lease *is* the recovery."""
     clock = Clock()
     record: list[str] = []
     abandoned = queue_for(repository, clock=clock, handlers={})
@@ -261,10 +247,8 @@ def test_a_job_that_keeps_killing_its_worker_fails_once_its_attempts_are_spent(
 ):
     """`max_attempts` holds when no handler ever gets to raise.
 
-    A job that takes its worker down — the OOM killer, a SIGKILL after the stop
-    grace period — records nothing, so the only evidence is its leases expiring.
-    That used to hand it out again on every expiry, `attempts` climbing past
-    `max_attempts`, and it stayed `running` without ever being reported.
+    A job that takes its worker down records nothing; its expiring leases count
+    as attempts, and it fails once they are spent.
     """
     clock = Clock()
     queue = queue_for(repository, clock=clock, handlers={})
@@ -303,11 +287,7 @@ def test_abandoning_an_exhausted_job_does_not_hold_up_the_next(repository):
 
 
 def test_a_paused_worker_cannot_complete_a_job_that_was_abandoned(repository):
-    """Abandonment moves the fence, as a claim does.
-
-    The last worker may only have been paused, not killed. Coming back, it must
-    not mark as succeeded a job the queue has already reported as failed.
-    """
+    """Abandonment moves the fence, as a claim does."""
     clock = Clock()
     queue = queue_for(repository, clock=clock, handlers={})
     job = queue.jobs.enqueue(
@@ -442,10 +422,8 @@ def test_a_failing_job_retries_with_bounded_backoff(repository):
 
 
 def test_a_job_whose_kind_has_no_handler_fails_permanently(repository):
-    """A feature uninstalled while one of its jobs was still queued.
-
-    Retrying would produce the same missing handler at every attempt, so this
-    is one of the two failures that skip the backoff entirely.
+    """A job whose kind has no handler fails without backoff: every retry would
+    meet the same missing handler.
     """
     queue = queue_for(repository, handlers={})
     job = queue.jobs.enqueue(kind="waf-refresh", payload={}, available_at=_START)
@@ -480,16 +458,10 @@ def test_pruning_removes_finished_jobs_and_never_pending_ones(repository):
 def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(settings):
     """The API and the worker are two processes writing one SQLite file.
 
-    A claim reads its row and then writes it. In a deferred transaction an
-    enqueue the API commits between the two turns the worker's write into a
-    snapshot-busy error that no `busy_timeout` waits out: the fence kept that
-    safe, but the claim failed and the worker lost a poll. Under BEGIN
-    IMMEDIATE the claim holds the writer from its first read, and the enqueue
-    waits its turn.
-
-    Two repositories stand in for the two processes — two engines, two
-    connections — and the enqueue is fired from the worker's own UPDATE, which
-    is the one moment it can do harm.
+    In a deferred transaction, an enqueue committed between a claim's read and
+    write turns the write into a snapshot-busy error no `busy_timeout` waits out.
+    Under BEGIN IMMEDIATE the enqueue waits instead. Two repositories stand in for
+    the processes, and the enqueue fires from the worker's own UPDATE.
     """
     worker_side = Repository(settings.database_path)
     api_side = Repository(settings.database_path)
@@ -528,12 +500,7 @@ def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(setting
 
 
 def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
-    """`Fail` fails at once, attempts left or not.
-
-    The other permanent case beside a missing handler, and the one a handler
-    decides for itself: a deployment that was abandoned is abandoned on every
-    attempt, so backing off and asking again would only repeat the answer.
-    """
+    """`Fail` fails at once, attempts left or not."""
     attempts: list[int] = []
 
     def abandoned(_payload):
@@ -556,10 +523,9 @@ def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
 def test_a_refused_duplicate_inside_a_transaction_leaves_it_usable(repository):
     """The dedupe refusal undoes only itself.
 
-    A deployment is now submitted with its job in one transaction, so the
-    insert this index refuses can be one statement in somebody else's unit of
-    work. Caught without a savepoint, the failed flush poisoned the session and
-    the caller's commit failed with it.
+    The refused insert can be one statement in the caller's unit of work (a
+    deployment and its job), so it uses a savepoint rather than poisoning the
+    session.
     """
     with repository.transaction():
         first = repository.jobs.enqueue(

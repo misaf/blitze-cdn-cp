@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.edge_render import (
     _render,
 )
@@ -86,10 +83,8 @@ def test_the_acme_challenge_path_is_never_filtered():
 def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
     """`""` is what geoip2 yields for an unknown address.
 
-    An allow list has to treat it as "not one of these"; the negated match is
-    the only form that does. A positive match on a denied list, conversely,
-    must not fire — that asymmetry is deliberate and easy to invert by
-    accident.
+    An allow list treats it as "not one of these", which only the negated match
+    does; a deny list must not fire on it. The asymmetry is easy to invert.
     """
     site = site_to_ansible(
         site_from_settings(

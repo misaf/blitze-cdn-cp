@@ -33,11 +33,8 @@ PARTS = frozenset(
     }
 )
 
-#: Slices nested inside a capability rather than beside it. `test_layering`
-#: refuses them a top-level package of their own (`certificates` and
-#: `automatic_ssl` are strategies `tls` owns, `http3` a version of `http`,
-#: `geoip` a source `security` filters on), so they stay where they are and
-#: are held to the same skeleton one level down.
+#: Slices nested inside a capability rather than beside it, held to the same
+#: skeleton one level down.
 NESTED_SLICES = frozenset(
     {
         "capabilities/http/http3",

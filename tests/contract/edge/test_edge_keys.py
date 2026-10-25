@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.edge_render import (
     _role_spec,
 )
@@ -77,10 +73,8 @@ def test_role_choices_cover_every_domain_value(field, enum):
 def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
     """The outer check only sees top-level keys; the firewall is nested.
 
-    Role argument validation rejects an undeclared suboption, so a new
-    ``SiteFirewall`` field reaching an older role fails the deploy rather than
-    being ignored — which is the right failure, but only if it is caught here
-    first.
+    Argument validation rejects an undeclared suboption, so a new
+    ``SiteFirewall`` field would fail the deploy; this catches it first.
     """
     declared = set(
         _role_spec()["blitzecdn_nginx_sites"]["options"]["firewall"]["options"]
@@ -94,12 +88,7 @@ def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
 
 
 def test_the_role_defaults_agree_with_the_domain_defaults():
-    """An edge upgraded ahead of its controller must behave the same.
-
-    The role's suboption defaults apply when an older control plane sends no
-    visitor_headers at all, so they have to be the values the domain would have
-    sent.
-    """
+    """The role's suboption defaults are the values the domain would send."""
     options = _role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]
     assert options.get("required", False) is False
     for name, field in SiteVisitorHeaders.model_fields.items():

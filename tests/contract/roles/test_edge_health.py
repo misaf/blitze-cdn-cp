@@ -1,10 +1,7 @@
 """Container health.
 
-Docker answers one question about an edge — is this Nginx serving requests
-right now — and Ansible answers the rest once per deploy. These hold that split
-in place: a Compose probe that grows a second question duplicates work the
-converge already does, and an Ansible check folded into the probe loses the
-failure that fails a deploy.
+Docker answers one question about an edge (is Nginx serving right now) and
+Ansible answers the rest once per deploy. These hold that split.
 """
 
 import re
@@ -35,9 +32,8 @@ from blitzecdn.assets.docker import (
 def test_the_container_health_check_reads_the_configured_status_endpoint():
     """Docker's probe is the deployment's URL, not a URL baked into an image.
 
-    The address, port and path are rendered by blitzecdn_nginx. A probe that
-    restated any of them would keep reporting healthy — or unhealthy — after an
-    operator moved the endpoint, which is exactly when the answer matters.
+    The address, port and path are rendered by blitzecdn_nginx, so moving the
+    endpoint moves the probe.
     """
     context = _edge_context()
     service = _render_compose()["services"]["edge"]
@@ -68,10 +64,9 @@ def test_the_container_health_check_reads_the_configured_status_endpoint():
 def test_the_container_health_check_asks_nothing_ansible_asks_better():
     """One question in Compose, the deep ones in health.yml.
 
-    `nginx -t` inside the probe cannot fail a deploy — Docker would simply mark
-    a running container unhealthy every thirty seconds — and it re-reads every
-    certificate and every capability data file each time. In health.yml the
-    same failure fails the converge and reaches the rescue path.
+    `nginx -t` in the probe cannot fail a deploy and re-reads every certificate
+    each time. In health.yml the same failure fails the converge and reaches the
+    rescue path.
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
     edge = _render_compose()["services"]["edge"]
@@ -89,10 +84,8 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     assert "status_code: [200]" in health
     assert "Require every public TCP listener" in health
     assert "Require the HTTP/3 listener on UDP/443" in health
-    # A capability's own preconditions are not checked here any more. The
-    # GeoIP database used to be, which meant core's health verification named a
-    # file only an optional distribution ever writes; `blitzecdn_geoip` asserts
-    # it from its own role, in the same play, before the tree is rendered.
+    # A capability's own preconditions are checked by its own role (GeoIP by
+    # `blitzecdn_geoip`), not here.
     assert "geoip" not in health.lower()
 
     # And Compose is still asked to wait for Docker's verdict before the
@@ -106,12 +99,10 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
 def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
     """Every edge serves stub_status, and every edge carries a probe of it.
 
-    The alternative to the loopback endpoint would be probing a managed virtual
-    host, which writes a request into that site's access log and its cache
-    every thirty seconds. Rather than make either side switchable, both are part
-    of the runtime contract: every release renders the server unconditionally,
-    the Compose template has no conditional around `healthcheck`, and a missing
-    Docker verdict fails health.yml instead of being tolerated.
+    Probing a managed virtual host instead would write into that site's log and
+    cache. Both are part of the runtime contract: rendered unconditionally, no
+    conditional around `healthcheck`, and a missing Docker verdict fails
+    health.yml.
     """
     control = build_application(settings=settings)
     status_conf = (ROLE_DIR / "templates/status.conf.j2").read_text(encoding="utf-8")
@@ -133,9 +124,8 @@ def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
     assert "{% if" not in status_conf
 
     assert "healthcheck" in _render_compose()["services"]["edge"]
-    # Read from the template rather than one rendering: nothing guards the
-    # block, so it reaches every edge and not just this test's context. The
-    # lines above it are the probe's own comment and the logging options.
+    # Read from the template: nothing guards the block, so it reaches every edge.
+    # The lines above it are the probe's comment and the logging options.
     lines = COMPOSE_TEMPLATE.splitlines()
     above = lines[: lines.index("    healthcheck:")]
     preceding = [line for line in above if not line.strip().startswith("#")][-1]
@@ -169,12 +159,9 @@ def test_the_health_timeout_stays_configurable():
 def test_the_runtime_and_its_engine_are_not_optional():
     """Neither role offers to skip itself, because neither `false` is a state.
 
-    An edge in the fleet has its public ports open and its configuration
-    rendered; leaving the container that serves them unstarted advertises an
-    edge that is not there. And every BlitzeCDN process on an edge and on the
-    control plane is a container, so a host with no engine has nothing to run.
-    Both guards were `when:` on a whole block, which is exactly the shape that
-    turns "opted out" into a converge that reports success having done nothing.
+    An edge with open ports must run the container serving them, and every
+    BlitzeCDN process is a container. A `when:` around either would turn "opted
+    out" into a converge that succeeds having done nothing.
     """
     for role, spec_defaults in (
         ("blitzecdn_edge_stack", STACK_ROLE_DIR),
@@ -202,12 +189,10 @@ def test_the_runtime_and_its_engine_are_not_optional():
 def test_every_configuration_activation_is_guarded_by_nginx_t():
     """A rendered tree reaches a running edge only through `nginx -t`.
 
-    Nginx keeps serving what it loaded at start, so an invalid file is silent
-    until the next reload — which may be a crash-restart hours later, with no
-    deploy left to blame. There is one validation task file and no setting that
-    skips it: every writer notifies the handler, the handler validates before
+    Nginx keeps serving what it loaded, so an invalid file is silent until the
+    next reload. Every writer notifies the handler, the handler validates before
     it signals, and the stack role re-validates against a new image before the
-    container serving traffic is replaced.
+    serving container is replaced.
     """
     handlers = (ROLE_DIR / "handlers/main.yml").read_text(encoding="utf-8")
     listeners = yaml.safe_load(handlers)
@@ -260,10 +245,8 @@ def test_every_configuration_activation_is_guarded_by_nginx_t():
 def test_the_status_endpoint_is_loopback_only():
     """Two independent controls, because stub_status has no authentication.
 
-    It describes the edge's load to anyone who can reach it. The listen address
-    binds loopback and the allow/deny list inside the location refuses anything
-    else, so widening one alone still does not expose it — and there is no
-    switch that publishes it.
+    The listen address binds loopback and the location's allow/deny list refuses
+    anything else, so widening one alone does not expose it.
     """
     defaults = _role_defaults()
     assert defaults["blitzecdn_edge_runtime"]["status"]["address"] == "127.0.0.1"
@@ -287,9 +270,8 @@ def test_the_status_endpoint_is_loopback_only():
 def test_the_edge_stops_gracefully():
     """SIGQUIT and a grace period, not SIGTERM and a kill.
 
-    SIGTERM is Nginx's immediate shutdown, which turns every container
-    replacement into a burst of visitor errors. Both halves have to hold: the
-    signal, and enough time to act on it before Docker escalates to SIGKILL.
+    SIGTERM is Nginx's immediate shutdown. Both the signal and enough time before
+    SIGKILL must hold.
     """
     edge = _render_compose()["services"]["edge"]
     assert edge["stop_signal"] == "SIGQUIT"
@@ -304,10 +286,8 @@ def test_the_edge_stops_gracefully():
 def test_no_edge_image_reference_floats():
     """A floating tag makes "which build is this fleet running" unanswerable.
 
-    It also makes rollback a guess: the bytes that were serving an hour ago
-    have no name. Every reference this repository ships is an exact tag or a
-    digest, and the converge pins whatever it pulled to a digest before the
-    compose file names it.
+    Every shipped reference is an exact tag or a digest, and the converge pins
+    what it pulled to a digest before the compose file names it.
     """
     group_vars = yaml.safe_load(
         (CORE_ANSIBLE / "inventory/group_vars/blitzecdn_edges/defaults.yml").read_text(
@@ -316,10 +296,7 @@ def test_no_edge_image_reference_floats():
     )
     assert group_vars["blitzecdn_edge_image_tag"] not in ("latest", "", None)
 
-    # Every image reference in the workspace, core's and every optional
-    # distribution's alike. Found rather than listed: the geoipupdate image
-    # moved into `blitzecdn-geoip` with the role that runs it, and a test that
-    # named the two it knew about would have silently stopped covering it.
+    # Every image reference in the workspace, found rather than listed.
     references = {
         f"{path}:{name}": str(value).strip()
         for path in sorted(PROJECT_DIR.glob("**/roles/*/defaults/main.yml"))
@@ -327,10 +304,8 @@ def test_no_edge_image_reference_floats():
         for name, value in (
             yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         ).items()
-        # A literal reference only. A default derived from another variable —
-        # the rollback role strips a tag off the contract's image — is not a
-        # reference this repository ships, and the value it derives from is
-        # already covered where it is written.
+        # A literal reference only; a default derived from another variable is covered
+        # where its source is written.
         if isinstance(value, str)
         and "image" in name
         and "{{" not in value
@@ -343,10 +318,8 @@ def test_no_edge_image_reference_floats():
     for name, reference in references.items():
         assert not reference.endswith(":latest"), name
         assert re.search(r"(@sha256:[0-9a-f]{64}|:\d+\.\d+)", reference), reference
-    # The two roles used to carry identical fallback literals, and a test
-    # asserted they agreed. There is one now: blitzecdn_edge_runtime.image,
-    # which blitzecdn_nginx validates against and blitzecdn_edge_stack serves
-    # from, so agreeing is no longer something either role can fail at.
+    # One fallback: blitzecdn_edge_runtime.image, which blitzecdn_nginx validates
+    # against and blitzecdn_edge_stack serves from.
     assert "image" not in _defaults_of(STACK_ROLE_DIR).get("blitzecdn_edge_stack", {})
     for role_dir in (ROLE_DIR, STACK_ROLE_DIR):
         source = (role_dir / "defaults/main.yml").read_text(encoding="utf-8")
@@ -363,12 +336,8 @@ def test_no_edge_image_reference_floats():
 def test_a_preview_resolves_the_image_a_converge_would_actually_run():
     """Check mode must not fall through to the tag when a digest is recorded.
 
-    A converge pins the image to the digest it resolved and writes it down. A
-    preview that skipped the record and rendered the configured tag disagreed
-    with the file on disk on exactly that line, so `blitzecdn drift` reported
-    every converged edge as drifted, permanently, and any real drift was
-    invisible in the noise. Reading the record is read-only and is the only
-    thing that makes a preview a prediction.
+    A preview rendering the tag would disagree with the converged file on that
+    line and report every edge as drifted.
     """
     tasks = yaml.safe_load(
         (STACK_ROLE_DIR / "tasks/image.yml").read_text(encoding="utf-8")
@@ -391,9 +360,7 @@ def test_a_preview_resolves_the_image_a_converge_would_actually_run():
             "the digest the last converge pinned and reports drift against it"
         )
 
-    # And the tag remains the last resort rather than the check-mode answer:
-    # it is reached only when nothing above resolved an image, which is the one
-    # case where a converge would pull and the bytes are genuinely unknown.
+    # The tag is the last resort, reached only when nothing resolved an image.
     fetch = next(task for task in tasks if "block" in task)
     assert "blitzecdn_edge_stack_resolved_image is not defined" in fetch["when"]
     preview = next(
@@ -405,10 +372,8 @@ def test_a_preview_resolves_the_image_a_converge_would_actually_run():
 def test_a_failed_converge_always_reaches_the_rollback():
     """Rescue is not conditional, and the rollback proves what it restored.
 
-    Everything that changes the runtime lives in one block, so a failure
-    anywhere — the pull, the compose up, or any of the health assertions — is
-    caught. A rollback that restarted the previous image and reported success
-    without re-checking would be indistinguishable from an edge that is down.
+    Everything that changes the runtime is in one block, so any failure is caught,
+    and the rollback re-checks health rather than assuming it.
     """
     converge = yaml.safe_load(
         (STACK_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
@@ -444,10 +409,8 @@ def test_a_failed_converge_always_reaches_the_rollback():
 def test_no_documentation_claims_docker_restarts_an_unhealthy_container():
     """`restart: unless-stopped` reacts to the main process exiting, and only that.
 
-    Docker has no restart-on-unhealthy behaviour. A comment that says otherwise
-    invites the next reader to leave a wedged-but-running edge in place waiting
-    for a restart that never comes; the assertion in health.yml is what turns
-    that state into a failed deploy.
+    Docker has no restart-on-unhealthy; health.yml's assertion is what turns a
+    wedged edge into a failed deploy.
     """
     assert "restart: unless-stopped" in COMPOSE_TEMPLATE
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
@@ -470,12 +433,10 @@ def test_no_documentation_claims_docker_restarts_an_unhealthy_container():
 
 
 def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
-    """The probe moved into Compose; the tool it runs stays in the image.
+    """The probe lives in Compose; the tool it runs stays in the image.
 
-    An image-level HEALTHCHECK would have to hard-code the status endpoint,
-    which the deployment owns. A helper script would be a third place to look
-    for what "healthy" means. curl is neither — it is the runtime dependency
-    the Compose probe execs, and removing it would report every edge unhealthy.
+    An image HEALTHCHECK would hard-code the endpoint the deployment owns. curl is
+    the dependency the Compose probe execs.
     """
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
 
@@ -488,22 +449,17 @@ def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
     # In the runtime stage, not just the throwaway builder that also uses it.
     assert "curl" in dockerfile.split("FROM ${NGINX_IMAGE}")[-1]
 
-    # Nothing anywhere else still reaches for the script or the environment
-    # variable that pointed it at a URL — see
-    # test_removed_host_compatibility_contracts_do_not_reappear, which walks
-    # the tree for both names.
+    # test_removed_host_compatibility_contracts_do_not_reappear walks the tree for
+    # the old script and its variable.
     assert "BLITZECDN_" + "HEALTH_URL" not in COMPOSE_TEMPLATE
 
 
 def test_the_edge_lifecycle_order_holds():
     """Two orderings, each of which has cost an outage when it was wrong.
 
-    The engine, the persistent state and the runtime image are prepared before
-    the firewall, because opening the public ports on a host that cannot serve
-    them advertises an edge that is not there. And the container starts only
-    after blitzecdn_nginx has rendered the configuration and proved it loads,
-    because a container started against an incomplete tree is an edge answering
-    444 for every customer.
+    The engine, persistent state and image are prepared before the firewall opens
+    public ports. The container starts only after blitzecdn_nginx has rendered and
+    validated the configuration.
     """
     play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     order = [
@@ -518,12 +474,9 @@ def test_the_edge_lifecycle_order_holds():
     assert positions == sorted(positions), (
         "the edge lifecycle is out of order; expected " + " -> ".join(order)
     )
-    # The stack role must be the last thing that touches the runtime, and the
-    # host capability slot stays after it — an edge whose containers are all
-    # broken still has to be reachable for Ansible to repair it, so nothing
-    # that could close the management path (SSH policy, a Fail2Ban jail, both
-    # now shipped by `blitzecdn-hardening`) may run before the runtime has
-    # proved it serves.
+    # The stack role is the last to touch the runtime, and the host capability slot
+    # stays after it: nothing that could close the management path may run before
+    # the runtime proves it serves.
     assert play.index("role: blitzecdn_config_release") < play.index(
         "blitzecdn_host_capability_roles"
     )
@@ -532,12 +485,9 @@ def test_the_edge_lifecycle_order_holds():
 def test_the_fleet_rollout_starts_with_one_edge():
     """A canary batch, and `any_errors_fatal` to make it mean something.
 
-    Both halves are load-bearing. Widening batches without the fatal flag would
-    roll a broken image over the whole fleet one batch at a time; the fatal flag
-    without a first batch of one would take a quarter of the fleet down before
-    anything stopped. `max_fail_percentage` is deliberately absent — it states
-    the same policy in a second dialect and invites a later reader to change one
-    believing they changed the rule.
+    Wider batches without the flag would roll a broken image across the fleet;
+    the flag without a first batch of one would take a quarter down first.
+    `max_fail_percentage` is absent so the policy is stated once.
     """
     play = yaml.safe_load(
         (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
@@ -557,9 +507,8 @@ def test_the_fleet_rollout_starts_with_one_edge():
 def test_the_image_is_settable_as_ordinary_fleet_policy():
     """The README tells operators to roll out an image with `config set`.
 
-    Settings are refused when they carry a credential-shaped word, and "key"
-    is one of them — so a name like `blitzecdn_edge_image_key` would be
-    rejected by the store and the documented upgrade would not work.
+    Settings with credential-shaped words such as "key" are refused, so the name
+    must avoid them.
     """
     from blitzecdn.core.domain.validation import validate_setting_name
 

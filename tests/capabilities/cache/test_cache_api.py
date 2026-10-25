@@ -1,10 +1,6 @@
 """`/v1/cache/*`, over the real application.
 
-Built with `create_app` rather than the core-only app the control plane's own
-API tests use: these routes exist *because* this distribution is installed, so
-the app under test is the one feature discovery assembles. That is also what
-makes them a check on the packaging and not only on the handlers — a route that
-stopped being contributed would 404 here.
+Built with `create_app`, so a route that stopped being contributed would 404.
 """
 
 from fastapi.testclient import TestClient
@@ -80,10 +76,8 @@ def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
 ):
     """The dangerous outcome has to stay machine-readable.
 
-    A partial purge is exactly when a caller needs the detail — which edges
-    dropped the object and which are still serving it — so the 409 carries the
-    same PurgeResult a success would, rather than replacing it with prose to be
-    parsed under time pressure.
+    The 409 carries the same PurgeResult a success would, naming which edges
+    still serve the object.
     """
     control, _ = seeded(
         FakeRunner(
@@ -133,12 +127,7 @@ def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
 
 
 def test_the_published_purge_result_shape_is_pinned(settings):
-    """The operational shape this capability publishes, pinned.
-
-    It was in the control plane's shape table while `cache` was a package
-    inside it. It is owned by the distribution that publishes it now, and
-    pinned here for the same reason it was pinned there.
-    """
+    """The operational shape this capability publishes, pinned."""
     with TestClient(create_app(settings)) as client:
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
 

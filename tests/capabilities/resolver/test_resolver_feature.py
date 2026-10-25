@@ -1,11 +1,9 @@
 """The resolver capability: its metadata, and the two slots it asks for.
 
-A narrow optional distribution — two Ansible roles and nothing else — so what
-is worth asserting is exactly the boundary: that it registers as optional, that
-no site can request it, and that its roles land in the two slots that matter,
-one per play. The second of those is the one this package exists to prove:
-a capability that puts a file on a host must be able to take it off again
-without core knowing the path.
+Two Ansible roles and nothing else, so the boundary is what is asserted:
+optional, requested by no site, and its roles in one slot per play. A
+capability that puts a file on a host must take it off without core knowing
+the path.
 """
 
 from blitzecdn.capabilities.resolver import __version__, ansible
@@ -33,11 +31,7 @@ def test_plugin_provides_resolver_as_a_required_provider() -> None:
 
 
 def test_resolver_is_a_built_in() -> None:
-    """One registration path: the entry point in this distribution's metadata.
-
-    Registered both ways it would collide on its own name at startup, and the
-    message would blame the entry point rather than the leftover line.
-    """
+    """The resolver is on the built-in roster."""
     assert any("resolver" in module for module in BUILTIN_FEATURES)
 
 
@@ -50,12 +44,8 @@ def test_the_shipped_registry_includes_it() -> None:
 def test_no_site_can_ask_for_this_capability() -> None:
     """Absence is silent here, and that is the whole design.
 
-    Several optional capabilities have a site setting that makes their absence
-    fatal — a country header, a compression mode, a QUIC listener. This one has
-    none: an operator who detaches it is saying "the network owns this host's
-    DNS", which no site's desired state has an opinion about. A future field
-    that made a site depend on `resolver` would turn detaching from a supported
-    choice into a fleet-wide validation failure.
+    Detaching it means the network owns this host's DNS, which no site has an
+    opinion about.
     """
     registry = load_registry()
     resolver = next(p for p in registry.metadata if p.name == "resolver")
@@ -67,12 +57,10 @@ def test_no_site_can_ask_for_this_capability() -> None:
 
 
 def test_converging_goes_in_the_edge_slot_and_never_the_host_one() -> None:
-    """Position is the contract, and this package asks for the earlier one.
+    """Position is the contract, and this capability asks for the earlier one.
 
-    Everything that resolves a name after this role runs depends on its answer
-    — most immediately the origin hostnames `blitzecdn_nginx` renders into a
-    configuration the runtime will look up. The host slot is on the far side of
-    `nginx -t` and would be too late.
+    Origin hostnames `blitzecdn_nginx` renders depend on its answer; the host slot
+    comes after `nginx -t`, too late.
     """
     contributions = FEATURE.ansible
 
@@ -88,12 +76,9 @@ def test_converging_goes_in_the_edge_slot_and_never_the_host_one() -> None:
 def test_withdrawing_goes_in_the_decommission_slot() -> None:
     """The other half, and the reason the third slot exists at all.
 
-    The drop-in this capability writes is at a path only this wheel knows.
-    Core's `blitzecdn_edge_teardown` removes the trees it wrote, the shared runtime
-    directories and every systemd unit matching the managed prefix — a file
-    under /etc/systemd/resolved.conf.d is none of those. Without this
-    contribution a decommissioned host would keep resolving through servers
-    chosen by a control plane that has forgotten it exists.
+    A drop-in under /etc/systemd/resolved.conf.d is in nothing
+    `blitzecdn_edge_teardown` removes; without this a decommissioned host keeps
+    BlitzeCDN's resolvers.
     """
     contributions = FEATURE.ansible
 
@@ -106,10 +91,8 @@ def test_withdrawing_goes_in_the_decommission_slot() -> None:
 def test_the_two_slots_name_different_roles() -> None:
     """Converging and withdrawing are separate roles, not one role with a flag.
 
-    A single role guarded by a variable would have to be included by both
-    plays, which means the decommission play would run every assertion the
-    converge path makes — on a host that is being taken apart, where a resolver
-    probe failing is not a reason to abandon a teardown half-way through.
+    A shared role would run the converge path's assertions during a teardown,
+    where a failed resolver probe must not abandon it half-way.
     """
     contribution = FEATURE.ansible[0]
 
@@ -125,8 +108,7 @@ def test_the_wheel_actually_carries_the_roles_it_names() -> None:
 def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     """No credential, no fleet secret, no variable in the deployment document.
 
-    Which is what makes attaching and detaching it invisible to every site: the
-    document a rollback converges months from now is byte-identical either way.
+    So attaching or detaching it leaves every site's desired state identical.
     """
     # Configuration is its own contribution, and this capability makes none.
     assert FEATURE.configuration == ()

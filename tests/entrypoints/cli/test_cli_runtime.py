@@ -43,9 +43,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
     with pytest.raises(SystemExit) as exit_info:
         cli.run()
 
-    # NOT_FOUND rather than INVALID_INPUT: the API answers 404 here, and a
-    # caller driving the CLI needs the same distinction. Everything used to
-    # exit 2, so "no such zone" and "bad flag" were the same answer.
+    # NOT_FOUND rather than INVALID_INPUT, matching the API's 404.
     assert exit_info.value.code == cli.ExitCode.NOT_FOUND
     assert "does not exist" in capsys.readouterr().err
 

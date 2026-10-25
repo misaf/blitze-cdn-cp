@@ -1,8 +1,6 @@
 """Exercise the origin probe against real local sockets.
 
-Real sockets rather than mocks: the whole value of this check is that it makes
-the same connection the edge will, and a mocked `socket` would only prove the
-probe calls the functions the test expects it to call.
+The check is worth only as much as the connection it makes.
 """
 
 from __future__ import annotations
@@ -55,13 +53,8 @@ def test_origin_reports_require_the_current_ssl_mode():
 def _listener(*, tls_context: ssl.SSLContext | None = None):
     """A socket that accepts connections and immediately drops each one.
 
-    It serves until the context manager closes it rather than accepting once:
-    a test that probes the same listener twice would otherwise leave the second
-    connection sitting in the backlog until the probe's own timeout expired,
-    paying that timeout for a result the test does not depend on.
-
-    The port is whatever the kernel hands out, so parallel workers never
-    contend for one.
+    It serves until closed, so a second probe is not left in the backlog until
+    the timeout. The kernel picks the port, so parallel workers never contend.
     """
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -189,12 +182,7 @@ def test_the_probe_uses_the_same_sni_the_edge_template_would(settings, monkeypat
 
 
 def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
-    """A wildcard is legal in server_name and meaningless in a handshake.
-
-    `*.example.com` matches no certificate, so falling back to it would make
-    every wildcard site fail verification against an origin that is otherwise
-    correctly configured.
-    """
+    """A wildcard is legal in server_name and meaningless in a handshake."""
     site = _site(
         server_names=["*.example.com", "example.com"],
         origin_host="origin.example.com",
@@ -205,10 +193,8 @@ def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
 
 
 def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
-    """The edges do the connecting now, and are told what to connect to here.
-
-    The port and the SNI are decided in one place so the fleet's probe and the
-    controller's advisory one cannot disagree about what a site's origin is.
+    """Port and SNI are decided in one place, so the fleet's probe and the
+    controller's advisory one agree on a site's origin.
     """
     site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FULL_STRICT)
     rendered = OriginProbe(settings).to_probe(site)
@@ -250,12 +236,10 @@ def test_preflight_probes_the_canonical_endpoint_and_not_every_proxy_port(
 ):
     """The documented preflight decision, pinned.
 
-    The edge preserves the visitor's destination port toward the origin, so a
-    site has one origin endpoint per public proxy port — thirteen of them. The
-    probe deliberately checks only the canonical one: an ordinary origin serves
-    80 and 443 and nothing else, and demanding an answer on 2052 or 8443 would
-    make that site undeployable for ports no visitor has asked for. A request
-    arriving on an unserved alternate port 502s at the edge; the site stays up.
+    The edge preserves the visitor's port, so a site has an origin endpoint per
+    proxy port. Preflight checks only the canonical one: demanding answers on 2052
+    or 8443 would make ordinary origins undeployable. An unserved alternate port
+    502s for that request alone.
     """
     site = _site(origin_host="origin.example.com", ssl_mode=mode)
 
@@ -276,17 +260,11 @@ def test_the_probe_never_addresses_an_alternate_proxy_port(settings):
 
 
 def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings):
-    """Flexible now has two kinds of origin leg, and preflight checks one.
+    """Flexible has two kinds of origin leg, and preflight checks one.
 
-    Flexible is Flexible on 443 only — the canonical listener, and the one the
-    probe addresses over plain HTTP. Its five alternate HTTPS listeners fall
-    back to a Full-like HTTPS leg on their own port, which the canonical probe
-    says nothing about: an origin serving only 80 and 443 still deploys, and a
-    visitor arriving on 2053 gets a 502 for that request alone.
-
-    Extending the probe to cover them would demand TLS on five extra ports from
-    every origin that enables Flexible, which is exactly the undeployable
-    ordinary site the canonical contract exists to avoid.
+    443 is plain HTTP to the origin; the five alternate HTTPS listeners use a
+    Full-like HTTPS leg on their own port, which preflight deliberately does not
+    demand.
     """
     site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FLEXIBLE)
     rendered = OriginProbe(settings).to_probe(site)

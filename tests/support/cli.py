@@ -26,9 +26,7 @@ def _seed_site(
 ) -> str:
     """One proxied hostname in a zone, through the CLI.
 
-    A record names both the hostname and where the edge fetches from: its value
-    is the origin while proxied and the DNS answer when not. The zone's serving
-    policy is what the CLI edits around it.
+    The record's value is the origin while proxied and the DNS answer when not.
     """
     assert (
         runner.invoke(

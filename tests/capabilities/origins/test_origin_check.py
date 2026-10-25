@@ -1,11 +1,7 @@
-"""What the fleet's answer means, asserted where the play now lives.
+"""What the fleet's origin-check answer means.
 
-These three moved here from the control plane's suite with the service, the
-play and the role. They go through the *real* adapter — `OriginCheckPlaybook`
-over the shared `FakeRunner`'s generic `run_playbook` — rather than a
-hand-written `OriginCheckRunner` double, so a change to the variable name the
-role reads fails a test rather than passing one written against a stub of
-ourselves.
+Through the real adapter, `OriginCheckPlaybook` over `FakeRunner`'s
+`run_playbook`, so a change to the variable the role reads fails a test.
 """
 
 from __future__ import annotations
@@ -27,11 +23,8 @@ def origin_checks(
 ) -> list[tuple[list[dict[str, object]], str | None]]:
     """Every origin check the fleet was asked to run, in this capability's terms.
 
-    The control plane's `FakeRunner` records `run_playbook(name, playbook,
-    variables, limit)` and nothing more, because that is all core's Ansible
-    adapter offers an installed distribution. Translating a probe into that
-    document is this package's job, so translating it back is this package's
-    test helper.
+    `FakeRunner` records only `run_playbook(name, playbook, variables, limit)`;
+    this translates that back.
     """
     return [
         (list(variables["blitzecdn_origins_sites"]), limit)
@@ -43,12 +36,9 @@ def origin_checks(
 def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_payload):
     """The check runs on the machines that carry the traffic.
 
-    The controller's routes, resolver and egress rules are not the fleet's: an
-    origin allow-listing the edges refuses the controller while working
-    perfectly, and one reachable only from the controller's subnet passed the
-    old check and then 502'd on every edge. What the controller still owns is
-    *describing* the origin — port and SNI — so the two probes cannot disagree
-    about what a site's origin is.
+    The controller's routes and egress are not the fleet's, so an origin may
+    answer one and not the other. The controller only describes the origin (port
+    and SNI), so the two probes agree on what it is.
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
@@ -120,11 +110,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
 
 
 def test_the_check_takes_no_deployment_lock(settings, site_payload):
-    """An origin check that had to wait for a deploy is useless before one.
-
-    It reaches the fleet through `run_playbook`, which core documents as
-    lock-free, and the shared runner records every lock it is asked for.
-    """
+    """An origin check that had to wait for a deploy is useless before one."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
     control = build_application(settings=settings, repository=repository, runner=fake)

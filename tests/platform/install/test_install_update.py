@@ -1,8 +1,8 @@
 """`update`: what it preserves, and how far it can be driven.
 
-Sandboxed only as far as its point of no return — past that it rebuilds the
-virtualenv, which downloads uv and resolves a lockfile. Each test here drives
-the run into a documented refusal and asserts the host was left serving.
+Sandboxed up to its point of no return, the virtualenv rebuild. Each test
+drives the run into a documented refusal and asserts the host was left
+serving.
 """
 
 from __future__ import annotations
@@ -49,11 +49,10 @@ def test_update_takes_a_backup_before_it_changes_anything():
 
 @pytest.mark.parametrize("subcommand", ["update", "upgrade"])
 def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str):
-    """The role stops them before it migrates, after the image is built.
+    """The role stops the services before it migrates, after the image is built.
 
-    Its ordering is held by
-    `test_controlplane_initializes_schema_before_starting_services`; a second
-    stop here would only start the downtime before the checkout and rebuild.
+    `test_controlplane_initializes_schema_before_starting_services` holds that
+    order; a stop here would only lengthen the downtime.
     """
     section = _section(subcommand)
     assert "docker" not in section
@@ -61,11 +60,7 @@ def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str
 
 
 def test_update_only_ever_moves_forward_onto_a_release_tag():
-    """A merge or a rewrite on a server is never what an operator meant.
-
-    The forward-only question is now asked directly, rather than inferred from
-    a fast-forward merge failing, so the assertion names the check itself.
-    """
+    """A merge or a rewrite on a server is never what an operator meant."""
     update = _section("update")
     assert "release_plan update" in update
     assert 'repo_git checkout --quiet "${target}"' in update
@@ -91,12 +86,6 @@ def test_update_verifies_the_code_it_is_about_to_run_as_root():
 
 
 # --- update: sandboxed behaviour ---------------------------------------------
-#
-# Everything up to the point of no return runs for real here. Past it the
-# command rebuilds the virtualenv, which downloads uv and resolves a lockfile —
-# too heavy for a unit test and covered instead by the container lifecycle.
-# So each test below drives the run into a documented refusal and asserts the
-# host was left alone.
 
 
 def test_update_refuses_a_checkout_with_local_modifications(tmp_path: Path):
@@ -145,8 +134,7 @@ def test_update_moves_a_detached_release_onto_the_newest_tag_in_its_line(
 ):
     """The ordinary case: a release install follows its line without being told.
 
-    Driven into the checkout failure so the run stops before the rebuild, which
-    would download uv and resolve a lockfile.
+    Driven into the checkout failure so the run stops before the rebuild.
     """
     script, stubs, _ = _update_sandbox(tmp_path)
 
@@ -385,9 +373,7 @@ def test_the_default_install_ends_by_installing_the_wrapper():
 def test_every_command_uses_the_shared_option_parser():
     """One parser, and one table that routes every command through it.
 
-    Asserted against the sourced script rather than its text: the command table
-    is the declaration now, so the property is that it has a row per command,
-    not that the file contains five dispatch lines.
+    Asserted against the sourced script: the table must have a row per command.
     """
     assert _script().count("while [[ $# -gt 0 ]]") == 1
     for command in ("install", "standalone", "uninstall", "fresh", "update"):
@@ -417,12 +403,7 @@ def test_the_production_recipe_installs_the_single_application():
 
 
 def test_the_command_table_and_the_help_agree_on_every_option():
-    """The table is what accepts an option; the help is what advertises it.
-
-    They were separate lists and could disagree — an option the parser took but
-    no help mentioned, or the reverse. Neither is reachable now without this
-    failing.
-    """
+    """The table is what accepts an option; the help is what advertises it."""
     # The two whole-host operations are spelled as flags on the command line,
     # so the row name and the token an operator types are not the same word.
     invocations = {
@@ -444,9 +425,8 @@ def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
     helper = _function("reexec_from_private_copy")
     assert 'install -m 0700 -- "$0" "${copy}"' in helper
     assert 'exec env "${guard}=1" "${copy}" "${original_args[@]}"' in helper
-    # The copy deletes itself on the way out. It registers with the shared
-    # cleanup stack rather than setting its own EXIT trap, which would replace
-    # the handler and strand everything else the run had asked to clean up.
+    # The copy deletes itself through the shared cleanup stack; its own EXIT trap
+    # would replace the handler and strand the rest.
     assert 'cleanup_paths+=("$0")' in helper
     code = [line for line in helper.splitlines() if not line.lstrip().startswith("#")]
     assert not any(line.lstrip().startswith("trap ") for line in code), (

@@ -1,24 +1,16 @@
 """The contracts an outside party binds to, rendered as text so they can be pinned.
 
-Everything in `tests/architecture/` guards the shape of the source tree — which
-directory a module sits in, which layer may import which. All of it is fixable
-with `git mv` on any afternoon. What nobody outside this repository can see, and
-what no test held, is the other set: the HTTP routes, the command names, the
-Ansible variables and the database columns. Those are the
-promises, and after the first `pip install` they are the expensive ones.
+The HTTP routes, command names, Ansible variables and database columns are the
+promises other people's files depend on. Each generator renders one surface as
+sorted lines, and `tests/contract/test_frozen.py` compares them against files
+under `tests/contract/frozen/`, so a rename reaching a public name is a named
+failure.
 
-So each generator here renders one such surface as sorted lines, and
-`tests/contract/test_frozen.py` compares them against files committed under
-`tests/contract/frozen/`. A rename that reaches a public name stops being a
-green diff and becomes a named failure.
-
-**The line format is one format for all four surfaces**, because the comparison,
-the ownership filter and the refreeze recipe are then written once:
+All four surfaces share one line format:
 
     <import root>\\t<kind>\\t<detail>
 
-The first field identifies the distribution owning the contract. All shipped
-interfaces belong to `blitzecdn`; comparisons cover the complete application.
+The first field is the owner; every shipped interface belongs to `blitzecdn`.
 Ownership is derived from callbacks, route endpoints and resource paths.
 """
 
@@ -33,7 +25,7 @@ from sqlalchemy import CheckConstraint
 
 from support.paths import SOURCE
 
-#: The root distribution's import package. Everything else is a wheel.
+#: The import package that owns every shipped interface.
 ROOT = "blitzecdn"
 
 #: Where the committed surfaces live.
@@ -51,13 +43,9 @@ def _owner(module: str | None) -> str:
 def _root_command_owner(path: str, command: Any) -> str:
     """A command no feature group claims, which may only be core's own.
 
-    `config`, `init` and `setup` are declared on the root Typer application
-    directly: they configure and bootstrap the control plane, so they have to
-    work before one exists to register features against. They ship in
-    `blitzecdn.entrypoints.cli` and belong to core by construction.
-
-    Anything else unclaimed is refused rather than attributed to the
-    application by default. Extensions must declare their command ownership.
+    `config`, `init` and `setup` are declared on the root Typer application,
+    because they run before a control plane exists. Anything else unclaimed is
+    refused.
     """
     module = getattr(command.callback, "__module__", "") or ""
     if not module.startswith("blitzecdn.entrypoints.cli."):
@@ -75,10 +63,8 @@ def _line(owner: str, kind: str, detail: str) -> str:
 def _render(lines: list[str]) -> str:
     """Sorted, de-duplicated, newline-terminated.
 
-    Sorted rather than kept in discovery order: registration order is an
-    implementation detail of the roster, and a golden file that changed
-    when a feature moved in `BUILTIN_FEATURES` would fail for a reason that is not
-    about the contract.
+    Sorted because registration order is a roster detail, not part of the
+    contract.
     """
     return "\n".join(sorted(set(lines))) + "\n"
 
@@ -89,10 +75,8 @@ def _render(lines: list[str]) -> str:
 def _parameter(param: click.Parameter) -> str:
     """One parameter, with everything a caller could break by changing it.
 
-    The type and the default are included, not just the name. Narrowing a
-    choice set or flipping a default is a breaking change that a name-only pin
-    would let through, and both are the kind of thing a refactor does by
-    accident.
+    Type and default are included: narrowing a choice set or flipping a default is
+    a breaking change a name-only pin would miss.
     """
     if param.param_type_name == "argument":
         name = f"<{param.name}>"
@@ -125,11 +109,9 @@ def _walk_commands(
 def cli_surface() -> str:
     """Every command an operator can type, with its options, types and defaults.
 
-    Read from the assembled Typer application rather than from the source, so a command
-    contributed by an installed wheel is in here exactly as an operator would find it.
-    Importing `blitzecdn.entrypoints.cli.main` builds the tree and touches no database —
-    that property is the reason `blitzecdn --help` is fast, and it is what makes this
-    generator cheap enough to run in the suite.
+    Read from the assembled Typer application, so contributed commands appear as
+    an operator finds them. Building the tree touches no database, which keeps
+    this cheap.
     """
     from typer.main import get_command
 
@@ -137,9 +119,8 @@ def cli_surface() -> str:
 
     owners = _command_owners(common.installed_features())
     lines = []
-    # Typer vendors its own copy of click, so what `get_command` hands back is
-    # `typer._click.core.Command` — the same class by structure and a different
-    # one by name. `_walk_commands` duck-types on `commands` either way.
+    # Typer vendors click, so `get_command` returns `typer._click.core.Command`;
+    # `_walk_commands` duck-types on `commands` either way.
     for path, command in _walk_commands(cast(click.Command, get_command(main.app))):
         owner = owners.get(path.split(" ")[0]) or _root_command_owner(path, command)
         params = " ".join(_parameter(param) for param in command.params)
@@ -148,21 +129,12 @@ def cli_surface() -> str:
 
 
 def _command_owners(registry: Any) -> dict[str, str]:
-    """Which distribution ships each top-level command, as declared.
+    """Which feature ships each top-level command, as declared.
 
-    This used to read `command.callback.__module__`, which answers where a
-    function was written rather than which wheel ships it: a group whose
-    commands delegate to a shared helper, or whose callbacks are wrapped by a
-    decorator defined elsewhere, is attributed to whoever defined the wrapper.
-    `CliCommandGroup.feature` says it outright, and a group belongs to exactly
-    one feature, so every command beneath it does too.
-
-    The lookup is keyed on the first word because that is the whole of what a
-    group contributes: a named group owns its subtree, and an unnamed one hands
-    over root verbs. Not every command comes through a group — `config`, `init`
-    and `setup` are declared on the root application itself, because they run
-    before there is a control plane for a feature to be registered against —
-    and `_root_command_owner` is where those are accounted for.
+    Read from `CliCommandGroup.feature`, not from a callback's `__module__`, which
+    names where a function was written. A named group owns its subtree; an unnamed
+    one contributes root verbs. Commands on the root application itself are
+    handled by `_root_command_owner`.
     """
     # Every feature ships in this distribution by construction.
     roots = {feature.name: ROOT for feature in registry.features}
@@ -182,11 +154,7 @@ def _command_owners(registry: Any) -> dict[str, str]:
 
 
 def http_surface(settings: Any) -> str:
-    """Every route and every field of every schema the API publishes.
-
-    Lines preserve ownership and make changes to routes and schema fields
-    readable without incidental OpenAPI ordering noise.
-    """
+    """Every route and every field of every schema the API publishes."""
     from blitzecdn.entrypoints.api import create_app
 
     app = create_app(settings)
@@ -216,21 +184,13 @@ def _schema_owners(
     schemas: dict[str, Any],
     route_owners: dict[tuple[str, str], str],
 ) -> dict[str, str]:
-    """Which distribution a published schema arrives with, by following `$ref`.
+    """Which owner a published schema arrives with, by following `$ref`.
 
-    The first attempt read `route.response_model.__name__`, and a core-only run
-    caught it: `CertificateRequest` and the generated
-    `Body_upload_certificate_...` were attributed to `blitzecdn`, so the golden
-    kept them and an environment without `blitzecdn-certificates` could not
-    filter them out. A response model is only the *root* of what an operation
-    publishes — the nested models it references, and the bodies FastAPI
-    synthesises for form and file uploads, have no class this code ever sees.
-
-    So ownership is taken from the document instead: each operation is reached
-    from a route whose endpoint names its distribution, and every schema
-    reachable from that operation by `$ref` belongs to it. A schema two
-    distributions reach is shared, and shared means core — it has to exist in a
-    control plane that has neither.
+    A response model is only the root of what an operation publishes: nested
+    models and the bodies FastAPI synthesises for uploads have no class here. So
+    each operation's owner comes from its route's endpoint, and every schema
+    reachable from it by `$ref` belongs to that owner. A schema two owners reach is
+    shared, and shared means core.
     """
     reached: dict[str, set[str]] = {}
     for path, operations in document.get("paths", {}).items():
@@ -270,17 +230,10 @@ def _referenced(node: Any, schemas: dict[str, Any]) -> set[str]:
 def _api_routes(app: Any) -> list[Any]:
     """Every routed endpoint, however deeply the application nests its routers.
 
-    Walked rather than read off `app.routes`, which in this FastAPI holds
-    `_IncludedRouter` wrappers: each contributed router appears there as an
-    opaque object whose own `routes` is `None` and whose endpoints hang off
-    `original_router`. A flat pass finds the framework's `/docs` and nothing a
-    capability published.
-
-    Duck-typed through the attributes a wrapper might nest under, for the same
-    reason `_walk_commands` duck-types on `commands` — these classes are private
-    to the framework and have changed shape at least once already, and a pin
-    that silently found *no* routes would be worse than no pin at all. The test
-    asserts a plausible count for that reason.
+    `app.routes` holds `_IncludedRouter` wrappers whose endpoints hang off
+    `original_router`, so a flat pass finds only the framework's `/docs`. Walked
+    duck-typed, since these classes are private to the framework; the test asserts
+    a plausible count in case a change makes the walk find nothing.
     """
     found: list[Any] = []
     seen: set[int] = set()
@@ -290,9 +243,8 @@ def _api_routes(app: Any) -> list[Any]:
             return
         seen.add(id(node))
         for route in getattr(node, "routes", None) or ():
-            # `response_model` is what separates a route this project declared
-            # from the framework's own `/docs` and `/openapi.json`, which are
-            # plain Starlette routes and nobody here promises.
+            # `response_model` separates a declared route from the framework's `/docs`
+            # and `/openapi.json`.
             if getattr(route, "methods", None) and hasattr(route, "response_model"):
                 found.append(route)
             walk(route)
@@ -330,15 +282,9 @@ def _schema_shape(spec: dict[str, Any]) -> str:
 def ansible_surface() -> str:
     """Every role, and every variable an operator's inventory can set.
 
-    The largest surface here — and the only one that lands in files this
-    project does not own. A role name and a `blitzecdn_*` variable appear in an
-    operator's own inventory and in the desired-state documents they keep, so
-    renaming one is a breaking change for people whose files nobody here can
-    migrate.
-
-    Read from `meta/argument_specs.yml`, which is where a role declares what it
-    takes, rather than from `defaults/main.yml`, which is where it says what it
-    would do without being told.
+    These names appear in operators' own inventories and desired-state documents,
+    so renaming one breaks files nobody here can migrate. Read from
+    `meta/argument_specs.yml`, where a role declares what it takes.
     """
     lines = []
     for root, owner in _role_roots():
@@ -358,15 +304,8 @@ def ansible_surface() -> str:
 def _options(path: str, declared: Any) -> list[tuple[str, str]]:
     """One line per declared key, however deeply a variable nests.
 
-    This was one line per *top-level* variable, with a nested structure
-    flattened to `keys=[a,b,c]` — which pinned the names of the keys and
-    nothing else about them. `blitzecdn_nginx_sites` is the whole site document,
-    twenty-five keys deep, and under that rendering `ssl_mode` could have lost a
-    choice or `max_upload_size` changed its default with the golden file
-    unmoved. The largest surface here was the least pinned.
-
-    A dotted path per leaf instead, so `blitzecdn_nginx_sites.ssl_mode` carries
-    its own type and choices and diffs on its own line.
+    A dotted path per leaf, so `blitzecdn_nginx_sites.ssl_mode` carries its own
+    type and choices and diffs on its own line.
     """
     found = [(path, _shape(declared))]
     if isinstance(declared, dict):
@@ -402,20 +341,10 @@ def _role_roots() -> list[tuple[Path, str]]:
 def schema_surface() -> str:
     """Every table, column, constraint, and the revision that produces them.
 
-    One migration exists today and it is still editable, because nothing is
-    installed. That stops being true at the first release: from then on a column
-    is changed by adding a revision, never by editing this one. Freezing the
-    schema beside its revision is what makes the two move together — a column
-    changed without a new revision fails here rather than on somebody's upgrade.
-
-    Names and nullability are the cheap half of a schema, and for a while they
-    were the only half this file pinned. The half that carries meaning is the
-    part that says what a value may *be*: `type IN ('A', 'AAAA')`, `ttl BETWEEN
-    1 AND 604800`, and the `RESTRICT` that refuses to delete a site hostnames
-    still route to. Those are also the expensive half — widening a `CHECK` is
-    free, narrowing one has to be reconciled against rows that already exist —
-    so they are the ones most worth holding still, and every one of them used
-    to move without moving a line here.
+    Freezing the schema beside its revision makes the two move together: after a
+    release a column changes only by a new revision. Constraints are pinned too
+    (`CHECK`s, `ON DELETE`), since they say what a value may be and narrowing one
+    must be reconciled against existing rows.
     """
     from sqlmodel import SQLModel
 
@@ -457,19 +386,10 @@ def schema_surface() -> str:
 def _column_type(declared: Any) -> str:
     """The declared type, not the storage it happens to compile down to.
 
-    `UtcDateTime` is a `TypeDecorator` over `String`, so it renders as
-    `VARCHAR` — indistinguishable from a plain string column. The decorator is
-    the whole contract: it refuses to store a naive datetime and it keeps the
-    UTC offset in the text, which is what lets the Ansible inventory plugin
-    parse these values with the standard library. Swapping it for `String`
-    would break both and leave this file unmoved, so name the class and keep
-    the storage beside it.
-
-    Only *our* decorators are named. SQLModel wraps every implicit `str` field
-    in an `AutoString`, which is storage plumbing and not a promise this
-    project makes: naming it would mean an explicit `Column(String)` and a bare
-    `name: str` render differently, so a pure refactor would move the golden
-    and the next person to read a diff here would learn to skim it.
+    `UtcDateTime` renders as `VARCHAR`, but the decorator is the contract: it
+    refuses naive datetimes and keeps the offset the inventory plugin parses. So
+    our decorators are named beside their storage. SQLModel's `AutoString` is
+    plumbing and is not named, or a pure refactor would move the golden.
     """
     compiled = str(declared)
     own = type(declared)
@@ -481,11 +401,9 @@ def _column_type(declared: Any) -> str:
 def _foreign_key(key: Any) -> str:
     """The reference and what it does when the referent goes away.
 
-    `ondelete` is a behavioural difference of the first order: `CASCADE` on
-    `dns_records.domain` deletes the records with the zone, and `RESTRICT` on
-    `dns_records.site` refuses the delete instead. Turning one into the other
-    silently discards an operator's records, and the target name alone cannot
-    tell them apart.
+    `CASCADE` on `dns_records.domain` deletes records with the zone; `RESTRICT` on
+    `dns_records.site` refuses the delete. The target name alone cannot tell them
+    apart.
     """
     reference = f"fk={key.target_fullname}"
     for action in ("ondelete", "onupdate"):
@@ -498,12 +416,8 @@ def _foreign_key(key: Any) -> str:
 def _alembic_head() -> str:
     """The head of the revision graph, which is not the last filename.
 
-    Sorting `versions/*.py` answers a question about the directory listing, and
-    what this file needs to pin is a question about the graph: which revision
-    an upgrade actually stops at. The two agree while there is one revision and
-    diverge the moment a second is named something that does not sort last —
-    and a branched or broken chain has no head at all, which Alembic reports
-    and a `glob` cannot.
+    A branched or broken chain has no head, which Alembic reports and a `glob`
+    cannot.
     """
     from alembic.config import Config
     from alembic.script import ScriptDirectory

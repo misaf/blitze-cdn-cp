@@ -37,10 +37,8 @@ def _site(*, under_attack: bool, enabled: bool = True) -> CdnSite:
 def _checks(secret: str):
     """This feature's deployment checks, configured from its real declaration.
 
-    The configuration is resolved from the contribution the feature ships, so
-    the declaration and the configuration these tests hand it cannot drift: a
-    key the contribution stopped claiming would fail here rather than quietly
-    read as unset.
+    A key the contribution stopped claiming fails here rather than reading as
+    unset.
     """
     configured = {SECRET_VARIABLE: SecretStr(secret)} if secret else {}
     resolved = resolve_capability_environment(
@@ -90,13 +88,9 @@ def test_no_issue_when_security_is_unused_or_implementable() -> None:
 def test_a_secret_too_short_to_sign_with_never_reaches_this_capability() -> None:
     """A placeholder is the usual way this goes wrong, and it is not a secret.
 
-    This used to be a deployment check beside the one above: the controller
-    started with the placeholder, forwarded it to every play, and reported it
-    only for a site that turned Under Attack Mode on. The length is now
-    declared on the contribution — `minimum_bytes` — so core refuses the
-    controller's configuration at composition, before a service exists, naming
-    the key and this capability. The role still refuses to converge with a
-    short key; what changed is that nothing gets that far.
+    The contribution declares `minimum_bytes`, so core refuses the configuration
+    at composition, naming the key and this capability. The role still refuses a
+    short key as well.
     """
     with pytest.raises(
         ConfigurationError, match=rf"{SECRET_VARIABLE}.*{MINIMUM_SECRET_BYTES} bytes"
@@ -105,10 +99,8 @@ def test_a_secret_too_short_to_sign_with_never_reaches_this_capability() -> None
 
 
 def test_the_edge_role_travels_with_the_distribution() -> None:
-    """Installing the wheel is what puts the challenge implementation on edges.
-
-    The contribution is the whole of how core learns the role exists and that
-    the edge play should run it; nothing in the control plane names either.
+    """The contribution is how core learns the challenge role exists and that the
+    edge play should run it; nothing in the control plane names either.
     """
     (contribution,) = FEATURE.ansible
 

@@ -1,10 +1,7 @@
 """Regenerate the frozen public surfaces. Run through `just refreeze`.
 
-Deliberately a script rather than a `--update` flag on the tests. A flag is one
-keystroke away from whoever is trying to get a red suite green, and these files
-are the record of what this project has promised: regenerating one should be a
-thing you decide to do, and it should show up in the diff of a commit as its
-own act.
+A script rather than a `--update` flag, so regenerating a promise is a
+deliberate act that shows in its own diff.
 """
 
 from __future__ import annotations
@@ -25,9 +22,7 @@ from support.control_plane import settings as _settings_fixture
 def _settings() -> Settings:
     """The same Settings the suite's fixture builds, without pytest running it."""
     # `pytest.fixture` returns a `FixtureFunctionDefinition`, which carries the
-    # undecorated function at run time and does not declare it. The ignore is a
-    # real one — this file is in `just types` — and the annotation beside it is
-    # what makes the call below checked rather than `Any` all the way down.
+    # undecorated function at run time without declaring it.
     build: Callable[[Path], Settings] = _settings_fixture.__wrapped__  # type: ignore[attr-defined]
     return build(Path(tempfile.mkdtemp()))
 

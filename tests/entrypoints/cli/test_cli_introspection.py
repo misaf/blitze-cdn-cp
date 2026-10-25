@@ -111,9 +111,7 @@ def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
 def test_doctor_reports_who_the_api_answers(settings, monkeypatch):
     """The question `doctor` exists to answer, asked about network exposure.
 
-    An empty list is the report, not an omission: it is how a loopback-only
-    listener looks, and reading it is how an operator confirms that closing the
-    list actually closed it.
+    An empty list is how a loopback-only listener looks.
     """
     _control(settings, monkeypatch)
     closed = runner.invoke(cli.app, ["doctor", "--no-resolver", "--json"])
@@ -168,9 +166,7 @@ def _walk_commands(app, prefix="blitzecdn"):
 def test_every_command_has_help_text():
     """A blank row in `--help` is invisible until someone needs that command.
 
-    Typer falls back to an empty description rather than failing, so four
-    commands shipped undocumented without anything noticing. This is the only
-    guard.
+    Typer falls back to an empty description, so this is the only guard.
     """
     undocumented = [name for name, doc in _walk_commands(cli.app) if not doc]
 
@@ -209,11 +205,7 @@ def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
 ):
     """Two kinds of configuration, and the difference is what may be printed.
 
-    This command prints to a terminal and into whatever captures its JSON, so
-    a secret is only ever reported as set or unset. A setting is reported with
-    its resolved value, which is the answer to "what is this controller
-    actually using" — and the reason the two are declared as different things
-    rather than as one list with a flag.
+    A secret is only reported as set or unset; a setting with its resolved value.
     """
     _control(settings, monkeypatch)
 
@@ -236,17 +228,14 @@ def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
 
 
 def test_ansible_roles_path_is_what_a_deployment_would_resolve():
-    """Core's roles first, then each contributing distribution's, by feature name.
+    """Core's roles first, then each contributor's, by feature name.
 
-    The justfile used to spell all nine directories out, so a checkout could
-    syntax-check an edge play against a role set no deployment would resolve.
-    Asking the same function the composition root calls is what removed that.
+    Computed by the same function the composition root calls.
     """
     result = runner.invoke(cli.app, ["ansible", "roles-path"])
     entries = result.stdout.strip().split(":")
 
-    # Core's is always first and is the only entry a core-only workspace has,
-    # which is why this assertion needs no capability installed.
+    # Core's is always first.
     assert entries[0].endswith("src/blitzecdn/assets/ansible/roles")
     assert all(Path(entry).is_dir() for entry in entries)
     # Ordered by feature name after core's, which is what makes two controllers
@@ -262,9 +251,8 @@ def test_ansible_roles_path_is_what_a_deployment_would_resolve():
 
 
 def test_ansible_slots_answers_for_all_three_of_cores_plays():
-    """A slot is declared by the contributing package and cannot be read off
-    this repository, which is why the hand-written copy had drifted in both
-    directions: an edge role missing, and the teardown slot never passed.
+    """Slots are declared by the contributing features, so they are read from the
+    registry rather than written by hand.
     """
     result = runner.invoke(cli.app, ["ansible", "slots"])
     document = json.loads(result.stdout)
@@ -274,8 +262,7 @@ def test_ansible_slots_answers_for_all_three_of_cores_plays():
         "blitzecdn_host_capability_roles",
         "blitzecdn_edge_teardown_capability_roles",
     }
-    # The one the justfile's literal omitted: `blitzecdn-resolver` declares an
-    # edge role, and nothing in this repository says so except its own package.
+    # The resolver capability declares an edge role; only the registry says so.
     assert "blitzecdn_resolver" in document["blitzecdn_capability_roles"]
     assert document["blitzecdn_edge_teardown_capability_roles"]
     # Emitted even when empty, so a caller diffing this can see a slot is empty

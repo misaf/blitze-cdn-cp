@@ -24,9 +24,8 @@ UNINSTALL = CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml"
 def _role_defaults() -> dict[str, Any]:
     """The role's own `defaults/main.yml`.
 
-    Read rather than restated, so a variable the template needs is proved
-    to have a default that renders — the failure otherwise is a
-    `StrictUndefined` on a controller mid-install, not here.
+    Read rather than restated, so every variable the template needs is proved to
+    have a default that renders.
     """
     return yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
 
@@ -57,12 +56,10 @@ def test_control_plane_uses_a_project_name_distinct_from_the_edge_stack():
 
 
 def test_the_api_and_the_worker_are_the_only_persistent_services():
-    """No broker service, and nothing depending on one.
+    """The API and the worker are the only persistent services.
 
-    Durable work is rows in the control plane's own database, so the two
-    processes share the state volume rather than a queue server. The service
-    that used to be here brought its own volume, its own healthcheck and a
-    `depends_on` from all three of the others.
+    Durable work is rows in the control plane's database, so the two share the
+    state volume rather than a queue server.
     """
     services = _compose()["services"]
     assert set(services) == {
@@ -89,12 +86,7 @@ def test_the_api_and_the_worker_are_the_only_persistent_services():
 
 
 def test_no_volume_is_declared_for_a_broker_that_is_not_there():
-    """A stale named volume outlives the service that used it.
-
-    `install.sh uninstall` removes what this file declares; a volume left in
-    the document would be one the uninstaller kept removing forever, and one an
-    operator would find on a host and wonder about.
-    """
+    """A stale named volume outlives the service that used it."""
     assert "volumes" not in _compose()
 
 
@@ -280,16 +272,8 @@ def test_host_permissions_match_container_write_requirements():
 def test_the_image_is_built_from_the_dockerfile_the_package_publishes():
     """One path, named by `blitzecdn.assets.docker` and pointed at by the role.
 
-    The template used to spell the Dockerfile's location inline, back when
-    it sat in a top-level directory: that was a second copy of a location
-    the package now owns, and moving the tree
-    would have left the controller's `docker compose build` looking for a file
-    that is no longer there, and nothing would have said so until an install.
-
-    Relative, because Docker resolves it against the build context rather than
-    against anything Ansible knows. That context is the installation directory
-    — a source checkout — and it is the last thing on a controller that still
-    needs one.
+    Relative, because Docker resolves it against the build context, the
+    installation directory.
     """
     build = _compose()["services"]["blitzecdn-api"]["build"]
     default = _role_defaults()["blitzecdn_controlplane_dockerfile"]

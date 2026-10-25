@@ -125,10 +125,8 @@ def test_deployment_lock_serializes_processes(settings):
 def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
     """`flock` is per open file description, and the fleet has several writers.
 
-    The check above uses two descriptors in one process, which is the same
-    mechanism but not the same claim. What the lock has to guarantee is that a
-    CLI deploy, an API worker and a systemd timer cannot converge at once, and
-    those are separate processes — so one of them is a real subprocess here.
+    A CLI deploy, the worker and a timer are separate processes, so the second
+    holder here is a real subprocess.
     """
     script = "\n".join(
         [
@@ -346,13 +344,8 @@ def test_real_ansible_runner_produces_structured_events(settings, tmp_path):
 def _with_edges(*names: str) -> EdgeRoster:
     """A fleet for the runner to expand a `--limit` against.
 
-    It used to be a YAML file this helper wrote, because the runner read the
-    inventory to answer the same question. It now reads the same rows Ansible
-    will be given, so a test supplies a store rather than a file — and there is
-    no longer a way for the two to disagree about which edges exist.
-
-    Wrapped in the roster the runner actually takes: core is handed host names
-    and a group name, not a capability's store.
+    The runner reads the same rows Ansible is given, wrapped in the roster it
+    takes: host names and a group name.
     """
     return EdgeRoster(
         FakeEdgeStore(
@@ -379,9 +372,8 @@ def test_a_limit_resolves_to_the_matching_edges():
 def test_a_run_records_the_edges_it_aimed_at():
     """`hosts` alone cannot say what a stopped play never got to.
 
-    A limit resolves to names here, from the same rows Ansible is handed, so
-    the run carries what it targeted rather than leaving the reader to
-    reconstruct it from an inventory that may have changed since.
+    A limit resolves to names from the rows Ansible is handed, so the run records
+    what it targeted.
     """
     edges = _with_edges("edge-a", "edge-b", "other")
     assert targeted_hosts(edges, resolve_limit(edges, None)) == (
@@ -493,8 +485,7 @@ def test_runner_events_become_per_host_results(settings, monkeypatch):
 def test_a_change_is_named_not_merely_counted(settings, monkeypatch):
     """The reason for structured events rather than a recap.
 
-    A recap could say "edge-a would change 2 tasks" and no more. Naming them is
-    what makes a drift report answer the question an operator actually has.
+    Naming the changed tasks is what makes a drift report useful.
     """
 
     def fake_run(**kwargs):
@@ -561,9 +552,9 @@ def test_a_capabilitys_own_settings_reach_ansible_through_the_environment(
 def test_the_controllers_own_credentials_are_never_forwarded(settings):
     """No edge has any business holding the key to the control plane's API.
 
-    `BLITZE_API_KEY` and `BLITZE_API_KEYS` are core's own names, so they are
-    excluded from `capability_environment` where it is read, while contribution
-    ownership further limits which staged keys can reach Ansible.
+    `BLITZE_API_KEY` and `BLITZE_API_KEYS` are excluded from
+    `capability_environment`, and contribution ownership limits which staged keys
+    reach Ansible.
     """
     configured = Settings.from_environment(
         {
@@ -586,9 +577,8 @@ def test_the_controllers_own_credentials_are_never_forwarded(settings):
 def test_a_capabilitys_settings_never_become_command_arguments(settings, monkeypatch):
     """A secret in argv is readable by every account on the controller.
 
-    Core cannot tell a credential from a tuning value in claimed settings, so
-    it treats all of it as a secret: the environment, never `--extra-vars`.
-    Keeping it out of the process table is the whole reason for that.
+    Core cannot tell a credential from a tuning value, so claimed settings go
+    through the environment, never `--extra-vars`.
     """
     configured = settings.model_copy(
         update={
@@ -617,12 +607,7 @@ def test_a_capabilitys_settings_never_become_command_arguments(settings, monkeyp
 def test_what_a_capability_was_never_given_is_not_invented(settings, monkeypatch):
     """An unconfigured capability setting is absent, not blanked.
 
-    Core used to overwrite `BLITZE_MAXMIND_LICENSE_KEY` with the empty string
-    on every run so a stale export could not reach Ansible. It cannot do that
-    any more without knowing the names, and it should not: the names belong to
-    the packages. What it must not do is invent one — a controller that was
-    never given a capability's setting forwards nothing for it, and the role's
-    own default answers instead.
+    Nothing is forwarded for it, so the role's own default answers.
     """
     captured: dict[str, str] = {}
 

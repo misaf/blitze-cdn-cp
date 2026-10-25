@@ -41,12 +41,10 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 
 
 def test_repointing_a_record_moves_the_sites_origin(settings, monkeypatch):
-    """The site follows its record: one hostname is served from wherever its
-    record points, so repointing it is unproxying to the new address and
+    """The site follows its record: repointing is unproxying to the new address and
     proxying again.
 
-    This is the trade the record model buys: the origin travels with the
-    hostname, not with the zone, so nothing else in the zone moves.
+    The origin travels with the hostname, so nothing else in the zone moves.
     """
     control = _control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")

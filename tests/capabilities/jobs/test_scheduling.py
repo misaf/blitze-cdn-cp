@@ -1,9 +1,7 @@
 """Recurring work that survives a restart, and fires once however many ask.
 
 The scheduler is a function of a clock and a table, so none of this needs a
-process, a timer or a sleep. That is the property being demonstrated as much as
-any assertion: the thing this replaced kept its schedule in memory, and the one
-failure it had could only be reproduced by restarting a process.
+process, a timer or a sleep.
 """
 
 from __future__ import annotations
@@ -62,12 +60,7 @@ HOURLY = ScheduleSpec("renew-certificates", interval_seconds=3600, lease_seconds
 
 
 def test_a_new_schedule_is_due_one_interval_from_now_not_immediately(repository):
-    """Starting a process must not trigger every piece of maintenance at once.
-
-    On a fresh installation there is nothing for any of them to do, and on an
-    existing one a restart would mean a certificate sweep and a drift check
-    racing the operator who just restarted it.
-    """
+    """Starting a process must not trigger every piece of maintenance at once."""
     clock = Clock()
     scheduler, _ = scheduler_for(repository, clock)
 
@@ -81,8 +74,7 @@ def test_a_new_schedule_is_due_one_interval_from_now_not_immediately(repository)
 def test_registering_again_does_not_move_an_existing_schedule(repository):
     """A crash loop or a rolling upgrade restarts this process repeatedly.
 
-    Writing `next_run_at` on every registration would push every schedule
-    permanently into the future and run nothing at all.
+    Resetting `next_run_at` on every registration would run nothing at all.
     """
     clock = Clock()
     scheduler, _ = scheduler_for(repository, clock)
@@ -96,11 +88,7 @@ def test_registering_again_does_not_move_an_existing_schedule(repository):
 
 
 def test_a_schedule_that_came_due_during_an_outage_still_fires(repository):
-    """The failure the in-memory timer had, and the reason the table exists.
-
-    A controller down over the hour a renewal was due used to come back with
-    its timer reset and simply never run that firing.
-    """
+    """A firing that came due while the controller was down still runs."""
     clock = Clock()
     scheduler, _ = scheduler_for(repository, clock)
     scheduler.register([HOURLY])
@@ -116,11 +104,7 @@ def test_a_schedule_that_came_due_during_an_outage_still_fires(repository):
 def test_an_overdue_schedule_fires_once_rather_than_once_per_missed_interval(
     repository,
 ):
-    """Nothing here benefits from catching up.
-
-    The work is "renew what is expiring", not "produce a report for each hour",
-    so six missed firings are one thing to do rather than six.
-    """
+    """Nothing here benefits from catching up: six missed firings are one run."""
     clock = Clock()
     scheduler, queue = scheduler_for(repository, clock)
     scheduler.register([HOURLY])
@@ -133,10 +117,8 @@ def test_an_overdue_schedule_fires_once_rather_than_once_per_missed_interval(
 
 
 def test_two_controllers_ticking_at_once_produce_one_firing(repository):
-    """The compare-and-swap on `next_run_at`, which is what makes two safe.
-
-    Both see the schedule as due; exactly one wins the right to move it, and
-    only that one goes on to enqueue.
+    """The compare-and-swap on `next_run_at`: exactly one ticker moves it and
+    enqueues.
     """
     clock = Clock()
     first, queue = scheduler_for(repository, clock)
@@ -234,9 +216,8 @@ def test_concurrent_schedulers_publish_one_job_from_the_same_due_snapshot(
 def test_a_disabled_job_contributes_no_schedule():
     """An interval of zero is how every one of them is turned off.
 
-    Resolved where the two vocabularies meet — a feature's `ScheduledJob` and
-    this capability's `ScheduleSpec` — rather than as a row the tick has to
-    keep skipping.
+    Resolved where `ScheduledJob` becomes a `ScheduleSpec`, not skipped on every
+    tick.
     """
     jobs = {
         "drift": ScheduledJob(
@@ -264,11 +245,7 @@ def test_a_job_with_no_lease_opinion_gets_twice_its_interval():
 
 
 def test_an_uninstalled_plugins_schedule_is_forgotten(repository):
-    """Otherwise it enqueues forever and resolves to nothing.
-
-    One `NotFoundError` per interval, about a package the operator removed on
-    purpose.
-    """
+    """Otherwise it enqueues forever and resolves to nothing."""
     clock = Clock()
     scheduler, _ = scheduler_for(repository, clock)
     scheduler.register(
@@ -291,12 +268,10 @@ def test_the_lease_a_schedule_declares_is_what_is_stored(repository):
 
 
 def test_a_scheduled_job_runs_under_the_lease_its_schedule_declares(repository):
-    """Stored, and now read: the claim is held for the schedule's two hours.
+    """The claim is held for the schedule's lease, not the queue default.
 
-    A claim's lease is fixed before anybody knows which job it returns, so a
-    scheduled job used to run under the queue's 900-second default whatever its
-    schedule said — and a worker that died an hour into a two-hour renewal
-    sweep would have had the sweep taken over while it might still be running.
+    Otherwise a worker an hour into a two-hour sweep could have the sweep taken
+    over while still running.
     """
     clock = Clock()
     leases: list[datetime | None] = []

@@ -1,16 +1,7 @@
 """This capability's HTTP surface: upload, metadata, renewal and preflight.
 
-Every test here was in ``tests/api/test_api.py``, held there by name in a
-``REQUIRES_CERTIFICATES`` set that the shared fixtures read in order to skip
-them whenever this wheel was detached. The set was a register of tests that had
-not followed their code out of core, and moving them is what it was standing in
-for: these routes exist only while this distribution is installed, so the
-suite that asserts on them belongs to the distribution.
-
-The helpers they need — ``control_plane_app``, ``API_HEADERS`` and
-``seed_site_over_http`` — come from ``support.control_plane``, which the
-workspace's root ``conftest.py`` registers as a feature for every distribution's
-tests.
+The helpers (``control_plane_app``, ``API_HEADERS``, ``seed_site_over_http``)
+come from ``support.control_plane``.
 """
 
 from __future__ import annotations
@@ -82,9 +73,7 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
 
 
 def test_certificates_are_readable(settings):
-    # Origins are no longer among these: the check runs a playbook across the
-    # fleet now, so it is a POST like the cache-statistics route rather than a
-    # read the controller can answer by itself.
+    # The origin check runs a playbook across the fleet, so it is a POST.
     with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/certificates", headers=API_HEADERS).json() == []
         assert (
@@ -159,9 +148,7 @@ def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
 def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkeypatch):
     """It runs on the renewal pool, so /health keeps answering during a sweep.
 
-    The whole failure this guards against is a controller that looks dead to a
-    load balancer while it is working perfectly, so the assertion is the thread
-    name rather than a timing measurement.
+    Asserted by thread name rather than timing.
     """
     names: list[str] = []
 

@@ -1,9 +1,7 @@
 """The compiler is a function of its arguments, and says so in its digests.
 
-Nothing here starts a control plane, opens a database or registers a feature.
-That is the property under test as much as any assertion below: if compiling a
-release ever needs one of those, these tests stop compiling and the boundary is
-reported where it broke.
+Nothing here starts a control plane, opens a database or registers a feature;
+if compiling ever needs one, these tests break where the boundary did.
 """
 
 from __future__ import annotations
@@ -28,10 +26,8 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 class StubContributors:
     """The share of an artifact one installation's capabilities contribute.
 
-    Deliberately not a fake feature registry. The compiler declared a port with
-    two methods on it, and the double that stands in for it should be able to
-    hold nothing but the answers — otherwise the test is exercising the
-    registry's merge order rather than the compiler.
+    Not a fake registry: the double holds only answers, so tests exercise the
+    compiler rather than the registry's merge order.
     """
 
     def __init__(self, fleet: dict[str, object] | None = None) -> None:
@@ -68,10 +64,8 @@ def inputs_for(
 
 
 def compile_for(inputs: ReleaseInputs, **overrides: object):
-    # A zone with no settings on it already requests two capabilities: caching
-    # and compression are both on by default. A baseline of nothing installed
-    # would make every test in this file assert findings it is not about, so
-    # the default here is "the wheels a default zone needs".
+    # A default zone already requests caching and compression, so the baseline is
+    # the capabilities a default zone needs.
     arguments: dict[str, object] = {
         "capabilities": ("cache", "compression"),
         "targets": (),
@@ -133,9 +127,8 @@ def test_captured_canonical_state_cannot_be_changed_through_a_rule_mapping():
 def test_equal_state_built_separately_compiles_to_the_same_digest():
     """Reproducible across processes, not merely across two calls on one object.
 
-    Building the inputs twice is the point: a digest that depended on object
-    identity, insertion order or a default factory would pass the test above
-    and fail this one, and it is this one that models a controller restarting.
+    Building the inputs twice catches digests depending on identity, insertion
+    order or a default factory, as a controller restart would.
     """
     assert compile_for(inputs_for()).digest == compile_for(inputs_for()).digest
 
@@ -160,11 +153,8 @@ def test_changing_a_setting_changes_the_release_digest():
 
 
 def test_the_installed_capability_set_is_part_of_the_identity():
-    """Detaching a wheel changes what the edges are served, so it changes the id.
-
-    Without this the fleet could be converged from an artifact rendered by a
-    capability that is no longer installed, with the release still looking
-    current.
+    """The installed capability set changes what edges are served, so it changes the
+    id.
     """
     inputs = inputs_for()
     assert (
@@ -207,8 +197,8 @@ def test_the_artifact_carries_every_servable_site_and_the_fleet_variables():
 def test_a_zone_with_no_proxied_record_contributes_no_server_block():
     """Desired state a rollback must restore, and an instruction to no edge.
 
-    A site with no hostnames would render a `server` block with an empty
-    `server_name`, which nginx reads as the default server for the listener.
+    A site with no hostnames would render an empty `server_name`, which nginx
+    reads as the default server.
     """
     inputs = inputs_for(
         records=(
@@ -249,11 +239,7 @@ def test_the_capability_is_satisfied_once_the_distribution_is_installed():
 
 
 def test_an_edge_that_declares_nothing_is_assumed_to_match_the_controller():
-    """The behaviour every fleet registered before edges could declare a set has.
-
-    Making the per-edge check opt-in is what lets it be added without changing
-    a single existing installation's outcome.
-    """
+    """An edge that declares no capability set is assumed to match the controller."""
     release = compile_for(
         inputs_for(compression="gzip"),
         capabilities=("cache", "compression"),
@@ -318,11 +304,9 @@ def test_a_setting_nobody_touched_is_attributed_to_the_schema_default():
 
 
 def test_an_overridden_setting_names_the_rule_that_set_it():
-    """The half `/resolve` could not answer: which value the rule actually chose.
+    """Which value the winning rule actually chose, per setting.
 
-    A rule that wins and overrides nothing relevant leaves the zone's value in
-    place, and an operator told only "rule 'api' applied" goes and edits the
-    rule.
+    A rule that wins but overrides nothing relevant leaves the zone's value.
     """
     rule = Rule(
         domain="example.com",

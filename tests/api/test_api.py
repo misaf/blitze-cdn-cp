@@ -24,10 +24,7 @@ from blitzecdn.core.exceptions import (
 def _zone(client, **policy):
     """A zone carrying the policy, and one proxied hostname so it derives a host.
 
-    Two calls where a site used to be one, and the reason is the whole change:
-    the policy belongs to the zone, and a record is what puts a hostname on the
-    edge for that policy to apply to. The record's value is the origin the edge
-    fetches from.
+    The record's value is the origin the edge fetches from.
     """
     created = client.post(
         "/v1/domains",
@@ -48,11 +45,9 @@ def _zone(client, **policy):
 
 
 def test_the_api_carries_every_policy_field_the_domain_has():
-    """A knob an operator can set but never see would fail nowhere else.
+    """A setting an operator can set but never see would fail nowhere else.
 
-    There is one published version, so there is no frozen representation to
-    project a new field away from: a field added to `SitePolicy` is expected
-    here and in the patch body, and this is what says so.
+    A field added to `SitePolicy` is expected here and in the patch body.
     """
     missing = set(SitePolicy.setting_fields()) - set(ZonePolicyModel.model_fields)
     assert not missing, f"the API does not expose {sorted(missing)}"
@@ -169,10 +164,8 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
 def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
     """There is no writing counterpart, and the published document says so.
 
-    ``server_names`` used to be the one field a site's own API refused to take,
-    because `dns` owned it. Every field is like that now: a host is derived, so
-    the collection publishes GET and nothing else, and the way to change one is
-    to change the zone, the rule or the records behind it.
+    A host is derived, so the collection publishes GET only; it changes through
+    the zone, rule or records behind it.
     """
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
@@ -381,17 +374,13 @@ def test_an_unknown_site_is_a_404(settings):
 
 
 # ----------------------------------------------------------------------
-# Error mapping. A permanent condition must not be reported as a transient
-# one: a client that retries a ConfigurationError retries forever, and an
-# alerting rule watching for 503 pages someone about a controller that is
-# working correctly and declining bad input.
+# Error mapping. A permanent condition must not be reported as transient: a
+# client retrying a ConfigurationError retries forever, and a 503 alert pages
+# someone about a controller correctly declining bad input.
 # ----------------------------------------------------------------------
 
 
-# Raised from a *core* operation. These used to monkeypatch `check_origins`,
-# which now lives in `blitzecdn-origins`: the mapping being asserted is the
-# control plane's exception handlers, and a test of core's handlers that only
-# runs while an optional package is installed is testing the wrong thing.
+# Raised from a core operation, since these assert core's exception handlers.
 
 
 def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch):
@@ -435,8 +424,7 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
 
 
 # ----------------------------------------------------------------------
-# Edges. Writing one here is what puts a host into the Ansible inventory:
-# the `blitzecdn` feature reads these same rows at the start of every run.
+# Edges. Writing one here puts a host into the Ansible inventory.
 # ----------------------------------------------------------------------
 
 
@@ -490,9 +478,7 @@ def test_edge_crud_over_http(settings):
 def test_an_edge_patch_cannot_rename_the_host(settings):
     """The name is how certificates, audit history and `--limit` refer to it.
 
-    `EdgePatch` has no name field and forbids extras, so a rename is a 422 at
-    the boundary rather than a silently ignored key — which would leave the
-    caller believing a rename had happened.
+    `EdgePatch` has no name field and forbids extras, so a rename is a 422.
     """
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
@@ -520,9 +506,8 @@ def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
 def test_removing_an_edge_without_decommissioning_says_so(settings):
     """The narrow case, and the response has to be honest about it.
 
-    `decommission=false` leaves BlitzeCDN's configuration and every TLS private
-    key on the host. A 204 could not distinguish that from a real teardown, so
-    the body reports which one happened.
+    `decommission=false` leaves configuration and TLS private keys on the host,
+    so the body reports which kind of removal happened.
     """
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
@@ -543,9 +528,8 @@ def test_removing_an_edge_without_decommissioning_says_so(settings):
 def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
     """Deregistering first would strand the host.
 
-    The inventory is derived from these rows, so an edge removed before its
-    teardown succeeded is a host no playbook can address again — still serving
-    its last converged virtual hosts, still holding their private keys.
+    The inventory is derived from these rows, so a host removed before teardown
+    succeeded could never be addressed again.
     """
     monkeypatch.setattr(
         EdgeOperationsService,
@@ -590,12 +574,7 @@ def test_edge_routes_require_authentication(settings):
 
 
 def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
-    """The body carries the teardown result, which is why this is not a 204.
-
-    During an incident "the edge is gone" is not the useful part — which tasks
-    ran on which host is, and a forced removal that tore nothing down looks
-    identical without it.
-    """
+    """The body carries the teardown result, which is why this is not a 204."""
     monkeypatch.setattr(
         EdgeOperationsService,
         "decommission_edge",

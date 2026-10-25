@@ -197,9 +197,7 @@ def test_site_max_upload_size_command(settings, monkeypatch):
 
 def test_site_compression_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    # Named rather than left to the seed's default: the fixture fills in an
-    # "off" for a capability this workspace does not have, and in the core-only
-    # run that would be the value under test.
+    # Named explicitly rather than left to the seed's default.
     seed_site(
         control,
         name="example-com",
