@@ -30,7 +30,7 @@ options were an allow-list of dead names or nothing, and this suite has enough
 hand-maintained tables already. Write the claim you want checked as a role.
 
 Resolution is by import rather than by reading the tree, which is what makes a
-re-export count. ``:class:`~blitzecdn.core.plugins.ScheduledJob``` names the
+re-export count. ``:class:`~blitzecdn.core.features.ScheduledJob``` names the
 façade the ABI publishes rather than the module the dataclass is defined in, and
 that is the right thing for a docstring to say — so the check follows the same
 path a reader would.

@@ -1,7 +1,7 @@
 # What a capability puts on an edge host
 
-Status: accepted; documents the design in `core.plugins.types.ansible` and
-`core.plugins.resolution.ansible`.
+Status: accepted; documents the design in `core.features.types.ansible` and
+`core.features.resolution.ansible`.
 
 ## Context
 
@@ -28,7 +28,7 @@ deliberately absent: the package that owns a play already passes its path to
 
 Every role list names roles that contribution's own `roles_path` ships. Core
 refuses a name that is not there, rather than letting the play fail much later
-with "the role was not found". `plugin` is carried for the failure message: two
+with "the role was not found". `feature` is carried for the failure message: two
 packages shipping a role of the same name is a conflict reported with both
 names, not resolved by whichever registered last.
 
@@ -124,9 +124,9 @@ to `ConfigurationContribution` —
 
 ## Code and verification
 
-- [Contribution types](../../src/blitzecdn/core/plugins/types/ansible.py)
-- [Role and slot resolution](../../src/blitzecdn/core/plugins/resolution/ansible.py)
-- [Module resolution](../../src/blitzecdn/core/plugins/resolution/modules.py)
+- [Contribution types](../../src/blitzecdn/core/features/types/ansible.py)
+- [Role and slot resolution](../../src/blitzecdn/core/features/resolution/ansible.py)
+- [Module resolution](../../src/blitzecdn/core/features/resolution/modules.py)
 - [Image paths and the probe frame](../../src/blitzecdn/docker/__init__.py)
 - [A host-slot capability](../../src/blitzecdn/providers/hardening/feature.py)
 - [A module-contributing capability](../../src/blitzecdn/providers/geoip/feature.py)

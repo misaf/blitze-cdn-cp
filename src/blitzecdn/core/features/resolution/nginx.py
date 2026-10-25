@@ -6,8 +6,8 @@ here to a *name* — a fragment name is claimed once across the whole
 installation, because two packages contributing ``security-server.conf.j2``
 would have one of them rendered and the other silently dropped.
 
-The other half of what Nginx needs from the plugins — the ``load_module`` set —
-is next door in :mod:`~blitzecdn.core.plugins.resolution.modules`, because it is
+The other half of what Nginx needs from the features — the ``load_module`` set —
+is next door in :mod:`~blitzecdn.core.features.resolution.modules`, because it is
 composed from a different contribution and obeys a different conflict rule.
 """
 
@@ -17,8 +17,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins.types import NginxContribution
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.types import NginxContribution
 
 __all__ = ["ResolvedNginxResource", "resolve_nginx_resources"]
 
@@ -30,7 +30,7 @@ _CONTEXTS = ("http", "server", "access", "upstream", "module")
 class ResolvedNginxResource:
     """One validated resource, ready to pass to the renderer."""
 
-    plugin: str
+    feature: str
     name: str
     template: Path
 
@@ -38,16 +38,16 @@ class ResolvedNginxResource:
 def resolve_nginx_resources(
     contributions: Iterable[NginxContribution],
 ) -> dict[str, tuple[ResolvedNginxResource, ...]]:
-    """Validate paths and ownership, then order resources by plugin and name."""
+    """Validate paths and ownership, then order resources by feature and name."""
     resolved: dict[str, list[ResolvedNginxResource]] = {
         context: [] for context in _CONTEXTS
     }
     owners: dict[str, str] = {}
-    for contribution in sorted(contributions, key=lambda item: item.plugin):
+    for contribution in sorted(contributions, key=lambda item: item.feature):
         root = contribution.templates_path
         if not root.is_dir():
-            raise PluginError(
-                f"plugin {contribution.plugin!r} contributes the Nginx templates "
+            raise FeatureError(
+                f"feature {contribution.feature!r} contributes the Nginx templates "
                 f"directory {root}, which does not exist"
             )
         for context in _CONTEXTS:
@@ -59,23 +59,23 @@ def resolve_nginx_resources(
                     or ".." in relative.parts
                     or relative.name != name
                 ):
-                    raise PluginError(
-                        f"plugin {contribution.plugin!r} contributes invalid Nginx "
+                    raise FeatureError(
+                        f"feature {contribution.feature!r} contributes invalid Nginx "
                         f"resource name {name!r}; names must be plain filenames"
                     )
                 if name in owners:
-                    raise PluginError(
-                        f"Nginx resource {name!r} is contributed by both plugin "
-                        f"{owners[name]!r} and plugin {contribution.plugin!r}"
+                    raise FeatureError(
+                        f"Nginx resource {name!r} is contributed by both feature "
+                        f"{owners[name]!r} and feature {contribution.feature!r}"
                     )
                 template = root / name
                 if not template.is_file():
-                    raise PluginError(
-                        f"plugin {contribution.plugin!r} contributes Nginx resource "
+                    raise FeatureError(
+                        f"feature {contribution.feature!r} contributes Nginx resource "
                         f"{name!r}, but {template} is not a file"
                     )
-                owners[name] = contribution.plugin
+                owners[name] = contribution.feature
                 resolved[context].append(
-                    ResolvedNginxResource(contribution.plugin, name, template)
+                    ResolvedNginxResource(contribution.feature, name, template)
                 )
     return {context: tuple(resources) for context, resources in resolved.items()}

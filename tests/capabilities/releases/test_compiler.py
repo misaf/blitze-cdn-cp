@@ -1,6 +1,6 @@
 """The compiler is a function of its arguments, and says so in its digests.
 
-Nothing here starts a control plane, opens a database or registers a plugin.
+Nothing here starts a control plane, opens a database or registers a feature.
 That is the property under test as much as any assertion below: if compiling a
 release ever needs one of those, these tests stop compiling and the boundary is
 reported where it broke.
@@ -28,7 +28,7 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 class StubContributors:
     """The share of an artifact one installation's capabilities contribute.
 
-    Deliberately not a fake plugin registry. The compiler declared a port with
+    Deliberately not a fake feature registry. The compiler declared a port with
     two methods on it, and the double that stands in for it should be able to
     hold nothing but the answers — otherwise the test is exercising the
     registry's merge order rather than the compiler.

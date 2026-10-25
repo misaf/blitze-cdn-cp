@@ -9,7 +9,7 @@ from pathlib import Path
 from paths import REPO_ROOT, SOURCE
 
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
-from blitzecdn.core.plugins.resolution import resolve_nginx_resources
+from blitzecdn.core.features.resolution import resolve_nginx_resources
 
 
 def test_one_distribution_owns_the_application_and_all_internal_providers():
@@ -30,9 +30,9 @@ def test_all_shipped_features_share_the_application_version():
         for module in BUILTIN_FEATURES
         for feature in importlib.import_module(module).FEATURES
     ]
-    assert len(registry.plugins) == len(declared)
+    assert len(registry.metadata) == len(declared)
     assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES)
-    assert all(provider.version == version for provider in registry.plugins)
+    assert all(provider.version == version for provider in registry.metadata)
     assert {
         "backup",
         "cache",

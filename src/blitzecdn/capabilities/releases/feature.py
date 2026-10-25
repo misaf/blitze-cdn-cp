@@ -16,18 +16,18 @@ from __future__ import annotations
 from blitzecdn import __version__
 from blitzecdn.capabilities.releases import cli
 from blitzecdn.capabilities.releases.api import routes
-from blitzecdn.core.plugins import CliCommandGroup, Feature, PluginMetadata
+from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="releases",
             version=__version__,
             summary="Compile desired state into immutable, addressable releases.",
         ),
         api_routers=(routes.router,),
         cli_commands=(
-            CliCommandGroup(plugin="releases", name="release", app=cli.release_app),
+            CliCommandGroup(feature="releases", name="release", app=cli.release_app),
         ),
     ),
 )

@@ -1,6 +1,6 @@
 """Running one scheduled job, and paying off what it left owing.
 
-Every scheduled job is contributed by the plugin that owns the work — renewing
+Every scheduled job is contributed by the feature that owns the work — renewing
 certificates belongs to `certificates`, checking drift to `deployments` — so
 this service does not know what any of them do. What it owns is the rule that
 holds across all of them: a maintenance run that changed something a fleet has
@@ -28,7 +28,7 @@ class MaintenanceService:
         """Run one named job, then converge if it left a requirement pending.
 
         The name arrived in a queue message, so it may name a job that no
-        longer exists — a plugin uninstalled while its last message was still
+        longer exists — a feature uninstalled while its last message was still
         in flight. That is a `NotFoundError` naming what is installed rather
         than a `KeyError`, because the operator reading the worker log is the
         person who uninstalled it.

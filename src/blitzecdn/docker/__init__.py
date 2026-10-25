@@ -57,7 +57,7 @@ EDGE_DOCKERFILE = EDGE_CONTEXT / "Dockerfile"
 #: There is no ``EDGE_MODULES_CONF`` beside it, and its absence is the point:
 #: both the list and the probe's directives are generated during the build from
 #: what the installed capabilities declare, and this file is only their frame.
-#: See :class:`blitzecdn.core.plugins.EdgeModule` and
+#: See :class:`blitzecdn.core.features.EdgeModule` and
 #: ``docs/decisions/0003-what-a-capability-puts-on-an-edge.md``.
 EDGE_MODULE_PROBE_CONF = EDGE_CONTEXT / "module-probe.conf"
 

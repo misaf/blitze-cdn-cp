@@ -52,14 +52,14 @@ from blitzecdn.composition.infrastructure import Infrastructure
 from blitzecdn.composition.services import ApplicationServices
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.core.persistence.configuration import AnsibleSettingStore
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
+    FeatureRegistry,
     HealthCheck,
     Operations,
-    PluginRegistry,
     ScheduledJob,
 )
-from blitzecdn.core.plugins.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
 
 __all__ = [
@@ -142,7 +142,7 @@ class CliServices:
     """What the command groups call. A CLI invocation starts nothing."""
 
     settings: Settings
-    plugins: PluginRegistry
+    features: FeatureRegistry
     capability_config: ResolvedCapabilityEnvironment
     ansible_settings: AnsibleSettingStore
     audit: AuditTrail
@@ -218,7 +218,7 @@ def build_worker(services: ApplicationServices) -> WorkerServices:
 def build_cli(services: ApplicationServices) -> CliServices:
     return CliServices(
         settings=services.settings,
-        plugins=services.plugins,
+        features=services.features,
         capability_config=services.capability_config,
         ansible_settings=services.ansible_settings,
         audit=services.audit,

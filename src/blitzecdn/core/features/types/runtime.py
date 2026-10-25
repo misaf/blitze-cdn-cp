@@ -30,14 +30,14 @@ class CliCommandGroup:
     the registration mechanism would be the mechanism dictating the interface.
     """
 
-    #: The contributing plugin's `PluginMetadata.name`. Declared rather than
+    #: The contributing feature's `FeatureMetadata.name`. Declared rather than
     #: inferred from the callback's `__module__`, which answers where a function
     #: was *written* and not which wheel ships it — a group whose commands
     #: delegate to a shared helper, or whose callbacks are wrapped, would be
     #: attributed to whoever defined the wrapper. A group belongs to exactly one
-    #: plugin and so does every command in it, so the group is the honest place
+    #: feature and so does every command in it, so the group is the honest place
     #: to say which.
-    plugin: str
+    feature: str
     name: str | None
     app: Typer
 
@@ -51,11 +51,11 @@ class HealthCheck:
     go.
     """
 
-    #: The contributing plugin's `PluginMetadata.name`. `name` is free-form and
-    #: chosen by the plugin, so two wheels can both call a check `"database"`;
+    #: The contributing feature's `FeatureMetadata.name`. `name` is free-form and
+    #: chosen by the feature, so two wheels can both call a check `"database"`;
     #: without this the two are indistinguishable in `/health` and there is
     #: nothing to name in the error that refuses them.
-    plugin: str
+    feature: str
     name: str
     check: Callable[[], None]
 
@@ -74,12 +74,12 @@ class ScheduledJob:
     is turned off by configuration.
     """
 
-    #: The contributing plugin's `PluginMetadata.name`. `name` is a durable
+    #: The contributing feature's `FeatureMetadata.name`. `name` is a durable
     #: queue payload and therefore has to be unique across everything
     #: installed, which the registry enforces — but the error it raised could
-    #: only quote the job name, telling an operator that two plugins collided
+    #: only quote the job name, telling an operator that two features collided
     #: and leaving them to work out which two.
-    plugin: str
+    feature: str
     name: str
     interval_seconds: int
     run: Callable[[str], None]

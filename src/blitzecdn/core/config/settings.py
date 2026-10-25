@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
     #: The generic answer to "an optional capability needs a credential", and
-    #: the reason core carries no capability's name. Installed plugins claim
+    #: the reason core carries no capability's name. Installed features claim
     #: names during composition through `ConfigurationContribution`; unclaimed
     #: and multiply claimed names are errors, and only the resolved *secrets*
     #: reach a package role through the subprocess environment. See
@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     #: A non-secret capability setting belongs in the non-secret file — a
     #: renewal interval is exactly what it exists to hold — but a *secret*
     #: must not be settable there, and the two are indistinguishable until a
-    #: plugin says which is which. Keeping the origins apart lets the resolver
+    #: feature says which is which. Keeping the origins apart lets the resolver
     #: honour that: a `CapabilitySetting` reads from both, an `EnvironmentKey`
     #: only from the environment. Plain strings, never `SecretStr`, because
     #: nothing that reaches this map is allowed to be a credential.

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from blitzecdn.core.plugins import AnsibleContribution, Feature, PluginMetadata
+from blitzecdn.core.features import AnsibleContribution, Feature, FeatureMetadata
 from blitzecdn.providers.hardening import __version__, ansible
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="hardening",
             version=__version__,
             provides=frozenset({"hardening"}),
@@ -17,7 +17,7 @@ FEATURES = (
         # decommission play withdraws. Core never learns what either contains.
         ansible=(
             AnsibleContribution(
-                plugin="hardening",
+                feature="hardening",
                 roles_path=ansible.ROLES_PATH,
                 host_roles=ansible.HOST_ROLES,
                 teardown_roles=ansible.TEARDOWN_ROLES,

@@ -62,7 +62,7 @@ def distribution_version(anchor: str) -> str:
     """The installed version of the distribution that ships ``anchor``.
 
     Asked of the environment rather than written down in the source, so the
-    version a plugin reports is the version that was actually installed. There
+    version a feature reports is the version that was actually installed. There
     is deliberately no fallback: a distribution that is not installed cannot
     have been discovered — an optional capability is found through the entry
     point in its own metadata, which is the same metadata read here — so

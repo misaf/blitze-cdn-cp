@@ -1,7 +1,7 @@
 """What the installed capabilities add to an Ansible run.
 
 Seven values that always travel together and always come from one place. The
-composition root resolves them from the plugin registry — it is the only thing
+composition root resolves them from the feature registry — it is the only thing
 that knows what is installed — and the Ansible adapter is handed the finished
 answer.
 
@@ -13,7 +13,7 @@ every one of them unchanged — so adding an eighth kind of contribution means
 editing two signatures and a call site to carry a value neither class reads.
 
 Deliberately not resolved here. Each field is the output of a
-``blitzecdn.core.plugins.resolution`` function that already refuses what cannot
+``blitzecdn.core.features.resolution`` function that already refuses what cannot
 work — a role two packages both ship, a module no capability declared — and
 doing it here would make ``core.ansible`` reach for the registry rather than be
 handed what it needs.
@@ -28,7 +28,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
-from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
+from blitzecdn.core.features.resolution import ResolvedEdgeModule, ResolvedNginxResource
 
 __all__ = ["EdgeContributions"]
 
@@ -38,8 +38,8 @@ class EdgeContributions:
     """One installation's answer to "what do the installed capabilities add?"."""
 
     #: Where Ansible resolves a role name: core's roles and every installed
-    #: plugin's, in the order
-    #: :func:`~blitzecdn.core.plugins.resolution.resolve_role_search_path`
+    #: feature's, in the order
+    #: :func:`~blitzecdn.core.features.resolution.resolve_role_search_path`
     #: settled. One process-wide list, which is why core composes it.
     roles_path: tuple[Path, ...] = ()
     #: Contributed roles core's edge play runs before the configuration tree is
@@ -106,7 +106,7 @@ class EdgeContributions:
             "blitzecdn_edge_teardown_capability_roles": list(self.teardown_roles),
             "blitzecdn_nginx_modules": [
                 {
-                    "plugin": module.plugin,
+                    "plugin": module.feature,
                     "name": module.name,
                     "objects": list(module.objects),
                 }
@@ -115,7 +115,7 @@ class EdgeContributions:
             "blitzecdn_nginx_resources": {
                 context: [
                     {
-                        "plugin": resource.plugin,
+                        "plugin": resource.feature,
                         "name": resource.name,
                         "template": str(resource.template),
                     }

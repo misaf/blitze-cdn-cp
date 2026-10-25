@@ -144,11 +144,11 @@ class ConfigurationContribution:
     See ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
 
-    plugin: str
+    feature: str
     #: Secrets. Only these are copied into Ansible's subprocess environment,
     #: they remain ``SecretStr`` throughout, and they never travel through argv
     #: or desired state.
     environment_keys: tuple[EnvironmentKey, ...] = ()
     #: Non-secrets. Resolved to the declared type and handed back through
-    #: :class:`~blitzecdn.core.plugins.resolution.CapabilityConfig`.
+    #: :class:`~blitzecdn.core.features.resolution.CapabilityConfig`.
     settings: tuple[CapabilitySetting, ...] = ()

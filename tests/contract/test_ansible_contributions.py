@@ -16,7 +16,7 @@ in which order, and what happens when two packages claim one name.
 Nothing here installs anything. The property being asserted is the *rule*, so
 the contributions are built by hand; `tests/architecture/lifecycle/`
 asserts the other half — that a real wheel really carries the directory a real
-plugin really contributes.
+feature really contributes.
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible.contributions import EdgeContributions
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins import AnsibleContribution, EdgeModule
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features import AnsibleContribution, EdgeModule
+from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
     resolve_edge_modules,
     resolve_host_capability_roles,
@@ -54,7 +54,7 @@ def test_core_roles_come_first_and_contributed_roles_follow(tmp_path):
     cache = _roles(tmp_path / "cache", "blitzecdn_cache")
 
     search = resolve_role_search_path(
-        core, [AnsibleContribution(plugin="cache", roles_path=cache)]
+        core, [AnsibleContribution(feature="cache", roles_path=cache)]
     )
 
     assert search == (core, cache)
@@ -72,8 +72,8 @@ def test_the_order_follows_the_plugins_not_the_order_they_registered(tmp_path):
     waf = _roles(tmp_path / "waf", "blitzecdn_waf")
     cache = _roles(tmp_path / "cache", "blitzecdn_cache")
     contributions = [
-        AnsibleContribution(plugin="waf", roles_path=waf),
-        AnsibleContribution(plugin="cache", roles_path=cache),
+        AnsibleContribution(feature="waf", roles_path=waf),
+        AnsibleContribution(feature="cache", roles_path=cache),
     ]
 
     assert resolve_role_search_path(core, contributions) == (core, cache, waf)
@@ -96,12 +96,12 @@ def test_a_role_two_packages_both_ship_is_refused_by_name(tmp_path):
     first = _roles(tmp_path / "first", "blitzecdn_purge")
     second = _roles(tmp_path / "second", "blitzecdn_purge")
 
-    with pytest.raises(PluginError) as error:
+    with pytest.raises(FeatureError) as error:
         resolve_role_search_path(
             core,
             [
-                AnsibleContribution(plugin="alpha", roles_path=first),
-                AnsibleContribution(plugin="zulu", roles_path=second),
+                AnsibleContribution(feature="alpha", roles_path=first),
+                AnsibleContribution(feature="zulu", roles_path=second),
             ],
         )
 
@@ -120,9 +120,9 @@ def test_a_package_may_not_shadow_a_role_the_control_plane_owns(tmp_path):
     core = _roles(tmp_path / "core", "blitzecdn_nginx")
     impostor = _roles(tmp_path / "impostor", "blitzecdn_nginx")
 
-    with pytest.raises(PluginError) as error:
+    with pytest.raises(FeatureError) as error:
         resolve_role_search_path(
-            core, [AnsibleContribution(plugin="impostor", roles_path=impostor)]
+            core, [AnsibleContribution(feature="impostor", roles_path=impostor)]
         )
 
     assert "the control plane" in str(error.value)
@@ -138,10 +138,10 @@ def test_a_contributed_directory_that_is_not_there_is_refused(tmp_path):
     """
     core = _roles(tmp_path / "core")
 
-    with pytest.raises(PluginError) as error:
+    with pytest.raises(FeatureError) as error:
         resolve_role_search_path(
             core,
-            [AnsibleContribution(plugin="cache", roles_path=tmp_path / "nowhere")],
+            [AnsibleContribution(feature="cache", roles_path=tmp_path / "nowhere")],
         )
 
     assert "'cache'" in str(error.value)
@@ -173,7 +173,7 @@ def test_the_resolved_path_is_what_ansible_is_actually_given(
         EdgeContributions.of(
             roles_path=resolve_role_search_path(
                 settings.ansible_dir / "roles",
-                [AnsibleContribution(plugin="cache", roles_path=cache)],
+                [AnsibleContribution(feature="cache", roles_path=cache)],
             )
         ),
     )
@@ -190,7 +190,7 @@ def test_a_runner_nobody_gave_a_path_still_finds_the_control_plane_s_roles(
     settings,  # noqa: F811
     monkeypatch,
 ):
-    """Core's own plays must not need a plugin registry to run."""
+    """Core's own plays must not need a feature registry to run."""
     captured: dict[str, str] = {}
 
     def fake_run(**kwargs):
@@ -258,12 +258,12 @@ def test_a_slot_refuses_a_role_the_package_does_not_ship(tmp_path):
     """
     roles = _roles(tmp_path / "resolver", "blitzecdn_resolver")
     contribution = AnsibleContribution(
-        plugin="resolver",
+        feature="resolver",
         roles_path=roles,
         teardown_roles=("blitzecdn_resolver_teardown",),
     )
 
-    with pytest.raises(PluginError) as error:
+    with pytest.raises(FeatureError) as error:
         resolve_teardown_capability_roles([contribution])
 
     assert "'resolver'" in str(error.value)
@@ -284,7 +284,7 @@ def test_the_three_slots_are_composed_independently(tmp_path):
     )
     contributions = [
         AnsibleContribution(
-            plugin="one",
+            feature="one",
             roles_path=roles,
             edge_roles=("converge_role",),
             host_roles=("host_role",),
@@ -300,7 +300,7 @@ def test_the_three_slots_are_composed_independently(tmp_path):
 def test_a_package_declaring_no_slot_contributes_to_none(tmp_path):
     """Shipping a role its own plays reach is not a contribution to a slot."""
     roles = _roles(tmp_path / "cache", "blitzecdn_cache_stats")
-    contributions = [AnsibleContribution(plugin="cache", roles_path=roles)]
+    contributions = [AnsibleContribution(feature="cache", roles_path=roles)]
 
     assert resolve_edge_capability_roles(contributions) == ()
     assert resolve_host_capability_roles(contributions) == ()
@@ -340,7 +340,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
             edge_modules=resolve_edge_modules(
                 [
                     AnsibleContribution(
-                        plugin="one",
+                        feature="one",
                         roles_path=settings.ansible_dir / "roles",
                         edge_modules=(
                             EdgeModule(name="brotli", objects=("filter.so",)),
@@ -370,18 +370,18 @@ def test_every_slot_reaches_ansible_on_the_command_line(
 def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
     """`load_module` is one list per process, so core composes it.
 
-    Ordered by plugin name like every other slot, so two controllers with the
+    Ordered by feature name like every other slot, so two controllers with the
     same packages installed render the same file and an edge's configuration
     tree does not change because pluggy registered in a different order.
     """
     contributions = [
         AnsibleContribution(
-            plugin="security",
+            feature="security",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=False),),
         ),
         AnsibleContribution(
-            plugin="compression",
+            feature="compression",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="brotli", objects=("brotli.so",)),),
         ),
@@ -389,7 +389,7 @@ def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
 
     resolved = resolve_edge_modules(contributions)
 
-    assert [(module.plugin, module.name) for module in resolved] == [
+    assert [(module.feature, module.name) for module in resolved] == [
         ("compression", "brotli"),
         ("security", "njs"),
     ]
@@ -405,10 +405,10 @@ def test_two_capabilities_may_need_the_same_module():
     njs = EdgeModule(name="njs", objects=("js.so",), build=False, probe="js_path /e;")
     contributions = [
         AnsibleContribution(
-            plugin="alpha", roles_path=Path("/nowhere"), edge_modules=(njs,)
+            feature="alpha", roles_path=Path("/nowhere"), edge_modules=(njs,)
         ),
         AnsibleContribution(
-            plugin="zulu", roles_path=Path("/nowhere"), edge_modules=(njs,)
+            feature="zulu", roles_path=Path("/nowhere"), edge_modules=(njs,)
         ),
     ]
 
@@ -419,18 +419,18 @@ def test_one_module_described_two_ways_is_refused():
     """Two descriptions of one module means an edge loads whichever won."""
     contributions = [
         AnsibleContribution(
-            plugin="alpha",
+            feature="alpha",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=False),),
         ),
         AnsibleContribution(
-            plugin="zulu",
+            feature="zulu",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=True),),
         ),
     ]
 
-    with pytest.raises(PluginError, match="declared differently"):
+    with pytest.raises(FeatureError, match="declared differently"):
         resolve_edge_modules(contributions)
 
 
@@ -438,18 +438,18 @@ def test_one_shared_object_loaded_under_two_names_is_refused():
     """Nginx refuses a module loaded twice; this names both owners first."""
     contributions = [
         AnsibleContribution(
-            plugin="alpha",
+            feature="alpha",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="js", objects=("js.so",)),),
         ),
         AnsibleContribution(
-            plugin="zulu",
+            feature="zulu",
             roles_path=Path("/nowhere"),
             edge_modules=(EdgeModule(name="njs", objects=("js.so",)),),
         ),
     ]
 
-    with pytest.raises(PluginError, match="loaded by both"):
+    with pytest.raises(FeatureError, match="loaded by both"):
         resolve_edge_modules(contributions)
 
 
@@ -458,6 +458,6 @@ def test_one_shared_object_loaded_under_two_names_is_refused():
     [(), ("/usr/lib/nginx/modules/js.so",), ("../js.so",), ("js",)],
 )
 def test_a_module_names_a_plain_shared_object_file(objects):
-    """The directory is core's half of the contract; the file is the plugin's."""
+    """The directory is core's half of the contract; the file is the feature's."""
     with pytest.raises(ValueError):
         EdgeModule(name="njs", objects=objects)

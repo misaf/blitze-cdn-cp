@@ -696,6 +696,6 @@ class DeploymentService:
         The execution envelope adds the release digest to its immutable
         artifact. Identity stays outside the artifact itself to avoid a hash
         that would have to contain its own value. No current policy or live
-        plugin output is consulted while publishing an older release.
+        feature output is consulted while publishing an older release.
         """
         self.execution.write_yaml(path, release.execution_document())

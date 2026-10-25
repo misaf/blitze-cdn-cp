@@ -36,7 +36,7 @@ from blitzecdn.capabilities.tls.policy import (
 )
 from blitzecdn.composition import load_registry
 from blitzecdn.core.exceptions import ConflictError
-from blitzecdn.core.plugins.resolution import resolve_nginx_resources
+from blitzecdn.core.features.resolution import resolve_nginx_resources
 
 jinja2 = pytest.importorskip("jinja2")
 
@@ -61,7 +61,7 @@ def _nginx_resources() -> dict[str, list[dict[str, str]]]:
     return {
         context: [
             {
-                "plugin": resource.plugin,
+                "plugin": resource.feature,
                 "name": resource.name,
                 "template": str(resource.template),
             }

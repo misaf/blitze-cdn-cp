@@ -31,13 +31,13 @@ from blitzecdn.capabilities.tls.runtime import (
     certificates_rendering,
 )
 from blitzecdn.core.config import Settings
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     FeatureOperations,
+    FeatureRegistry,
     FeatureRendering,
-    PluginRegistry,
     load_features,
 )
-from blitzecdn.core.plugins.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.providers.http3.runtime import RENDERING as HTTP3_RENDERING
 
 __all__ = [
@@ -85,7 +85,7 @@ class RosterEntry:
 def _security_rendering(inputs: RenderingInputs) -> FeatureRendering:
     return security_rendering(
         config=SecurityConfig.from_capability_config(
-            inputs.capability_config.for_plugin("security")
+            inputs.capability_config.for_feature("security")
         )
     )
 
@@ -168,9 +168,9 @@ ROSTER: tuple[RosterEntry, ...] = (
 BUILTIN_FEATURES: tuple[str, ...] = tuple(entry.module for entry in ROSTER)
 
 
-def load_registry() -> PluginRegistry:
+def load_registry() -> FeatureRegistry:
     """Every built-in feature's declarations. Any failure is fatal."""
-    return PluginRegistry(load_features(BUILTIN_FEATURES))
+    return FeatureRegistry(load_features(BUILTIN_FEATURES))
 
 
 def bind_renderings(inputs: RenderingInputs) -> tuple[FeatureRendering, ...]:

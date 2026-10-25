@@ -10,7 +10,7 @@ typed.
 from __future__ import annotations
 
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
-from blitzecdn.core.plugins import FeatureOperations, ScheduledJob
+from blitzecdn.core.features import FeatureOperations, ScheduledJob
 
 
 def deployments_operations(
@@ -25,10 +25,10 @@ def deployments_operations(
         deployments.initialize()
 
     return FeatureOperations(
-        plugin="deployments",
+        feature="deployments",
         scheduled_jobs=(
             ScheduledJob(
-                plugin="deployments",
+                feature="deployments",
                 name="check-drift",
                 interval_seconds=drift_check_interval_seconds,
                 run=check,

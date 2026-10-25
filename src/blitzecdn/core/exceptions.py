@@ -27,8 +27,8 @@ class ExecutionError(BlitzeError):
     """An infrastructure command could not be executed."""
 
 
-class PluginError(BlitzeError):
-    """A plugin could not be discovered, registered, or used.
+class FeatureError(BlitzeError):
+    """A feature could not be discovered, registered, or used.
 
     Distinct from `ConfigurationError` because the two are fixed in different
     places: a configuration error is a value an operator can change, while this
@@ -68,7 +68,7 @@ class FailureKind(StrEnum):
     EXECUTION = "execution"
     #: A value an operator can change is missing, malformed, or unsafe.
     CONFIGURATION = "configuration"
-    #: The installation itself is wrong — a plugin that will not load, or a
+    #: The installation itself is wrong — a feature that will not load, or a
     #: `BlitzeError` no layer anticipated. Distinct from CONFIGURATION because
     #: retrying cannot help and the fix is a package, not a setting.
     INTERNAL = "internal"
@@ -83,7 +83,7 @@ _CLASSIFICATION: tuple[tuple[type[BlitzeError], FailureKind], ...] = (
     (NotFoundError, FailureKind.NOT_FOUND),
     (ExecutionError, FailureKind.EXECUTION),
     (ConfigurationError, FailureKind.CONFIGURATION),
-    (PluginError, FailureKind.INTERNAL),
+    (FeatureError, FailureKind.INTERNAL),
 )
 
 

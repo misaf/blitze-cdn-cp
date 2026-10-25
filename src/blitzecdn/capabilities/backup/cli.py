@@ -77,7 +77,7 @@ def create(
     """Write one archive of the state this controller cannot regenerate."""
     service = build_backup_service(
         common.settings(),
-        configuration=common.installed_plugins().configuration_contributions(),
+        configuration=common.installed_features().configuration_contributions(),
     )
     created = service.create(only=only, destination=destination)
     typer.echo(f"Backup created: {created}")
@@ -90,7 +90,7 @@ def inspect(
     """Show what an archive holds, without extracting or restoring any of it."""
     manifest = build_backup_service(
         common.settings(),
-        configuration=common.installed_plugins().configuration_contributions(),
+        configuration=common.installed_features().configuration_contributions(),
     ).inspect(archive)
     typer.echo(f"Created: {manifest.created_at:%Y-%m-%d %H:%M:%S} UTC")
     typer.echo(f"BlitzeCDN version: {manifest.blitzecdn_version}")
@@ -115,7 +115,7 @@ def restore(
     """
     service = build_backup_service(
         common.settings(),
-        configuration=common.installed_plugins().configuration_contributions(),
+        configuration=common.installed_features().configuration_contributions(),
     )
     manifest = service.inspect(archive)
     listed = ", ".join(component.value for component in manifest.components)

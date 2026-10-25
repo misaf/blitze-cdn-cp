@@ -5,18 +5,18 @@ from __future__ import annotations
 from blitzecdn.capabilities.backup import cli
 from blitzecdn.capabilities.backup.composition import __version__
 from blitzecdn.capabilities.backup.config import CONFIGURATION
-from blitzecdn.core.plugins import CliCommandGroup, Feature, PluginMetadata
+from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="backup",
             version=__version__,
             provides=frozenset({"backup"}),
             summary="Archive and restore the control plane's own state.",
         ),
         cli_commands=(
-            CliCommandGroup(plugin="backup", name="backup", app=cli.backup_app),
+            CliCommandGroup(feature="backup", name="backup", app=cli.backup_app),
         ),
         # Where this capability writes its archives. The same declaration the
         # backup CLI resolves for itself when it runs with no control plane;

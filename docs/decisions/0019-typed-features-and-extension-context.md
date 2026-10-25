@@ -53,12 +53,12 @@ Registration order still decides presentation only.
 
 ## Code and verification
 
-- `core/plugins/types/feature.py`: `Feature`, `FeatureRendering`,
+- `core/features/types/feature.py`: `Feature`, `FeatureRendering`,
   `FeatureOperations`.
-- `core/plugins/registry.py`, `discovery.py`: declarations, loading and
+- `core/features/registry.py`, `discovery.py`: declarations, loading and
   binding.
 - `capabilities/*/feature.py`, `providers/*/feature.py` and their `runtime.py`.
 - `composition/roster.py`: the roster and both binding stages.
-- `tests/architecture/test_plugins.py`: mechanism, binding and failure policy.
+- `tests/architecture/test_features.py`: mechanism, binding and failure policy.
 - `tests/architecture/test_layering.py`: no module names the composition root;
   runtime modules import no delivery layer; every capability declares a feature.

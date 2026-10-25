@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from blitzecdn.core.plugins import FeatureOperations, HealthCheck
+from blitzecdn.core.features import FeatureOperations, HealthCheck
 
 
 def diagnostics_operations(
@@ -26,9 +26,9 @@ def diagnostics_operations(
             raise ConnectionError("the durable job table could not be read")
 
     return FeatureOperations(
-        plugin="diagnostics",
+        feature="diagnostics",
         health_checks=(
-            HealthCheck(plugin="diagnostics", name="database", check=database),
-            HealthCheck(plugin="diagnostics", name="queue", check=queue),
+            HealthCheck(feature="diagnostics", name="database", check=database),
+            HealthCheck(feature="diagnostics", name="queue", check=queue),
         ),
     )

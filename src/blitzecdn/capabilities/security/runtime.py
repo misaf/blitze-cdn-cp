@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from blitzecdn.capabilities.security.config import SECRET_VARIABLE, SecurityConfig
-from blitzecdn.core.plugins import FeatureRendering, Severity, ValidationIssue
+from blitzecdn.core.features import FeatureRendering, Severity, ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
@@ -28,7 +28,7 @@ def security_rendering(*, config: SecurityConfig) -> FeatureRendering:
             return ()
         return (
             ValidationIssue(
-                plugin="security",
+                feature="security",
                 site=site.name,
                 message=(
                     f"under_attack_mode is on but {SECRET_VARIABLE} is not set on "
@@ -39,4 +39,4 @@ def security_rendering(*, config: SecurityConfig) -> FeatureRendering:
             ),
         )
 
-    return FeatureRendering(plugin="security", deployment_checks=checks)
+    return FeatureRendering(feature="security", deployment_checks=checks)

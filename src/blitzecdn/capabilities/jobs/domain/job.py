@@ -109,7 +109,7 @@ class Job(BaseModel):
 
     id: str
     #: What this job *is*, resolved by the worker against its handler table.
-    #: A string rather than an enum because a plugin this repository has never
+    #: A string rather than an enum because a feature this repository has never
     #: heard of contributes work through the scheduled-job kind, and a closed
     #: set here would mean core enumerating what it cannot know.
     kind: str

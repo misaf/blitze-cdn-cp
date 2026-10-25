@@ -429,7 +429,7 @@ def test_every_error_class_is_classified():
     on, and a new subclass has to say which kind it is.
     """
     from blitzecdn.core import exceptions
-    from blitzecdn.core.exceptions import BlitzeError, PluginError
+    from blitzecdn.core.exceptions import BlitzeError, FeatureError
 
     classification = exceptions._CLASSIFICATION
     classified = {kind for kind, _ in classification}
@@ -455,4 +455,4 @@ def test_every_error_class_is_classified():
                 f"{kind.__name__} is a base of {later.__name__} but is listed "
                 "before it, so the subclass can never match"
             )
-    assert exceptions.classify(PluginError("x")) is exceptions.FailureKind.INTERNAL
+    assert exceptions.classify(FeatureError("x")) is exceptions.FailureKind.INTERNAL

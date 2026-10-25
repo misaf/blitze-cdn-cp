@@ -25,7 +25,7 @@ from blitzecdn.composition import (
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
-from blitzecdn.core.plugins import PluginRegistry
+from blitzecdn.core.features import FeatureRegistry
 
 
 class ExitCode(IntEnum):
@@ -90,7 +90,7 @@ def services() -> CliServices:
     return held[0]
 
 
-def installed_plugins() -> PluginRegistry:
+def installed_features() -> FeatureRegistry:
     """What is shipped, for the commands whose answer needs nothing else.
 
     `blitzecdn ansible search-path` and `blitzecdn edges modules` run where

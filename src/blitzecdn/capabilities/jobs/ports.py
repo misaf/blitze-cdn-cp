@@ -105,7 +105,7 @@ class ScheduleStore(Protocol):
         """
 
     def forget(self, names: Sequence[str]) -> int:
-        """Remove schedules for jobs no installed plugin contributes."""
+        """Remove schedules for jobs no installed feature contributes."""
 
     def due(self, now: datetime) -> Sequence[Schedule]: ...
 
@@ -127,7 +127,7 @@ class JobHandler(Protocol):
 
     Takes the payload and nothing else. The worker resolves a kind to one of
     these and knows no more than that — which is what lets a deployment and a
-    plugin-contributed maintenance run share one loop, one lease and one
+    feature-contributed maintenance run share one loop, one lease and one
     fencing rule without the loop knowing what either of them is.
 
     It answers with a :data:`~blitzecdn.capabilities.jobs.domain.JobOutcome`.

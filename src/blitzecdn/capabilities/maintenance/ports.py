@@ -6,12 +6,12 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from blitzecdn.capabilities.deployments.domain import Deployment
-from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.features import ScheduledJob
 
 __all__ = ["Deployments", "JobTable"]
 
 
-#: Every scheduled job the installed plugins contribute, by name.
+#: Every scheduled job the installed features contribute, by name.
 type JobTable = Mapping[str, ScheduledJob]
 
 

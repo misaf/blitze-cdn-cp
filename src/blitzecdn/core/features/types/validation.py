@@ -22,13 +22,13 @@ class Severity(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
-    """Something a plugin knows about a site that a deployment should hear.
+    """Something a feature knows about a site that a deployment should hear.
 
     A blocking issue refuses the deployment before anything is rendered; a
     warning is reported and converged anyway.
     """
 
-    plugin: str
+    feature: str
     site: str
     message: str
     severity: Severity = Severity.BLOCKING
@@ -36,7 +36,7 @@ class ValidationIssue:
 
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
-    """Every plugin's answer about one site, and whether it may be deployed."""
+    """Every feature's answer about one site, and whether it may be deployed."""
 
     site: str
     issues: tuple[ValidationIssue, ...] = ()

@@ -85,9 +85,15 @@ in and required), `ExtensionContext`, external discovery and rejection
 reporting, `tests/external_plugins/`, and the frozen `plugin_abi.txt` and
 `sdk.txt`. `blitzecdn plugins` lists the roster's metadata.
 
-The `Plugin*` names (`PluginRegistry`, `PluginMetadata`, the `plugin` field on
-contributions) are kept. Renaming them touches every feature and most tests
-for no behavioural gain, and is separate work if it is wanted.
+With no plugin platform left, the mechanism is named for what it holds.
+`core/plugins/` is `core/features/`; `PluginRegistry`, `PluginMetadata` and
+`PluginError` are `FeatureRegistry`, `FeatureMetadata` and `FeatureError`; the
+`plugin` field on every contribution is `feature`; and a registry's metadata
+is `registry.metadata`. Three names that leave the controller keep the old
+word, because renaming them changes a contract rather than a name: the
+`blitzecdn plugins` command (frozen CLI surface), the `plugin` key of
+`blitzecdn_nginx_modules` (frozen Ansible surface), and the
+`blitzecdn-plugin-*` Nginx file names already written to edges.
 
 ### When the platform comes back
 
@@ -150,7 +156,7 @@ service its process was not given.
   change. The CLI, HTTP, Ansible and schema surfaces do not change.
 - Capability `runtime.py` builders keep their named arguments; only the
   roster rows read the input records.
-- `PluginMetadata` loses `api_version` and `required`, and a feature's
+- `FeatureMetadata` loses `api_version` and `required`, and a feature's
   `startup` and `shutdown` take no process argument.
 - Tests built on `ControlPlane` build `ApplicationServices` over an
   `Infrastructure` with doubles, and wrap it in a process container when the
@@ -167,13 +173,13 @@ This record governs:
 - `composition/roster.py`: `ROSTER`, `RenderingInputs`, `OperationInputs`.
 - `composition/infrastructure.py`, `services.py` and `processes.py`, which
   replace `composition/control_plane.py`.
-- `core/plugins/`: `hooks.py` and `manager.py` removed; `discovery.py` keeps
+- `core/features/`: `hooks.py` and `manager.py` removed; `discovery.py` keeps
   only built-in loading; `registry.py` loses its external half; `types/` kept.
 - `capabilities/*/feature.py`, `providers/*/feature.py`: metadata without
   `api_version` or `required`. `runtime.py` builders keep named arguments.
 - `api/dependencies.py`, `cli/common.py`, `worker.py`, `install_handoff.py`:
   use their process containers.
-- `tests/architecture/test_plugins.py`: roster uniqueness, that every builder
+- `tests/architecture/test_features.py`: roster uniqueness, that every builder
   binds, and that both stages run in the right order.
 - `tests/architecture/test_layering.py`: each entry point builds only its own
   process container, and delivery code names no part of composition except its

@@ -1,6 +1,6 @@
 """The dynamic modules an edge's Nginx loads, composed from what is installed.
 
-Separate from :mod:`~blitzecdn.core.plugins.resolution.nginx` although both
+Separate from :mod:`~blitzecdn.core.features.resolution.nginx` although both
 end up in the same configuration, because the two obey opposite conflict
 rules and that difference is the whole content of each.
 
@@ -21,8 +21,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins.types import AnsibleContribution
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.types import AnsibleContribution
 
 __all__ = ["ResolvedEdgeModule", "resolve_edge_modules"]
 
@@ -31,7 +31,7 @@ __all__ = ["ResolvedEdgeModule", "resolve_edge_modules"]
 class ResolvedEdgeModule:
     """One dynamic module the installed capabilities need, and who asked."""
 
-    plugin: str
+    feature: str
     name: str
     objects: tuple[str, ...]
     build: bool
@@ -46,11 +46,11 @@ def resolve_edge_modules(
     The companion to :func:`resolve_nginx_resources` for the one Nginx input
     that is not a fragment: `load_module` is a main-context directive, so the
     modules an edge loads are a single process-wide list, and core composes it
-    the way it composes the role search path — ordered by plugin name so two
+    the way it composes the role search path — ordered by feature name so two
     controllers with the same packages resolve the same list, and by declared
-    order within one plugin, which is the only ordering a capability owns.
+    order within one feature, which is the only ordering a capability owns.
 
-    Two plugins declaring the *same* module is allowed when they declare it
+    Two features declaring the *same* module is allowed when they declare it
     identically, and that is deliberate rather than lenient. njs is the case:
     it is one shared object in the base image and any number of capabilities
     may want it, and refusing the second would force one of them to declare a
@@ -62,10 +62,10 @@ def resolve_edge_modules(
     resolved: list[ResolvedEdgeModule] = []
     owners: dict[str, ResolvedEdgeModule] = {}
     objects: dict[str, str] = {}
-    for contribution in sorted(contributions, key=lambda item: item.plugin):
+    for contribution in sorted(contributions, key=lambda item: item.feature):
         for module in contribution.edge_modules:
             candidate = ResolvedEdgeModule(
-                plugin=contribution.plugin,
+                feature=contribution.feature,
                 name=module.name,
                 objects=tuple(module.objects),
                 build=module.build,
@@ -75,16 +75,16 @@ def resolve_edge_modules(
             if existing is not None:
                 if _same_module(existing, candidate):
                     continue
-                raise PluginError(
+                raise FeatureError(
                     f"Nginx module {module.name!r} is declared differently by "
-                    f"plugin {existing.plugin!r} and plugin "
-                    f"{contribution.plugin!r}. One module is one shared object "
+                    f"feature {existing.feature!r} and feature "
+                    f"{contribution.feature!r}. One module is one shared object "
                     "set built one way; two descriptions of it means an edge "
                     "loads whichever was resolved first."
                 )
             for shared_object in candidate.objects:
                 if shared_object in objects:
-                    raise PluginError(
+                    raise FeatureError(
                         f"the shared object {shared_object!r} is loaded by both "
                         f"module {objects[shared_object]!r} and module "
                         f"{module.name!r}; Nginx refuses a module loaded twice."

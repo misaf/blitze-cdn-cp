@@ -1,6 +1,6 @@
 """Running one scheduled job, and paying off what it left owing.
 
-`jobs.py` is that: the job a plugin contributed, run on the schedule
+`jobs.py` is that: the job a feature contributed, run on the schedule
 composition gave it, and the convergence a job asks for when it changed
 something an edge has to be told about.
 """

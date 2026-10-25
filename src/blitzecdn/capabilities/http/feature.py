@@ -25,11 +25,11 @@ before any of this is rendered.
 from __future__ import annotations
 
 from blitzecdn import __version__
-from blitzecdn.core.plugins import Feature, PluginMetadata
+from blitzecdn.core.features import Feature, FeatureMetadata
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="http",
             version=__version__,
             summary="Baseline visitor HTTP/1.1 and HTTP/2, and the listener contract.",

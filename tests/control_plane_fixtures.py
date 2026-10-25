@@ -499,7 +499,7 @@ class FakeEdgeStore:
     """An in-memory ``EdgeStore``, for anything that only needs the roster.
 
     The real store is a SQLite table and also the thing the Ansible inventory
-    plugin reads, so tests about the *plugin* use a real database (see
+    feature reads, so tests about the *feature* use a real database (see
     `test_inventory.py`). Everything else — preflight comparing addresses, the
     runner expanding a host limit — only wants "which edges exist", and a list
     answers that without a file on disk.
@@ -785,7 +785,7 @@ def cli_control_plane(
     """A control plane wired to doubles, with the CLI pointed at it.
 
     Shared because more than one distribution's CLI tests need it: the command
-    tree an operator sees is assembled from every installed plugin, so a test
+    tree an operator sees is assembled from every installed feature, so a test
     of `blitzecdn cache purge` drives the same root application as a test of
     `blitzecdn deploy` and needs the same substitution to do it.
     """
@@ -853,7 +853,7 @@ def repository_on(settings: Settings) -> Repository:
 
 def control_plane_app(settings: Settings) -> FastAPI:
     """The all-package workspace API used by cross-capability integration tests."""
-    return create_app(settings, plugins=load_registry())
+    return create_app(settings, features=load_registry())
 
 
 #: The API key `settings` configures, as the header a client sends. Shared

@@ -16,7 +16,7 @@ import pytest
 
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.core.exceptions import NotFoundError
-from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.features import ScheduledJob
 
 
 def test_a_maintenance_run_converges_what_it_left_owing():
@@ -32,7 +32,7 @@ def test_a_maintenance_run_converges_what_it_left_owing():
     service = MaintenanceService(
         jobs={
             "renew-certificates": ScheduledJob(
-                plugin="certificates",
+                feature="certificates",
                 name="renew-certificates",
                 interval_seconds=60,
                 run=lambda operator: calls.append(f"renewed by {operator}"),
@@ -51,7 +51,7 @@ def test_a_maintenance_run_converges_what_it_left_owing():
 
 
 def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
-    """A message can outlive the plugin that published it."""
+    """A message can outlive the feature that published it."""
     service = MaintenanceService(
         jobs={},
         deployments=SimpleNamespace(converge_requirements=lambda _operator: None),
@@ -62,7 +62,7 @@ def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
 
 
 def test_the_refusal_names_what_is_installed():
-    """So the operator who uninstalled the plugin can see what is left.
+    """So the operator who uninstalled the feature can see what is left.
 
     `installed: none` is the empty case above; this is the one an operator
     actually hits, where a job was renamed and the message in flight still
@@ -71,13 +71,13 @@ def test_the_refusal_names_what_is_installed():
     service = MaintenanceService(
         jobs={
             "check-drift": ScheduledJob(
-                plugin="deployments",
+                feature="deployments",
                 name="check-drift",
                 interval_seconds=900,
                 run=lambda _operator: None,
             ),
             "renew-certificates": ScheduledJob(
-                plugin="certificates",
+                feature="certificates",
                 name="renew-certificates",
                 interval_seconds=60,
                 run=lambda _o: None,

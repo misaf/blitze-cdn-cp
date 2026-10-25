@@ -118,10 +118,10 @@ def test_an_unused_security_capability_never_blocks_a_deployment(
 def test_cli_error_semantics_are_unchanged_by_the_new_refusal(
     unprovisioned, monkeypatch
 ):
-    """A blocking plugin issue is reported like every other validation error.
+    """A blocking feature issue is reported like every other validation error.
 
-    Same exit code, same `--json` envelope, and the `plugin: site: message`
-    attribution the deployment service already applied to plugin issues. The
+    Same exit code, same `--json` envelope, and the `feature: site: message`
+    attribution the deployment service already applied to feature issues. The
     refusal adds a reason to fail, not a new way of failing.
     """
     control = _control_serving(unprovisioned, FakeRunner(), under_attack_mode=True)

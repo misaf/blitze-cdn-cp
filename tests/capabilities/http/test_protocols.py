@@ -87,7 +87,7 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
         (_site("bravo"), _site("alpha"), _site("disabled", enabled=False))
     )
 
-    assert contribution.plugin == "http"
+    assert contribution.feature == "http"
     assert contribution.overrides == frozenset()
     assert contribution.variables == {
         "blitzecdn_edge_http3_enabled": False,
@@ -104,9 +104,9 @@ def test_a_registry_without_http3_refuses_a_site_that_requests_it():
     `blitzecdn-http3` is running.
     """
     from blitzecdn.composition import BUILTIN_FEATURES
-    from blitzecdn.core.plugins import PluginRegistry, load_features
+    from blitzecdn.core.features import FeatureRegistry, load_features
 
-    builtins = PluginRegistry(
+    builtins = FeatureRegistry(
         load_features(
             tuple(
                 path

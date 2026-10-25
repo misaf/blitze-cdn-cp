@@ -257,7 +257,7 @@ class PlaybookExecutor:
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
         )
-        # Optional capability configuration after plugin ownership has been
+        # Optional capability configuration after feature ownership has been
         # resolved. The composition root rejects unclaimed and multiply
         # claimed keys, so this contains only names explicitly owned by one
         # installed package.

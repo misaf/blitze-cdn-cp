@@ -15,7 +15,7 @@ from blitzecdn.capabilities.tls.certificates.ports import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.capabilities.tls.policy import CertificateMode, CertificateVersion
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     FeatureOperations,
     FeatureRendering,
     ScheduledJob,
@@ -44,7 +44,7 @@ def unissuable_names(site: CdnSite) -> Sequence[ValidationIssue]:
         return ()
     return tuple(
         ValidationIssue(
-            plugin="certificates",
+            feature="certificates",
             site=site.name,
             severity=Severity.BLOCKING,
             message=(
@@ -71,7 +71,7 @@ def certificates_rendering(*, store: CertificateStore) -> FeatureRendering:
         )
         certificate, private_key = store.sources(site.name, version=version)
         return SiteStateContribution(
-            plugin="certificates",
+            feature="certificates",
             variables={
                 "certificate_source_path": str(certificate),
                 "certificate_key_source_path": str(private_key),
@@ -81,7 +81,7 @@ def certificates_rendering(*, store: CertificateStore) -> FeatureRendering:
         )
 
     return FeatureRendering(
-        plugin="certificates",
+        feature="certificates",
         site_state=site_state,
         deployment_checks=unissuable_names,
     )
@@ -108,16 +108,16 @@ def certificates_operations(
             automatic_ssl.reconcile(operator)
 
     return FeatureOperations(
-        plugin="certificates",
+        feature="certificates",
         scheduled_jobs=(
             ScheduledJob(
-                plugin="certificates",
+                feature="certificates",
                 name="certificate-reconciliation",
                 interval_seconds=config.reconcile_interval_seconds,
                 run=reconcile,
             ),
             ScheduledJob(
-                plugin="certificates",
+                feature="certificates",
                 name="certificate-renewal",
                 interval_seconds=config.renewal_interval_seconds,
                 run=renew,
@@ -128,7 +128,7 @@ def certificates_operations(
                 lease_seconds=deployment_timeout_seconds + budget,
             ),
             ScheduledJob(
-                plugin="certificates",
+                feature="certificates",
                 name="automatic-ssl-scan",
                 interval_seconds=config.scan_interval_seconds,
                 run=scan,

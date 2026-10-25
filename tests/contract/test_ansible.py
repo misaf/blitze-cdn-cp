@@ -534,7 +534,7 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
 def test_a_capabilitys_own_settings_reach_ansible_through_the_environment(
     settings, monkeypatch
 ):
-    """Only the values resolved from explicit plugin claims are forwarded."""
+    """Only the values resolved from explicit feature claims are forwarded."""
     configured = settings.model_copy(
         update={
             "capability_environment": {

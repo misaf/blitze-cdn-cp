@@ -5,5 +5,5 @@ from blitzecdn.core.persistence.schema import DatabaseSchema
 
 
 def migrate_database(settings: Settings) -> None:
-    """Prepare persistence without constructing services or runtime plugins."""
+    """Prepare persistence without constructing services or runtime features."""
     DatabaseSchema.migrate(settings.database_path)

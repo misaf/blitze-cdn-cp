@@ -42,8 +42,8 @@ from blitzecdn.composition.roster import load_registry
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
-from blitzecdn.core.plugins import (
-    PluginRegistry,
+from blitzecdn.core.features import (
+    FeatureRegistry,
     resolve_capability_environment,
     resolve_edge_capability_roles,
     resolve_edge_modules,
@@ -52,7 +52,7 @@ from blitzecdn.core.plugins import (
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.core.plugins.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import PlaybookRunner
 
@@ -79,7 +79,7 @@ class Infrastructure:
     #: The one clock every service and store in this process reads.
     clock: Clock
     repository: Repository
-    plugins: PluginRegistry
+    features: FeatureRegistry
     capability_config: ResolvedCapabilityEnvironment
     edge_contributions: EdgeContributions
     edges: EdgeStorePort
@@ -101,7 +101,7 @@ class Infrastructure:
         settings: Settings,
         *,
         repository: Repository | None = None,
-        plugins: PluginRegistry | None = None,
+        features: FeatureRegistry | None = None,
         runner: FleetRunner | None = None,
         origin_probe: OriginProbePort | None = None,
         serving_probe: ServingVerifier | None = None,
@@ -119,7 +119,7 @@ class Infrastructure:
             clock=clock,
         )
         try:
-            registry = plugins if plugins is not None else load_registry()
+            registry = features if features is not None else load_registry()
             # Refuse missing required capabilities before building anything
             # that would use them. See docs/decisions/0002.
             registry.require(
@@ -156,7 +156,7 @@ class Infrastructure:
                 settings=settings,
                 clock=clock,
                 repository=store,
-                plugins=registry,
+                features=registry,
                 capability_config=capability_config,
                 edge_contributions=edge_contributions,
                 edges=fleet,

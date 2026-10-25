@@ -33,7 +33,7 @@ class Schedule(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    #: The scheduled job's name, which is also the plugin-unique identifier the
+    #: The scheduled job's name, which is also the feature-unique identifier the
     #: worker resolves against the registry in its own process.
     name: str
     interval_seconds: int = Field(ge=1)

@@ -14,7 +14,7 @@ from blitzecdn.composition import (
     BUILTIN_FEATURES,
     load_registry,
 )
-from blitzecdn.core.plugins import PluginMetadata
+from blitzecdn.core.features import FeatureMetadata
 from blitzecdn.providers.geoip import __version__
 from blitzecdn.providers.geoip.feature import FEATURES
 
@@ -36,7 +36,7 @@ def _site(**policy: object) -> CdnSite:
 def test_plugin_provides_geoip_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
-    assert isinstance(metadata, PluginMetadata)
+    assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "geoip"
     assert metadata.capabilities == frozenset({"geoip"})
     assert metadata.version == __version__
@@ -45,7 +45,7 @@ def test_plugin_provides_geoip_as_a_required_provider() -> None:
 def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     """The two halves of "requested but absent" have to name the same token.
 
-    Core decides the string a country-aware site asks for and this plugin
+    Core decides the string a country-aware site asks for and this feature
     decides the string an installation answers with. They are in different
     distributions, so nothing but this makes them agree — and a token that
     disagreed would refuse every country site with the package installed.
@@ -71,7 +71,7 @@ def test_application_assembly_supplies_the_capability() -> None:
     registry = load_registry()
 
     assert "geoip" in registry.capabilities
-    assert "geoip" in {plugin.name for plugin in registry.plugins}
+    assert "geoip" in {feature.name for feature in registry.metadata}
 
 
 # --- what installing it changes for a deployment ----------------------------

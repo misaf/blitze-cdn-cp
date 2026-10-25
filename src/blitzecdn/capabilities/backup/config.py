@@ -6,10 +6,10 @@ deliberate, since a controller whose database will not open is exactly when a
 restore is wanted — so no application services are built on this path and no
 ``platform.capability_config`` to ask.
 
-:func:`~blitzecdn.core.plugins.resolve_plugin_configuration` is core's answer
+:func:`~blitzecdn.core.features.resolve_feature_configuration` is core's answer
 to that: the same resolution the composition root performs, for one
 contribution, against the staged configuration ``Settings`` already carries.
-The cross-plugin half — a name two capabilities claim, a name nobody claims —
+The cross-feature half — a name two capabilities claim, a name nobody claims —
 is a question about the whole installation and is still answered once, at
 startup, by the control plane. This resolves a value.
 """
@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from blitzecdn.core.config import Settings
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     CapabilitySetting,
     ConfigurationContribution,
-    resolve_plugin_configuration,
+    resolve_feature_configuration,
 )
 
 __all__ = ["CONFIGURATION", "BackupConfig"]
@@ -39,7 +39,7 @@ BACKUP_DIR = "BLITZE_BACKUP_DIR"
 #: Declared relative, which is what says "under this controller's state" without
 #: this package having to know where that is. Core resolves it.
 CONFIGURATION = ConfigurationContribution(
-    plugin="backup",
+    feature="backup",
     settings=(
         CapabilitySetting(
             name=BACKUP_DIR,
@@ -67,7 +67,7 @@ class BackupConfig:
     @classmethod
     def from_settings(cls, settings: Settings) -> BackupConfig:
         """Resolve this package's own configuration from a bare ``Settings``."""
-        config = resolve_plugin_configuration(
+        config = resolve_feature_configuration(
             CONFIGURATION,
             settings.capability_environment,
             settings.capability_config_file,

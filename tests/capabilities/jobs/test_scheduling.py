@@ -25,7 +25,7 @@ from blitzecdn.capabilities.jobs.service import (
     ScheduleSpec,
 )
 from blitzecdn.composition import Repository
-from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.features import ScheduledJob
 
 _START = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -234,16 +234,16 @@ def test_concurrent_schedulers_publish_one_job_from_the_same_due_snapshot(
 def test_a_disabled_job_contributes_no_schedule():
     """An interval of zero is how every one of them is turned off.
 
-    Resolved where the two vocabularies meet — a plugin's `ScheduledJob` and
+    Resolved where the two vocabularies meet — a feature's `ScheduledJob` and
     this capability's `ScheduleSpec` — rather than as a row the tick has to
     keep skipping.
     """
     jobs = {
         "drift": ScheduledJob(
-            plugin="deployments", name="drift", interval_seconds=0, run=lambda _o: None
+            feature="deployments", name="drift", interval_seconds=0, run=lambda _o: None
         ),
         "renew": ScheduledJob(
-            plugin="tls", name="renew", interval_seconds=3600, run=lambda _o: None
+            feature="tls", name="renew", interval_seconds=3600, run=lambda _o: None
         ),
     }
 
@@ -254,7 +254,7 @@ def test_a_job_with_no_lease_opinion_gets_twice_its_interval():
     """A run that has not finished by then is stuck rather than slow."""
     jobs = {
         "renew": ScheduledJob(
-            plugin="tls", name="renew", interval_seconds=3600, run=lambda _o: None
+            feature="tls", name="renew", interval_seconds=3600, run=lambda _o: None
         )
     }
 

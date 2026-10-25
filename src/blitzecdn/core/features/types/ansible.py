@@ -85,11 +85,11 @@ class AnsibleContribution:
 
     Every role list names roles this contribution's own `roles_path` ships —
     core refuses a name that is not there rather than letting the play fail much
-    later. `plugin` is here for the failure message: two packages shipping a
+    later. `feature` is here for the failure message: two packages shipping a
     role of the same name is a conflict reported with both names.
     """
 
-    plugin: str
+    feature: str
     roles_path: Path
     #: Role names, from this contribution's own directory, that core's edge
     #: play runs. Empty for a package whose roles are only ever reached by its

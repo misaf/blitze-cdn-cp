@@ -147,7 +147,7 @@ def build_deployment_service(
     persistence and execution parts is decided here.
 
     Nothing here renders a desired-state document any more. Deriving the hosts,
-    merging every plugin's contribution and validating the result belong to the
+    merging every feature's contribution and validating the result belong to the
     releases capability; this one holds the ``Releases`` port and an atomic
     writer, which is the whole of its contact with configuration.
     """

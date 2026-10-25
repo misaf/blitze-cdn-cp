@@ -15,14 +15,14 @@ composition root, not here, because this package is the mechanism and not a
 participant in it.
 """
 
-from blitzecdn.core.plugins.discovery import load_features
-from blitzecdn.core.plugins.registry import (
+from blitzecdn.core.features.discovery import load_features
+from blitzecdn.core.features.registry import (
+    FeatureRegistry,
     Operations,
-    PluginRegistry,
     Rendering,
     merge_variables,
 )
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.features.resolution import (
     CapabilityConfig,
     ResolvedCapabilityEnvironment,
     ResolvedEdgeModule,
@@ -30,13 +30,13 @@ from blitzecdn.core.plugins.resolution import (
     resolve_capability_environment,
     resolve_edge_capability_roles,
     resolve_edge_modules,
+    resolve_feature_configuration,
     resolve_host_capability_roles,
     resolve_nginx_resources,
-    resolve_plugin_configuration,
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.core.plugins.types import (
+from blitzecdn.core.features.types import (
     AnsibleContribution,
     CapabilitySetting,
     CliCommandGroup,
@@ -44,12 +44,12 @@ from blitzecdn.core.plugins.types import (
     EdgeModule,
     EnvironmentKey,
     Feature,
+    FeatureMetadata,
     FeatureOperations,
     FeatureRendering,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
-    PluginMetadata,
     ScheduledJob,
     SettingValue,
     Severity,
@@ -69,14 +69,14 @@ __all__ = [
     "EdgeModule",
     "EnvironmentKey",
     "Feature",
+    "FeatureMetadata",
     "FeatureOperations",
+    "FeatureRegistry",
     "FeatureRendering",
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",
     "Operations",
-    "PluginMetadata",
-    "PluginRegistry",
     "Rendering",
     "ResolvedCapabilityEnvironment",
     "ResolvedEdgeModule",
@@ -94,9 +94,9 @@ __all__ = [
     "resolve_capability_environment",
     "resolve_edge_capability_roles",
     "resolve_edge_modules",
+    "resolve_feature_configuration",
     "resolve_host_capability_roles",
     "resolve_nginx_resources",
-    "resolve_plugin_configuration",
     "resolve_role_search_path",
     "resolve_teardown_capability_roles",
 ]

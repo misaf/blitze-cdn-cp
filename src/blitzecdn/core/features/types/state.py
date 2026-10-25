@@ -33,16 +33,16 @@ type StateValue = (
 
 @dataclass(frozen=True, slots=True)
 class SiteStateContribution:
-    """One plugin's share of the Ansible document for one virtual host.
+    """One feature's share of the Ansible document for one virtual host.
 
-    `overrides` is what makes merging order-independent. Two plugins writing
+    `overrides` is what makes merging order-independent. Two features writing
     the same variable is a conflict unless exactly one of them says it is
     replacing a value another produced — `certificates` deliberately replaces
     the certificate paths projected from the site model, and saying so is the
-    difference between a designed override and whichever plugin loaded last.
+    difference between a designed override and whichever feature loaded last.
     """
 
-    plugin: str
+    feature: str
     variables: Mapping[str, StateValue]
     overrides: frozenset[str] = field(default_factory=frozenset)
 
@@ -56,6 +56,6 @@ class FleetStateContribution:
     is not a fact any one site knows about itself.
     """
 
-    plugin: str
+    feature: str
     variables: Mapping[str, StateValue]
     overrides: frozenset[str] = field(default_factory=frozenset)

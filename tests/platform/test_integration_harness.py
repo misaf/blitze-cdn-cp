@@ -186,7 +186,7 @@ def test_the_harness_gives_the_capability_slot_the_roles_it_requires():
     """Two variables, one letter apart, and only one of them is the role's.
 
     `blitzecdn_capability_roles` is what a control plane composes from its
-    installed plugins and passes in as an extra-var.
+    installed features and passes in as an extra-var.
     `blitzecdn_capabilities_roles` is the `blitzecdn_capabilities` role's own
     required parameter, set per slot because the real play stands the role up
     twice with different lists. `ansible/playbooks/edge.yml` translates the

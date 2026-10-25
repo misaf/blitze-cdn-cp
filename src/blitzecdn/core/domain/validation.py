@@ -185,7 +185,7 @@ def validate_setting_name(value: str) -> str:
     A property of the setting, not of one entry point. Left in the Typer
     callback behind ``blitzecdn config set``, they would be bypassed silently
     by any second writer: everything downstream — the store, and the inventory
-    plugin that publishes these rows to every host — behaves as though they had
+    feature that publishes these rows to every host — behaves as though they had
     been applied.
     """
     candidate = value.strip()

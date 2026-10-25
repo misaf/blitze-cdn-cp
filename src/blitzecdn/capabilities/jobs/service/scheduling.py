@@ -31,10 +31,10 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ScheduleSpec:
-    """What a plugin's scheduled job says about its own cadence.
+    """What a feature's scheduled job says about its own cadence.
 
-    A small value rather than `core.plugins.ScheduledJob` itself, because this
-    capability must not import the plugin machinery to know how often to do
+    A small value rather than `core.features.ScheduledJob` itself, because this
+    capability must not import the feature machinery to know how often to do
     something. The composition root translates one into the other, which is
     also where "a lease of zero means twice the interval" is resolved — a
     default belongs where the two vocabularies meet, not in the registry and
@@ -74,13 +74,13 @@ class JobScheduler:
         self.clock = clock
 
     def register(self, specs: Sequence[ScheduleSpec]) -> Sequence[Schedule]:
-        """Make the table say what this installation's plugins contribute.
+        """Make the table say what this installation's features contribute.
 
         Idempotent, because it runs on every process start. An existing
         schedule keeps its ``next_run_at`` — a controller restarted every few
         minutes, which is what a crash loop or a rolling upgrade looks like,
         must not push every schedule permanently into the future — and a
-        schedule no installed plugin contributes any more is removed, so an
+        schedule no installed feature contributes any more is removed, so an
         uninstalled package stops producing one "no such job" per interval.
 
         A schedule seen for the first time is due one interval from now rather

@@ -2,7 +2,7 @@
 
 The command tree is assembled from what the features contribute, not from a
 list of imports here. A capability's commands appear because its feature
-declares a :class:`~blitzecdn.core.plugins.CliCommandGroup`.
+declares a :class:`~blitzecdn.core.features.CliCommandGroup`.
 
 Two things stay here because they are the command line itself rather than a
 capability: the root callback in :mod:`blitzecdn.cli.root` with the global
@@ -32,12 +32,12 @@ from blitzecdn.cli.common import ExitCode, emit, services, settings
 from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
-from blitzecdn.core.plugins import PluginRegistry
+from blitzecdn.core.features import FeatureRegistry
 
 app.add_typer(configuration.config_app, name="config")
 
 
-def register_commands(registry: PluginRegistry, root: typer.Typer = app) -> None:
+def register_commands(registry: FeatureRegistry, root: typer.Typer = app) -> None:
     """Graft every contributed command group onto the root application.
 
     A group with no name contributes root-level verbs — `deploy`, `plan`,
@@ -51,7 +51,7 @@ def register_commands(registry: PluginRegistry, root: typer.Typer = app) -> None
             root.add_typer(group.app, name=group.name)
 
 
-register_commands(common.installed_plugins())
+register_commands(common.installed_features())
 
 
 __all__ = [
@@ -89,7 +89,7 @@ _EXIT_CODES: dict[FailureKind, ExitCode] = {
     FailureKind.NOT_FOUND: ExitCode.NOT_FOUND,
     FailureKind.EXECUTION: ExitCode.DEPLOYMENT_FAILED,
     FailureKind.CONFIGURATION: ExitCode.CONFIGURATION,
-    # Not INVALID_INPUT. A plugin that will not load is not a mistyped
+    # Not INVALID_INPUT. A feature that will not load is not a mistyped
     # argument, and telling a script it was one sends the operator to their
     # command line instead of to their installation.
     FailureKind.INTERNAL: ExitCode.CONFIGURATION,

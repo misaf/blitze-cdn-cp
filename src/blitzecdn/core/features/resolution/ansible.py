@@ -17,8 +17,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins.types import AnsibleContribution
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.types import AnsibleContribution
 
 __all__ = [
     "resolve_edge_capability_roles",
@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 
-#: How core is named in a conflict message. Not a plugin name — nothing
+#: How core is named in a conflict message. Not a feature name — nothing
 #: registers under it — only the label the failure needs to name both sides.
 _CORE = "the control plane"
 
@@ -38,7 +38,7 @@ def resolve_role_search_path(
 ) -> tuple[Path, ...]:
     """Core's roles directory, then each contributor's, deterministically.
 
-    Ordering is core first and then contributions by plugin name, so the path a
+    Ordering is core first and then contributions by feature name, so the path a
     deployment runs against depends on *what is installed* and never on the
     order it happened to be registered in. Two edges converged from the same
     set of packages resolve every role identically.
@@ -54,28 +54,28 @@ def resolve_role_search_path(
     to failing here is a play that fails much later with "the role was not
     found", naming nothing that would lead anyone to the package.
     """
-    ordered = sorted(contributions, key=lambda item: item.plugin)
+    ordered = sorted(contributions, key=lambda item: item.feature)
     search: list[Path] = [core_roles]
     owners: dict[str, str] = dict.fromkeys(_role_names(core_roles), _CORE)
     for contribution in ordered:
         path = contribution.roles_path
         if not path.is_dir():
-            raise PluginError(
-                f"plugin {contribution.plugin!r} contributes the Ansible roles "
+            raise FeatureError(
+                f"feature {contribution.feature!r} contributes the Ansible roles "
                 f"directory {path}, which does not exist. Its distribution was "
                 "built without its Ansible resources, or was installed in a way "
                 "that did not carry them."
             )
         for role in _role_names(path):
             if role in owners:
-                raise PluginError(
+                raise FeatureError(
                     f"role {role!r} is shipped by both {owners[role]} and "
-                    f"plugin {contribution.plugin!r}. Ansible resolves a role name "
+                    f"feature {contribution.feature!r}. Ansible resolves a role name "
                     "against the first directory that has it, so one of them "
                     "would silently replace the other; rename the role in the "
                     "package that added it."
                 )
-            owners[role] = f"plugin {contribution.plugin!r}"
+            owners[role] = f"feature {contribution.feature!r}"
         search.append(path)
     return tuple(search)
 
@@ -120,7 +120,7 @@ def resolve_teardown_capability_roles(
     A capability removes what it wrote here or it stays on the host forever.
 
     Composed by the same helper for the same reason as the other two, and
-    ordered by plugin name like them — with one consequence worth naming.
+    ordered by feature name like them — with one consequence worth naming.
     Removal order is not the reverse of convergence order and does not need to
     be: each role withdraws only what its own package wrote, and nothing in
     this slot may depend on another capability's files still being present.
@@ -133,10 +133,10 @@ def _resolve_slot(
 ) -> tuple[str, ...]:
     """Compose one of core's capability slots.
 
-    Ordered by plugin name, like the search path, so a fleet converged from the
+    Ordered by feature name, like the search path, so a fleet converged from the
     same set of packages runs the same roles in the same order every time. This
     ordering has no dependency semantics: optional roles must depend only on
-    established core prerequisites. Within one plugin the declared order is
+    established core prerequisites. Within one feature the declared order is
     kept because that package alone owns those roles — which is how
     ``blitzecdn-hardening`` gets Fail2Ban after SSH without core knowing that
     either exists.
@@ -149,15 +149,15 @@ def _resolve_slot(
     started taking the host apart.
     """
     roles: list[str] = []
-    for contribution in sorted(contributions, key=lambda item: item.plugin):
+    for contribution in sorted(contributions, key=lambda item: item.feature):
         requested: tuple[str, ...] = getattr(contribution, slot)
         if not requested:
             continue
         available = set(_role_names(contribution.roles_path))
         for role in requested:
             if role not in available:
-                raise PluginError(
-                    f"plugin {contribution.plugin!r} asks for the role {role!r} "
+                raise FeatureError(
+                    f"feature {contribution.feature!r} asks for the role {role!r} "
                     f"in the {slot!r} slot, which its own roles directory "
                     f"{contribution.roles_path} does not contain."
                 )

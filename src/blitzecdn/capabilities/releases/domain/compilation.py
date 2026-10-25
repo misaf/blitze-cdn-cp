@@ -18,7 +18,7 @@ class Compilation(BaseModel):
 
     Canonical state is captured as encoded text because rule overrides contain
     mappings. Holding the original model would let a later edit change the
-    input to a compilation already prepared. Plugin results are canonical
+    input to a compilation already prepared. Feature results are canonical
     documents for the same reason; no callable or service enters this value.
     """
 

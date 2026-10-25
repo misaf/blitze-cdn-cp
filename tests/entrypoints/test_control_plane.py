@@ -765,9 +765,9 @@ def test_failed_composition_closes_only_owned_persistence(
     invalid = settings.model_copy(
         update={"required_capabilities": ("absent-provider",)}
     )
-    from blitzecdn.core.exceptions import PluginError
+    from blitzecdn.core.exceptions import FeatureError
 
-    with pytest.raises(PluginError, match="absent-provider"):
+    with pytest.raises(FeatureError, match="absent-provider"):
         build_application(settings=invalid, repository=repository)
     assert len(closed) == (0 if injected else 1)
     if repository is not None:

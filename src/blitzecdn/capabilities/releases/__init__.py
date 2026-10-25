@@ -9,7 +9,7 @@ aimed at.
 The capability exists because those two questions used to be answered in three
 different places at three different times. Desired state was serialised at
 queue time, rendered to YAML under the deployment lock moments before Ansible
-read it, and validated against the installed plugins somewhere in between — so
+read it, and validated against the installed features somewhere in between — so
 "what did that deployment actually send" had no answer after the fact, and
 "would this state converge" and "did this state converge" were computed by
 different code from different inputs.

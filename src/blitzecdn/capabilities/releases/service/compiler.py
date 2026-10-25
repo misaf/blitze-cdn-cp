@@ -7,7 +7,7 @@ run it twice on the same inputs and the digests match, run it in a test and it
 needs nothing running.
 
 That is worth stating because the code this replaces did none of it. Desired
-state was serialised when a deployment was queued, plugin variables were merged
+state was serialised when a deployment was queued, feature variables were merged
 when the run reached the renderer, and capability validation happened somewhere
 between the two against whatever was installed at that moment. Three readings of
 "what should the fleet serve", none of them recorded, and nothing that could
@@ -51,7 +51,7 @@ __all__ = ["compile_release"]
 
 
 def compile_release(compilation: Compilation) -> Release:
-    """Compile captured values without invoking plugins or other live code."""
+    """Compile captured values without invoking features or other live code."""
     inputs = compilation.inputs
     installed = compilation.capabilities
     ordered_targets = compilation.targets

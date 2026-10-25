@@ -9,7 +9,7 @@ suite that asserts on them belongs to the distribution.
 
 The helpers they need — ``control_plane_app``, ``API_HEADERS`` and
 ``seed_site_over_http`` — come from ``control_plane_fixtures``, which the
-workspace's root ``conftest.py`` registers as a plugin for every distribution's
+workspace's root ``conftest.py`` registers as a feature for every distribution's
 tests.
 """
 

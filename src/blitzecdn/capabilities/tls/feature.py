@@ -19,15 +19,15 @@ from blitzecdn.capabilities.tls.composition import (
     __version__ as certificates_version,
 )
 from blitzecdn.capabilities.tls.config import SETTINGS
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     CliCommandGroup,
     ConfigurationContribution,
     Feature,
-    PluginMetadata,
+    FeatureMetadata,
 )
 
 TLS = Feature(
-    metadata=PluginMetadata(
+    metadata=FeatureMetadata(
         name="tls",
         version=__version__,
         summary="Stable edge-encryption policy and TLS modes.",
@@ -35,7 +35,7 @@ TLS = Feature(
 )
 
 CERTIFICATES = Feature(
-    metadata=PluginMetadata(
+    metadata=FeatureMetadata(
         name="certificates",
         version=certificates_version,
         provides=frozenset({"certificates"}),
@@ -44,16 +44,16 @@ CERTIFICATES = Feature(
     api_routers=(certificates_routes.router, automatic_ssl_routes.router),
     cli_commands=(
         CliCommandGroup(
-            plugin="certificates", name="cert", app=certificates_cli.cert_app
+            feature="certificates", name="cert", app=certificates_cli.cert_app
         ),
         CliCommandGroup(
-            plugin="certificates", name="ssl", app=automatic_ssl_cli.ssl_app
+            feature="certificates", name="ssl", app=automatic_ssl_cli.ssl_app
         ),
     ),
     # Controller-side settings and no secrets, which is what a
     # `CapabilitySetting` is for.
     configuration=(
-        ConfigurationContribution(plugin="certificates", settings=SETTINGS),
+        ConfigurationContribution(feature="certificates", settings=SETTINGS),
     ),
 )
 

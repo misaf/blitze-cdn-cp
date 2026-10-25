@@ -436,7 +436,7 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
 
 # ----------------------------------------------------------------------
 # Edges. Writing one here is what puts a host into the Ansible inventory:
-# the `blitzecdn` plugin reads these same rows at the start of every run.
+# the `blitzecdn` feature reads these same rows at the start of every run.
 # ----------------------------------------------------------------------
 
 
@@ -454,7 +454,7 @@ def test_edge_crud_over_http(settings):
         created = client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["name"] == "edge-01"
-        # Defaults are resolved by the model, not left for the plugin to guess.
+        # Defaults are resolved by the model, not left for the feature to guess.
         assert created.json()["user"] == "deploy"
         assert created.json()["port"] == 22
 

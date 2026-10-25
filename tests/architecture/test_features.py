@@ -33,18 +33,18 @@ from blitzecdn.composition import (
     build_worker,
     load_registry,
 )
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins import (
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features import (
     AnsibleContribution,
     CapabilityConfig,
     CliCommandGroup,
+    FeatureMetadata,
     FeatureOperations,
+    FeatureRegistry,
     FeatureRendering,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
-    PluginMetadata,
-    PluginRegistry,
     ScheduledJob,
     Severity,
     SiteStateContribution,
@@ -62,16 +62,16 @@ _CAPABILITY_FEATURES = tuple(
 
 
 @pytest.fixture
-def baseline() -> PluginRegistry:
+def baseline() -> FeatureRegistry:
     """The capability features this application ships, without providers."""
-    return PluginRegistry(load_features(_CAPABILITY_FEATURES))
+    return FeatureRegistry(load_features(_CAPABILITY_FEATURES))
 
 
 def _capability_config(**values: object) -> SimpleNamespace:
     """A `ResolvedCapabilityEnvironment` double scoped the way the real one is."""
     resolved = {"BLITZE_" + name.upper(): value for name, value in values.items()}
     return SimpleNamespace(
-        for_plugin=lambda _name: CapabilityConfig("certificates", {}, resolved)
+        for_feature=lambda _name: CapabilityConfig("certificates", {}, resolved)
     )
 
 
@@ -107,7 +107,7 @@ def test_every_built_in_feature_is_declared(baseline):
         for module in _CAPABILITY_FEATURES
         for feature in import_module(module).FEATURES
     }
-    assert {plugin.name for plugin in baseline.plugins} == declared
+    assert {feature.name for feature in baseline.metadata} == declared
 
 
 def test_a_strategy_or_mode_never_declares_a_feature_module():
@@ -135,17 +135,17 @@ def test_a_strategy_or_mode_never_declares_a_feature_module():
 
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
     """No degraded mode: a control plane missing `dns` renders an empty fleet."""
-    with pytest.raises(PluginError, match="could not be imported"):
+    with pytest.raises(FeatureError, match="could not be imported"):
         load_features(("blitzecdn.capabilities.nonexistent.feature",))
 
 
 def test_a_built_in_module_has_to_declare_its_features():
-    with pytest.raises(PluginError, match="must export FEATURES"):
+    with pytest.raises(FeatureError, match="must export FEATURES"):
         load_features(("blitzecdn.capabilities.dns.runtime",))
 
 
 def test_two_built_in_modules_cannot_declare_one_feature():
-    with pytest.raises(PluginError, match="both declare a feature named 'dns'"):
+    with pytest.raises(FeatureError, match="both declare a feature named 'dns'"):
         load_features(
             (
                 "blitzecdn.capabilities.dns.feature",
@@ -157,8 +157,8 @@ def test_two_built_in_modules_cannot_declare_one_feature():
 def test_the_built_in_registration_order_does_not_change_desired_state():
     """Reordering the roster is a presentation change and nothing more."""
     renderings = (DNS_RENDERING, HTTP_RENDERING, HTTP3_RENDERING)
-    forward = PluginRegistry(load_features(BUILTIN_FEATURES))
-    backward = PluginRegistry(load_features(tuple(reversed(BUILTIN_FEATURES))))
+    forward = FeatureRegistry(load_features(BUILTIN_FEATURES))
+    backward = FeatureRegistry(load_features(tuple(reversed(BUILTIN_FEATURES))))
     subject = site()
 
     assert forward.bind_rendering(renderings).site_variables(
@@ -170,12 +170,12 @@ def test_the_built_in_registration_order_does_not_change_desired_state():
 
 
 def test_bound_behaviour_has_to_belong_to_a_declared_feature(baseline):
-    with pytest.raises(PluginError, match="'nope' names no built-in feature"):
-        baseline.bind_rendering((FeatureRendering(plugin="nope"),))
+    with pytest.raises(FeatureError, match="'nope' names no built-in feature"):
+        baseline.bind_rendering((FeatureRendering(feature="nope"),))
 
 
 def test_a_feature_binds_its_behaviour_once(baseline):
-    with pytest.raises(PluginError, match="'dns' binds its rendering twice"):
+    with pytest.raises(FeatureError, match="'dns' binds its rendering twice"):
         baseline.bind_rendering((DNS_RENDERING, DNS_RENDERING))
 
 
@@ -195,7 +195,7 @@ def test_rendering_merges_every_bound_feature(baseline):
 
 def test_the_roster_names_each_feature_module_once():
     assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES) == len(ROSTER)
-    assert {plugin.name for plugin in load_registry().plugins} >= {
+    assert {feature.name for feature in load_registry().metadata} >= {
         "dns",
         "tls",
         "certificates",
@@ -221,8 +221,8 @@ def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
         for entry in ROSTER
     }
     bound = {
-        *((item.plugin, "rendering") for item in control.rendering._renderings),
-        *((item.plugin, "operations") for item in control.operations.operations),
+        *((item.feature, "rendering") for item in control.rendering._renderings),
+        *((item.feature, "operations") for item in control.operations.operations),
     }
     rows = {
         (name, kind)
@@ -245,7 +245,7 @@ def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
 def test_a_feature_that_ships_no_roles_contributes_no_directory(baseline):
     """Most features have no Ansible of their own, and say nothing rather than
     an empty path that core would then have to interpret."""
-    contributing = {item.plugin for item in baseline.ansible_contributions()}
+    contributing = {item.feature for item in baseline.ansible_contributions()}
 
     assert contributing == {
         feature.name for feature in baseline.features if feature.ansible
@@ -259,8 +259,8 @@ def test_a_feature_that_ships_no_roles_contributes_no_directory(baseline):
 def test_a_registry_refuses_two_features_with_one_name(baseline):
     dns = next(feature for feature in baseline.features if feature.name == "dns")
 
-    with pytest.raises(PluginError, match="two plugins claim the name 'dns'"):
-        PluginRegistry((*baseline.features, dns))
+    with pytest.raises(FeatureError, match="two features claim the name 'dns'"):
+        FeatureRegistry((*baseline.features, dns))
 
 
 def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
@@ -273,7 +273,7 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     assert "dns" in baseline.capabilities
     assert baseline.missing(["dns", "waf"]) == ("waf",)
 
-    metadata = PluginMetadata(
+    metadata = FeatureMetadata(
         name="acme-waf",
         version="1.0",
         provides=frozenset({"waf", "ratelimit"}),
@@ -289,7 +289,7 @@ def test_requiring_a_capability_nothing_provides_names_it(baseline):
     """
     baseline.require(["dns"], subject="a test")
 
-    with pytest.raises(PluginError) as failure:
+    with pytest.raises(FeatureError) as failure:
         baseline.require(["dns", "waf"], subject="this installation")
 
     message = str(failure.value)
@@ -312,9 +312,11 @@ def test_contributions_come_back_in_registration_order(baseline):
 
 
 def test_a_declared_override_wins_wherever_it_registered():
-    base = SiteStateContribution(plugin="dns", variables={"certificate_path": "/model"})
+    base = SiteStateContribution(
+        feature="dns", variables={"certificate_path": "/model"}
+    )
     override = SiteStateContribution(
-        plugin="certificates",
+        feature="certificates",
         variables={"certificate_path": "/real"},
         overrides=frozenset({"certificate_path"}),
     )
@@ -329,33 +331,35 @@ def test_a_declared_override_wins_wherever_it_registered():
 
 def test_two_plugins_writing_one_variable_is_a_conflict_not_a_race():
     contributions = [
-        SiteStateContribution(plugin="cache", variables={"cache_valid_success": "10m"}),
-        SiteStateContribution(plugin="waf", variables={"cache_valid_success": "1h"}),
+        SiteStateContribution(
+            feature="cache", variables={"cache_valid_success": "10m"}
+        ),
+        SiteStateContribution(feature="waf", variables={"cache_valid_success": "1h"}),
     ]
 
-    with pytest.raises(PluginError, match="cache, waf both set 'cache_valid_success'"):
+    with pytest.raises(FeatureError, match="cache, waf both set 'cache_valid_success'"):
         merge_variables(contributions, subject="desired state")
 
 
 def test_two_plugins_cannot_both_claim_to_override_one_variable():
     contributions = [
         SiteStateContribution(
-            plugin="a", variables={"x": 1}, overrides=frozenset({"x"})
+            feature="a", variables={"x": 1}, overrides=frozenset({"x"})
         ),
         SiteStateContribution(
-            plugin="b", variables={"x": 2}, overrides=frozenset({"x"})
+            feature="b", variables={"x": 2}, overrides=frozenset({"x"})
         ),
     ]
 
-    with pytest.raises(PluginError, match="each claim to override 'x'"):
+    with pytest.raises(FeatureError, match="each claim to override 'x'"):
         merge_variables(contributions, subject="desired state")
 
 
 def test_an_override_of_a_variable_nobody_else_writes_is_allowed():
     """Whether the site model happens to carry a path is not the certificate
-    plugin's business, so overriding an absent key must not be an error."""
+    feature's business, so overriding an absent key must not be an error."""
     contribution = SiteStateContribution(
-        plugin="certificates",
+        feature="certificates",
         variables={"certificate_path": "/real"},
         overrides=frozenset({"certificate_path"}),
     )
@@ -365,8 +369,8 @@ def test_an_override_of_a_variable_nobody_else_writes_is_allowed():
 
 def test_fleet_variables_merge_under_the_same_rule():
     contributions = [
-        FleetStateContribution(plugin="dns", variables={"a": True}),
-        FleetStateContribution(plugin="waf", variables={"b": False}),
+        FleetStateContribution(feature="dns", variables={"a": True}),
+        FleetStateContribution(feature="waf", variables={"b": False}),
     ]
 
     assert merge_variables(contributions, subject="fleet") == {"a": True, "b": False}
@@ -379,10 +383,10 @@ def test_deployment_checks_are_collected_from_every_feature(baseline):
     def objections(subject: CdnSite) -> list[ValidationIssue]:
         return [
             ValidationIssue(
-                plugin="security", site=subject.name, message="no rule set loaded"
+                feature="security", site=subject.name, message="no rule set loaded"
             ),
             ValidationIssue(
-                plugin="security",
+                feature="security",
                 site=subject.name,
                 message="rule set is a week old",
                 severity=Severity.WARNING,
@@ -390,7 +394,7 @@ def test_deployment_checks_are_collected_from_every_feature(baseline):
         ]
 
     result = baseline.bind_rendering(
-        (FeatureRendering(plugin="security", deployment_checks=objections),)
+        (FeatureRendering(feature="security", deployment_checks=objections),)
     ).validate_site(site())
 
     assert not result.ok
@@ -406,11 +410,11 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     """The message an operator reads before any playbook runs.
 
     Generic in both halves: the tokens come from the site's own
-    `capability_requirements` and the answer from plugin metadata, so nothing
+    `capability_requirements` and the answer from feature metadata, so nothing
     on this path knows what `geoip` is. What the mapping adds is *which*
     setting asked.
     """
-    dns_only = PluginRegistry(load_features(("blitzecdn.capabilities.dns.feature",)))
+    dns_only = FeatureRegistry(load_features(("blitzecdn.capabilities.dns.feature",)))
     requested = site(
         visitor_headers={"ip_country": True},
         firewall={"denied_countries": ["RU"]},
@@ -448,12 +452,12 @@ def test_startup_and_shutdown_reach_every_feature_in_order(baseline):
     operations = baseline.bind_operations(
         (
             FeatureOperations(
-                plugin="jobs",
+                feature="jobs",
                 startup=lambda: seen.append("jobs start"),
                 shutdown=lambda: seen.append("jobs stop"),
             ),
             FeatureOperations(
-                plugin="workflows",
+                feature="workflows",
                 startup=lambda: seen.append("workflows start"),
                 shutdown=lambda: seen.append("workflows stop"),
             ),
@@ -497,10 +501,10 @@ def test_deployment_recovery_runs_when_the_api_starts_and_not_the_worker(
 
 def test_two_features_cannot_contribute_one_job_name(baseline):
     clasher = FeatureOperations(
-        plugin="jobs",
+        feature="jobs",
         scheduled_jobs=(
             ScheduledJob(
-                plugin="jobs",
+                feature="jobs",
                 name="check-drift",
                 interval_seconds=60,
                 run=lambda _o: None,
@@ -508,7 +512,7 @@ def test_two_features_cannot_contribute_one_job_name(baseline):
         ),
     )
 
-    with pytest.raises(PluginError, match="'deployments' and 'jobs'"):
+    with pytest.raises(FeatureError, match="'deployments' and 'jobs'"):
         baseline.bind_operations((_drift([]), clasher))
 
 
@@ -534,7 +538,7 @@ def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
             certificate_renewal_interval_seconds=0,
             certificate_renewal_budget_seconds=300,
             ssl_automatic_scan_interval_seconds=0,
-        ).for_plugin("certificates")
+        ).for_feature("certificates")
     )
     operations = baseline.bind_operations(
         (
@@ -552,15 +556,15 @@ def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
     assert all(job.interval_seconds == 0 for job in operations.scheduled_jobs.values())
 
 
-# --- plugin metadata --------------------------------------------------------
+# --- feature metadata --------------------------------------------------------
 
 
 def test_a_plugin_name_has_to_be_usable_as_an_identifier():
     with pytest.raises(ValueError, match="must be alphanumeric"):
-        PluginMetadata(name="not a name!", version="1.0")
+        FeatureMetadata(name="not a name!", version="1.0")
 
 
-# --- the contributions a plugin makes are values, not calls ------------------
+# --- the contributions a feature makes are values, not calls ------------------
 
 
 def test_a_contributed_group_may_carry_root_level_verbs(baseline):
@@ -579,14 +583,14 @@ def test_a_health_check_fails_by_raising():
     def unhealthy() -> None:
         raise ConnectionError("no")
 
-    check = HealthCheck(plugin="waf", name="x", check=unhealthy)
+    check = HealthCheck(feature="waf", name="x", check=unhealthy)
 
     with pytest.raises(ConnectionError):
         check.check()
 
 
 def test_a_command_group_names_the_subcommand_it_appears_under():
-    group = CliCommandGroup(plugin="waf", name="waf", app=Typer())
+    group = CliCommandGroup(feature="waf", name="waf", app=Typer())
 
     assert group.name == "waf"
 
@@ -594,17 +598,17 @@ def test_a_command_group_names_the_subcommand_it_appears_under():
 def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
     """Registration under a name the whole fleet shares carries its owner.
 
-    Five of these carried `plugin` and three did not, and the split was not a
+    Five of these carried `feature` and three did not, and the split was not a
     decision — `CliCommandGroup`, `HealthCheck` and `ScheduledJob` were simply
     the ones nobody had needed to attribute yet. The cost showed up three
-    times: the duplicate-job error could say two plugins collided but not
+    times: the duplicate-job error could say two features collided but not
     which two, two health checks could answer to one name with nothing to tell
     them apart, and the frozen CLI surface had to guess ownership from a
     callback's `__module__`.
 
     The rule is positional rather than a list to maintain: a contribution type
     whose instances are registered under a name that the rest of the fleet can
-    also claim has to say which plugin claimed it. A new one that forgets fails
+    also claim has to say which feature claimed it. A new one that forgets fails
     here, while the field is still free to add — once a wheel exists that
     constructs one, adding a required field is a breaking change to its
     constructor.
@@ -625,7 +629,7 @@ def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
         contribution.__name__
         for contribution in shared
         if not any(
-            field.name == "plugin"
+            field.name == "feature"
             and field.default is MISSING
             and field.default_factory is MISSING
             for field in fields(contribution)
@@ -637,13 +641,13 @@ def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
 def test_two_features_cannot_answer_to_one_health_check_name(baseline):
     """`/health` reports a check by name, so the name has to be one feature's."""
     clasher = FeatureOperations(
-        plugin="jobs",
+        feature="jobs",
         health_checks=(
-            HealthCheck(plugin="jobs", name="database", check=lambda: None),
+            HealthCheck(feature="jobs", name="database", check=lambda: None),
         ),
     )
 
-    with pytest.raises(PluginError, match="'diagnostics' and 'jobs'"):
+    with pytest.raises(FeatureError, match="'diagnostics' and 'jobs'"):
         baseline.bind_operations(
             (
                 diagnostics_operations(

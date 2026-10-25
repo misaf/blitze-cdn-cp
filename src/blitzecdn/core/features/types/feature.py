@@ -23,20 +23,20 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from blitzecdn.core.plugins.types.ansible import AnsibleContribution
-from blitzecdn.core.plugins.types.configuration import ConfigurationContribution
-from blitzecdn.core.plugins.types.identity import PluginMetadata
-from blitzecdn.core.plugins.types.nginx import NginxContribution
-from blitzecdn.core.plugins.types.runtime import (
+from blitzecdn.core.features.types.ansible import AnsibleContribution
+from blitzecdn.core.features.types.configuration import ConfigurationContribution
+from blitzecdn.core.features.types.identity import FeatureMetadata
+from blitzecdn.core.features.types.nginx import NginxContribution
+from blitzecdn.core.features.types.runtime import (
     CliCommandGroup,
     HealthCheck,
     ScheduledJob,
 )
-from blitzecdn.core.plugins.types.state import (
+from blitzecdn.core.features.types.state import (
     FleetStateContribution,
     SiteStateContribution,
 )
-from blitzecdn.core.plugins.types.validation import ValidationIssue
+from blitzecdn.core.features.types.validation import ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
@@ -55,7 +55,7 @@ __all__ = [
 class Feature:
     """Everything a feature contributes before any adapter or service exists."""
 
-    metadata: PluginMetadata
+    metadata: FeatureMetadata
     api_routers: tuple[APIRouter, ...] = ()
     cli_commands: tuple[CliCommandGroup, ...] = ()
     ansible: tuple[AnsibleContribution, ...] = ()
@@ -75,8 +75,8 @@ class FeatureRendering:
     a site, so a feature costs nothing to merge for sites it does not touch.
     """
 
-    #: The contributing feature's `PluginMetadata.name`.
-    plugin: str
+    #: The contributing feature's `FeatureMetadata.name`.
+    feature: str
     site_state: Callable[[CdnSite], SiteStateContribution | None] | None = None
     fleet_state: (
         Callable[[tuple[CdnSite, ...]], FleetStateContribution | None] | None
@@ -94,8 +94,8 @@ class FeatureOperations:
     the API or the worker stops.
     """
 
-    #: The contributing feature's `PluginMetadata.name`.
-    plugin: str
+    #: The contributing feature's `FeatureMetadata.name`.
+    feature: str
     health_checks: tuple[HealthCheck, ...] = ()
     scheduled_jobs: tuple[ScheduledJob, ...] = ()
     startup: Callable[[], None] | None = None
