@@ -5,7 +5,7 @@ the rules that override it, the records that say which hostnames the edges
 answer for, and the fleet-wide Ansible settings every edge is converged with.
 What an edge is asked to serve is not among them — virtual hosts are derived,
 and writing them down here would put a second, older answer beside the state
-they come from. See ``docs/decisions/0001-zone-policy-and-composition.md``.
+they come from.
 
 The rules are in it for a sharper reason than symmetry. A rollback deletes the
 zone rows and writes them again, and a rule is keyed to its zone with ON DELETE

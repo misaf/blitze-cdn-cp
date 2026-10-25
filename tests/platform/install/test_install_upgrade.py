@@ -156,7 +156,6 @@ def test_upgrade_confirmation_wants_the_version_typed(tmp_path: Path):
 
     assert "Type ${target} to continue" in body
     assert '[[ ${answer} == "${target}" ]]' in body
-    assert "COMPATIBILITY.md" in body, "and be told where the rules are"
 
 
 def test_upgrade_names_what_a_major_may_have_taken_away(tmp_path: Path):

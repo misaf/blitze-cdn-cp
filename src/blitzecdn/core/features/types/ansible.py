@@ -4,10 +4,6 @@ Answered by ``blitzecdn_ansible_contributions``. Every member describes
 something global — a role search path, a play slot, the one ``load_module``
 list an Nginx process has — which is why core has to compose it rather than
 let each package apply its own.
-
-The three play slots, why their order is core's rather than a preference, and
-why a module is declared here instead of built into the image, are
-``docs/decisions/0003-what-a-capability-puts-on-an-edge.md``.
 """
 
 from __future__ import annotations
@@ -36,8 +32,6 @@ class EdgeModule:
     order; core supplies the directory they live in. `build` says whether the
     image must compile it or the official base already carries it. `probe` is
     one directive the module registers, for the image's build-time probe.
-
-    See ``docs/decisions/0003-what-a-capability-puts-on-an-edge.md``.
     """
 
     name: str
@@ -80,8 +74,6 @@ class AnsibleContribution:
     the configuration tree is rendered and validated, `host_roles` after the
     edge is serving, `teardown_roles` in the decommission play. Core enforces
     the ordering by position in its own plays and never learns a role's name.
-    Which slot a capability needs, and why the order is not a preference, is
-    ``docs/decisions/0003-what-a-capability-puts-on-an-edge.md``.
 
     Every role list names roles this contribution's own `roles_path` ships —
     core refuses a name that is not there rather than letting the play fail much

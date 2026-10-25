@@ -142,6 +142,5 @@ From the project root, run the Ansible checks with:
 just ansible-check
 ```
 
-See the project [quick start](../../../README.md) and the
-[full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
+See the [full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
 configuration, upgrades, rollback, and recovery.

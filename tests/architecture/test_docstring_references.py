@@ -1,8 +1,8 @@
 """The prose points at things that exist.
 
 Roughly three lines in ten of this distribution are docstring or comment, and
-CLAUDE.md asks for that: comments here carry the argument rather than restate
-the line below. What nothing held until now is the other half of that bargain —
+on purpose: comments here carry the argument rather than restate the line
+below. What nothing held until now is the other half of that bargain —
 a record describing an arrangement the code no longer has is worse than no
 record, and prose is the one part of the tree the compiler, ruff and mypy all
 read as whitespace.

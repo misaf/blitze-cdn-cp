@@ -879,8 +879,7 @@ That is not bookkeeping: a deprecation window is the releases between a thing
 being announced and being removed, and a host that jumps out of the middle of
 one has skipped the notices written for it. Run `update` first.
 
-Read COMPATIBILITY.md for what a major is allowed to change. Every name it
-took away was in the previous line's release notes, and inventories,
+Every name a major took away was in the previous line's release notes, and inventories,
 playbooks, scripts and any third-party wheel are the things to check before
 answering the prompt.
 
@@ -916,7 +915,7 @@ Upgrading the BlitzeCDN control plane across a major release line:
 A major release is allowed to remove things this host may depend on: Ansible
 variables and role names an inventory sets, CLI commands a script runs, API
 routes a client calls, and names a third-party capability wheel imports. What
-changed is in ${target}'s release notes; the rules are in COMPATIBILITY.md.
+changed is in ${target}'s release notes.
 
 The containers are stopped, a full backup is taken, the schema is migrated,
 and they are recreated on the new image. A migration is not reversible: going

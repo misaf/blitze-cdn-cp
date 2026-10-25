@@ -6,8 +6,6 @@ package: importing feature modules here would be a cycle. A row's builders
 bind the feature's rendering and operations from the composition's input
 records, calling the capability's own `runtime.py` builders with named
 arguments, so a capability never sees either record.
-
-See docs/decisions/0021-capability-roster-and-process-composition.md.
 """
 
 from __future__ import annotations

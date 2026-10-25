@@ -6,10 +6,8 @@ identity, and hostnames proxied to different origins cannot share one server
 block, because a block has one upstream. Only groups containing proxied records
 produce a server block.
 
-The design this implements is
-``docs/decisions/0001-zone-policy-and-composition.md``. Why a group whose policy
-no longer composes is dropped and reported rather than raised on is
-``docs/decisions/0005-canonical-writes-and-derived-state.md``.
+A group whose policy no longer composes is dropped and reported rather than
+raised on, so one broken zone cannot fail every read that derives hosts.
 
 Host names also determine managed certificate paths: ``example-com`` for a
 zone and ``example-com--api`` for its ``api`` rule. When a zone and rule group

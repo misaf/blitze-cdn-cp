@@ -5,8 +5,6 @@ Every container here is built from the one service graph in
 Delivery code reads its own container, so an API route cannot reach a service
 the API was not given, and a process's differences are which container it
 builds rather than branches inside one object.
-
-See docs/decisions/0021-capability-roster-and-process-composition.md.
 """
 
 from __future__ import annotations

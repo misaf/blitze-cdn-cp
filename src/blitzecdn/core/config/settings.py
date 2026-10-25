@@ -98,8 +98,7 @@ class Settings(BaseSettings):
     #: the reason core carries no capability's name. Installed features claim
     #: names during composition through `ConfigurationContribution`; unclaimed
     #: and multiply claimed names are errors, and only the resolved *secrets*
-    #: reach a package role through the subprocess environment. See
-    #: `docs/decisions/0002-capability-configuration-ownership.md`.
+    #: reach a package role through the subprocess environment.
     #:
     #: `SecretStr` because core cannot know which of these are credentials, and
     #: the safe assumption for a value it cannot interpret is that it is one:
@@ -169,8 +168,7 @@ class Settings(BaseSettings):
     #: idle tick is one indexed SELECT against a local SQLite file, and a queued
     #: deployment waits at most this long before a worker picks it up. Pushing
     #: would need a broker — a second network service — for a workload of one
-    #: convergence at a time. See
-    #: docs/decisions/0008-durable-work-on-the-primary-database.md.
+    #: convergence at a time.
     worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
     #: How many route handlers may occupy the API's offload pool at once.
     #:

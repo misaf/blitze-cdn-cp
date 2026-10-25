@@ -59,7 +59,7 @@ class EdgeContributions:
     edge_modules: tuple[ResolvedEdgeModule, ...] = ()
     #: The secrets declared by installed capabilities, forwarded into Ansible's
     #: subprocess environment and nowhere else — never argv, never desired
-    #: state. See ``docs/decisions/0002-capability-configuration-ownership.md``.
+    #: state.
     environment: Mapping[str, SecretStr] = field(default_factory=dict)
 
     @classmethod

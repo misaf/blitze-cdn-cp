@@ -3,10 +3,6 @@
 The two halves of that question — a secret core forwards without looking at
 it, and a setting core resolves and hands back typed — and the contract that
 carries both. Answered by ``blitzecdn_capability_configuration``.
-
-Why a capability declares this rather than core carrying a field for it, and
-what core will and will not validate, is
-``docs/decisions/0002-capability-configuration-ownership.md``.
 """
 
 from __future__ import annotations
@@ -40,8 +36,6 @@ class EnvironmentKey:
     `summary` is what an operator is shown by the refusal that names a missing
     key and by ``blitzecdn plugins``, so write it as the sentence that would
     tell somebody where to get the value.
-
-    See ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
 
     name: str
@@ -85,8 +79,6 @@ class CapabilitySetting:
 
     `summary` is what an operator is shown by ``blitzecdn plugins``, so write it
     as the sentence that explains what changing the value would do.
-
-    See ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
 
     name: str
@@ -141,7 +133,6 @@ class ConfigurationContribution:
 
     Both lists are claims, and a claim is what makes ownership decidable: core
     refuses a configured ``BLITZE_*`` name that no installed capability claims.
-    See ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
 
     feature: str

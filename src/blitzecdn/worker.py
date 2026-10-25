@@ -7,9 +7,8 @@ both halves because nothing imports it back.
 
 There are no actors here and no broker to connect to. Work is rows in the
 control plane's own database, so the process that enqueues and the process that
-consumes share a table rather than a message bus — see
-``docs/decisions/0008-durable-work-on-the-primary-database.md`` for why that
-turned out to be the smaller thing rather than the cruder one.
+consumes share a table rather than a message bus. That is the smaller thing,
+not the cruder one.
 
 What is left in this file is the process lifecycle: build, register the
 schedules this installation's features contribute, install signal handlers so a

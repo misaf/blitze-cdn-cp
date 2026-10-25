@@ -13,8 +13,6 @@ edited in the same commit — a deliberate change and an accidental one looked
 identical, and neither was visible in review. These files are the difference:
 a change to a public name now arrives as a diff somebody has to approve.
 
-See COMPATIBILITY.md for current interface and persistence policy.
-
 **When one of these fails, read the diff before regenerating it.** The question
 it asks is not "is the new surface correct" but "may this change, given who is
 already depending on the old one". `just refreeze` exists for when the answer is
@@ -27,12 +25,10 @@ filter may hide a missing built-in interface.
 from __future__ import annotations
 
 import difflib
-import re
 
 import frozen_surfaces as surfaces
 import pytest
 from frozen_surfaces import FROZEN
-from paths import REPO_ROOT
 
 
 def _compare(name: str, current: str) -> None:
@@ -123,41 +119,3 @@ def test_the_command_line_needs_no_database_to_describe_itself():
 
     assert main.app.registered_groups
     assert "domain" in {group.name for group in main.app.registered_groups}
-
-
-def test_the_compatibility_policy_cites_things_that_exist():
-    """The document that says what is promised, held to the same standard.
-
-    COMPATIBILITY.md is a policy about names, written in names: the six golden
-    files, the tests that enforce them, and the helpers that derive what is
-    public. Every one of those can be renamed by a commit that never opens the
-    document, and a policy citing a test that no longer exists is worse than no
-    policy — it reads as enforcement and is decoration.
-
-    This is the same failure the built-in capability map had, found the same
-    way: prose naming code, with nothing checking the names. So the citations
-    are extracted and resolved. What is *said* about each is still a human's
-    job; that it refers to something real is not.
-    """
-    document = (REPO_ROOT / "COMPATIBILITY.md").read_text(encoding="utf-8")
-
-    goldens = set(re.findall(r"`(\w+)\.txt`", document))
-    assert goldens, "the surface table names no golden files; the format moved"
-    missing_goldens = {
-        name for name in goldens if not (FROZEN / f"{name}.txt").is_file()
-    }
-    assert missing_goldens == set(), f"COMPATIBILITY.md names {missing_goldens}"
-
-    cited = set(re.findall(r"`(test_\w+)`", document))
-    assert cited, "the enforcement table cites no tests; the format moved"
-    defined = {
-        name
-        for path in REPO_ROOT.glob("tests/**/*.py")
-        for name in re.findall(
-            r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.M
-        )
-    }
-    assert cited <= defined, (
-        f"COMPATIBILITY.md cites tests that do not exist: {sorted(cited - defined)}. "
-        "Rename it there too, or say what replaced it."
-    )

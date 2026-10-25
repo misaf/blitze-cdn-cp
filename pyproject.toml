@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "blitzecdn"
 version = "5.0.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
-readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [

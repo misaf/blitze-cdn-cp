@@ -269,8 +269,7 @@ def _read_project_config(path: Path) -> dict[str, object]:
 
     A key core does not recognise is not refused here, and cannot be: this runs
     long before any feature has said what it claims. The refusal belongs to the
-    feature resolver — see
-    `docs/decisions/0002-capability-configuration-ownership.md`.
+    feature resolver.
     """
     if not path.exists():
         return {}

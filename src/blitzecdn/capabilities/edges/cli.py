@@ -248,8 +248,7 @@ def edge_image_spec(
 
     The image needs one thing from this control plane that it cannot work out
     for itself: which Nginx dynamic modules to carry. They are declared by the
-    capabilities that need them — see
-    `docs/decisions/0003-what-a-capability-puts-on-an-edge.md` — and this
+    capabilities that need them, and this
     command emits them, in the form `docker build --build-arg` takes:
 
         docker build $(blitzecdn edge image spec | sed 's/^/--build-arg /') \\

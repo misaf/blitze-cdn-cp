@@ -11,9 +11,7 @@ reads is the one the release says it is, and stays readable after the run for
 anyone asking what a deployment actually sent.
 
 Rollback converges an older release and restores the canonical zones, records
-and rules it was compiled from, so reconciliation cannot quietly undo it. See
-docs/decisions/0007-releases-and-reconciliation.md for the ownership and
-transaction boundaries, and 0001 for why hosts are derived rather than stored.
+and rules it was compiled from, so reconciliation cannot quietly undo it.
 """
 
 from __future__ import annotations

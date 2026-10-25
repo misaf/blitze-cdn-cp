@@ -8,9 +8,6 @@ it declared and cannot see another's credential.
 
 Secrets and settings are both here because they arrive together and are refused
 together, and are separated only once they have owners.
-
-The ownership rules this enforces, and why each refusal exists, are
-``docs/decisions/0002-capability-configuration-ownership.md``.
 """
 
 from __future__ import annotations
@@ -165,9 +162,6 @@ def resolve_capability_environment(
     which is 0600 and uncommitted; ``from_file`` is ``blitzecdn.toml``, which is
     neither. A setting may come from either, the environment winning; a secret
     may come only from the first. Only secrets are forwarded to Ansible.
-
-    Each rule and the reason for it is
-    ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}
