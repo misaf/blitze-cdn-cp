@@ -1,76 +1,42 @@
-"""Source precedence: how a `Settings` payload is assembled, and from where.
+"""Source precedence: where a `Settings` value comes from, as settings sources.
 
-The model in :mod:`blitzecdn.core.config.settings` says what a setting *is* —
-its type, its bounds, its default. This module says where the value comes
-from, and the answer is a chain rather than a lookup: a CLI argument has
-already been applied by the caller, then a `BLITZE_*` environment variable,
-then the project-local `.env` staged as defaults that never override an
-exported name, then `blitzecdn.toml`, then the field default. Keeping it here
-rather than on the model is what makes that chain testable on its own, without
-constructing a validated `Settings` first.
+The model in :mod:`blitzecdn.core.config.settings` says what a setting *is*.
+This module says where it comes from, as an ordered chain of pydantic-settings
+sources, highest first: explicit arguments, the `BLITZE_*` environment, the
+project-local `.env` (which never overrides an exported name), then
+`blitzecdn.toml`, then the field default. pydantic-settings merges them;
+nothing here coerces a value.
+
+Only a field the model lists in `Settings.OPERATOR_SETTINGS` is read from a
+source. Everything else is derived from the project directory by
+:func:`settings_sources`.
 """
 
 from __future__ import annotations
 
-import ipaddress
 import os
 import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic import SecretStr
+from pydantic_settings import (
+    EnvSettingsSource,
+    InitSettingsSource,
+    PydanticBaseSettingsSource,
+    TomlConfigSettingsSource,
+)
 
 from blitzecdn import ansible as core_ansible
 from blitzecdn.core.exceptions import ConfigurationError
 
-_PATH_SETTINGS = (
-    ("environment_path", "BLITZE_ENVIRONMENT_PATH", "environment_path", ".env"),
-)
+if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    from importlib.resources.abc import Traversable
 
-_STATE_PATH_SETTINGS = (
-    ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
-)
-
-_VALUE_SETTINGS: tuple[tuple[str, str, str], ...] = (
-    (
-        "deployment_timeout_seconds",
-        "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
-        "deployment_timeout_seconds",
-    ),
-    (
-        "output_limit_bytes",
-        "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
-        "output_limit_bytes",
-    ),
-    ("run_log_retention", "BLITZE_RUN_LOG_RETENTION", "run_log_retention"),
-    ("history_retention", "BLITZE_HISTORY_RETENTION", "history_retention"),
-    (
-        "preflight_dns_timeout_seconds",
-        "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
-        "preflight_dns_timeout_seconds",
-    ),
-    ("allow_empty_sites", "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites"),
-    (
-        "origin_check_timeout_seconds",
-        "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
-        "origin_check_timeout_seconds",
-    ),
-    (
-        "drift_check_interval_seconds",
-        "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
-        "drift_check_interval_seconds",
-    ),
-    ("worker_poll_seconds", "BLITZE_WORKER_POLL_SECONDS", "worker_poll_seconds"),
-    ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads"),
-    ("allowed_ips", "BLITZE_ALLOWED_IPS", "allowed_ips"),
-)
-
-_PROJECT_KEYS = {
-    *(spec[2] for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)),
-    "preflight_dns_servers",
-    "required_capabilities",
-}
+    from pydantic.fields import FieldInfo
+    from pydantic_settings import BaseSettings
 
 # Disaster recovery moves portable policy and non-regenerable identity onto a
 # compatible fresh install, but it must not replace the new host's filesystem
@@ -84,40 +50,25 @@ MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
         "BLITZE_ENVIRONMENT_PATH",
     }
 )
-#: Every `BLITZE_*` name core reads for itself. A name here can never be claimed
-#: by a feature or forwarded as capability configuration.
-_CORE_ENVIRONMENT_KEYS = frozenset(
-    {
-        *(
-            spec[1]
-            for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)
-        ),
-        "BLITZE_PROJECT_DIR",
-        "BLITZE_CONFIG",
-        "BLITZE_PREFLIGHT_DNS_SERVERS",
-        "BLITZE_REQUIRED_CAPABILITIES",
-        # Controller authentication. Deliberately core-only and deliberately
-        # never forwarded: no edge has any business holding the key that
-        # authenticates to the control plane's own API.
-        "BLITZE_API_KEY",
-        "BLITZE_API_KEYS",
-    }
-)
+
+_PREFIX = "BLITZE_"
+#: Variables spelled other than `BLITZE_` + the field name, mapped to the name
+#: they stand for. The natural spelling is not accepted in their place.
+_RENAMED_VARIABLES = {
+    "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES": "BLITZE_OUTPUT_LIMIT_BYTES",
+}
+#: `BLITZE_*` names core reads that are not a field of their own. The single
+#: API key is folded into `api_keys` by the model.
+_BOOTSTRAP_VARIABLES = frozenset({"BLITZE_PROJECT_DIR", "BLITZE_CONFIG"})
+_API_KEY_VARIABLE = "BLITZE_API_KEY"
 
 
 def is_portable_config_key(name: str) -> bool:
     """Whether this `blitzecdn.toml` key survives a restore onto a fresh host.
 
-    A predicate rather than an allow-list, for the reason
-    :func:`is_portable_environment_key` is one: a capability owns its own keys
-    in this file, and core must not name them — so "is it one of ours" is not
-    core's question, while "does it describe *this machine*" is answerable for
-    every key core owns.
-
-    A capability's own machine-specific setting is not visible here, because
-    core does not know which of them are. It is declared on the setting, as
-    `CapabilitySetting.portable`, and the caller that has the features loaded
-    combines the two answers.
+    A predicate rather than an allow-list: a capability owns its own keys in
+    this file and core must not name them. A capability's own machine-specific
+    setting is declared on the setting, as `CapabilitySetting.portable`.
     """
     return name not in MACHINE_SPECIFIC_CONFIG_KEYS
 
@@ -125,66 +76,171 @@ def is_portable_config_key(name: str) -> bool:
 def is_portable_environment_key(name: str) -> bool:
     """Whether this environment setting survives a restore onto a fresh host.
 
-    A predicate rather than an allow-list, because a capability owns its own
-    `BLITZE_*` names. Naming `BLITZE_MAXMIND_LICENSE_KEY` here to keep it
-    portable would put a capability's name in core to answer a question core
-    can answer generically — everything but the handful of settings that
-    describe *this machine* is portable.
+    Everything but the handful of settings that describe *this machine* is
+    portable, so core never has to name a capability's variable to say so.
     """
-    return name.startswith("BLITZE_") and name not in MACHINE_SPECIFIC_ENVIRONMENT_KEYS
+    return name.startswith(_PREFIX) and name not in MACHINE_SPECIFIC_ENVIRONMENT_KEYS
 
 
-def settings_payload(
+def _operator_settings(
+    settings_cls: type[BaseSettings], *, environment: bool
+) -> frozenset[str]:
+    """The fields a source may set: every operator setting, or the file's."""
+    fields: frozenset[str] = getattr(settings_cls, "OPERATOR_SETTINGS", frozenset())
+    if environment:
+        return fields
+    secret: frozenset[str] = getattr(
+        settings_cls, "ENVIRONMENT_ONLY_SETTINGS", frozenset()
+    )
+    return fields - secret
+
+
+class EnvironmentSource(EnvSettingsSource):
+    """`BLITZE_*` settings from a given mapping, never from `os.environ`.
+
+    Names match exactly and in upper case, the way a shell spells them. Every
+    other `BLITZE_*` name is staged, masked, in `capability_environment` for the
+    feature resolver to claim: core cannot tell a credential from a tuning
+    value, and the safe assumption for one it cannot interpret is that it is a
+    credential. Core's own names, the API keys among them, are never staged, so
+    they never reach a subprocess.
+    """
+
+    def __init__(
+        self, settings_cls: type[BaseSettings], environment: Mapping[str, str]
+    ) -> None:
+        self._environment = dict(environment)
+        super().__init__(settings_cls, case_sensitive=False, env_prefix=_PREFIX)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        found: dict[str, str | None] = {}
+        for name, value in self._environment.items():
+            if not name.startswith(_PREFIX) or name != name.upper():
+                continue
+            if name in _RENAMED_VARIABLES.values():
+                continue
+            found[_RENAMED_VARIABLES.get(name, name).lower()] = value
+        return found
+
+    def get_field_value(
+        self, field: FieldInfo, field_name: str
+    ) -> tuple[Any, str, bool]:
+        if field_name not in _operator_settings(self.settings_cls, environment=True):
+            return None, field_name, False
+        return super().get_field_value(field, field_name)
+
+    def _core_variables(self) -> frozenset[str]:
+        natural = {
+            _PREFIX + name.upper()
+            for name in _operator_settings(self.settings_cls, environment=True)
+        }
+        return frozenset(
+            (natural - set(_RENAMED_VARIABLES.values()))
+            | set(_RENAMED_VARIABLES)
+            | _BOOTSTRAP_VARIABLES
+            | {_API_KEY_VARIABLE}
+        )
+
+    def __call__(self) -> dict[str, Any]:
+        data = super().__call__()
+        core = self._core_variables()
+        staged = {
+            name: SecretStr(value)
+            for name, value in sorted(self._environment.items())
+            if name.startswith(_PREFIX) and name not in core
+        }
+        if staged:
+            data["capability_environment"] = staged
+        if _API_KEY_VARIABLE in self._environment:
+            data["api_key"] = self._environment[_API_KEY_VARIABLE]
+        return data
+
+
+class ProjectFileSource(TomlConfigSettingsSource):
+    """The `[blitzecdn]` table of `blitzecdn.toml`.
+
+    A key core does not recognise is staged in `capability_config_file` under
+    the `BLITZE_*` name it corresponds to, rather than refused: this runs long
+    before any feature has said what it claims. Kept apart from the
+    environment's staging, and never `SecretStr`, because this file is
+    committed: only a `CapabilitySetting` is ever satisfied from it, never a
+    secret declared as an `EnvironmentKey`.
+    """
+
+    def __init__(self, settings_cls: type[BaseSettings], path: Path) -> None:
+        self._known = _operator_settings(settings_cls, environment=False)
+        self._staged: dict[str, str] = {}
+        super().__init__(settings_cls, toml_file=path)
+
+    def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
+        try:
+            with file_path.open("rb") as stream:
+                document = tomllib.load(stream)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigurationError(f"invalid TOML in {file_path}: {exc}") from exc
+        table = document.get("blitzecdn", {})
+        if not isinstance(table, dict):
+            raise ConfigurationError("[blitzecdn] must be a TOML table")
+        self._staged = {
+            _PREFIX + str(name).upper(): _scalar(value)
+            for name, value in sorted(table.items())
+            if name not in self._known
+        }
+        return {name: value for name, value in table.items() if name in self._known}
+
+    def __call__(self) -> dict[str, Any]:
+        data = super().__call__()
+        if self._staged:
+            data["capability_config_file"] = self._staged
+        return data
+
+
+def settings_sources(
+    settings_cls: type[BaseSettings],
     environment: Mapping[str, str] | None = None,
     *,
     project_dir: Path | None = None,
-) -> dict[str, object]:
-    """Assemble one `Settings` payload from every configured source.
+) -> tuple[tuple[PydanticBaseSettingsSource, ...], dict[str, Any]]:
+    """Every source for one `Settings`, highest precedence first.
 
-    Resolving the project root twice is deliberate: `.env` is read relative to
-    the root the process already knows, and only then may that file move the
-    root by setting `BLITZE_PROJECT_DIR` itself. An explicit `project_dir`
-    argument outranks both.
+    Shaped for `BaseSettings(_build_sources=...)`. The project root is resolved
+    twice, deliberately: `.env` is read relative to the root the process
+    already knows, and only then may that file move the root by setting
+    `BLITZE_PROJECT_DIR` itself. An explicit `project_dir` outranks both.
     """
     supplied = os.environ if environment is None else environment
     initial_root = (
         project_dir or Path(supplied.get("BLITZE_PROJECT_DIR", Path.cwd()))
     ).resolve()
-    env = _with_local_environment(supplied, initial_root)
-    root = (project_dir or Path(env.get("BLITZE_PROJECT_DIR", initial_root))).resolve()
-    project_config = _read_project_config(
-        Path(env.get("BLITZE_CONFIG", root / "blitzecdn.toml"))
+    local = read_environment_file(initial_root / ".env")
+    merged = {**local, **supplied}
+    root = (
+        project_dir or Path(merged.get("BLITZE_PROJECT_DIR", initial_root))
+    ).resolve()
+    config = Path(merged.get("BLITZE_CONFIG", root / "blitzecdn.toml"))
+    layout = _layout(root)
+    return (
+        (
+            InitSettingsSource(settings_cls, layout),
+            EnvironmentSource(settings_cls, supplied),
+            EnvironmentSource(settings_cls, local),
+            ProjectFileSource(settings_cls, config),
+        ),
+        layout,
     )
-    try:
-        return _configuration_values(env, project_config, root)
-    except (TypeError, ValueError) as exc:
-        raise ConfigurationError(f"invalid BlitzeCDN configuration: {exc}") from exc
 
 
-def _configuration_values(
-    env: Mapping[str, str],
-    project_config: Mapping[str, object],
-    root: Path,
-) -> dict[str, object]:
-    """Resolve every supported source into one validated model payload."""
-
-    def value(environment_name: str, config_name: str, default: object) -> object:
-        return env.get(environment_name, project_config.get(config_name, default))
-
-    def path_value(environment_name: str, config_name: str, default: Path) -> Path:
-        candidate = Path(str(value(environment_name, config_name, default)))
-        return candidate if candidate.is_absolute() else root / candidate
-
+def _layout(root: Path) -> dict[str, Any]:
+    """The paths derived from the project root, which no source may set."""
     state = root / ".state"
-    values: dict[str, object] = {
+    return {
         "project_dir": root,
         "state_dir": state,
-        # Not derived from `root`. The platform's Ansible ships inside
-        # this wheel and is located through `importlib.resources`, so these
-        # four resolve identically in a checkout and on a controller that
-        # has no checkout at all. They are deliberately not operator
-        # configurable: pointing the control plane at someone else's copy
-        # of the platform roles is not a supported deployment.
+        # Not derived from `root`. The platform's Ansible ships inside this
+        # wheel and is located through `importlib.resources`, so these resolve
+        # identically in a checkout and on a controller that has no checkout
+        # at all. Pointing the control plane at someone else's copy of the
+        # platform roles is not a supported deployment.
         "ansible_dir": core_ansible.ROLES_PATH.parent,
         "inventory_path": core_ansible.INVENTORY_PATH,
         "playbook_path": core_ansible.EDGE_PLAYBOOK,
@@ -193,49 +249,18 @@ def _configuration_values(
         "deployment_lock_path": state / "deployment.lock",
         "certificate_dir": state / "certificates",
     }
-    for field, environment_name, config_name, relative_default in _PATH_SETTINGS:
-        values[field] = path_value(
-            environment_name, config_name, root / relative_default
-        )
-    for (
-        field,
-        environment_name,
-        config_name,
-        relative_default,
-    ) in _STATE_PATH_SETTINGS:
-        values[field] = path_value(
-            environment_name, config_name, state / relative_default
-        )
-    # Unset values belong to Settings. Supplying a fallback here would mask
-    # changes to the model defaults and create a second source of truth.
-    for field, environment_name, config_name in _VALUE_SETTINGS:
-        if environment_name in env:
-            values[field] = env[environment_name]
-        elif config_name in project_config:
-            values[field] = project_config[config_name]
-
-    values.update(
-        preflight_dns_servers=_read_dns_servers(
-            value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
-        ),
-        required_capabilities=_read_capabilities(
-            value("BLITZE_REQUIRED_CAPABILITIES", "required_capabilities", ())
-        ),
-        capability_environment=_read_capability_environment(env),
-        capability_config_file=_read_capability_config_file(project_config),
-        api_keys=_read_api_keys(env),
-    )
-    return values
 
 
-def _with_local_environment(
-    environment: Mapping[str, str], project_dir: Path
-) -> dict[str, str]:
-    """Load project-local defaults without overriding the process environment."""
-    merged = dict(environment)
-    path = project_dir / ".env"
+def read_environment_file(path: Path) -> dict[str, str]:
+    """Read a `.env` strictly: one shell-quoted `NAME=value` per line.
+
+    Stricter than python-dotenv on purpose. A symlink or a value with an
+    unquoted space is refused rather than guessed at, because this file holds
+    the controller's secrets.
+    """
+    values: dict[str, str] = {}
     if not path.exists():
-        return merged
+        return values
     if path.is_symlink() or not path.is_file():
         raise ConfigurationError(f"refusing to load unsafe environment file: {path}")
     for number, raw_line in enumerate(
@@ -260,133 +285,15 @@ def _with_local_environment(
             raise ConfigurationError(
                 f"quote values containing spaces in {path}:{number}"
             )
-        merged.setdefault(name, parts[0] if parts else "")
-    return merged
-
-
-def _read_project_config(path: Path) -> dict[str, object]:
-    """Read `[blitzecdn]`, without deciding whether every key is meaningful.
-
-    A key core does not recognise is not refused here, and cannot be: this runs
-    long before any feature has said what it claims. The refusal belongs to the
-    feature resolver.
-    """
-    if not path.exists():
-        return {}
-    try:
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except tomllib.TOMLDecodeError as exc:
-        raise ConfigurationError(f"invalid TOML in {path}: {exc}") from exc
-    raw = document.get("blitzecdn", {})
-    if not isinstance(raw, dict):
-        raise ConfigurationError("[blitzecdn] must be a TOML table")
-    return raw
-
-
-def _read_capabilities(raw: object) -> tuple[str, ...]:
-    """Parse capability tokens from a comma-separated string or a list."""
-    if isinstance(raw, str):
-        parts: list[str] = [part.strip() for part in raw.split(",")]
-    elif isinstance(raw, (list, tuple)):
-        parts = [str(part).strip() for part in raw]
-    else:
-        raise ValueError("required_capabilities must be a list or comma-separated")
-    tokens: list[str] = []
-    for part in filter(None, parts):
-        if not part.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(
-                f"required capability {part!r} must be alphanumeric, such as 'backup'"
-            )
-        if part not in tokens:
-            tokens.append(part)
-    return tuple(tokens)
-
-
-def _read_dns_servers(raw: object) -> tuple[str, ...]:
-    """Parse resolver addresses from a comma-separated string or a list.
-
-    Addresses only: a hostname here would have to be resolved by the very
-    resolver we are trying not to trust.
-    """
-    if isinstance(raw, str):
-        parts: list[str] = [part.strip() for part in raw.split(",")]
-    elif isinstance(raw, (list, tuple)):
-        parts = [str(part).strip() for part in raw]
-    else:
-        raise ValueError("preflight_dns_servers must be a list or comma-separated")
-    servers: list[str] = []
-    for part in filter(None, parts):
-        try:
-            ipaddress.ip_address(part)
-        except ValueError as exc:
-            raise ValueError(
-                f"preflight DNS server {part!r} is not an IP address"
-            ) from exc
-        servers.append(part)
-    return tuple(servers)
-
-
-def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]:
-    """Stage non-core `BLITZE_*` values for contribution-owner resolution.
-
-    Read from the *merged* environment, so a value in the controller's
-    `.env` reaches a deploy without an operator having to export it into
-    every shell — which is the whole reason this is collected here rather
-    than left to `os.environ` in the executor.
-
-    The feature resolver interprets ownership, not values. It accepts only
-    names explicitly declared by one feature and rejects typos, unclaimed
-    settings and ownership collisions before a runner is
-    built. Thus collecting candidates here is not a forwarding policy.
-
-    Staged as `SecretStr` — including values that will turn out to be ordinary
-    numbers. Core does not learn which names are secrets until the features
-    declare it, and for a value it cannot yet attribute the safe assumption is
-    that it is one. The resolver unwraps a setting at the moment its owner says
-    it is not a secret.
-    """
-    return {
-        name: SecretStr(value)
-        for name, value in sorted(env.items())
-        if name.startswith("BLITZE_") and name not in _CORE_ENVIRONMENT_KEYS
-    }
-
-
-def _read_capability_config_file(
-    project_config: Mapping[str, object],
-) -> dict[str, str]:
-    """Stage the `blitzecdn.toml` keys core does not recognise.
-
-    This is what makes a non-secret capability setting configurable at all: a
-    renewal interval is exactly the sort of default this file exists to hold, so
-    an unrecognised key is staged rather than refused.
-
-    A TOML key is spelled the way every core key already maps to its variable:
-    `certificate_renewal_interval_seconds` becomes
-    `BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS`.
-
-    Kept apart from the environment map, and not as `SecretStr`, because this
-    file is committed and 0644 while `.env` is neither. Only a
-    `CapabilitySetting` is ever satisfied from here; a secret declared as an
-    `EnvironmentKey` is not, so a package cannot document its signing key into
-    a file an operator would commit.
-    """
-    return {
-        "BLITZE_" + str(name).upper(): _scalar(value)
-        for name, value in sorted(project_config.items())
-        if name not in _PROJECT_KEYS
-    }
+        values.setdefault(name, parts[0] if parts else "")
+    return values
 
 
 def _scalar(value: object) -> str:
     """One TOML value as the string an environment variable would have held.
 
-    A capability setting arrives as text either way and is coerced by its
-    declaration, so the only job here is to spell a TOML scalar the way the
-    same value would have been written in a shell. `True` is the one that
-    would otherwise be wrong: Python spells it capitalised and no environment
-    variable ever does.
+    `True` is the one that would otherwise be wrong: Python spells it
+    capitalised and no environment variable ever does.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -396,26 +303,3 @@ def _scalar(value: object) -> str:
             f"{type(value).__name__}"
         )
     return str(value)
-
-
-def _read_api_keys(env: Mapping[str, str]) -> dict[str, SecretStr]:
-    keys: dict[str, SecretStr] = {}
-    raw_keys = env.get("BLITZE_API_KEYS", "")
-    for entry in filter(None, (part.strip() for part in raw_keys.split(","))):
-        operator, separator, secret = entry.partition(":")
-        if not separator or not operator or len(secret) < 32:
-            raise ConfigurationError(
-                "BLITZE_API_KEYS entries must be operator:secret with secrets "
-                "of at least 32 characters"
-            )
-        if operator in keys:
-            raise ConfigurationError(f"duplicate API operator: {operator}")
-        keys[operator] = SecretStr(secret)
-    single = env.get("BLITZE_API_KEY")
-    if single:
-        if len(single) < 32:
-            raise ConfigurationError(
-                "BLITZE_API_KEY must contain at least 32 characters"
-            )
-        keys.setdefault("default", SecretStr(single))
-    return keys
