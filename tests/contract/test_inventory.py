@@ -228,6 +228,49 @@ def test_the_plugins_reserved_names_match_the_domains():
     assert module.EDGE_GROUP == EDGE_GROUP
 
 
+def _plugin_module():
+    pytest.importorskip("ansible.plugins.inventory")
+    plugin = ANSIBLE_DIR / "plugins/inventory/blitzecdn.py"
+    spec = importlib.util.spec_from_file_location("blitzecdn_inventory", plugin)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_default_database_is_the_checkouts_own():
+    """A hand-run `ansible-inventory` in a checkout finds the controller's file.
+
+    The inventory source sits deep inside the package; counting directories up
+    from it pointed inside `src/` once the tree moved there.
+    """
+    source = ANSIBLE_DIR / "inventory/blitzecdn.yml"
+
+    default = _plugin_module()._default_database(str(source))
+
+    assert Path(default) == REPO_ROOT / ".state/control-plane.db"
+
+
+def test_the_default_database_follows_the_nearest_project_marker(tmp_path, monkeypatch):
+    module = _plugin_module()
+    project = tmp_path / "project"
+    inventory = project / "src/blitzecdn/assets/ansible/inventory"
+    inventory.mkdir(parents=True)
+    (project / "blitzecdn.toml").write_text("[blitzecdn]\n", encoding="utf-8")
+    source = str(inventory / "blitzecdn.yml")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert Path(module._default_database(source)) == project / ".state/control-plane.db"
+
+    (project / "blitzecdn.toml").unlink()
+
+    assert Path(module._default_database(source)) == (
+        elsewhere / ".state/control-plane.db"
+    )
+
+
 def test_management_networks_reach_every_edge_and_outrank_group_vars(fleet):
     """The union, as a host variable, which is the whole point of it being one.
 
