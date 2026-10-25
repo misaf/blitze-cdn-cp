@@ -31,7 +31,7 @@ from policy_support import domain_from_settings, site_from_settings
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 from blitzecdn.composition import load_registry

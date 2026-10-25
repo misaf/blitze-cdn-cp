@@ -12,7 +12,7 @@ from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.dns.api.models import ZonePolicy as ZonePolicyModel
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.serving.policy import SitePolicy
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import (
     ConfigurationError,

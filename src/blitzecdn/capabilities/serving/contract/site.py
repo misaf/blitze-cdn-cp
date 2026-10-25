@@ -8,13 +8,13 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
 
-from blitzecdn.capabilities.cache.policy import CachePolicy
-from blitzecdn.capabilities.compression.policy import CompressionPolicy
-from blitzecdn.capabilities.http.policy import ProtocolPolicy
-from blitzecdn.capabilities.security.policy import SecurityPolicy
-from blitzecdn.capabilities.serving.policy.headers import HeaderPolicy
-from blitzecdn.capabilities.serving.policy.origin import OriginPolicy
-from blitzecdn.capabilities.tls.policy import TlsPolicy
+from blitzecdn.capabilities.cache.contract import CachePolicy
+from blitzecdn.capabilities.compression.contract import CompressionPolicy
+from blitzecdn.capabilities.http.contract import ProtocolPolicy
+from blitzecdn.capabilities.security.contract import SecurityPolicy
+from blitzecdn.capabilities.serving.contract.headers import HeaderPolicy
+from blitzecdn.capabilities.serving.contract.origin import OriginPolicy
+from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.domain.policy import CapabilityPolicy
 
 

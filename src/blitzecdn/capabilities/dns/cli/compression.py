@@ -1,6 +1,6 @@
 """The `compression` contract\'s switch on one zone.
 
-Edits the field declared by :mod:`blitzecdn.capabilities.compression.policy`.
+Edits the field declared by :mod:`blitzecdn.capabilities.compression.contract`.
 Whether an edge can actually produce Brotli is the `compression` capability\'s
 question, asked at deploy time.
 """
@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import common

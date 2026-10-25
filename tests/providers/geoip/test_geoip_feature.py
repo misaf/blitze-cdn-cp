@@ -8,8 +8,8 @@ attaching it is the only thing that makes a country-aware site deployable.
 
 from control_plane_fixtures import build_application
 
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
     load_registry,

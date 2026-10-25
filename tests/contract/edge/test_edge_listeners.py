@@ -27,11 +27,11 @@ from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
 )
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 from blitzecdn.composition import Repository

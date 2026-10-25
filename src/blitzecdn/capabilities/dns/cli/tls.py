@@ -1,6 +1,6 @@
 """The `tls` contract\'s switches: encryption mode and minimum visitor version.
 
-Edits fields declared by :mod:`blitzecdn.capabilities.tls.policy`. Issuing and
+Edits fields declared by :mod:`blitzecdn.capabilities.tls.contract`. Issuing and
 renewing the certificate those modes require is not here — that is
 `tls.certificates`, which contributes its own commands.
 """
@@ -13,7 +13,7 @@ import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,

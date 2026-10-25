@@ -14,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from blitzecdn.capabilities.jobs.composition import schedule_specs
 from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
@@ -24,6 +23,7 @@ from blitzecdn.capabilities.jobs.service import (
     JobScheduler,
     ScheduleSpec,
 )
+from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.composition import Repository
 from blitzecdn.core.features import ScheduledJob
 

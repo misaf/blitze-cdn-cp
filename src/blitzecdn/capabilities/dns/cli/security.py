@@ -1,6 +1,6 @@
 """The `security` contract\'s switches: the request filter and Under Attack Mode.
 
-Edits fields declared by :mod:`blitzecdn.capabilities.security.policy`. Both
+Edits fields declared by :mod:`blitzecdn.capabilities.security.contract`. Both
 need an implementation on the edges — the `security` capability, and `geoip`
 for the country rules — and a deploy refuses rather than silently serve
 traffic a rule here was meant to block.
@@ -14,7 +14,7 @@ import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
-from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.security.contract import SiteFirewall
 from blitzecdn.cli import common
 
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import (
     CacheStatsReport,
     EdgeStats,
@@ -24,10 +25,9 @@ from blitzecdn.capabilities.cache.domain import (
     PurgeResult,
     SiteCacheStats,
 )
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.cache.ports import CacheRunner
 from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.runs import HostRun

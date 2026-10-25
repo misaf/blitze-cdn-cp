@@ -16,7 +16,7 @@ from control_plane_fixtures import build_application
 from edge_render_support import _seed_site
 
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
+from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
 from blitzecdn.composition import Repository
 
 

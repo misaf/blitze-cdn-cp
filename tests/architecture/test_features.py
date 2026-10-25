@@ -18,13 +18,13 @@ from fastapi import APIRouter
 from policy_support import site_from_settings
 from typer import Typer
 
-from blitzecdn.capabilities.deployments.runtime import deployments_operations
-from blitzecdn.capabilities.diagnostics.runtime import diagnostics_operations
-from blitzecdn.capabilities.dns.runtime import RENDERING as DNS_RENDERING
-from blitzecdn.capabilities.http.runtime import RENDERING as HTTP_RENDERING
+from blitzecdn.capabilities.deployments.wiring import deployments_operations
+from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
+from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
+from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.config import CertificateConfig
-from blitzecdn.capabilities.tls.runtime import certificates_operations
+from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
     ROSTER,
@@ -52,7 +52,7 @@ from blitzecdn.core.features import (
     load_features,
     merge_variables,
 )
-from blitzecdn.providers.http3.runtime import RENDERING as HTTP3_RENDERING
+from blitzecdn.providers.http3.wiring import RENDERING as HTTP3_RENDERING
 
 #: The capability features, without the focused providers. A registry missing
 #: `geoip` and `http3` is what lets these tests watch a capability be absent.
@@ -118,7 +118,7 @@ def test_a_built_in_that_cannot_be_imported_stops_the_process():
 
 def test_a_built_in_module_has_to_declare_its_features():
     with pytest.raises(FeatureError, match="must export FEATURES"):
-        load_features(("blitzecdn.capabilities.dns.runtime",))
+        load_features(("blitzecdn.capabilities.dns.wiring",))
 
 
 def test_two_built_in_modules_cannot_declare_one_feature():

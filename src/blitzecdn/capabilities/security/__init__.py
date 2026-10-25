@@ -4,6 +4,6 @@ Shipped with the application. Contracts stay pure; services and concrete
 providers are assembled explicitly by composition.
 """
 
-from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
 
 __all__ = ["SecurityPolicy", "SiteFirewall"]

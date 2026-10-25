@@ -10,24 +10,24 @@ from policy_support import (
 )
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
     DomainPatch,
     derive_hosts,
 )
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     HttpScheme,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
-from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,

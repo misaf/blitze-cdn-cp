@@ -1,6 +1,6 @@
 """The `http` contract\'s switches: protocols, upload limit, scheme redirect.
 
-Edits fields declared by :mod:`blitzecdn.capabilities.http.policy`. `http3` is
+Edits fields declared by :mod:`blitzecdn.capabilities.http.contract`. `http3` is
 the switch\'s value on the zone document; whether an edge can serve QUIC at all
 is the `http3` capability\'s question, asked at deploy time.
 """
@@ -13,7 +13,7 @@ import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.http.policy import MaxUploadSize
+from blitzecdn.capabilities.http.contract import MaxUploadSize
 from blitzecdn.cli import common
 
 

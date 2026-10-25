@@ -8,7 +8,7 @@ import pytest
 from control_plane_fixtures import FakeRunner, build_application, seed_site
 from policy_support import TEST_CERTIFICATE_VERSION
 
-from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
@@ -18,8 +18,8 @@ from blitzecdn.capabilities.dns.domain import (
     resolve_policy,
 )
 from blitzecdn.capabilities.dns.service import DnsService, RuleService
-from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
+from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 

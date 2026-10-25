@@ -21,7 +21,7 @@ import yaml
 from control_plane_fixtures import FakeRunner, build_application
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
-from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.composition import ApplicationServices, build_worker
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.config import Settings

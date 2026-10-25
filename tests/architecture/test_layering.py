@@ -2,7 +2,7 @@
 
 Two graphs, not one, and the split is the architecture.
 
-A capability's ``policy`` module is its **contract**: pure values describing how
+A capability's ``contract`` module holds pure values describing how
 the capability is configured, importing nothing but ``core`` and another
 capability's contract. Its other modules are its **implementation**: the
 services, adapters, routers and commands that act on those values.
@@ -53,19 +53,19 @@ _CAPABILITIES = _SOURCE / "capabilities"
 #: `domain`, `adapters`, `service` and `api` are directories, so a module is
 #: inside the rule the moment it is put where it belongs, and choosing the
 #: directory is choosing the rule. The
-#: `removesuffix(".py")` below is what still admits `policy.py` and `cli.py`,
+#: `removesuffix(".py")` below is what still admits `contract.py` and `cli.py`,
 #: which are the two layers a capability may spell either way.
 def _is_domain(path: Path) -> bool:
-    """A capability's values: `domain/`, and the contract in `policy`."""
+    """A capability's values: `domain/`, and its `contract`."""
     parts = path.relative_to(_CAPABILITIES).parts
-    return "domain" in {part.removesuffix(".py") for part in parts} or "policy" in {
+    return "domain" in {part.removesuffix(".py") for part in parts} or "contract" in {
         part.removesuffix(".py") for part in parts
     }
 
 
 _PUBLIC_CROSS_CAPABILITY_MODULES = {
     "domain",
-    "policy",
+    "contract",
     "ports",
     "reporting",
 }
@@ -151,24 +151,24 @@ def _capability_name(path: Path) -> str:
     return path.relative_to(_CAPABILITIES).parts[0]
 
 
-def _policy_files() -> list[Path]:
+def _contract_files() -> list[Path]:
     """Every capability contract module, wherever the capability keeps it.
 
-    Both shapes count: `tls/policy.py`, one file because the contract is one
-    cohesive set of TLS values, and `serving/policy/`, a package because what the
+    Both shapes count: `tls/contract.py`, one file because the contract is one
+    cohesive set of TLS values, and `serving/contract/`, a package because what the
     zone owns itself splits cleanly into headers and origin.
     """
     return sorted(
         path
         for path in _capability_files()
-        if "policy" in {part.removesuffix(".py") for part in path.parts}
+        if "contract" in {part.removesuffix(".py") for part in path.parts}
     )
 
 
-def _is_policy_import(imported: str) -> bool:
+def _is_contract_import(imported: str) -> bool:
     """Whether an import names another capability's contract rather than it."""
     parts = imported.removeprefix("blitzecdn.capabilities.").split(".")
-    return len(parts) > 1 and parts[1] == "policy"
+    return len(parts) > 1 and parts[1] == "contract"
 
 
 def test_legacy_layer_first_packages_have_no_source_modules():
@@ -488,7 +488,7 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 # Policy composition is independent of implementation dependencies. Serving
 # composes the individual contracts; DNS consumes it and validates flat patches
 # with the individual field types until the nested policy step replaces them.
-ALLOWED_POLICY_DEPENDENCIES = {
+ALLOWED_CONTRACT_DEPENDENCIES = {
     "backup": set(),
     "origins": {"http", "tls"},
     "cache": {"http"},
@@ -510,7 +510,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
 def test_a_capability_contract_never_imports_an_implementation():
     """The layer rule, and the only reason two graphs are safe to have.
 
-    A `policy` module may name `core` and another capability's `policy`. The
+    A `contract` module may name `core` and another capability's `contract`. The
     moment one reaches for a service, an adapter, a `domain` or a `ports`
     module, the contract layer stops being below the implementation layer and
     the two declared graphs stop composing into an order at all.
@@ -518,9 +518,9 @@ def test_a_capability_contract_never_imports_an_implementation():
     prefix = "blitzecdn.capabilities."
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _policy_files()
+        for path in _contract_files()
         for imported in sorted(_imports(path))
-        if imported.startswith(prefix) and not _is_policy_import(imported)
+        if imported.startswith(prefix) and not _is_contract_import(imported)
     ]
     assert offenders == []
 
@@ -550,18 +550,18 @@ def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
     assert offenders == []
 
 
-def test_policy_dependencies_match_what_is_declared():
-    assert _policy_graph() == ALLOWED_POLICY_DEPENDENCIES
+def test_contract_dependencies_match_what_is_declared():
+    assert _contract_graph() == ALLOWED_CONTRACT_DEPENDENCIES
 
 
 def test_the_capability_contract_graph_is_acyclic():
-    _assert_acyclic(_policy_graph(), "capability contract")
+    _assert_acyclic(_contract_graph(), "capability contract")
 
 
 def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """The implementation graph and the contract graph, in that order.
 
-    An import of `blitzecdn.capabilities.<other>.policy` is a *contract* edge and
+    An import of `blitzecdn.capabilities.<other>.contract` is a *contract* edge and
     lands in the second. Everything else — the package itself, a domain module,
     a port, a service — is an implementation edge and lands in the first.
     """
@@ -570,7 +570,7 @@ def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
         name: set() for name in ALLOWED_CAPABILITY_DEPENDENCIES
     }
     contract: dict[str, set[str]] = {
-        name: set() for name in ALLOWED_POLICY_DEPENDENCIES
+        name: set() for name in ALLOWED_CONTRACT_DEPENDENCIES
     }
     for path in _capability_files():
         owner = _capability_name(path)
@@ -584,7 +584,7 @@ def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
             # importing another capability's package is depending on it.
             if depends_on == owner:
                 continue
-            target = contract if _is_policy_import(imported) else implementation
+            target = contract if _is_contract_import(imported) else implementation
             target[owner].add(depends_on)
     return implementation, contract
 
@@ -593,7 +593,7 @@ def _capability_graph() -> dict[str, set[str]]:
     return _graphs()[0]
 
 
-def _policy_graph() -> dict[str, set[str]]:
+def _contract_graph() -> dict[str, set[str]]:
     return _graphs()[1]
 
 
@@ -698,7 +698,7 @@ def test_every_capability_declares_itself_through_a_feature_module():
     imported — either way the routes and commands quietly are not there.
 
     A capability may skip declaring a feature only when it has nothing to
-    declare: when it is a contract and nothing beyond its policy and domain.
+    declare: when it is a contract and nothing beyond its contract and domain.
     """
     capabilities = {
         path.name
@@ -717,7 +717,7 @@ def test_every_capability_declares_itself_through_a_feature_module():
         for name in sorted(capabilities - declared)
         for path in sorted((_CAPABILITIES / name).rglob("*.py"))
         if path.name != "__init__.py"
-        and not {"policy", "domain"}.intersection(
+        and not {"contract", "domain"}.intersection(
             part.removesuffix(".py") for part in path.parts
         )
     ]
@@ -839,8 +839,8 @@ def test_domain_and_service_code_never_reads_the_wall_clock():
     offenders = [
         f"{path.relative_to(_SOURCE)}:{number}"
         for path in sorted(_SOURCE.rglob("*.py"))
-        if {"domain", "service", "policy"} & set(path.relative_to(_SOURCE).parts)
-        or path.name in {"policy.py"}
+        if {"domain", "service", "contract"} & set(path.relative_to(_SOURCE).parts)
+        or path.name in {"contract.py"}
         for number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
         )

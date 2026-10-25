@@ -6,7 +6,7 @@ which is what keeps this module free of imports from its own package.
 
 That first sentence is the rule rather than a description of the contents: a
 shape with one consumer, such as the country codes in
-:mod:`blitzecdn.capabilities.security.policy`, lives with the contract that
+:mod:`blitzecdn.capabilities.security.contract`, lives with the contract that
 validates against it.
 """
 

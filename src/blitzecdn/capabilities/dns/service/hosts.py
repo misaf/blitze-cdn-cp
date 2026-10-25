@@ -19,7 +19,7 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     CertificateVersion,
     SslAutomaticMode,

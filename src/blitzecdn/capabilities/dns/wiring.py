@@ -1,11 +1,13 @@
-"""How the DNS capability is built.
+"""How the DNS capability is built, and what it renders.
 
 Every collaborator is an explicit argument. A builder never receives the
-composition root, so what a service depends on is its signature.
+composition root, so what a service depends on is its signature. What the
+feature renders is the flat site contract the edge roles read.
 """
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.ports import (
     RuleOverrides,
     RuleReader,
@@ -14,10 +16,18 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.dns.service import DnsService, HostService, RuleService
+from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.features import FeatureRendering, SiteStateContribution
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
-__all__ = ["build_dns_service", "build_host_service", "build_rule_service"]
+__all__ = [
+    "RENDERING",
+    "build_dns_service",
+    "build_host_service",
+    "build_rule_service",
+    "site_contract",
+]
 
 
 def build_dns_service(
@@ -62,3 +72,11 @@ def build_rule_service(
         events=events,
         uow=uow,
     )
+
+
+def site_contract(site: CdnSite) -> SiteStateContribution:
+    """Project the stable flat site contract consumed by the edge roles."""
+    return SiteStateContribution(feature="dns", variables=site_to_ansible(site))
+
+
+RENDERING = FeatureRendering(feature="dns", site_state=site_contract)

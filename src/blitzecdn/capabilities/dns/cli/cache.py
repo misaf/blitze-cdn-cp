@@ -1,6 +1,6 @@
 """The `cache` contract\'s switches on one zone.
 
-Edits fields declared by :mod:`blitzecdn.capabilities.cache.policy`. Purging
+Edits fields declared by :mod:`blitzecdn.capabilities.cache.contract`. Purging
 and cache statistics are operations rather than zone policy, so they belong to
 the `cache` capability's own commands.
 """
@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import common

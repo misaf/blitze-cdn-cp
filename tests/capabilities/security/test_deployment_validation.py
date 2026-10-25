@@ -25,7 +25,7 @@ from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
-from blitzecdn.capabilities.security.config import SECRET_VARIABLE
+from blitzecdn.capabilities.security.settings import SECRET_VARIABLE
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
 

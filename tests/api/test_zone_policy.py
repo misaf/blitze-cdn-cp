@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
-from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.serving.policy import SitePolicy
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():

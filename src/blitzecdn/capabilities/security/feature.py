@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.security import ansible
-from blitzecdn.capabilities.security.config import (
+from blitzecdn.capabilities.security.settings import (
     MINIMUM_SECRET_BYTES,
     SECRET_VARIABLE,
 )

@@ -17,8 +17,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.core.domain.validation import hostname
 
 __all__ = ["Domain"]

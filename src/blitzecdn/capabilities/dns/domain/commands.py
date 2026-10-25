@@ -12,8 +12,8 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from blitzecdn.capabilities.dns.domain.patch import DomainPatch
-from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
 from blitzecdn.core.domain.documents import canonical_document, read_document
 
 

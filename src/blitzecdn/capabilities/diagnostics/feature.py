@@ -1,7 +1,7 @@
 """Reporting on the rest of the control plane, and answering for its health.
 
 The health checks themselves are operations, built in
-:mod:`blitzecdn.capabilities.diagnostics.runtime`.
+:mod:`blitzecdn.capabilities.diagnostics.wiring`.
 """
 
 from __future__ import annotations

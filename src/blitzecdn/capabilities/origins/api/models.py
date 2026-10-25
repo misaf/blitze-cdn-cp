@@ -9,8 +9,8 @@ from pydantic import Field
 
 from blitzecdn.api.models import Model
 from blitzecdn.api.requests import FleetRequest
-from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.capabilities.tls.policy import SslMode
+from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.tls.contract import SslMode
 
 
 class OriginCheck(Model):

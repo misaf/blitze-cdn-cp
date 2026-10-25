@@ -2,7 +2,7 @@
 
 :func:`build_services` turns an :class:`~blitzecdn.composition.Infrastructure`
 into every service the application has. Each capability's own
-`composition.py` builds its service from collaborators passed by name; this
+`wiring.py` builds its service from collaborators passed by name; this
 module only decides which collaborator goes where, and in which order the
 graph is built.
 
@@ -18,43 +18,43 @@ from dataclasses import dataclass
 from typing import cast
 
 from blitzecdn import ansible as core_ansible
-from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.deployments.composition import build_deployment_service
+from blitzecdn.capabilities.cache.wiring import build_cache_service
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.deployments.wiring import build_deployment_service
 from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.composition import (
+from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns.service import HostService, RuleService
+from blitzecdn.capabilities.dns.wiring import (
     build_dns_service,
     build_host_service,
     build_rule_service,
 )
-from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.dns.service import HostService, RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.edges.composition import build_edge_operations_service
+from blitzecdn.capabilities.edges.wiring import build_edge_operations_service
 from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
 from blitzecdn.capabilities.maintenance import MaintenanceService
-from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
+from blitzecdn.capabilities.maintenance.wiring import build_maintenance_service
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
-from blitzecdn.capabilities.origins.composition import build_origin_check_service
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
-from blitzecdn.capabilities.releases.composition import build_release_service
+from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
+from blitzecdn.capabilities.releases.wiring import build_release_service
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator as CertificateWorkflows,
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.composition import (
+from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
 )
-from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.infrastructure import Infrastructure

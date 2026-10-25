@@ -25,10 +25,10 @@ from edge_render_support import (
 from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     HttpScheme,
 )
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslMode,
 )

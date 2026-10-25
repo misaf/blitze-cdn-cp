@@ -36,7 +36,7 @@ from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import (
     ApplicationServices,

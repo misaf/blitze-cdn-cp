@@ -1,5 +1,8 @@
+from blitzecdn.capabilities.compression.contract import (
+    CompressionMode,
+    CompressionPolicy,
+)
 from blitzecdn.capabilities.compression.feature import FEATURES
-from blitzecdn.capabilities.compression.policy import CompressionMode, CompressionPolicy
 from blitzecdn.core.features import FeatureMetadata
 
 (FEATURE,) = FEATURES

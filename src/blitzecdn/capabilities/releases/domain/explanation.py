@@ -34,7 +34,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from blitzecdn.capabilities.dns.domain import Domain, Rule
-from blitzecdn.capabilities.serving.policy import SitePolicy
+from blitzecdn.capabilities.serving.contract import SitePolicy
 
 __all__ = ["HostExplanation", "SettingOrigin", "SettingSource", "explain"]
 

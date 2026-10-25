@@ -5,7 +5,7 @@ policy, implemented by the focused `providers/http3` runtime provider. The
 application always ships both the contract and provider; policy controls whether
 QUIC listeners and their runtime requirements are emitted."""
 
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,

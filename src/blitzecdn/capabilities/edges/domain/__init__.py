@@ -7,7 +7,7 @@ face, so `edges.domain` is the whole of what another capability imports.
 
 A directory is what says that. `origins.py` a level higher would be a second
 name a capability could import from `edges`, and would need a rule in the
-layering test — `origins` listed beside `domain` and `policy` as a public
+layering test — `origins` listed beside `domain` and `contract` as a public
 module — to say what the directory says by itself.
 """
 

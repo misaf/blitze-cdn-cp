@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.backup import cli
-from blitzecdn.capabilities.backup.composition import __version__
-from blitzecdn.capabilities.backup.config import CONFIGURATION
+from blitzecdn.capabilities.backup.settings import CONFIGURATION
+from blitzecdn.capabilities.backup.wiring import __version__
 from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (

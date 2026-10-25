@@ -24,15 +24,15 @@ from paths import REPO_ROOT
 from policy_support import site_from_settings
 
 import blitzecdn
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
 )
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
 )
 

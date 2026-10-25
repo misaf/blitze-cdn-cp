@@ -14,8 +14,8 @@ from blitzecdn.capabilities.dns.domain import (
     PatchPolicy,
 )
 from blitzecdn.capabilities.dns.service import DnsService
-from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.serving.policy import SitePolicy
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.composition import Repository
 
 

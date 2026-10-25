@@ -10,9 +10,9 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
+from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.tls.contract import (
     MANAGED_TLS_ROOT,
     CertificateMode,
     CertificateVersion,

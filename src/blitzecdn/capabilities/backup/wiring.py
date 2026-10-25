@@ -19,9 +19,9 @@ from blitzecdn.capabilities.backup.adapters import (
     TlsComponent,
 )
 from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
-from blitzecdn.capabilities.backup.config import BackupConfig
 from blitzecdn.capabilities.backup.ports import ServiceControl
 from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
+from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import ConfigurationContribution
 from blitzecdn.core.persistence.schema import DatabaseSchema

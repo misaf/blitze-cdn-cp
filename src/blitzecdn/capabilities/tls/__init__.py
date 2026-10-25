@@ -4,7 +4,7 @@ Shipped with the application. Contracts stay pure; services and concrete
 providers are assembled explicitly by composition.
 """
 
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CERTIFICATE_ROOTS,
     MANAGED_TLS_ROOT,
     CertificateMode,
