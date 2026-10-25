@@ -9,6 +9,7 @@ reach.
 | `test_install_standalone.py` | What a `standalone` install guarantees about the host it produces |
 | `test_install_teardown.py` | `--uninstall` and `--fresh`, driven for real in the sandbox |
 | `test_install_update.py` | `update`, driven as far as its point of no return |
+| `test_install_release.py` | `install_release`, the release selection `update` and `upgrade` run before they change anything |
 | `test_install_control_plane_role.py` | The `blitzecdn_controlplane` role, which owns the host state |
 | `test_install_toolchain.py` | uv, the pinned toolchain the virtualenv is built with |
 | `test_install_upgrade.py` | `upgrade`, crossing a major line |

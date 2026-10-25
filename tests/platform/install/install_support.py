@@ -25,7 +25,7 @@ from pathlib import Path
 
 import jinja2
 import yaml
-from paths import CORE_ANSIBLE, REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
 
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
@@ -428,13 +428,15 @@ def _stub_update_git(sandbox: Path) -> None:
 
 
 def _stub_update_services(sandbox: Path, root: Path) -> None:
-    """Docker Compose and the CLI wrapper, both recording into the order log."""
+    """Docker, which answers nothing, and the CLI wrapper, which records.
+
+    The installer itself never stops a service any more — the role does, after
+    the image is built — so a `stop` reaching this stub would be a regression
+    the order log makes visible.
+    """
     (sandbox / "bin" / "docker").write_text(
         "#!/usr/bin/env bash\n"
-        'if [[ "$*" == *" stop blitzecdn-api blitzecdn-worker"* ]]; then\n'
-        '  printf "%s\\n" "stop blitzecdn-api blitzecdn-worker" '
-        '>> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
-        "fi\n"
+        'printf "%s\\n" "docker $*" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
         "exit 0\n",
         encoding="utf-8",
     )
@@ -469,6 +471,11 @@ def _update_sandbox(
     _stub_update_git(sandbox)
     _fake_installation(root, with_git=with_git)
     _stub_update_services(sandbox, root)
+    # The real release selector, where `release_plan` runs it from: the plan is
+    # the behaviour these tests are about, answered through the git stub.
+    selector = root / "opt/blitzecdn/src/blitzecdn/install_release.py"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SOURCE / "install_release.py", selector)
     installed = root / "opt/blitzecdn/install.sh"
     shutil.copyfile(script, installed)
     installed.chmod(0o700)

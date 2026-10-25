@@ -329,8 +329,10 @@
       - "true"
   changed_when: false
 
-# Also applies when this role is run directly to repair an installation.
-# install.sh already takes its backup and stops services before convergence.
+# The one place the services are stopped, for a first install, an update, an
+# upgrade, or a repair run of this role alike: after the image is built, so
+# downtime is only the migration and the restart. install.sh takes its backup
+# before calling this play.
 - name: Stop application services before schema migration
   ansible.builtin.command:
     argv:

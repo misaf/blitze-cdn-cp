@@ -14,7 +14,6 @@ readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
-readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
 original_args=("$@")
@@ -820,90 +819,29 @@ schema and immutable image are replaced.
 EOF
 }
 
-# Print the release version recorded in the checkout at HEAD, or fail.
+# Ask `install_release.py` where this host is going, before anything changes.
 #
-# The major of this version is the release line the host follows. That is sound
-# because .github/workflows/ci.yml refuses to build a tag whose name is not
-# "v" plus this exact field, so a tag name and a project version are the same
-# statement about which release this is.
-#
-# Read through `git show` rather than off disk: the working tree is verified
-# clean before this is reached, so the two agree, and the git form is the one
-# the installer's tests can answer. The loop is deliberate — a `grep | head`
-# pipeline that matched nothing would abort the whole script under pipefail,
-# where an empty read loop just returns 1 for the caller to handle.
-head_project_version() {
-  local line
+# Release selection is Python, run by the host's own interpreter from the
+# checkout being left: which line the host follows, the newest complete release
+# tag in it, how the installed release is described, and the rules for moving
+# forward or across one major line. Bash keeps only what has to happen around
+# it. Prints the plan as key=value lines; status 1 is a refusal it has already
+# explained, and 3 an update with nothing to do.
+release_plan() {
+  python3 -I "${INSTALL_DIR}/src/blitzecdn/install_release.py" "$1" \
+    --repository "${INSTALL_DIR}"
+}
+
+# Print one value of a release plan.
+plan_field() {
+  local key=$1 plan=$2 line
   while IFS= read -r line; do
-    if [[ ${line} =~ ^version[[:space:]]*=[[:space:]]*\"([0-9]+\.[0-9]+\.[0-9]+)\" ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}"
+    if [[ ${line%%=*} == "${key}" ]]; then
+      printf '%s\n' "${line#*=}"
       return 0
     fi
-  done < <(repo_git show HEAD:pyproject.toml 2>/dev/null)
+  done <<<"${plan}"
   return 1
-}
-
-# Print the newest release tag in one major line, or fail if it has none.
-#
-# The glob is anchored to the major, so this cannot return a release from
-# another line no matter what origin carries. The pattern test is what keeps a
-# pre-release or a moving pointer — v3.1.0-rc1, or a branch-shaped v3.x tag —
-# out of a server: only a complete vMAJOR.MINOR.PATCH is installable.
-latest_release_tag() {
-  local major=$1 tag
-  while IFS= read -r tag; do
-    [[ ${tag} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-    printf '%s\n' "${tag}"
-    return 0
-  done < <(repo_git tag --list "v${major}.*" --sort=-v:refname)
-  return 1
-}
-
-# Print the release this host is on, as an operator would name it.
-#
-# A tagged checkout is the ordinary case and prints as the bare version. The
-# other two forms exist so a host that is *not* on a release still says so
-# rather than pretending: a branch checkout reports the release it has moved
-# past and by how far, and a checkout with no tag in its history falls back to
-# the recorded version and the commit. Never fails — this only ever describes.
-describe_installed_release() {
-  local tag base drift version sha
-  if tag=$(repo_git describe --tags --exact-match HEAD 2>/dev/null); then
-    printf '%s\n' "${tag}"
-    return 0
-  fi
-  if base=$(repo_git describe --tags --abbrev=0 HEAD 2>/dev/null); then
-    drift=$(repo_git rev-list --count "${base}..HEAD")
-    printf '%s (+%s commits)\n' "${base}" "${drift}"
-    return 0
-  fi
-  version=$(head_project_version) || version=unknown
-  sha=$(repo_git rev-parse --short HEAD)
-  printf 'v%s (%s)\n' "${version}" "${sha}"
-}
-
-# Stop persistent containers before replacing the code and image they run.
-stop_control_plane_services() {
-  [[ -f ${CONTROL_PLANE_COMPOSE_FILE} ]] || return 0
-  docker compose --file "${CONTROL_PLANE_COMPOSE_FILE}" stop \
-    "${CONTROL_PLANE_SERVICES[@]}"
-}
-
-# Report what is running once the role has started it again. The role uses
-# `state: started`, so a unit that fails on the new code leaves the play green
-# and the service down; this is what makes that visible at the end of a run.
-report_control_plane_services() {
-  local service health status=0
-  for service in "${CONTROL_PLANE_SERVICES[@]}"; do
-    health=$(docker inspect --format '{{.State.Health.Status}}' "${service}" 2>/dev/null || true)
-    if [[ ${health} == healthy ]]; then
-      echo "  ${service}: healthy"
-    else
-      echo "  ${service}: NOT HEALTHY — inspect 'docker compose --file ${CONTROL_PLANE_COMPOSE_FILE} logs ${service}'" >&2
-      status=1
-    fi
-  done
-  return "${status}"
 }
 
 confirm_update() {
@@ -1015,33 +953,14 @@ cmd_upgrade() {
   repo_git fetch --tags --prune origin ||
     die 1 "error: could not fetch from origin; nothing was changed"
 
-  local version major next target current commits newest_in_line
-  version=$(head_project_version) || die 1 \
-    "error: could not read the project version from pyproject.toml at HEAD; nothing was changed"
-  major=${version%%.*}
-  next=$((major + 1))
-
-  # One line at a time. Asking only for `next` is what makes that structural
-  # rather than a check somebody can forget: a v3 host cannot name v5 here
-  # because nothing in this function ever looks at it.
-  target=$(latest_release_tag "${next}") || die 1 \
-    "error: no v${next}.x release tag exists in the fetched repository; nothing was changed" \
-    "This host is on the newest major line there is."
-
-  current=$(describe_installed_release)
-
-  # Finish the line before leaving it. The releases between a deprecation and
-  # its removal are the only place the notice exists, and a host that crossed
-  # out of the middle of one has skipped the reading it was written for.
-  newest_in_line=$(latest_release_tag "${major}") || newest_in_line=""
-  if [[ -n ${newest_in_line} && ${current} != "${newest_in_line}" ]]; then
-    die 1 \
-      "error: this host is on ${current}, and ${newest_in_line} is the newest v${major}.x release" \
-      "Run './install.sh update' first: a major's deprecations are announced in" \
-      "the line you are leaving, and crossing early skips them."
-  fi
-
-  commits=$(repo_git rev-list --count "HEAD..${target}" 2>/dev/null) || commits=unknown
+  # One line at a time, and only from the newest release of this one: the
+  # releases between a deprecation and its removal are the only place the
+  # notice exists. `install_release.py` refuses anything else.
+  local plan target current commits
+  plan=$(release_plan upgrade) || exit 1
+  target=$(plan_field target "${plan}")
+  current=$(plan_field current "${plan}")
+  commits=$(plan_field commits "${plan}")
 
   confirm_upgrade "${parsed_yes}" "${current}" "${target}" "${commits}"
 
@@ -1060,15 +979,11 @@ cmd_upgrade() {
     echo "warning: ${CLI_WRAPPER} is missing; skipping the backup" >&2
   fi
 
-  stop_control_plane_services
-
   echo "Checking out ${target}..."
-  # No ancestry check, and that is the difference from `update`. A major line
-  # branches from the one before it and then moves on its own, so a host on the
-  # last v3 release is legitimately not an ancestor of v4 — the guarantee here
-  # is the version arithmetic above, not the commit graph.
+  # The services keep running until the role stops them, immediately before
+  # the schema migration: they run an image, not this checkout.
   repo_git checkout --quiet "${target}" ||
-    die 1 "error: could not check out ${target}; the containers are stopped —" \
+    die 1 "error: could not check out ${target}; the services were not stopped —" \
       "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
   bootstrap_runtime ansible-only
@@ -1076,9 +991,7 @@ cmd_upgrade() {
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
-  echo "Upgraded to ${target}."
-  echo "Services:"
-  report_control_plane_services
+  echo "Upgraded to ${target}; the API and worker are healthy."
 }
 
 cmd_update() {
@@ -1113,39 +1026,20 @@ cmd_update() {
     die 1 "error: could not fetch from origin; nothing was changed"
 
   # There is nothing for an operator to choose here. A host follows its own
-  # release line and the newest tag in it: crossing a major line is a migration
-  # somebody opts into deliberately, not something an updater performs, and
-  # following a branch tip would install commits no release was ever cut from.
-  local version major target current commits
-  version=$(head_project_version) || die 1 \
-    "error: could not read the project version from pyproject.toml at HEAD; nothing was changed"
-  major=${version%%.*}
-
-  target=$(latest_release_tag "${major}") || die 1 \
-    "error: no v${major}.x release tag exists in the fetched repository; nothing was changed" \
-    "Only tagged releases are installable. Check 'git -C ${INSTALL_DIR} tag --list'."
-
-  current=$(describe_installed_release)
-
-  # Only an exact tag can equal the target: the other two descriptions carry a
-  # commit count or a SHA, so this is precisely "HEAD is the newest release".
-  if [[ ${current} == "${target}" ]]; then
-    echo "Already on ${target}; nothing to update."
+  # release line and the newest tag in it, forward only: crossing a major line
+  # is a migration somebody opts into deliberately, and following a branch tip
+  # would install commits no release was ever cut from. Decided before the
+  # backup, so every refusal about *which* release costs no downtime.
+  local plan status=0 target current commits
+  plan=$(release_plan update) || status=$?
+  if [[ ${status} -eq 3 ]]; then
+    printf '%s\n' "${plan}"
     return 0
   fi
-
-  # Forward only. A checkout that is not an ancestor of the release has commits
-  # origin does not, or is already past it, and moving it would discard them —
-  # --fresh is the tool that rebuilds such a host from origin. Asked here rather
-  # than at the checkout below so the refusal costs no downtime; the equivalent
-  # question used to be answered by a fast-forward merge refusing, after the
-  # containers had already been stopped.
-  repo_git merge-base --is-ancestor HEAD "${target}^{commit}" || die 1 \
-    "error: ${INSTALL_DIR} is not an ancestor of ${target}; nothing was changed" \
-    "The checkout has commits origin does not, or is on a newer release." \
-    "Use --fresh to rebuild from origin."
-
-  commits=$(repo_git rev-list --count "HEAD..${target}")
+  [[ ${status} -eq 0 ]] || exit 1
+  target=$(plan_field target "${plan}")
+  current=$(plan_field current "${plan}")
+  commits=$(plan_field commits "${plan}")
 
   confirm_update "${parsed_yes}" "${current}" "${target}" "${commits}"
 
@@ -1166,31 +1060,26 @@ cmd_update() {
     echo "warning: ${CLI_WRAPPER} is missing; skipping the database backup" >&2
   fi
 
-  # Downtime starts here. Stopping first is what keeps the schema migration in
-  # the converge below from running underneath processes still executing the
-  # release it is migrating away from.
-  stop_control_plane_services
-
   echo "Checking out ${target}..."
   # A tag checks out detached, which is what a release installation looks like
   # and what --fresh reads back to reinstall the same release. Never a merge, a
   # pull, a reset or a force: an update moves a server forward onto a release it
   # has already been shown to be behind, or it refuses above.
   repo_git checkout --quiet "${target}" ||
-    die 1 "error: could not check out ${target}; the containers are stopped —" \
+    die 1 "error: could not check out ${target}; the services were not stopped —" \
       "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
   # Same two steps a standalone install runs, in the same order and through the
   # same functions: bootstrap tooling from the new lockfile, then the role,
-  # which owns image build, schema migration, and Compose service recreation.
+  # which owns image build, stopping the services, schema migration, Compose
+  # service recreation, and waiting until both services are healthy. Downtime
+  # starts inside the role, after the image is built.
   bootstrap_runtime ansible-only
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
-  echo "Updated to ${target}."
-  echo "Services:"
-  report_control_plane_services
+  echo "Updated to ${target}; the API and worker are healthy."
 }
 
 # ---------------------------------------------------------------------------
