@@ -26,12 +26,8 @@ def get_worker_pool(request: Request) -> ThreadPoolExecutor:
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
 
 
-# Declared as a security scheme rather than a plain header parameter, so the
-# generated OpenAPI carries `components.securitySchemes` and every protected
-# operation references it. Tooling that reads the schema (Swagger UI, Postman)
-# then treats the key as authentication instead of a required header to type in
-# by hand. `auto_error=False` keeps the 401 body and `WWW-Authenticate` header
-# below as the single source of the rejection.
+# A security scheme, so OpenAPI tooling treats the key as authentication.
+# `auto_error=False` keeps the 401 below as the only rejection.
 api_key_scheme = APIKeyHeader(
     name="x-api-key",
     scheme_name="ApiKeyAuth",

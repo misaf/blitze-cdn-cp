@@ -1,11 +1,7 @@
 """The application's features, and the behaviour each one binds.
 
-One row per feature module. The module is named by path because its
-`feature.py` imports routers and command groups, and those import this
-package: importing feature modules here would be a cycle. A row's builders
-bind the feature's rendering and operations from the composition's input
-records, calling the capability's own `wiring.py` builders with named
-arguments, so a capability never sees either record.
+Modules are named by path because importing them here would be a cycle. Each
+row's builders call the capability's own `wiring.py` with named arguments.
 """
 
 from __future__ import annotations

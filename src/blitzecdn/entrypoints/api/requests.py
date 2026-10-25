@@ -1,11 +1,4 @@
-"""The request vocabulary core owns.
-
-The mirror of :mod:`blitzecdn.entrypoints.api.models`: what every request body is built
-from, and the one body shape more than one capability accepts. A deploy, a
-drift check, a purge and an origin check all take a host limit, so
-`FleetRequest` is core's; `DeployRequest` and `RollbackRequest` are
-`deployments`' and live with the routes that accept them.
-"""
+"""The request frame, and the host-limit body several capabilities take."""
 
 from __future__ import annotations
 

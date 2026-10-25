@@ -2,22 +2,11 @@
 # GNU General Public License v3.0+
 """Publish the BlitzeCDN fleet to Ansible, straight from the control plane.
 
-There is one place a host exists — the `edges` table — and this plugin reads it
-at the start of every run. No inventory file is written, so nothing can drift
-from the database, hold an edge already decommissioned, or need rewriting
-atomically by every command that changes the fleet.
-
-Deliberately dependency-free. It runs inside `ansible-playbook`, which may be a
-different interpreter from the control plane's virtualenv with no `blitzecdn`
-on its path, so this imports nothing but the standard library and Ansible's own
-plugin base. The selected columns are the complete inventory contract, so a
-schema mismatch fails at the query boundary.
-
-Read-only, and it says so: the database is opened through a `file:...?mode=ro`
-URI. An inventory plugin runs before anything else in a play, often against a
-database a deploy is concurrently writing, and it has no business being able to
-take a write lock — let alone hold one while Ansible resolves a few hundred
-hosts.
+The `edges` table is the one place a host exists; this reads it each run, so
+no inventory file can drift. Standard library only, since `ansible-playbook`
+may run under an interpreter without `blitzecdn`. The selected columns are the
+whole contract. Opened read-only (`mode=ro`), so it can never take a write
+lock during a concurrent deploy.
 """
 
 import ipaddress
@@ -78,15 +67,9 @@ plugin: blitzecdn
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
-#: Mirrors ``blitzecdn.core.domain.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
-#: step by ``tests/contract/test_inventory.py``.
-#:
-#: The control plane refuses to store a setting under one of these names, so a
-#: row carrying one should not exist. This refuses to *publish* it anyway,
-#: because settings are set at host precedence and would therefore beat the
-#: per-edge values derived below — and the damage is asymmetric. A manually
-#: corrupted row would otherwise close the SSH port the next converge arrives
-#: on, for every edge at once, with no way back in.
+#: Mirrors ``RESERVED_ANSIBLE_SETTINGS``, checked by ``test_inventory.py``. Such
+#: a row should never exist, but publishing it at host precedence could close
+#: the SSH port on every edge at once, so it is refused here too.
 RESERVED_SETTINGS = frozenset(
     (
         "blitzecdn_firewall_ssh_port",
@@ -101,12 +84,7 @@ class InventoryModule(BaseInventoryPlugin):
     NAME = "blitzecdn"
 
     def verify_file(self, path):
-        """Claim `blitzecdn.yml` and `blitzecdn.yaml`, and nothing else.
-
-        Ansible offers every enabled inventory plugin each source in turn, so a
-        name check here is what stops this from being handed, say, a host_vars
-        file. The `plugin:` key inside is verified by `_read_config_data`.
-        """
+        """Claim `blitzecdn.yml` and `blitzecdn.yaml`, and nothing else."""
         if not super().verify_file(path):
             return False
         return path.endswith(("blitzecdn.yml", "blitzecdn.yaml"))
@@ -130,17 +108,11 @@ class InventoryModule(BaseInventoryPlugin):
 
         edges, settings = self._load(database)
 
-        # Created even when empty, so a play limited to the group reports
-        # "skipping: no hosts matched" rather than failing on an unknown
-        # pattern. Those read very differently during an incident.
+        # Created even when empty, so a limited play reports "no hosts matched".
         self.inventory.add_group(EDGE_GROUP)
 
-        # Every edge is given the union of every edge's management CIDRs, as a
-        # host variable. It has to outrank
-        # `inventory/group_vars/blitzecdn_edges/defaults.yml`, which also sets
-        # this key — an inventory *group* variable loses to that file, so
-        # setting it per group here would leave `blitzecdn edge add
-        # --ssh-source` silently doing nothing.
+        # The union of management CIDRs as a host variable, which outranks the
+        # shipped group defaults that also set it.
         sources = sorted(
             {source for edge in edges for source in edge["ssh_sources"]},
             key=_source_order,
@@ -151,9 +123,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.add_host(name, group=EDGE_GROUP)
             for key, value in _host_variables(edge).items():
                 self.inventory.set_variable(name, key, value)
-            # Host variables outrank the shipped group_vars defaults. Settings
-            # are fleet-wide, but publishing them at host precedence is what
-            # makes the database authoritative without generating a YAML file.
+            # Settings at host precedence, so the database beats shipped defaults.
             for key, value in settings.items():
                 self.inventory.set_variable(name, key, value)
             if sources:
@@ -162,16 +132,10 @@ class InventoryModule(BaseInventoryPlugin):
                 )
 
     def _load(self, database):
-        """Every edge row, as plain dictionaries.
+        """Every edge row, as plain dictionaries, from a consistent WAL snapshot.
 
-        The connection is read-only and `immutable=0`, so WAL still applies and
-        this observes a consistent snapshot of a database being written by a
-        concurrent deploy rather than a torn read.
-
-        The columns named below are the whole of the contract with the control
-        plane. Naming them is what makes a change on the other side fail here
-        loudly. The two list-valued fields are JSON because that is how the ORM
-        stores them.
+        The named columns are the contract; a change on the other side fails here.
+        The list fields are JSON, as the ORM stores them.
         """
         uri = f"file:{_uri_path(database)}?mode=ro"
         try:
@@ -249,20 +213,11 @@ def _json_list(value, edge_name, column):
 
 
 def _default_database(source):
-    """Where a default installation keeps the database, from where we are.
+    """Where a default installation keeps the database, derived from this source.
 
-    This file is `<project>/ansible/inventory/blitzecdn.yml` and the database is
-    `<project>/.state/control-plane.db`, matching `blitzecdn.toml`. Deriving it
-    from the source path rather than the working directory matters because
-    Ansible is run from several of them — the control plane runs it with cwd set
-    to `ansible/`, an operator runs it from the project root, and ansible-lint
-    picks its own.
-
-    Without this, every hand-run `ansible-playbook`, `ansible-inventory` and
-    `ansible-lint` fails unless BLITZE_DATABASE_PATH was exported first, which
-    is a poor trade for a value that is the same on every default install.
-    An installation that keeps its state elsewhere sets `database:` or the
-    environment variable, and both win over this.
+    From the source path rather than the working directory, which differs between
+    the control plane, operators and ansible-lint. ``database:`` or
+    ``BLITZE_DATABASE_PATH`` override it.
     """
     inventory_dir = os.path.dirname(os.path.abspath(source))
     project = os.path.dirname(os.path.dirname(inventory_dir))
@@ -272,27 +227,17 @@ def _default_database(source):
 def _host_variables(edge):
     """Ansible connection variables for one edge.
 
-    Mirrors ``blitzecdn.capabilities.edges.adapters.ansible.edge_to_inventory``.
-    The two are kept in step by ``tests/contract/test_inventory.py``, which runs this
-    module against a
-    database the model wrote and compares the result — the only honest way to
-    check an agreement between a pydantic model and a file that cannot import
-    it.
-
-    Unset values are omitted rather than emitted as null: Ansible would hand
-    SSH an empty identity file instead of letting it resolve a key the usual
-    way.
+    Mirrors ``blitzecdn.capabilities.edges.adapters.ansible.edge_to_inventory``,
+    checked by ``tests/contract/test_inventory.py``. Unset values are omitted, so
+    SSH resolves keys normally rather than getting an empty identity file.
     """
     port = int(edge["port"])
     variables = {
         "ansible_host": edge["host"],
         "ansible_user": edge["user"],
         "ansible_port": port,
-        # The same port the firewall must leave open, published from the one
-        # place that knows it. Edited separately, `ansible_port` and
-        # `blitzecdn_firewall_ssh_port` could disagree, and that strands the
-        # host: the firewall closes the port the next converge arrives on, and
-        # no later deploy can reach it to put things back.
+        # One source for the SSH port: `ansible_port` and the firewall's port must
+        # never disagree, or the host is stranded.
         "blitzecdn_firewall_ssh_port": port,
     }
     private_key_file = edge["private_key_file"]
@@ -305,13 +250,7 @@ def _host_variables(edge):
 
 
 def _source_order(source):
-    """IPv4 before IPv6, numeric within each — not lexical.
-
-    Text order puts 203.0.113.0/24 ahead of 94.183.119.90/32, which reads as a
-    mistake in a rendered firewall rule and in a check-mode diff. Invalid
-    networks are rejected by the current edge model and must not be published
-    if a database has been edited outside it.
-    """
+    """IPv4 before IPv6, numeric within each; invalid networks are never published."""
     try:
         network = ipaddress.ip_network(_text(source), strict=False)
     except ValueError as error:
@@ -326,10 +265,5 @@ def _text(value):
 
 
 def _uri_path(path):
-    """Escape a filesystem path for use in a SQLite URI.
-
-    `?` and `#` would otherwise start the query and fragment, so a database
-    under a directory containing either would be opened at the wrong path — or,
-    worse, with query parameters an operator did not write.
-    """
+    """Escape a filesystem path for a SQLite URI, where `?` and `#` are special."""
     return path.replace("?", "%3f").replace("#", "%23")

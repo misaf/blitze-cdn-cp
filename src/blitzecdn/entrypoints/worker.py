@@ -1,18 +1,7 @@
 """The worker entry point: a loop over the durable job table.
 
-This module is what ``blitzecdn worker`` and the container's worker service
-run. It is an entry point in exactly the sense the CLI and the API are: it
-builds its services and calls one, and it is allowed to know
-both halves because nothing imports it back.
-
-There are no actors here and no broker to connect to. Work is rows in the
-control plane's own database, so the process that enqueues and the process that
-consumes share a table rather than a message bus. That is the smaller thing,
-not the cruder one.
-
-What is left in this file is the process lifecycle: build, register the
-schedules this installation's features contribute, install signal handlers so a
-container stop finishes the job in hand, and loop.
+Builds its services, registers schedules, installs signal handlers so a stop
+finishes the job in hand, and loops. No broker: the queue is rows.
 """
 
 from __future__ import annotations
@@ -27,11 +16,7 @@ __all__ = ["main", "run_worker"]
 
 
 def run_worker(settings: Settings | None = None) -> None:
-    """Run the worker until it is asked to stop.
-
-    What the worker owes when it starts — this installation's schedules — is
-    :meth:`~blitzecdn.composition.WorkerServices.start`'s business.
-    """
+    """Run the worker until asked to stop; startup is ``WorkerServices.start``'s."""
     from blitzecdn.composition import Infrastructure, build_services, build_worker
 
     resolved = settings or Settings.from_environment()

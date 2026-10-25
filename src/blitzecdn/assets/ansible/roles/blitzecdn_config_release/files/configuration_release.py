@@ -1,12 +1,9 @@
-"""Edge-local durable configuration transaction; Python's standard library only.
+"""Edge-local durable configuration transaction; standard library only.
 
-The controller renders a release's configuration and ships it as a bundle;
-`stage` writes it as the candidate tree and refuses it unless the tree on disk
-matches the manifest the controller computed. The journal is written before
-switching the pointer. Replaying activation after
-a controller crash therefore preserves the original rollback target, including
-the Compose definition and image record. The parent directory is mounted into
-Nginx, so replacing a link is visible to an already running container.
+`stage` writes the controller's bundle as the candidate tree and refuses it
+unless it matches the controller's manifest. The journal is written before the
+pointer switches, so replaying after a crash keeps the original rollback
+target. Nginx mounts the parent, so a swapped link is live immediately.
 """
 
 from __future__ import annotations
@@ -67,12 +64,7 @@ class ConfigurationRelease:
         self.records = records
 
     def inventory(self) -> dict[str, str]:
-        """Hash bytes and link destinations; reject links outside this tree.
-
-        Directories themselves carry no serving content. Link targets must be
-        inside the candidate so a sealed site's include cannot drift through
-        another release's mutable pointer.
-        """
+        """Hash bytes and link targets, refusing links that leave this tree."""
         entries = {}
         for path in sorted(self.candidate.rglob("*")):
             if path == self.seal:
@@ -99,10 +91,8 @@ class ConfigurationRelease:
     def stage(self, bundle: Path) -> None:
         """Write the controller's bundle as this release's candidate tree.
 
-        An unsealed candidate is a partial earlier attempt and is replaced. A
-        sealed one is verified and must be this bundle. Either way the tree on
-        disk has to match the controller's manifest exactly before the bundle
-        file is removed.
+        An unsealed candidate is replaced; a sealed one must be this bundle. Either
+        way the tree must match the manifest exactly.
         """
         files, links, manifest = read_bundle(bundle)
         if self.seal.exists():

@@ -1,11 +1,4 @@
-"""Alembic environment for the control-plane database.
-
-The database URL comes from :class:`blitzecdn.core.config.Settings`, not from
-``alembic.ini``. An installed controller keeps its state wherever
-``blitzecdn.toml`` or ``BLITZE_DATABASE_PATH`` says, and a migration that ran
-against a path in a config file nobody edits would upgrade the wrong file — or
-create an empty one and report success.
-"""
+"""Alembic environment; the database URL comes from ``Settings``."""
 
 from __future__ import annotations
 
@@ -14,12 +7,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
-# Every table module, imported for its side effect: a row registers itself on
-# `Base.metadata` when its module is imported, and a capability keeps its
-# tables beside the store that reads them. Autogenerate compares the database
-# against this metadata, so a table module missing from this list would look
-# to Alembic like a table somebody dropped. `test_migrations.py` walks the
-# capability tree and fails if one is missing here.
+# Every table module, imported so its rows register on `Base.metadata`;
+# `test_migrations.py` fails if one is missing.
 from blitzecdn.capabilities.deployments.adapters import (
     tables as _deployments,  # noqa: F401
 )
@@ -44,12 +33,7 @@ target_metadata = Base.metadata
 
 
 def _url() -> str:
-    """Where this installation actually keeps its database.
-
-    Most specific first: an explicit ``-x url=...`` for restoring or inspecting
-    a copy, then a URL set on the config by a caller driving Alembic in-process,
-    then what this installation is actually configured to use.
-    """
+    """The database to migrate: ``-x url=``, a caller-set URL, or ``Settings``."""
     override = context.get_x_argument(as_dictionary=True).get("url")
     if override:
         return override
@@ -65,9 +49,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        # SQLite cannot ALTER most things in place, so Alembic rewrites the
-        # table and copies the rows. Without this, every column change in this
-        # project's future is a hand-written migration.
+        # SQLite cannot ALTER most things, so Alembic rebuilds tables.
         render_as_batch=True,
     )
     with context.begin_transaction():

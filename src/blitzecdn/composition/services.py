@@ -1,13 +1,7 @@
 """The application's service graph, defined once.
 
-:func:`build_services` turns an :class:`~blitzecdn.composition.Infrastructure`
-into every service the application has. Each capability's own
-`wiring.py` builds its service from collaborators passed by name; this
-module only decides which collaborator goes where, and in which order the
-graph is built.
-
-There is no lifecycle and no process branch here. Which of these a process
-uses, and what it does when it starts and stops, is
+:func:`build_services` decides which collaborator goes where; each capability's
+`wiring.py` does the building. Processes and lifecycle are in
 :mod:`blitzecdn.composition.processes`.
 """
 
@@ -159,12 +153,7 @@ class ApplicationServices:
         return self.operations.health_checks
 
     def queue_ready(self) -> bool:
-        """Whether the durable work queue can be read right now.
-
-        A separate question from "is the database up": a schema that has not
-        been migrated has a database and no ``jobs`` table, and a controller in
-        that state accepts deployments it can never run.
-        """
+        """Whether the job queue can be read; an unmigrated database has no ``jobs``."""
         return self.infrastructure.queue_ready()
 
     def close(self) -> None:

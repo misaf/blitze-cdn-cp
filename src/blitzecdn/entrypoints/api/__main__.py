@@ -5,12 +5,8 @@ import uvicorn
 from blitzecdn.core.config import Settings
 from blitzecdn.entrypoints.api.app import create_app
 
-#: The port the installed API listens on, and the one the control-plane role
-#: admits through the host firewall. Named here rather than written twice
-#: because the two are the same fact: a rule on a port nothing serves and a
-#: listener no rule admits are both silent, and the second one is silent until
-#: an operator is locked out. `test_role_contracts` holds the role's default to
-#: this value, the way it already holds the Dockerfile path to its constant.
+#: The installed API port, which the control-plane role also opens in the
+#: firewall; `test_role_contracts` holds the role's default to this value.
 API_PORT = 8000
 
 

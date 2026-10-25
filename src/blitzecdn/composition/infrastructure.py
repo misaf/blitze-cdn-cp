@@ -1,15 +1,8 @@
 """The concrete adapters one control-plane process runs on.
 
-Everything here touches the outside world or is built from what does: the
-database and its stores, the Ansible runner and the roles and resources it is
-handed, the probes that open sockets, and the durable job queue. Services are
-built from this in :mod:`blitzecdn.composition.services` and never construct
-an adapter themselves.
-
-The keyword arguments of :meth:`~blitzecdn.composition.Infrastructure.build`
-are the only test seam
-in the composition: a test replaces the adapter it is about, and the service
-graph built on top is the production one.
+Services are built from these and never construct an adapter. The keyword
+arguments of :meth:`~blitzecdn.composition.Infrastructure.build` are the one
+test seam: replace an adapter, keep the production graph.
 """
 
 from __future__ import annotations
@@ -60,15 +53,7 @@ __all__ = ["FleetRunner", "Infrastructure"]
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
-    """Every playbook capability one Ansible adapter happens to provide.
-
-    Each capability declares the slice it actually uses — ``DeploymentRunner``,
-    ``EdgeRunner``, ``DeploymentLocker`` — and none of them knows the others
-    exist. That one object satisfies all of them is a fact about the adapter,
-    so it is stated here, where knowing which concrete thing is wired in is the
-    entire job, and nowhere else. A test that injects a fake runner is the
-    other implementer.
-    """
+    """Every runner port the one Ansible adapter satisfies."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,10 +119,7 @@ class Infrastructure:
                 settings.capability_config_file,
                 settings.state_dir,
             )
-            # What the shipped features add to a run, assembled once: the
-            # registry answers what is declared, and each resolver decides the
-            # order and refuses what cannot work — a role two features both
-            # ship, a module nothing declared.
+            # What the features add to a run, resolved once.
             edge_contributions = EdgeContributions.of(
                 roles_path=resolve_role_search_path(
                     settings.ansible_dir / "roles", contributions
@@ -160,9 +142,7 @@ class Infrastructure:
                 capability_config=capability_config,
                 edge_contributions=edge_contributions,
                 edges=fleet,
-                # The fleet as core reads it: host names and the group they
-                # form, so running a playbook makes `core.ansible` import no
-                # capability.
+                # The fleet as core reads it, so `core.ansible` imports no capability.
                 runner=runner
                 or AnsibleRunner(settings, EdgeRoster(fleet), edge_contributions),
                 origin_probe=origin_probe or OriginProbe(settings),
@@ -188,13 +168,7 @@ class Infrastructure:
 
 
 class _QueuePublisher:
-    """The deployment capability's ``QueueBackgroundRunner``, over the job queue.
-
-    ``deployments`` declared a port with a single ``enqueue`` on it and knows
-    nothing about jobs, leases or fences. Binding that port to this
-    installation's queue is a composition decision, and putting it here keeps
-    the deployment service unable to reach the rest of the queue's surface.
-    """
+    """The deployments ``QueueBackgroundRunner`` port, bound to the job queue."""
 
     def __init__(self, queue: JobQueue) -> None:
         self._queue = queue
@@ -204,12 +178,7 @@ class _QueuePublisher:
 
 
 def _queue_reachable(queue: JobQueue) -> bool:
-    """Whether the job table answers, without changing anything in it.
-
-    A missing table or a locked file is a node that cannot run background work;
-    a `TypeError` here is a bug, and a health check that swallowed it would
-    report a healthy node forever.
-    """
+    """Whether the job table answers; a ``TypeError`` is a bug and is not swallowed."""
     try:
         queue.list_jobs(limit=1)
     except (SQLAlchemyError, OSError):

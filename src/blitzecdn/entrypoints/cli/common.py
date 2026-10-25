@@ -1,9 +1,4 @@
-"""Helpers every command group shares.
-
-Commands call ``common.services()`` through this module rather than importing
-the function by name, so a test that swaps it out has one place to patch and
-every command group sees the change.
-"""
+"""Helpers every command group shares; patch ``common.services`` in one place."""
 
 from __future__ import annotations
 
@@ -34,15 +29,11 @@ class ExitCode(IntEnum):
     CONFIGURATION = 3
     CONFLICT = 4
     DEPLOYMENT_FAILED = 5
-    #: `drift` found a reachable edge that no longer matches desired state, or
-    #: an edge it could not reach. Distinct from DEPLOYMENT_FAILED so a
-    #: scheduled check can tell "the fleet moved" from "the check itself broke".
+    #: Drift found, or an edge unreachable; distinct from a broken check.
     DRIFT_DETECTED = 6
     #: The thing asked about does not exist. The CLI's 404.
     NOT_FOUND = 7
-    #: A deployment is already running. The one failure here that clears on its
-    #: own, so the one a scheduled caller should retry rather than alert on —
-    #: which is why it is not folded into CONFLICT.
+    #: Another deployment is running: the one failure to retry, not alert on.
     BUSY = 8
 
 
@@ -58,12 +49,7 @@ _invocation: ContextVar[list[CliServices] | None] = ContextVar(
 
 
 def scope_services(context: typer.Context) -> None:
-    """Hold one invocation's services until the command line exits.
-
-    Called from the root callback, so every command shares the scope: a
-    command that asks several times gets the same services, and the database
-    they opened is released when the invocation closes.
-    """
+    """Hold one invocation's services until the command line exits, then close them."""
     held: list[CliServices] = []
     _invocation.set(held)
 
@@ -76,12 +62,7 @@ def scope_services(context: typer.Context) -> None:
 
 
 def services() -> CliServices:
-    """What a command calls. A command starts nothing.
-
-    Inside an invocation, built once and closed on exit. Outside one — a test
-    calling a command function directly — each call builds afresh and the
-    caller closes what it got.
-    """
+    """What a command calls: built once per invocation, or afresh outside one."""
     held = _invocation.get()
     if held is None:
         return build_cli(build_services(Infrastructure.build(settings())))
@@ -91,40 +72,25 @@ def services() -> CliServices:
 
 
 def installed_features() -> FeatureRegistry:
-    """What is shipped, for the commands whose answer needs nothing else.
+    """The shipped feature registry, for commands that need no database.
 
-    `blitzecdn ansible search-path` and `blitzecdn edges modules` run where
-    there is no database to open and no fleet to read — a lint step, an image
-    build — so they ask the registry rather than build services to get at it.
-    They come through here for the same reason every command comes through
-    `services()`: the composition root is named in one module of the command
-    line, not in each command group that happens to need it.
+    `blitzecdn ansible roles-path` and `blitzecdn edge image spec` run in lint
+    steps and image builds.
     """
     return load_registry()
 
 
-#: The ``--json`` switch every command that prints a result carries. One
-#: definition rather than one per command, so the flag cannot come to mean
-#: something slightly different in one corner of the command line.
+#: The one ``--json`` definition every command shares.
 JsonOutput = Annotated[bool, typer.Option("--json")]
 
-#: The ``--yes`` switch every destructive command carries, and it means exactly
-#: one thing: **do not prompt**. Nothing else. It never skips a check.
-#:
-#: One definition for the same reason ``JsonOutput`` has one: declared command
-#: by command, a flag drifts in meaning. An operator putting `deploy --yes` in a
-#: CI job to answer a prompt must not silently give up safety gates as well;
-#: skipping those is ``--skip-preflight``, which says so.
+#: The ``--yes`` switch means only "do not prompt"; it never skips a check.
+#: That is ``--skip-preflight``.
 Yes = Annotated[
     bool,
     typer.Option("--yes", "-y", help="Do not prompt for confirmation."),
 ]
 
-#: Give up `deploy`'s pre-flight: the configuration validation and the
-#: check-mode preview that runs before anything converges. Separate from
-#: ``--yes`` because they are separate decisions — an unattended caller wants
-#: "do not prompt" and almost never wants "and do not check either" — and named
-#: for what it costs rather than for the interaction it happens to remove.
+#: Skip `deploy`'s validation and check-mode preview; separate from ``--yes``.
 SkipPreflight = Annotated[
     bool,
     typer.Option(
@@ -135,13 +101,10 @@ SkipPreflight = Annotated[
 
 
 def emit(value: Any, *, json_output: bool, note: str | None = None) -> None:
-    """Print a result, and the operator-facing note that follows it.
+    """Print a result, then an operator-facing ``note`` unless ``--json``.
 
-    ``note`` is for the sentence a human wants after the record — what changed,
-    what to run next. It is suppressed under ``--json`` because that output has
-    one consumer and it is not reading English. Pass only a note that is
-    already computed: anything that has to *ask* the control plane belongs
-    behind the caller's own ``if not json_output``.
+    Pass only a computed note; anything that queries belongs behind the caller's
+    own ``if not json_output``.
     """
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
@@ -153,21 +116,14 @@ def emit(value: Any, *, json_output: bool, note: str | None = None) -> None:
     if json_output:
         typer.echo(json.dumps(value, indent=2, sort_keys=True))
     else:
-        # Every caller hands this a model, a list, or a dict, and safe_dump
-        # renders all three. There is deliberately no scalar branch: a command
-        # that wants to print a bare string calls typer.echo itself.
+        # safe_dump renders every model, list or dict passed here.
         typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
     if note is not None and not json_output:
         typer.echo(note)
 
 
 def describe_hosts(hosts: Sequence[HostRun]) -> str:
-    """Render per-host results the way an operator wants to read them.
-
-    Ansible's own output is thousands of lines of which a handful matter; the
-    structured result already knows which tasks changed and which failed, so
-    this prints those and nothing else.
-    """
+    """Render per-host results: only the tasks that changed or failed."""
     lines: list[str] = []
     for host in hosts:
         if not host.reached:

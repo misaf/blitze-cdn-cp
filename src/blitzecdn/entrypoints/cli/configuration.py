@@ -12,13 +12,7 @@ config_app = typer.Typer(no_args_is_help=True, help="Manage global edge policy."
 
 
 def _name(value: str) -> str:
-    """The domain rule, rendered as a Typer parameter error.
-
-    The rule itself lives in ``domain.validation`` and is enforced by the store,
-    because these rows are published to every host at inventory precedence and
-    the constraint therefore belongs to the setting rather than to this command.
-    This only translates the refusal into the message shape a CLI user expects.
-    """
+    """The setting-name rule, as a Typer parameter error; the store enforces it."""
     try:
         return validate_setting_name(value)
     except ValueError as error:

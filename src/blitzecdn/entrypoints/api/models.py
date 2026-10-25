@@ -1,23 +1,9 @@
-"""The representation vocabulary core owns, and nothing a capability owns.
+"""The representation frame every HTTP model uses, and core's own shapes.
 
-Two kinds of thing live here, and the second is the rule for the first.
-
-The **frame** — :class:`Model` and :func:`as_operation` — is what every HTTP
-representation in this workspace is built from, core's own and an installed
-package's alike. The **shapes** are the representations of what *core* holds:
-an Ansible run and an audit entry. Each has its domain model in
-``blitzecdn.core``, so core is where the published form of it belongs too.
-
-Every other representation lives beside the routes that return it, in its
-capability's ``api.models``, so adding a field to a capability's contract never
-means remembering a shared module no capability owns.
-
-What survives the split is what more than one capability answers with.
-`HostRun` is reported by `edges`, by `cache` and by `origins`; `Deployment` is
-returned by `deployments` and by `certificates`. The first is core's, because
-an Ansible run is core's. The second is `deployments`', and `certificates`
-imports it from there — a capability's shape stays that capability's even when
-someone else publishes it.
+:class:`Model` and :func:`as_operation` are the frame; ``HostRun`` and the
+audit entry are core's. Every other representation lives in its capability's
+``api.models``, and a capability's shape stays its own even when another
+returns it.
 """
 
 from __future__ import annotations
@@ -31,14 +17,7 @@ from blitzecdn.core.domain.runs import RunStatus, TaskOutcome
 
 
 class Model(BaseModel):
-    """The base every HTTP representation shares.
-
-    Unknown fields are refused rather than ignored, and one schema is published
-    per model instead of a validation/serialization pair.
-
-    One base for resources and operational shapes alike: a site and a purge
-    are both simply what their capability publishes.
-    """
+    """The base of every HTTP representation: unknown fields refused."""
 
     model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")
 

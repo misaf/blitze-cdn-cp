@@ -1,24 +1,8 @@
 """One SQLite database, exposed as focused capability stores.
 
-``Repository`` opens the database and hands out the focused stores that sit on
-it. It is a bundle, not a layer: each store already satisfies its port in
-capability ports structurally, so the composition root passes
-``repository.zones`` to whatever asked for a ``ZoneStore`` and no service is
-ever handed more of persistence than it declared.
-
-It lives here rather than in ``core.persistence`` because choosing which stores
-go on one database is composition, and nothing under ``core`` imports a
-capability to do its job. What stays in ``core.persistence`` is what a
-capability builds *on* — the engine, the write lock, the Unit of Work, the
-schema — and what core itself keeps there: the audit log and the workflow
-journal. The directory is what says which of the two any module is.
-
-``release_inputs`` is the one thing that cannot belong to a single store,
-because the desired state a release is compiled from spans the zones, their
-rules, the records in them, and the fleet-wide Ansible settings. It is read
-inside one transaction for the same reason: separate reads would let a record
-be written between two of them, and the release would then describe a state
-that never existed.
+A bundle, not a layer: each store satisfies its port, and services get only
+the store they declared. Choosing which stores share the database is
+composition, so it lives here; core keeps the engine, schema and its own stores.
 """
 
 from __future__ import annotations
@@ -56,14 +40,7 @@ __all__ = [
 
 
 class Repository:
-    """SQLite persistence with explicit transactions and immutable releases.
-
-    A composition of the capability stores, and nothing more. Reach through it
-    for the store you want —
-    ``repository.zones.list_records()`` — rather than expecting a method here;
-    forwarding every store method onto this class only made ``Repository`` look
-    like the whole of persistence to callers that needed one table of it.
-    """
+    """The capability stores on one database; reach through it for one."""
 
     def __init__(
         self,
@@ -83,18 +60,11 @@ class Repository:
         self.deployments = DeploymentStore(self.database)
         self.deployment_requirements = DeploymentRequirementStore(self.database)
         self.deployment_targets = DeploymentTargetStore(self.database)
-        # Pruning must not remove a release some deployment can still be
-        # rolled back to, and the deployments store is what knows which those
-        # are. Introduced here rather than reached for: the release store
-        # declared the question as a port and never learns whose table answers
-        # it.
+        # Release pruning asks the deployments store which releases are
+        # still rollback targets, through the port it declared.
         self.releases = ReleaseStore(self.database, self.deployments)
-        # The one store handed a policy value here rather than at its call
-        # site. A deployment prunes its history from the service that just
-        # converged one, and a workflow journal from the coordinator that just
-        # finished one — both have the settings in hand. An audit event is
-        # written by every service there is, through `EventRecorder`, so there
-        # is no one caller to carry the bound and it belongs with the store.
+        # The audit bound goes on the store: every service writes audit
+        # events, so no single caller could carry it.
         self.audit_log = (
             AuditLog(self.database, audit_retention)
             if audit_retention is not None
@@ -103,15 +73,9 @@ class Repository:
         self.workflows = WorkflowStore(self.database)
 
     def release_inputs(self) -> ReleaseInputs:
-        """The canonical desired state a release is compiled from.
+        """The canonical state a release is compiled from, read in one transaction.
 
-        Spans four tables, so it belongs to the bundle rather than to any one
-        store, and it is read inside a single transaction so that what comes
-        back is one consistent instant rather than four.
-
-        Sites are not read here and are not in the document. They are derived
-        from these three by the compiler, so writing them down would put a
-        second, older answer beside the state they come from.
+        Spans four tables, so it belongs to the bundle. Sites are derived, not read.
         """
         with self.transaction():
             return ReleaseInputs.of(
