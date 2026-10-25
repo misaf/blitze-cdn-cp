@@ -269,6 +269,29 @@ class DeploymentService:
                 operator, check=check, host_limit=host_limit, enqueue=True
             )
 
+    def converge_requirements(self, operator: str) -> Deployment | None:
+        """Queue one fleet deployment for what is waiting to reach the edges.
+
+        ``None`` when nothing is pending. A pending requirement is cleared only
+        when a deployment succeeds, so a fleet deployment already queued will
+        pay it off: that one is returned rather than a second being queued.
+        This is the one place that turns "something changed that the fleet has
+        not seen" into a deployment, whoever noticed it.
+        """
+        if not self.persistence.requirements.pending(
+            DeploymentRequirementKind.CERTIFICATES
+        ):
+            return None
+        with self.execution.runner.lock():
+            for waiting in self.persistence.deployments.queued_deployments():
+                if (
+                    not waiting.check_mode
+                    and waiting.host_limit is None
+                    and waiting.rollback_of is None
+                ):
+                    return waiting
+            return self._queue(operator, check=False, enqueue=True)
+
     def rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:

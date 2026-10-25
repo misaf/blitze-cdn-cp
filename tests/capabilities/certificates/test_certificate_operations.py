@@ -246,7 +246,7 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
     assert control.sites.get_site("example-com").policy.tls.ssl_mode is SslMode.FULL
 
 
-def test_reconcile_issues_ready_first_certificate_and_deploys(
+def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(
     settings, certificate_pair
 ):
     class FakeIssuer:
@@ -270,7 +270,11 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     assert result.issued == (site_name,)
     assert result.skipped == {}
     assert result.failed == {}
-    assert result.deployment.status is DeploymentStatus.SUCCEEDED
+    assert result.deployment.status is DeploymentStatus.QUEUED
+    # A scheduled run asks again after the job; it gets the same deployment.
+    assert control.deployments.converge_requirements("timer").id == (
+        result.deployment.id
+    )
     assert control.sites.get_site(site_name).policy.tls.certificate_mode == "requested"
     assert control.sites.get_site(site_name).policy.tls.ssl_mode == "off"
 

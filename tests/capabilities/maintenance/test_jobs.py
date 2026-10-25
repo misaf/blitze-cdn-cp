@@ -3,7 +3,7 @@
 These two were in `tests/platform/test_queue.py`, which is about Dramatiq: what
 publishes to which queue, and that the actor names on the wire match the ones
 the worker consumes. Neither of these touches a broker. They construct
-`MaintenanceService` with three fakes and assert the rule the service owns, so
+`MaintenanceService` with fakes and assert the rule the service owns, so
 they were in that file only because the queue is what *calls* the service —
 which is a fact about the caller, not about the code under test.
 """
@@ -25,7 +25,8 @@ def test_a_maintenance_run_converges_what_it_left_owing():
     A job that changed something the fleet has not seen raises a deployment
     requirement, and the run that raised it is the run that should pay it off —
     otherwise the change sits in the database until an operator happens to
-    deploy for an unrelated reason.
+    deploy for an unrelated reason. Whether anything is owed is the deployment
+    service's answer; this asks after every run.
     """
     calls: list[str] = []
     service = MaintenanceService(
@@ -38,52 +39,22 @@ def test_a_maintenance_run_converges_what_it_left_owing():
             )
         },
         deployments=SimpleNamespace(
-            submit_deployment=lambda operator: calls.append(f"deployed by {operator}")
+            converge_requirements=lambda operator: calls.append(
+                f"converged by {operator}"
+            )
         ),
-        requirements=SimpleNamespace(pending=lambda _kind: True),
     )
 
     service.run("renew-certificates")
 
-    assert calls == ["renewed by scheduler", "deployed by scheduler"]
-
-
-def test_a_run_that_left_nothing_owing_does_not_deploy():
-    """The other half of the rule, and the reason it is a condition.
-
-    Most ticks change nothing — a drift check that finds no drift, a renewal
-    sweep with nothing near expiry. Converging after every one of them would
-    make an idle controller deploy on a timer, so the requirement is what
-    decides, and this is the case that says the check is real rather than
-    always true.
-    """
-    calls: list[str] = []
-    service = MaintenanceService(
-        jobs={
-            "check-drift": ScheduledJob(
-                plugin="deployments",
-                name="check-drift",
-                interval_seconds=900,
-                run=lambda operator: calls.append(f"checked by {operator}"),
-            )
-        },
-        deployments=SimpleNamespace(
-            submit_deployment=lambda operator: calls.append(f"deployed by {operator}")
-        ),
-        requirements=SimpleNamespace(pending=lambda _kind: False),
-    )
-
-    service.run("check-drift", operator="alice")
-
-    assert calls == ["checked by alice"]
+    assert calls == ["renewed by scheduler", "converged by scheduler"]
 
 
 def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
     """A message can outlive the plugin that published it."""
     service = MaintenanceService(
         jobs={},
-        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
-        requirements=SimpleNamespace(pending=lambda _kind: False),
+        deployments=SimpleNamespace(converge_requirements=lambda _operator: None),
     )
 
     with pytest.raises(NotFoundError, match="no scheduled job named 'check-drift'"):
@@ -112,8 +83,7 @@ def test_the_refusal_names_what_is_installed():
                 run=lambda _o: None,
             ),
         },
-        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
-        requirements=SimpleNamespace(pending=lambda _kind: False),
+        deployments=SimpleNamespace(converge_requirements=lambda _operator: None),
     )
 
     with pytest.raises(NotFoundError, match="check-drift, renew-certificates"):

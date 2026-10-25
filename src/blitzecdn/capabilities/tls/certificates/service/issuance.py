@@ -311,7 +311,11 @@ class CertificateService:
         return info
 
     def reconcile_certificates(self, operator: str) -> ReconciliationResult:
-        """Issue ready first certificates and install them with one deployment.
+        """Issue ready first certificates and queue one deployment to install them.
+
+        The deployment is queued through the deployment requirement issuance
+        records, so the worker converges it and a scheduled run that queued
+        one does not queue a second. The returned deployment is the queued one.
 
         Eligibility is checked again after taking the cross-process lock. Two
         reconcilers may discover the same site, but only the first can still see
@@ -359,7 +363,9 @@ class CertificateService:
             except BlitzeError as exc:
                 failed[candidate.name] = str(exc)
 
-        deployment = self.deployments.deploy(operator) if issued else None
+        deployment = (
+            self.deployments.converge_requirements(operator) if issued else None
+        )
         return ReconciliationResult(
             issued=tuple(issued),
             skipped=skipped,

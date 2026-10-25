@@ -184,18 +184,25 @@ def cert_renew(
 def cert_reconcile(
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Issue ready first certificates and deploy them to the edge fleet.
+    """Issue ready first certificates and queue a deployment to install them.
 
     Safe to schedule frequently: sites with certificates are ignored, blocked
-    preflights never contact the CA, and the deployment runs only after at
-    least one new certificate was issued.
+    preflights never contact the CA, and a deployment is queued only after at
+    least one new certificate was issued. The worker converges it.
     """
     result = common.services().certificates.reconcile_certificates("cli")
-    common.emit(result, json_output=json_output)
     deployment = result.deployment
-    if result.failed or (
-        deployment is not None and deployment.status is not DeploymentStatus.SUCCEEDED
-    ):
+    common.emit(
+        result,
+        json_output=json_output,
+        note=(
+            f"Queued deployment {deployment.id}; "
+            f"follow it with 'blitzecdn status {deployment.id}'."
+            if deployment is not None
+            else None
+        ),
+    )
+    if result.failed:
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 

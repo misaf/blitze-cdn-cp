@@ -68,7 +68,10 @@ async def renew_certificates(
 def reconcile_certificates(
     operator: OperatorDependency, control: ServicesDependency
 ) -> ReconciliationResult:
-    """Issue first certificates for ready sites, then install them."""
+    """Issue first certificates for ready sites and queue their deployment.
+
+    Poll GET /v1/deployments/{id} for the queued deployment's outcome.
+    """
     return as_operation(
         control.certificates.reconcile_certificates(operator),
         ReconciliationResult,
