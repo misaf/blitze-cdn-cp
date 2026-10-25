@@ -1,3 +1,5 @@
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -414,7 +416,10 @@ def test_startup_republishes_an_interrupted_deployment_for_resumption(settings):
     assert control.job_queue.get(claim.job.id).status is JobStatus.SUCCEEDED
 
 
-def test_a_deployment_and_its_job_commit_together_or_not_at_all(settings, monkeypatch):
+@pytest.mark.parametrize("rollback", [False, True])
+def test_a_deployment_and_its_job_commit_together_or_not_at_all(
+    settings, monkeypatch, rollback
+):
     """The real job queue, failing after its own row was written.
 
     The Redis-era shape committed the deployment and then published its job,
@@ -429,24 +434,110 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(settings, monkey
         runner=FakeRunner(),
         process=ProcessKind.WORKER,
     )
+    seed_edge(control, name="edge-a")
     seed_site(control)
+    if rollback:
+        target = control.deployments.deploy("alice")
+
+    def submit():
+        if rollback:
+            return control.deployments.submit_rollback("alice", target.id)
+        return control.deployments.submit_deployment("alice")
+
+    before = repository.deployments.list_deployments(10)
+    events_before = repository.audit_log.list_audit_events()
+    failed_ids = []
     queue_job = control.job_queue.enqueue_deployment
 
     def enqueue_then_fail(deployment_id):
+        assert repository.database.current_session() is not None
+        assert [
+            target.edge
+            for target in repository.deployment_targets.targets(deployment_id)
+        ] == ["edge-a"]
+        failed_ids.append(deployment_id)
         queue_job(deployment_id)
         raise RuntimeError("the process died here")
 
     monkeypatch.setattr(control.job_queue, "enqueue_deployment", enqueue_then_fail)
     with pytest.raises(RuntimeError):
-        control.deployments.submit_deployment("alice")
+        submit()
 
-    assert repository.deployments.list_deployments(10) == []
+    assert repository.deployments.list_deployments(10) == before
     assert control.job_queue.list_jobs() == []
+    assert repository.deployment_targets.targets(failed_ids[0]) == []
+    assert repository.audit_log.list_audit_events() == events_before
 
     monkeypatch.undo()
-    queued = control.deployments.submit_deployment("alice")
+    queued = submit()
     (job,) = control.job_queue.list_jobs()
     assert job.payload == {"deployment_id": queued.id}
+
+
+@pytest.mark.parametrize("check", [False, True])
+def test_submission_allows_an_independent_writer_during_rendering(
+    settings, monkeypatch, check
+):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_site(control)
+    probe = "blitzecdn_test_render_probe"
+    repository.ansible_settings.set_setting(probe, "before")
+    renderer = control.releases.renderer
+    rendered = []
+
+    class ConcurrentWriterRenderer:
+        def render(self, document):
+            with closing(sqlite3.connect(settings.database_path, timeout=0)) as other:
+                # Retention is committed before rendering, and another
+                # connection can write without waiting for rendering to end.
+                other.execute(
+                    "UPDATE ansible_settings SET value = ? WHERE name = ?",
+                    ('"after"', probe),
+                )
+                assert other.execute("SELECT count(*) FROM releases").fetchone() == (1,)
+                other.commit()
+            rendered.append(document)
+            return renderer.render(document)
+
+    monkeypatch.setattr(control.releases, "renderer", ConcurrentWriterRenderer())
+
+    queued = control.deployments.submit_deployment("alice", check=check)
+
+    assert len(rendered) == 1
+    assert control.releases.inputs_for(queued.release_id).settings[probe] == "before"
+    assert repository.ansible_settings.list_settings()[probe] == "after"
+    assert control.releases.configuration(queued.release_id)
+    (job,) = control.job_queue.list_jobs()
+    assert job.payload == {"deployment_id": queued.id}
+
+
+def test_rendering_failure_leaves_no_deployment_or_job(settings, monkeypatch):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_site(control)
+    renderer = control.releases.renderer
+
+    class FailingRenderer:
+        def render(self, document):
+            raise RuntimeError("rendering failed")
+
+    monkeypatch.setattr(control.releases, "renderer", FailingRenderer())
+
+    with pytest.raises(RuntimeError, match="rendering failed"):
+        control.deployments.submit_deployment("alice")
+
+    assert repository.deployments.list_deployments() == []
+    assert control.job_queue.list_jobs() == []
+    # A retained release without a rendering is repairable on the next try.
+    monkeypatch.setattr(control.releases, "renderer", renderer)
+    queued = control.deployments.submit_deployment("alice")
+    assert len(control.releases.list_releases()) == 1
+    assert control.releases.configuration(queued.release_id)
 
 
 def test_admission_records_targets_before_worker_delivery(settings):
