@@ -8,6 +8,8 @@ failure it had could only be reproduced by restarting a process.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -51,7 +53,9 @@ def scheduler_for(repository, clock, *, handlers=None) -> tuple[JobScheduler, Jo
         worker_id="worker-a",
         clock=clock,
     )
-    return JobScheduler(schedules=repository.schedules, queue=queue, clock=clock), queue
+    return JobScheduler(
+        schedules=repository.schedules, queue=queue, uow=repository, clock=clock
+    ), queue
 
 
 HOURLY = ScheduleSpec("renew-certificates", interval_seconds=3600, lease_seconds=7200)
@@ -157,6 +161,74 @@ def test_a_firing_is_skipped_while_the_last_one_is_still_running(repository):
 
     clock.advance(3600)
     assert scheduler.tick() == []
+
+
+@pytest.mark.parametrize("after_insert", [False, True])
+@pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
+def test_failed_publication_leaves_the_schedule_due_after_restart(
+    repository, settings, monkeypatch, after_insert, failure
+):
+    clock = Clock()
+    scheduler, queue = scheduler_for(repository, clock)
+    scheduler.register([HOURLY])
+    clock.advance(3600)
+    before = repository.schedules.list_schedules()
+    enqueue = queue.enqueue_scheduled
+
+    def fail(name):
+        if after_insert:
+            enqueue(name)
+        raise failure("publication interrupted")
+
+    monkeypatch.setattr(queue, "enqueue_scheduled", fail)
+    with pytest.raises(failure, match="publication interrupted"):
+        scheduler.tick()
+
+    assert repository.schedules.list_schedules() == before
+    assert queue.list_jobs() == []
+    restarted = Repository(settings.database_path)
+    try:
+        fresh, jobs = scheduler_for(restarted, clock)
+        assert fresh.tick() == [HOURLY.name]
+        (job,) = jobs.list_jobs()
+        assert job.payload == {"job": HOURLY.name}
+        assert fresh.tick() == []
+        assert len(jobs.list_jobs()) == 1
+    finally:
+        restarted.close()
+
+
+def test_concurrent_schedulers_publish_one_job_from_the_same_due_snapshot(
+    repository, settings, monkeypatch
+):
+    clock = Clock()
+    first, queue = scheduler_for(repository, clock)
+    first.register([HOURLY])
+    clock.advance(3600)
+    other = Repository(settings.database_path)
+    second, _ = scheduler_for(other, clock)
+    both_due = threading.Barrier(2)
+
+    def observe(store):
+        due = store.due
+
+        def read(now):
+            schedules = due(now)
+            both_due.wait(timeout=10)
+            return schedules
+
+        monkeypatch.setattr(store, "due", read)
+
+    observe(repository.schedules)
+    observe(other.schedules)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = [workers.submit(scheduler.tick) for scheduler in (first, second)]
+            fired = [name for result in results for name in result.result(timeout=10)]
+        assert fired == [HOURLY.name]
+        assert len(queue.list_jobs()) == 1
+    finally:
+        other.close()
 
 
 def test_a_disabled_job_contributes_no_schedule():

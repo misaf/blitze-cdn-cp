@@ -319,7 +319,7 @@ class ControlPlane:
             jobs=store.jobs, retention=self.settings.history_retention
         )
         self.job_scheduler: JobScheduler = build_job_scheduler(
-            schedules=store.schedules, queue=self.job_queue
+            schedules=store.schedules, queue=self.job_queue, uow=store
         )
         self._background = background or _QueuePublisher(self.job_queue)
         self._queue_ready: Callable[[], bool] = queue_ready or (

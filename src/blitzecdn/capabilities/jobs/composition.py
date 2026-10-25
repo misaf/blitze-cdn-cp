@@ -19,6 +19,7 @@ from blitzecdn.capabilities.jobs.service import (
     ScheduleSpec,
 )
 from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.ports import UnitOfWork
 
 __all__ = [
     "build_job_queue",
@@ -80,6 +81,8 @@ def build_job_queue(
     )
 
 
-def build_job_scheduler(*, schedules: ScheduleStore, queue: JobQueue) -> JobScheduler:
+def build_job_scheduler(
+    *, schedules: ScheduleStore, queue: JobQueue, uow: UnitOfWork
+) -> JobScheduler:
     """Wire the scheduler to the schedule table and the queue it publishes to."""
-    return JobScheduler(schedules=schedules, queue=queue)
+    return JobScheduler(schedules=schedules, queue=queue, uow=uow)

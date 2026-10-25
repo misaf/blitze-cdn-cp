@@ -380,3 +380,20 @@ on the workstation and no live controller deployment was changed.
   were also exercised. Host publication, restart suppression and retry used
   Docker test doubles; they do not establish a live Compose restore rehearsal.
   Disk loss, power failure and every possible crash timing remain unverified.
+
+## Atomic scheduled publication
+
+Each due schedule now advances and publishes its job in one database
+transaction. Failed publication leaves both its next-run and last-run times
+unchanged, with no partial job, so a restarted scheduler can deliver the same
+firing. Existing pending/running work still skips a duplicate interval. The
+application composition supplies the shared unit of work explicitly.
+
+Remote Ubuntu 26.04/Python 3.14.4 verification on 2026-10-25 passed **158 focused
+tests**, including durable jobs, deployment submission, certificate schedules,
+control-plane startup, frozen contracts, layering and recovery journeys. Four
+exception/interruption cases failed with the transaction disabled; all pass
+with it enabled. A fifth new case synchronizes two independent scheduler
+connections on the same due snapshot and verifies exactly one queued job.
+Formatting, lint and strict types passed. Frozen surfaces and schema are
+unchanged. No tests ran on the workstation or changed a live deployment.
