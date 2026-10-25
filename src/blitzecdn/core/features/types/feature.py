@@ -19,7 +19,7 @@ root's roster names each feature module and the builders it binds.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -41,14 +41,38 @@ from blitzecdn.core.features.types.validation import ValidationIssue
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
-    from blitzecdn.capabilities.serving.domain import CdnSite
-
 __all__ = [
     "Feature",
     "FeatureOperations",
     "FeatureRendering",
-    "SiteReader",
+    "RequestsCapabilities",
+    "Site",
 ]
+
+
+class RequestsCapabilities(Protocol):
+    """The one question core asks of a site's policy."""
+
+    @property
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """Capability tokens the policy requests, and the settings that asked."""
+        ...
+
+
+class Site(Protocol):
+    """What core asks of a site: its name, and what its policy requires.
+
+    A site's concrete model is composed from every capability's contract, so
+    core cannot name it without naming them. It names this instead, and the
+    features that render a site receive the concrete model the composition
+    root binds them to.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def policy(self) -> RequestsCapabilities: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +92,8 @@ class Feature:
 
 
 @dataclass(frozen=True, slots=True)
-class FeatureRendering:
-    """A feature's share of what the release compiler renders.
+class FeatureRendering[S: Site]:
+    """A feature's share of what the release compiler renders, per site type.
 
     ``site_state`` returns ``None`` when the feature has nothing to say about
     a site, so a feature costs nothing to merge for sites it does not touch.
@@ -77,11 +101,9 @@ class FeatureRendering:
 
     #: The contributing feature's `FeatureMetadata.name`.
     feature: str
-    site_state: Callable[[CdnSite], SiteStateContribution | None] | None = None
-    fleet_state: (
-        Callable[[tuple[CdnSite, ...]], FleetStateContribution | None] | None
-    ) = None
-    deployment_checks: Callable[[CdnSite], Sequence[ValidationIssue]] | None = None
+    site_state: Callable[[S], SiteStateContribution | None] | None = None
+    fleet_state: Callable[[tuple[S, ...]], FleetStateContribution | None] | None = None
+    deployment_checks: Callable[[S], Sequence[ValidationIssue]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,11 +122,3 @@ class FeatureOperations:
     scheduled_jobs: tuple[ScheduledJob, ...] = ()
     startup: Callable[[], None] | None = None
     shutdown: Callable[[], None] | None = None
-
-
-class SiteReader(Protocol):
-    """Read-only access to derived virtual hosts."""
-
-    def list_sites(self) -> list[CdnSite]: ...
-
-    def get_site(self, name: str) -> CdnSite: ...

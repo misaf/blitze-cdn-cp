@@ -28,7 +28,8 @@ from blitzecdn.core.features.types.feature import (
     Feature,
     FeatureOperations,
     FeatureRendering,
-    SiteReader,
+    RequestsCapabilities,
+    Site,
 )
 from blitzecdn.core.features.types.identity import FeatureMetadata
 from blitzecdn.core.features.types.nginx import NginxContribution
@@ -62,10 +63,11 @@ __all__ = [
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",
+    "RequestsCapabilities",
     "ScheduledJob",
     "SettingValue",
     "Severity",
-    "SiteReader",
+    "Site",
     "SiteStateContribution",
     "StateValue",
     "ValidationIssue",

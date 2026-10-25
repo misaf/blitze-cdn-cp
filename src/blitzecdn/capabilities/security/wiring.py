@@ -12,7 +12,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
 
 
-def security_rendering(*, config: SecurityConfig) -> FeatureRendering:
+def security_rendering(*, config: SecurityConfig) -> FeatureRendering[CdnSite]:
     """Refuse a deployment the challenge secret cannot possibly satisfy.
 
     Scoped to the two facts that make the failure certain: the site is enabled,

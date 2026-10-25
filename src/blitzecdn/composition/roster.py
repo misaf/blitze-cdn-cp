@@ -20,6 +20,7 @@ from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
@@ -76,11 +77,11 @@ class RosterEntry:
     """One feature module and the behaviour it binds, if any."""
 
     module: str
-    rendering: Callable[[RenderingInputs], FeatureRendering] | None = None
+    rendering: Callable[[RenderingInputs], FeatureRendering[CdnSite]] | None = None
     operations: Callable[[OperationInputs], FeatureOperations] | None = None
 
 
-def _security_rendering(inputs: RenderingInputs) -> FeatureRendering:
+def _security_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
     return security_rendering(
         config=SecurityConfig.from_capability_config(
             inputs.capability_config.for_feature("security")
@@ -88,7 +89,7 @@ def _security_rendering(inputs: RenderingInputs) -> FeatureRendering:
     )
 
 
-def _certificates_rendering(inputs: RenderingInputs) -> FeatureRendering:
+def _certificates_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
     return certificates_rendering(store=inputs.certificate_store)
 
 
@@ -171,7 +172,7 @@ def load_registry() -> FeatureRegistry:
     return FeatureRegistry(load_features(BUILTIN_FEATURES))
 
 
-def bind_renderings(inputs: RenderingInputs) -> tuple[FeatureRendering, ...]:
+def bind_renderings(inputs: RenderingInputs) -> tuple[FeatureRendering[CdnSite], ...]:
     """Each row's rendering, in roster order."""
     return tuple(
         entry.rendering(inputs) for entry in ROSTER if entry.rendering is not None

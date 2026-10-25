@@ -189,7 +189,7 @@ def unissuable_names(site: CdnSite) -> Sequence[ValidationIssue]:
     )
 
 
-def certificates_rendering(*, store: CertificateStore) -> FeatureRendering:
+def certificates_rendering(*, store: CertificateStore) -> FeatureRendering[CdnSite]:
     """Override a site's certificate paths with the verified installed files."""
 
     def site_state(site: CdnSite) -> SiteStateContribution | None:
