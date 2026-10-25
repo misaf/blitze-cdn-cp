@@ -147,10 +147,9 @@ def record_remove(
 ) -> None:
     """Delete one record.
 
-    Deleting the last record routed to a site withdraws its virtual host at the
-    next deploy, along with any certificate BlitzeCDN manages for it — but the
-    site and its settings stay. To take a hostname off the edge and keep
-    answering for it, use 'record unroute' instead.
+    Deleting the last proxied record for a host withdraws its virtual host at the
+    next deploy, with any certificate BlitzeCDN manages for it. To take a hostname
+    off the edge and keep answering for it, use 'record unproxy' instead.
     """
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):

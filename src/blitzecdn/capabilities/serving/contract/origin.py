@@ -1,9 +1,4 @@
-"""Origin request identity policy for a site.
-
-Requests no capability: every managed edge sets a ``Host`` header and an SNI on
-the origin leg whether or not anything is installed beside the control plane,
-so this contract is answered by the default on :class:`CapabilityPolicy`.
-"""
+"""Origin request identity policy for a site; every edge supports it."""
 
 from pydantic import ConfigDict, field_validator
 

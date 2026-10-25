@@ -1,8 +1,8 @@
-"""Immutable policy-editing intent shared by application entry points.
+"""Immutable policy-editing intent from the entry points.
 
-A replacement patch and an edit to selected lists are different commands. The
-latter cannot be expanded to a replacement until the application has read the
-current zone inside its write transaction. Delivery supplies intent only.
+Replacing settings and editing selected lists are different commands: the
+latter can only expand to a replacement once the service has read the current
+zone inside its transaction.
 """
 
 from __future__ import annotations
@@ -18,12 +18,7 @@ from blitzecdn.core.domain.documents import canonical_document, read_document
 
 
 class PatchPolicy(BaseModel):
-    """Replace named settings, including whole firewall/header leaf blocks.
-
-    Capture the patch as canonical content: a caller retaining a mutable
-    DomainPatch or input mapping cannot change an already constructed command.
-    Explicit nulls survive and remain distinct from fields left unnamed.
-    """
+    """Replace named settings, immutably; explicit nulls stay distinct from unset."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -49,11 +44,7 @@ class PatchPolicy(BaseModel):
 
 
 class EditFirewall(BaseModel):
-    """Replace selected rule lists, or explicitly clear the whole block.
-
-    Tuple fields keep admitted intent immutable. Cross-list validation belongs
-    to the merged SiteFirewall, after the application reads current state.
-    """
+    """Replace selected rule lists, or clear the block; validated after the merge."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

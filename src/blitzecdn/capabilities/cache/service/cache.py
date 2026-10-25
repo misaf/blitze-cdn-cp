@@ -1,15 +1,7 @@
 """Purging cached responses, and reading how well the cache is working.
 
-Both operations run a playbook across the edges and neither changes desired
-state: no deployment record is written and the deployment lock is deliberately
-not taken, because the moment a purge is most needed is the moment a deploy is
-most likely to already be running.
-
-Separate from :mod:`blitzecdn.capabilities.edges.service` despite also acting on the
-fleet. That service answers "which hosts exist"; this one answers "what is
-stored on them", which is a different question with its own domain module
-(:mod:`blitzecdn.capabilities.cache.domain`) and its own entry-point module. That
-both reach the edges is a statement about the transport, not about the work.
+Neither changes desired state or takes the deployment lock: a purge is most
+needed exactly when a deploy is running.
 """
 
 from __future__ import annotations
@@ -62,17 +54,9 @@ class CacheService:
         purge_all: bool = False,
         host_limit: str | None = None,
     ) -> PurgeResult:
-        """Remove cached responses from the edges.
+        """Remove cached responses from the edges, refusing hostnames no site serves.
 
-        Which hostnames may be purged is decided here rather than on the edge:
-        a hostname no site serves is refused, because a purge that quietly
-        matches nothing is indistinguishable from one that worked, and the
-        operator learns nothing until the stale object is still being served.
-
-        Purging is not deploying. Nothing about desired state changes, no
-        deployment record is written, and the deployment lock is not taken —
-        the moment a purge is most needed is the moment a deploy is most likely
-        to already be running.
+        A purge that silently matches nothing looks the same as one that worked.
         """
         if purge_all and entries:
             raise ConflictError(
@@ -120,24 +104,12 @@ class CacheService:
     def _resolve_purge_entries(
         self, entries: Sequence[PurgeEntry]
     ) -> tuple[PurgeEntry, ...]:
-        """Refuse impossible entries and reproduce each owning site's cache URI.
+        """Refuse impossible entries and reproduce each owning site's cache key.
 
-        Two ways that happens, and either would otherwise report a successful
-        purge of nothing.
-
-        The hostname may be one no site answers to. Wildcard server names match
-        their subdomains, the same way nginx matches them, so purging
-        ``a.cdn.example.com`` under a ``*.example.com`` site is allowed.
-
-        Or the scheme may be one the site never serves. The cache key begins
-        with ``$scheme``, so the two are different entries: a site with TLS
-        answers port 80 with a 301 and caches nothing under ``http``, and a site
-        without TLS never sees an ``https`` request at all. Purging the wrong one
-        computes a different MD5, deletes a file that was never written, and
-        reports every edge as purged.
-        A site whose query-string mode is ``ignore`` caches the raw path without
-        its query. Strip it here too; otherwise the purge role hashes a key
-        nginx never wrote and reports success while leaving the object live.
+        The hostname must match a site, wildcards as nginx matches them. The scheme
+        must be one the site serves, since ``$scheme`` leads the key. Under ``ignore``
+        query mode the query is stripped. Otherwise the purge hashes a key nginx never
+        wrote and reports success.
         """
         exact: dict[str, CdnSite] = {}
         wildcards: list[tuple[str, CdnSite]] = []
@@ -198,14 +170,10 @@ class CacheService:
     def cache_stats(
         self, operator: str, *, host_limit: str | None = None
     ) -> CacheStatsReport:
-        """Collect cache effectiveness from the edges.
+        """Collect cache effectiveness from the edges, read-only and unlocked.
 
-        Read-only and unlocked. Every edge's counters arrive on its own
-        ``HostRun.report``, published by the role as the ``blitzecdn_report``
-        fact, so the roster and the numbers are the same object — an edge that
-        ran but produced nothing is reported as silent rather than vanishing
-        from the fleet, and there is no controller-side directory to reset,
-        collide over, or read a previous run's document out of.
+        Counters arrive on each ``HostRun.report``, so an edge that ran but reported
+        nothing shows as silent rather than vanishing.
         """
         run = self.runner.run_stats(host_limit=host_limit)
         report = CacheStatsReport(
@@ -233,12 +201,7 @@ class CacheService:
 
 
 def _edge_stats(host: HostRun) -> EdgeStats:
-    """Read one edge's published report defensively.
-
-    The shape is ours — `blitzecdn_cache_stats` builds it — but it crossed a machine
-    boundary, so a partial or malformed document must degrade to "this edge
-    said nothing usable" rather than raise out of a fleet-wide report.
-    """
+    """Read one edge's report defensively; a malformed one means "nothing usable"."""
     if not host.reached:
         return EdgeStats(host=host.host, error="unreachable")
     if not host.succeeded:

@@ -37,25 +37,9 @@ class OriginCheckService:
     ) -> OriginReport:
         """Ask every edge to connect to the origins it proxies to.
 
-        Answered by the fleet rather than by the controller. The controller's
-        routes, resolver and egress rules are not the ones that carry traffic:
-        an origin allow-listing the edges' addresses refuses the controller
-        while working perfectly, and one reachable only from the controller's
-        subnet passes and then 502s on every edge. Asked from the controller,
-        the check would answer a question nobody asked.
-
-        Per edge *and* per site for the same reason. An origin no edge can
-        reach is down; one some edges can reach is a routing or allow-list
-        problem, and a single vantage point could never tell those apart.
-
-        Deliberately not folded into ``validate()``, which ``deploy`` runs.
-        Validation is about desired state being coherent and has to stay fast
-        and deterministic; an origin being briefly unreachable is neither a
-        reason to refuse a deploy of unrelated sites nor something a deploy
-        should wait on. Run this before a deploy, not inside one.
-
-        Disabled sites are skipped: the edge will not proxy to them, so their
-        origins being down is not a fact about anything.
+        From the fleet, per edge and per site; see `origins.domain.report`. Not part of
+        ``validate``, which must stay fast and deterministic: run it before a deploy.
+        Disabled sites are skipped.
         """
         sites = [site for site in self.sites.list_sites() if site.policy.enabled]
         run = self.runner.run_origin_check(

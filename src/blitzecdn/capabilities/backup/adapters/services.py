@@ -11,16 +11,10 @@ from blitzecdn.core.exceptions import ExecutionError
 
 
 class ComposeRestoreGuard:
-    """Require the host wrapper to stop persistent containers before restore.
+    """Require the host wrapper to have stopped persistent containers before restore.
 
-    The application container deliberately has no Docker socket. Lifecycle
-    ownership stays on the host, where the installed ``blitzecdn`` wrapper
-    uses the Docker SDK to record which services are running, stop them, run the
-    ephemeral restore container, and recover that running set in a finally block.
-
-    A source-checkout restore remains usable without Docker; only a process
-    actually running in a container must prove the host established the
-    offline boundary.
+    The container has no Docker socket; the host wrapper records, stops and
+    restarts services around the restore. A source checkout needs no Docker.
     """
 
     @contextmanager

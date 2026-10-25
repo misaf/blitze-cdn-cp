@@ -13,13 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 
 def security_rendering(*, config: SecurityConfig) -> FeatureRendering[CdnSite]:
-    """Refuse a deployment the challenge secret cannot possibly satisfy.
-
-    Scoped to the two facts that make the failure certain: the site is enabled,
-    and it asks for Under Attack Mode. A disabled site converges no server
-    block, and a site that never asks is unaffected by the secret being absent
-    — neither is blocked.
-    """
+    """Refuse an enabled site asking for Under Attack Mode when no secret is set."""
 
     def checks(site: CdnSite) -> Sequence[ValidationIssue]:
         if not site.policy.enabled or not site.policy.security.under_attack_mode:

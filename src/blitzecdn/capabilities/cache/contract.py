@@ -38,11 +38,7 @@ class CachePolicy(CapabilityPolicy):
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
-        """Implementation capabilities requested by this stable policy.
-
-        Caching is enabled by default. Declared edge capabilities must still
-        support it; assembly alone does not prove a target can realize policy.
-        """
+        """The ``cache`` capability, while caching (the default) is enabled."""
         if not self.cache_enabled:
             return {}
         return {"cache": ("cache_enabled",)}

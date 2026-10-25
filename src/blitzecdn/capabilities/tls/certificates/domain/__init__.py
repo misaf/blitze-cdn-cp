@@ -1,9 +1,4 @@
-"""What we hold, and what is checked before we ask for more.
-
-Two modules with nothing between them: `certificate.py` is the material and the
-requests that change it, `preflight.py` is the report on DNS, reachability and
-CAA that decides whether asking is worth it. Neither imports the other.
-"""
+"""The certificates we hold, and the checks made before asking for more."""
 
 from blitzecdn.capabilities.tls.certificates.domain.certificate import (
     CERTIFICATE_RENEWAL_DAYS,

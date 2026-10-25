@@ -1,9 +1,7 @@
 """Issuing, uploading, renewing and reporting on TLS certificates.
 
-Certificate state is written to the *record*, through
-``SiteService.activate_managed_certificate``, rather than to the virtual host
-the certificate was issued for. The host is derived, so a write to it would
-survive only until the next record change re-derived over it.
+Certificate state is written to the zone or rule that produced a host, through
+``HostService.activate_managed_certificate``; the host itself is derived.
 """
 
 from __future__ import annotations
@@ -156,12 +154,7 @@ class CertificateService:
     # -- Preflight -----------------------------------------------------
 
     def certificate_preflight(self, name: str) -> PreflightReport:
-        """Report whether HTTP-01 could validate this site right now.
-
-        Public so an operator can ask before spending a rate-limited request,
-        and so the answer to "why did issuance fail" does not require reading
-        certbot's output.
-        """
+        """Report whether HTTP-01 could validate this site right now, without the CA."""
         site = self.persistence.sites.get_site(name)
         record = self.dns.record_for_hostname(site.server_names[0])
         return self.execution.preflight.check(
@@ -173,13 +166,7 @@ class CertificateService:
     def _enforce_preflight(
         self, site: CdnSite, operator: str, *, skip: bool, action: str
     ) -> PreflightReport:
-        """Refuse issuance that cannot succeed, and record it either way.
-
-        An override is audited as its own event rather than a field on the
-        success record: "who forced past a failed check" is a question asked
-        after an incident, and it should not require reading every certificate
-        event to answer.
-        """
+        """Refuse issuance that cannot succeed; audit an override as its own event."""
         report = self.execution.preflight.check(
             site,
             deployed=self.deployments.site_is_deployed(site.name),
@@ -259,18 +246,9 @@ class CertificateService:
     ) -> CertificateInfo:
         """Issue and activate one certificate while the caller holds the lock.
 
-        Checkpointed between each step, because the three of them fail in ways
-        that need different answers and only the journal survives to say which
-        happened. Between ``issued`` and ``stored`` the CA has handed out a
-        certificate that exists nowhere on this machine — a rate-limited
-        issuance spent on nothing, and the one state worth recognising before
-        retrying. Between ``stored`` and ``activated`` the PEM is on disk and
-        only the record still points at the old mode, which the next issuance
-        corrects for free.
-
-        Without them an interrupted issuance would be one undifferentiated
-        NEEDS_REVIEW workflow, which is the same thing recovery says about an
-        upload that had already finished.
+        Checkpointed per step, so recovery can tell a certificate the CA issued but we
+        never stored (a spent rate limit) from one stored but not yet activated (fixed
+        by the next issuance).
         """
         self._enforce_preflight(
             site, operator, skip=skip_preflight, action="certificate.requested"
@@ -313,13 +291,9 @@ class CertificateService:
     def reconcile_certificates(self, operator: str) -> ReconciliationResult:
         """Issue ready first certificates and queue one deployment to install them.
 
-        The deployment is queued through the deployment requirement issuance
-        records, so the worker converges it and a scheduled run that queued
-        one does not queue a second. The returned deployment is the queued one.
-
-        Eligibility is checked again after taking the cross-process lock. Two
-        reconcilers may discover the same site, but only the first can still see
-        it in disabled mode and contact the CA.
+        Queued through deployment requirements, so a second run queues nothing extra.
+        Eligibility is re-checked under the cross-process lock, so only one reconciler
+        contacts the CA for a site.
         """
         issued: list[str] = []
         skipped: dict[str, str] = {}
@@ -332,10 +306,7 @@ class CertificateService:
                 skipped[candidate.name] = report.summary()
                 continue
             try:
-                # Journalled like every other path to the CA. This one is the
-                # least attended — a scheduler thread on a timer — so an
-                # interruption here is the most likely to be discovered later
-                # and the least likely to have anyone watching when it happens.
+                # Journalled like every path to the CA; this one is unattended.
                 with (
                     self.execution.runner.lock(),
                     self.workflows.run(
@@ -380,12 +351,7 @@ class CertificateService:
         return self.persistence.certificates.get(name)
 
     def installed_sources(self, site: CdnSite) -> tuple[Path, Path]:
-        """Verify and locate the exact version selected by captured policy.
-
-        Rendering gets verified source paths through this read operation.
-        The metadata pointer is inventory and cannot select a different pair
-        for a site already captured by a compilation or restored by rollback.
-        """
+        """Verify and locate the exact version captured policy selects."""
         return self.persistence.certificates.sources(
             site.name,
             version=CertificateVersion.from_paths(
@@ -396,11 +362,7 @@ class CertificateService:
         )
 
     def collect_material(self, operator: str) -> tuple[str, ...]:
-        """Collect superseded controller files with issuance and admission fenced.
-
-        Filesystem deletions are idempotent rather than transactionally reversible.
-        An interrupted sweep can be retried; every deletion is already unreachable.
-        """
+        """Collect superseded files, fenced against issuance; safe to retry."""
         with self.execution.runner.lock(), self.persistence.uow.transaction():
             removed = self.persistence.certificates.collect(self.material_references())
             self.events.record(
@@ -425,12 +387,7 @@ class CertificateService:
     def expiring_certificates(
         self, within_days: int = CERTIFICATE_RENEWAL_DAYS
     ) -> list[CertificateStatus]:
-        """Certificates close enough to expiry to need action.
-
-        Includes uploaded ones, which BlitzeCDN cannot renew for itself. They
-        are precisely the ones worth surfacing early — someone has to be asked
-        for a replacement, and that takes longer than an ACME round trip.
-        """
+        """Certificates close to expiry, uploaded ones (unrenewable) included."""
         return [
             status
             for status in self.certificate_statuses()
@@ -450,36 +407,11 @@ class CertificateService:
     ) -> RenewalResult:
         """Reissue ACME certificates that are close to expiry.
 
-        Every certificate is attempted even if an earlier one fails. Renewal
-        goes over the network to a CA and through an HTTP-01 challenge served
-        by the edges, so one site failing is an ordinary transient event and
-        must not stop the others from being renewed — the whole point of
-        running this on a schedule is that the next run picks up what this one
-        could not finish.
-
-        ``sites`` narrows the run to the named sites, for retrying one failure
-        without putting every other subscription through the CA again. An
-        unknown name is an error rather than a silent no-op: the caller asked
-        for a specific certificate, and reporting "nothing to renew" for a
-        typo is how an expiry gets missed.
-
-        Nothing is deployed here. A renewed certificate is installed into the
-        control plane's own store and reaches the edges on the next deploy,
-        which stays an explicit act.
-
-        Each renewal goes through ``request_certificate`` and therefore through
-        preflight. A hostname whose DNS has been moved off the edges fails here
-        with the reason named, instead of consuming a CA request and reporting
-        certbot's output. There is deliberately no override on this path: an
-        unattended timer must not be able to force past a failed check.
-
-        ``budget_seconds`` bounds the whole sweep for a caller that cannot wait
-        indefinitely — the API passes one, the CLI and the timer do not. It is
-        checked only between sites, never during one: abandoning a request
-        mid-issuance would leave the CA's view and ours disagreeing about a
-        certificate that may well have been issued. A site the budget did not
-        reach is reported as skipped and renewed by the next run, which is
-        exactly what a site that failed transiently already does.
+        Every site is attempted even if one fails; the next run picks up the rest.
+        ``sites`` narrows the run, and an unknown name is an error, not a no-op.
+        Nothing is deployed here. Each renewal goes through preflight with no override,
+        so a timer can never force past a failed check. ``budget_seconds`` is checked
+        only between sites, never mid-issuance; unreached sites are reported skipped.
         """
         renewed: list[str] = []
         skipped: list[str] = []
@@ -518,10 +450,7 @@ class CertificateService:
                     "skipped": skipped,
                     "failed": failed,
                     "within_days": within_days,
-                    # Without this the audit trail cannot tell a full sweep that
-                    # renewed one certificate from a narrowed run that only
-                    # looked at one, which is the question asked after a missed
-                    # expiry.
+                    # Records whether the sweep was narrowed.
                     "sites": None if sites is None else sorted(sites),
                 },
             )
@@ -585,16 +514,8 @@ class CertificateService:
             _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
             return "failed", f"{status.site}: {exc}"
         if info.fingerprint_sha256 == current.fingerprint_sha256:
-            # A renewal that returns the certificate already in place is not a
-            # renewal, however cleanly the issuer exited. It reaches no edge --
-            # the store is content-addressed, so there is nothing new to
-            # deploy -- and it resets nothing, so the expiry it was run to
-            # avoid still arrives on the original date.
-            #
-            # Reported rather than trusted because the failure is otherwise
-            # invisible: every observable signal short of the fingerprint says
-            # success, which is how a fleet reaches expiry with a timer that
-            # has been reporting renewals all along.
+            # Renewal returning the certificate already in place is a failure, however
+            # cleanly the issuer exited: nothing new deploys and the expiry stands.
             _LOGGER.error(
                 "renewal of %s returned the certificate already in place (%s)",
                 status.site,

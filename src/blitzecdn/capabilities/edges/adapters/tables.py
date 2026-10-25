@@ -1,14 +1,4 @@
-"""The fleet, as it is stored.
-
-Part of the one description of what is on disk. The rules `core.persistence`
-sets out still hold — a column per queryable fact, JSON for a value object no
-query reaches, no invariants here that the domain model does not own — and
-Alembic still compares against `Base.metadata`, which these rows register
-themselves in by importing that base.
-
-A table belongs beside the store that reads it, so the capability that owns
-a store owns the table under it and adding a column edits no shared module.
-"""
+"""The fleet, as it is stored."""
 
 from __future__ import annotations
 
@@ -25,12 +15,9 @@ from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 class EdgeRow(Base, table=True):
     """The fleet, and the table the Ansible inventory plugin reads.
 
-    This table is a published contract, not private storage. The plugin in
-    ``ansible/plugins/inventory/`` opens the file read-only at the start of
-    every run, possibly under a different interpreter with no ``blitzecdn`` on
-    its path, so it reads these columns directly and has no model to validate
-    against. Its explicit SELECT is the schema contract, so changes here and
-    in that query must land together.
+    A published contract: the plugin reads these columns directly, possibly under
+    an interpreter without ``blitzecdn``. Its explicit SELECT is the schema, so
+    change both together.
     """
 
     __tablename__ = "edges"
@@ -50,10 +37,7 @@ class EdgeRow(Base, table=True):
     #: the edge, and never joined or filtered on.
     public_addresses: list[Any] = Field(default_factory=list, sa_type=JSON)
     ssh_sources: list[Any] = Field(default_factory=list, sa_type=JSON)
-    #: Nullable rather than an empty list, because the two mean different
-    #: things: NULL is "this edge has declared nothing, assume the
-    #: controller's set", and an empty list is "this edge provides no optional
-    #: capability at all". An operator who wants the second must be able to say
-    #: it, and the inventory plugin's explicit SELECT does not read this column.
+    #: NULL means undeclared, assume the controller's set; an empty list means no
+    #: optional capability at all. The inventory plugin does not read this column.
     capabilities: list[Any] | None = Field(default=None, sa_type=JSON)
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

@@ -1,21 +1,10 @@
 """Check the outside world before asking a CA for a certificate.
 
-Issuance goes through HTTP-01: the CA resolves the hostname in public DNS and
-fetches ``/.well-known/acme-challenge/<token>`` over port 80. Everything that
-has to be true for that to work lives outside the control plane — public DNS
-must point at an edge, the vhost must already exist on that edge, and CAA must
-permit our CA. Unchecked, the three most common customer mistakes all surface
-the same way: an opaque certbot error, minutes later, after a rate-limited
-request has already been spent.
-
-This looks at each of those from the controller and reports what it found. The
-controller is not the CA's vantage point, so a pass is evidence rather than
-proof — the same caveat ``origins.py`` carries. A blocking failure, though, is
-a condition under which validation cannot succeed, and is worth refusing on.
-
-Nothing here mutates anything. The only hosts contacted are ones an operator
-already declared: the site's own hostnames, its origin, and the edges in the
-inventory.
+HTTP-01 needs public DNS pointing at an edge, the vhost already on that edge,
+and CAA permitting our CA. Unchecked, each failure surfaces as an opaque certbot
+error after a rate-limited request is spent. The controller is not the CA's
+vantage point, so a pass is evidence; a blocking failure is grounds to refuse.
+Nothing is mutated, and only hosts an operator declared are contacted.
 """
 
 from __future__ import annotations
@@ -39,10 +28,8 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.core.config import Settings
 
-#: CAA property tags we understand. ``issue`` governs ordinary issuance,
-#: ``issuewild`` wildcard issuance; RFC 8659 says a wildcard order consults
-#: ``issuewild`` and falls back to ``issue`` only when no ``issuewild`` is
-#: present in the RRset.
+#: CAA tags we understand. A wildcard order consults ``issuewild``, falling
+#: back to ``issue`` only when the RRset has no ``issuewild`` (RFC 8659).
 _CAA_ISSUE = "issue"
 _CAA_ISSUEWILD = "issuewild"
 
@@ -60,9 +47,7 @@ class CertificatePreflight:
     ) -> None:
         self._settings = settings
         self._edges = edges
-        # The DNS budget and the resolver list below are core's — every
-        # capability that predicts what a CA will see wants the same answers.
-        # Which CA is being predicted is this capability's, and is passed.
+        # The DNS budget and resolvers are core's; which CA is predicted is ours.
         self._ca_domain = ca_domain
         self._origin_probe = origin_probe
 
@@ -77,12 +62,7 @@ class CertificatePreflight:
         return resolver
 
     def _address_resolver(self) -> dns.resolver.Resolver | None:
-        """``None`` keeps A/AAAA on ``getaddrinfo``, the long-standing default.
-
-        Switching every deployment to dnspython would change which answers
-        count — ``/etc/hosts`` entries and search domains would stop applying —
-        so the explicit-server path is opt-in.
-        """
+        """``None`` keeps A/AAAA on ``getaddrinfo``; explicit servers are opt-in."""
         if not self._settings.preflight_dns_servers:
             return None
         return self._resolver()
@@ -94,11 +74,7 @@ class CertificatePreflight:
     def check(
         self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
     ) -> PreflightReport:
-        """Run every check for one site.
-
-        ``deployed`` and ``record_ttl`` come from the caller because they are
-        facts about stored state, which this adapter deliberately cannot read.
-        """
+        """Run every check for one site; the caller supplies stored state."""
         checks = [
             self._check_dns(site),
             self._check_caa(site),
@@ -148,16 +124,10 @@ class CertificatePreflight:
         return _passed("dns", f"{_join_names(resolvable)} resolve{note} to an edge")
 
     def _edge_addresses(self) -> set[str]:
-        """Every address the recorded edges answer on publicly.
+        """Every address the recorded edges answer on publicly, resolved.
 
-        ``effective_public_addresses`` rather than the connection host: this
-        asks what the *world* reaches, and on a NAT'd edge the address the
-        controller connects to is not it. A public address may be a name rather
-        than an address, so each one is resolved. A single unresolvable edge is
-        skipped rather than failing the check — the question here is whether the
-        customer's hostname lands on one of our edges, and an edge we cannot
-        resolve is a separate problem that ``validate`` and a deploy both
-        surface on their own.
+        The public address, not the connection host, which differs behind NAT. An
+        unresolvable edge is skipped; ``validate`` reports it.
         """
         addresses: set[str] = set()
         try:
@@ -184,9 +154,7 @@ class CertificatePreflight:
             try:
                 records = self._closest_caa(base)
             except dns.exception.DNSException as exc:
-                # Advisory, not blocking: a flaky or slow resolver here is not
-                # evidence of a hostile CAA record, and refusing issuance over
-                # it would make a transient failure look like a policy.
+                # Advisory: a slow resolver is not evidence of a hostile CAA record.
                 return _failed(
                     "caa",
                     PreflightSeverity.ADVISORY,
@@ -210,12 +178,7 @@ class CertificatePreflight:
         return _passed("caa", f"no CAA record forbids {issuer}")
 
     def _closest_caa(self, name: str) -> tuple[str, list[tuple[str, str]]] | None:
-        """The CAA RRset at the closest ancestor that has one, or ``None``.
-
-        RFC 8659: a CAA RRset on ``a.b.example.com`` is authoritative for it and
-        an absent one delegates the question to the parent, so the walk stops at
-        the first name that answers rather than merging what it finds.
-        """
+        """The CAA RRset at the closest ancestor with one, or ``None`` (RFC 8659)."""
         resolver = self._resolver()
         for candidate in _ancestors(name):
             try:
@@ -261,11 +224,7 @@ class CertificatePreflight:
         )
 
     def _check_origin(self, site: CdnSite) -> PreflightCheck:
-        """Probe the origin. Advisory: a cert is issuable while the origin is down.
-
-        Included anyway because the customer-visible result of issuing against a
-        dead origin is a padlock over a 502, which reads as our failure.
-        """
+        """Probe the origin; advisory, since a down origin still gets a certificate."""
         if self._origin_probe is None:
             raise RuntimeError("certificate preflight requires an origin probe")
         result = self._origin_probe.check(site)
@@ -281,15 +240,8 @@ class CertificatePreflight:
 def check_resolver(settings: Settings) -> PreflightCheck:
     """Detect a resolver that invents answers for names that cannot exist.
 
-    A forwarding proxy that claims every hostname looks perfectly healthy —
-    browsing works, packages install, the CA is reachable — right up until
-    something compares a resolved address against an expected one. Then every
-    DNS check fails for a reason that points at the zone rather than at the
-    resolver, which is a long way to travel for the wrong conclusion.
-
-    ``.invalid`` is reserved by RFC 2606 and can never be delegated, so a
-    correct resolver answers NXDOMAIN. Anything that returns an address for a
-    random name under it is answering questions it cannot know.
+    Such a resolver looks healthy until an address comparison fails, blaming the
+    zone. ``.invalid`` can never be delegated (RFC 2606), so any answer is invented.
     """
     servers = settings.preflight_dns_servers
     where = f" ({_join_names(servers)})" if servers else " (host resolver)"
@@ -332,12 +284,9 @@ def _failed(name: str, severity: PreflightSeverity, detail: str) -> PreflightChe
 def _permitted_issuers(
     tags: Iterable[tuple[str, str]], *, wildcard: bool
 ) -> set[str] | None:
-    """Issuer domains a CAA RRset allows, or ``None`` if it does not constrain us.
+    """Issuer domains a CAA RRset allows, or ``None`` if it says nothing about us.
 
-    ``None`` and the empty set are different answers: no relevant tag in the
-    RRset means CAA is silent about this kind of issuance and the parent's view
-    does not apply either, whereas ``issue ";"`` is an explicit refusal of
-    every issuer and must block.
+    The empty set is an explicit ``issue ";"`` refusal and must block.
     """
     relevant = _CAA_ISSUEWILD if wildcard else _CAA_ISSUE
     values = [value for tag, value in tags if tag == relevant]
@@ -348,9 +297,7 @@ def _permitted_issuers(
         return None
     allowed: set[str] = set()
     for value in values:
-        # "letsencrypt.org; validationmethods=http-01" — parameters after the
-        # first semicolon are the CA's business, not ours. A bare ";" is the
-        # refuse-everything form and contributes no issuer.
+        # Parameters after the first semicolon are the CA's; a bare ";" refuses all.
         domain = value.split(";", 1)[0].strip().lower().rstrip(".")
         if domain:
             allowed.add(domain)
@@ -358,11 +305,7 @@ def _permitted_issuers(
 
 
 def _ancestors(name: str) -> Iterator[str]:
-    """``a.b.example.com`` then ``b.example.com`` then ``example.com``.
-
-    Stops before the single-label TLD: no CAA record we could act on lives
-    there, and querying it adds a round trip per issuance for nothing.
-    """
+    """``a.b.example.com``, ``b.example.com``, ``example.com``; never the bare TLD."""
     labels = name.rstrip(".").split(".")
     for index in range(len(labels) - 1):
         yield ".".join(labels[index:])
@@ -371,15 +314,8 @@ def _ancestors(name: str) -> Iterator[str]:
 def _resolve(host: str, resolver: dns.resolver.Resolver | None = None) -> set[str]:
     """Every A/AAAA address ``host`` answers with, normalized for comparison.
 
-    An ``ansible_host`` that is already a literal address is returned as-is
-    rather than sent to the resolver. Addresses are normalized through
-    ``ip_address`` so two spellings of one IPv6 address compare equal.
-
-    Without an explicit resolver this goes through ``getaddrinfo``, which is
-    what the host itself would do — ``/etc/hosts``, ``nsswitch.conf`` and all.
-    With one, the query is sent to those servers instead, because the question
-    preflight is really asking is what the CA will see from the public
-    internet, not what this machine happens to believe.
+    Literal addresses pass through. Without explicit servers this uses
+    ``getaddrinfo``, as the host would; with them, it asks what the CA would see.
     """
     candidate = host.strip().rstrip(".")
     if not candidate:
@@ -412,9 +348,7 @@ def _resolve_with(candidate: str, resolver: dns.resolver.Resolver) -> set[str]:
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             continue
         except dns.exception.DNSException:
-            # A resolver that cannot answer at all is indistinguishable here
-            # from a name that does not exist. The caller reports "does not
-            # resolve", which is the right conclusion either way.
+            # An unanswering resolver reads as "does not resolve", correctly either way.
             continue
         for record in answer:
             try:

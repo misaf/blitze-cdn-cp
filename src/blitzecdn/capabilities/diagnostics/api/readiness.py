@@ -14,12 +14,8 @@ _METRICS_WINDOW = 100
 def health(response: Response, control: ServicesDependency) -> dict[str, str]:
     """Whether this controller can actually answer, not merely respond.
 
-    Every check is a feature's contribution, this capability's two included, so a
-    capability with its own liveness question adds it without editing this
-    endpoint. The first failure decides: an unhealthy node is unhealthy, and
-    running the rest would only delay the answer a load balancer is waiting on.
-    The failing check is named in the body, because "unavailable" without it
-    sends an operator to the logs of whichever replica happened to answer.
+    Every check is a feature contribution; the first failure decides, and is named
+    in the body.
     """
     for check in control.health_checks:
         try:

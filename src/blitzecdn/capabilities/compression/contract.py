@@ -9,11 +9,7 @@ from blitzecdn.core.domain.policy import CapabilityPolicy
 
 
 class CompressionMode(StrEnum):
-    """Which encodings a managed edge may produce.
-
-    ``brotli`` includes gzip fallback for clients that do not advertise ``br``.
-    Origin-encoded responses remain pass-through under every mode.
-    """
+    """Which encodings the edge may produce; origin-encoded bodies pass through."""
 
     OFF = "off"
     GZIP = "gzip"

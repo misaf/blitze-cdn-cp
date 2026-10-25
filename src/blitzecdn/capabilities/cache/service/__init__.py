@@ -1,8 +1,4 @@
-"""What this capability decides: which purge to run, and what to report.
-
-`cache.py` is the service itself — expanding a purge across the fleet, and
-turning what the edges logged into a statistics report.
-"""
+"""Expanding a purge across the fleet, and reporting what the edges logged."""
 
 from blitzecdn.capabilities.cache.service.cache import CacheService
 

@@ -1,10 +1,4 @@
-"""The HTTP representations this capability publishes.
-
-``EdgeRemoval`` reports an operation rather than a resource, and is here for
-the same reason ``Edge`` is: forgetting an edge is something `edges` does, so
-what that answers with is `edges`' to change. The per-host detail inside it is
-core's `HostRun`, because an Ansible run belongs to no capability.
-"""
+"""The HTTP representations this capability publishes."""
 
 from __future__ import annotations
 
@@ -25,9 +19,8 @@ class Edge(Model):
     private_key_file: str | None = None
     public_addresses: tuple[str, ...] = Field(default=(), max_length=20)
     ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
-    #: What this edge's runtime provides, as capability tokens. ``None`` — the
-    #: default — means "whatever the controller has installed", which is what
-    #: every edge registered before this field existed already behaves like.
+    #: Capability tokens this edge's runtime provides; ``None`` means the
+    #: controller's installed set.
     capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")

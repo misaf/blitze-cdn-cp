@@ -1,9 +1,4 @@
-"""Persist zone identity and its composed policy as separate values.
-
-The name has its own column. The complete nested policy is one JSON document;
-no query reaches inside it, and neither direction reconstructs ownership from
-flat delivery fields.
-"""
+"""Zone identity in its own column; the complete nested policy as one JSON document."""
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -47,15 +42,9 @@ class ZoneStore:
     ) -> Domain:
         """Write the zone's policy. The name is its identity and is not moved.
 
-        ``expected`` is the zone the caller merged its patch onto. Passing it
-        turns the write into a compare-and-swap and is what a read-modify-write
-        has to do here: a zone is the policy every hostname in it inherits, so
-        two operators patching different settings would otherwise leave the
-        second one's whole document on top of the first one's change, and the
-        setting that vanished is one nobody was told about.
-
-        Records got this first, and only records, which left the aggregate with
-        the widest reach as the one with no protection at all.
+        Pass ``expected`` — the zone the patch was merged onto — to make it a
+        compare-and-swap; otherwise two operators patching different settings would
+        silently lose one change.
         """
         if expected is not None:
             self._db.require_transaction("replace_domain(expected=...)")
@@ -98,10 +87,8 @@ class ZoneStore:
 
     def create_record(self, record: DnsRecord) -> DnsRecord:
         with self._db.session() as session:
-            # The foreign key only fires on flush, and a missing zone and a
-            # duplicate record both surface as IntegrityError — but the
-            # operator needs to know which, so the zone is checked first
-            # rather than parsed out of the driver's message afterwards.
+            # Check the zone first, so a missing zone and a duplicate record are told
+            # apart without parsing the driver's IntegrityError.
             if session.get(DomainRow, record.domain) is None:
                 raise NotFoundError(
                     f"domain {record.domain!r} does not exist; add it first"

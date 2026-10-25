@@ -14,11 +14,8 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.runtime.resources import package_directory
 
-#: The Jinja fragments this capability contributes to the edge's Nginx
-#: configuration, resolved under the same guard its roles are. A sibling of
-#: ``ansible/`` rather than a child: the controller renders these into each
-#: release's configuration, so they are not part of any role this package
-#: ships.
+#: The Nginx fragments this capability contributes, rendered into each
+#: release on the controller rather than shipped inside a role.
 NGINX_TEMPLATES = (
     package_directory(
         __name__,
@@ -35,10 +32,8 @@ FEATURES = (
             provides=frozenset({"geoip"}),
             summary="Visitor IP-to-country lookup for country headers and rules.",
         ),
-        # The MaxMind credentials the GeoLite2 updater authenticates with.
-        # Deliberately not `required`: a controller with no MaxMind credentials
-        # is a working controller, and a site that asks for a country is
-        # refused by capability token rather than by a startup failure.
+        # MaxMind credentials for the GeoLite2 updater; optional, since sites needing
+        # geoip are refused by capability token.
         configuration=(
             ConfigurationContribution(
                 feature="geoip",
@@ -65,10 +60,8 @@ FEATURES = (
                 feature="geoip",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
-                # No `probe`: every geoip2 directive takes a MaxMind database,
-                # which `geoip2` opens while the configuration is parsed, and
-                # the image has none. The module still has to load, which the
-                # probe's `load_module` proves.
+                # No `probe`: every geoip2 directive needs a database the image lacks;
+                # the `load_module` alone proves it loads.
                 edge_modules=(
                     EdgeModule(name="geoip2", objects=("ngx_http_geoip2_module.so",)),
                 ),

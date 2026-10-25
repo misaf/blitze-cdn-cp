@@ -1,10 +1,7 @@
-"""What each backup component actually copies, and how it puts it back.
+"""What each backup component copies, and how it puts it back.
 
-Every component answers the same four questions — is there anything here, take
-a copy, is this copy sound, put it back — and each answers them differently
-enough that a single generic "copy these paths" adapter would be a lie. The
-database cannot be copied with `cp`; the ACME tree is held together by
-symlinks; the configuration is four files in three places.
+Each answers exists, copy, validate and restore differently: the database is
+not copied with `cp`, the ACME tree is symlinks, the configuration is four files.
 """
 
 from __future__ import annotations
@@ -29,9 +26,7 @@ from blitzecdn.core.config import (
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
-#: The archived database's name inside the archive. Fixed rather than derived
-#: from `database_path`, because the restoring host may have configured a
-#: different one and the archive must not depend on either.
+#: Fixed, so the archive does not depend on either host's `database_path`.
 DATABASE_MEMBER = "blitzecdn.db"
 
 #: Where a component records the symlinks it could not store as symlinks.
@@ -45,14 +40,10 @@ _ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
 
 
 def _copy_tree(source: Path, destination: Path, *, links: dict[str, str]) -> None:
-    """Copy a directory, recording symlinks instead of following them.
+    """Copy a directory, recording symlinks in a sidecar instead of following them.
 
-    Certbot's configuration directory is a tree of symlinks by design —
-    `live/<name>/fullchain.pem` points into `archive/` — so dereferencing would
-    produce a tree certbot refuses to renew from, while storing the links as
-    tar links would put a link in an archive this project will not extract.
-    They are recorded in a sidecar and recreated on restore, where each target
-    is checked to stay inside the component before anything is created.
+    Certbot's tree is symlinks into `archive/`; dereferencing breaks renewal, and
+    the archive refuses links. On restore each target is checked to stay inside.
     """
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     for path in sorted(source.rglob("*")):
@@ -167,13 +158,10 @@ def _render_environment(assignments: dict[str, str]) -> bytes:
 
 
 class DatabaseComponent:
-    """The control-plane database, copied the only way that is consistent.
+    """The control-plane database, copied with `VACUUM INTO`.
 
-    `VACUUM INTO` rather than a file copy. The database runs in WAL mode, so
-    recent commits live in the `-wal` beside the `.db` and copying one without
-    the other is a backup of some earlier moment that does not say so. This
-    asks SQLite to write a complete database, which is safe against a
-    controller that is still serving and produces one file rather than three.
+    In WAL mode a file copy misses recent commits; this writes one consistent file,
+    safe against a live controller.
     """
 
     component = BackupComponent.DATABASE
@@ -245,10 +233,7 @@ class DatabaseComponent:
     def restore(self, staging: Path) -> None:
         """Publish the database already migrated and verified in staging.
 
-        The `-wal` and `-shm` beside the old database are removed rather than
-        left: they belong to the file being replaced, and SQLite would apply
-        them over the restored one — silently reintroducing exactly the state
-        the restore was meant to discard.
+        The old `-wal` and `-shm` are removed, or SQLite would replay them over it.
         """
         source = staging / DATABASE_MEMBER
         destination = self._path
@@ -336,13 +321,7 @@ class _DirectoryComponent:
 
 
 class TlsComponent(_DirectoryComponent):
-    """Installed certificate chains, their private keys, and their metadata.
-
-    The keys come back `0600` because `atomic_write_bytes` creates every file
-    at that mode before writing it — the same write path that installed them in
-    the first place, rather than a chmod after the fact that would leave a
-    window in which a private key was readable.
-    """
+    """Installed certificate chains, private keys and metadata, restored 0600."""
 
     component = BackupComponent.TLS
 
@@ -352,11 +331,7 @@ class TlsComponent(_DirectoryComponent):
 
 
 class AcmeComponent(_DirectoryComponent):
-    """The local ACME account, its renewal configuration, and its archive.
-
-    Certbot's *working* and *log* directories are deliberately excluded: both
-    are rebuilt on the next run and neither is state anything depends on.
-    """
+    """The ACME account, renewal configuration and archive; not work or log dirs."""
 
     component = BackupComponent.ACME
 
@@ -368,11 +343,8 @@ class AcmeComponent(_DirectoryComponent):
 class ConfigComponent:
     """Operator configuration and the controller's own identity.
 
-    Four files in three places, so this is a named set rather than a directory:
-    the non-secret settings file, the secrets that are deliberately not valid
-    TOML keys, and the SSH key pair every edge has already authorised. The key
-    is here because regenerating it means reaching every edge to install the
-    new one — using the key you no longer have.
+    The settings file, the secrets file, and the SSH key pair every edge trusts —
+    regenerating it means reaching every edge with the key you no longer have.
     """
 
     component = BackupComponent.CONFIG
@@ -497,9 +469,7 @@ class ConfigComponent:
                     current = (
                         _toml_document(path.read_bytes()) if path.is_file() else {}
                     )
-                    # The fresh host keeps every key that describes it — core's
-                    # own and any an installed capability declared non-portable
-                    # — and takes the rest from the archive.
+                    # The fresh host keeps its machine-specific keys and takes the rest.
                     machine = {
                         key: value
                         for key, value in current.items()

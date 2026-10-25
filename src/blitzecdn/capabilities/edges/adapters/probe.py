@@ -1,21 +1,9 @@
 """Describing an origin, and the controller's own narrow view of one.
 
-Two jobs, and the split matters. ``to_probe`` renders a site's origin — host,
-port, scheme, SNI — for whoever is going to connect to it, which for the
-operator-facing check is the edges: ``origins`` runs a play, so the
-answer comes from the machines that actually carry the traffic. Answering it
-from here would answer about the controller's network rather than the fleet's:
-an origin that allow-lists the edges refuses the controller, and one reachable
-only from the controller's subnet would pass here and then 502 on every edge.
-
-``check`` is what remains of the controller connecting for itself, and it has
-exactly one caller — the advisory origin check inside certificate preflight,
-which answers during issuance and cannot wait for a playbook. It is advisory
-there for precisely the reason above, and says so.
-
-The hosts contacted are the origins an operator has already declared in
-desired state, and the probe sends no application data — it connects,
-completes a TLS handshake, and hangs up.
+``to_probe`` renders an origin for the edges, whose network is what carries
+traffic. ``check`` is the controller connecting itself, used only by the
+advisory check in certificate preflight, which cannot wait for a play. It
+connects, completes a TLS handshake, and hangs up.
 """
 
 from __future__ import annotations
@@ -35,49 +23,21 @@ from blitzecdn.core.config import Settings
 class OriginProbe:
     """An origin's address, and what the controller alone can see of it.
 
-    **What a probe covers.** The edge preserves the visitor's destination port
-    toward the origin, and BlitzeCDN accepts thirteen public proxy ports, so a
-    site has thirteen possible origin endpoints — ``http://origin:8080`` for a
-    visitor on 8080, ``https://origin:2053`` for a Full visitor on 2053, and so
-    on. Probing all of them is not what this does, and deliberately so: an
-    ordinary origin listens on 80 and 443 and nothing else, and requiring every
-    alternate port to answer would make that ordinary site undeployable for the
-    sake of ports no visitor has asked for. The alternate ports are capacity the
-    edge offers, not a contract the origin has to satisfy.
-
-    So both probes address one endpoint: ``CdnSite.canonical_origin_scheme`` on
-    that scheme's default port. Off and Flexible check ``http://origin:80``;
-    Full and Full (strict) check ``https://origin:443``, the latter verifying
-    the certificate. That is the endpoint the site's canonical listeners use, so
-    a pass means the same thing it always did, and a failure is still the
-    failure worth blocking issuance for. A request arriving on an alternate port
-    whose origin is not listening gets a 502 from the edge, exactly as it would
-    from any proxy in front of a closed port — the site itself stays up.
-
-    **Flexible widens that gap without changing this contract.** Flexible is
-    Flexible only on 443; on the five alternate HTTPS proxy ports it falls back
-    to a Full-like HTTPS origin leg. So a Flexible site whose canonical probe
-    passed against ``http://origin:80`` may still 502 for a visitor on 2053,
-    whose leg is ``https://origin:2053``. That is the alternate-port 502 above
-    and not a new class of failure: the probe has never spoken for any port but
-    the canonical one, and making it speak for more would mean demanding TLS on
-    five ports from every origin that enables Flexible. Deployment stays valid;
-    the individual request fails.
+    Both probes address the canonical endpoint only — ``http://origin:80`` for Off
+    and Flexible, ``https://origin:443`` for Full and Full (strict), the latter
+    verified — not all thirteen alternate proxy ports. An origin closed on an
+    alternate port 502s just for those requests. Flexible falls back to HTTPS on the
+    alternate HTTPS ports, so it can 502 there despite passing; demanding TLS on
+    five ports from every Flexible origin would be worse.
     """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     def to_probe(self, site: CdnSite) -> dict[str, object]:
-        """Render one site's origin for the edge-side check.
+        """Render one site's canonical origin for the edge-side check.
 
-        The port and SNI are decided here rather than in the playbook so that
-        the two probes — the edges' and the controller's advisory one — cannot
-        disagree about what a site's origin is. A Jinja default in a role would
-        be a second copy of this rule with no test holding it to the first.
-
-        ``origin_port`` here is the canonical endpoint's port and not the port
-        any particular visitor request reaches; see the class docstring.
+        Decided here, not in the playbook, so both probes agree on what the origin is.
         """
         return {
             "name": site.name,
@@ -201,11 +161,7 @@ class OriginProbe:
 
 
 def _expiry_note(peer: Mapping[str, Any] | None) -> str | None:
-    """Mention the origin's own certificate expiry, which we do not manage.
-
-    An origin certificate expiring takes the site down just as surely as one of
-    ours, and nothing else in BlitzeCDN watches it.
-    """
+    """Mention the origin's own certificate expiry, which nothing else watches."""
     if not peer or "notAfter" not in peer:
         return None
     return f"origin certificate valid until {peer['notAfter']}"

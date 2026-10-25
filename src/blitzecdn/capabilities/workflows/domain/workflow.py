@@ -1,21 +1,8 @@
 """Durable progress for one operation that crosses out of a transaction.
 
-A workflow is the record of work SQLite cannot roll back — a fleet converging,
-a CA issuing a certificate — written so a controller that restarts mid-flight
-leaves an operator something to read rather than silence.
-
-`WorkflowKind` is a *shape*, not a list. A closed enum naming `deployment`,
-`rollback` and `certificate` would have this capability enumerate every other
-capability's work, and leave a new one waiting to be added to an enum it does
-not own.
-Whose work it is belongs to whoever is doing it: each capability declares its
-own name beside the operation it names, and this validates that the name is one
-a journal can hold. It is the arrangement `capability_requirements` already uses
-for capability tokens — declared by the contract that wants one, merged by
-something that names none.
-
-The identifier aliases these models are written in are core's vocabulary rather
-than this capability's, and live in :mod:`blitzecdn.core.domain.identifiers`.
+A record of work SQLite cannot roll back, so a restart mid-flight leaves
+something to read. `WorkflowKind` is a validated shape, not an enum: each
+capability names its own kind.
 """
 
 from __future__ import annotations
@@ -30,12 +17,8 @@ from blitzecdn.core.domain.identifiers import Operator
 
 __all__ = ["Workflow", "WorkflowKind", "WorkflowStatus", "WorkflowStep"]
 
-#: What kind of work a journal entry records, named by the capability doing it.
-#:
-#: Lowercase and identifier-shaped so it reads the same in an API response, a
-#: log line and a `WHERE` clause, and bounded so a name cannot become a
-#: payload. `workflows_kind_check` asserts the same three properties in SQL,
-#: which is as much as a database can say about a set it does not know.
+#: The kind of work, named by the capability doing it: lowercase, identifier
+#: shaped and bounded, as `workflows_kind_check` also asserts in SQL.
 WorkflowKind = Annotated[
     str,
     StringConstraints(

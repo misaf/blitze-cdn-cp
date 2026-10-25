@@ -1,15 +1,6 @@
-"""The loop a worker process runs, and the only thing that makes it a process.
+"""The loop a worker process runs: sleep when idle, stop when asked.
 
-Everything above this is a function of a clock and a table, so all of it can be
-tested by calling it. What is left here is the part that genuinely needs a
-process: sleeping when there is nothing to do, and stopping when asked.
-
-Polling rather than a notification. A queue that pushes needs a broker to push
-through, and the workload this serves — one convergence at a time, and a
-handful of scheduled jobs on hourly intervals — is one where an idle poll every
-second costs a single indexed SELECT against a local file. The push machinery
-would cost a network service, its supervision, and a second place for state to
-be.
+Polling, not push: an idle poll is one indexed SELECT, cheaper than a broker.
 """
 
 from __future__ import annotations
@@ -52,13 +43,7 @@ class JobRunner:
         self._stop.set()
 
     def install_signal_handlers(self) -> None:
-        """Turn SIGTERM and SIGINT into a request to stop after this job.
-
-        A container stop sends SIGTERM, and the default action would kill the
-        process mid-convergence. The job would survive — its lease expires and
-        another worker takes it over — but finishing the one in hand is both
-        faster and easier to read in the log than a lease timing out.
-        """
+        """Turn SIGTERM and SIGINT into a request to stop after the current job."""
 
         def handle(signum: int, _frame: FrameType | None) -> None:
             _LOGGER.info("signal %s received; stopping after the current job", signum)
@@ -68,35 +53,21 @@ class JobRunner:
             signal.signal(received, handle)
 
     def tick(self) -> bool:
-        """One turn of the loop. ``True`` when it did something.
-
-        Scheduling first, so a schedule that came due while the last job was
-        running is queued before this turn looks for work — otherwise a busy
-        worker defers every recurring job by the length of whatever it happens
-        to be doing.
-        """
+        """One turn of the loop, scheduling first; ``True`` when it did something."""
         fired = self.scheduler.tick(now=self.clock())
         claim = self.queue.claim()
         if claim is None:
             return bool(fired)
         self._hold_for_declared_lease(claim)
         self.queue.run(claim)
-        # Apply the count while processing work, rather than relying on an
-        # optional timer. The store excludes pending/running jobs, including
-        # retries and claims another worker still owns.
+        # Pruned while processing work; pending and running jobs are never pruned.
         self.queue.prune()
         return True
 
     def _hold_for_declared_lease(self, claim: JobClaim) -> None:
         """Extend a scheduled job's claim to the lease its schedule declares.
 
-        A claim's lease is set before anybody knows which job it will return,
-        so it is the queue's default; a schedule may store a longer one
-        (`renew-certificates` declares two hours, twice the default). Renewed
-        straight after the claim, under
-        its fence, rather than threaded into the claim query: only this loop
-        knows a scheduled job's name maps to a schedule, and the window between
-        the two writes is one the default lease already covers.
+        Claims start with the default lease; renewed under the fence right after.
         """
         job = claim.job
         if job.kind != SCHEDULED_JOB:
@@ -106,21 +77,13 @@ class JobRunner:
             self.queue.renew(claim, seconds=declared)
 
     def run_forever(self) -> None:
-        """Tick until asked to stop, sleeping only when there was nothing to do.
-
-        The sleep is on the stop event rather than on the clock, so a stop
-        request is acted on immediately instead of after the poll interval — a
-        container shutdown should not have to wait out an idle sleep.
-        """
+        """Tick until asked to stop, sleeping on the stop event when idle."""
         while not self._stop.is_set():
             try:
                 busy = self.tick()
             except Exception:
-                # A loop that dies on an unexpected error is a worker that
-                # silently stops doing every other job too. Individual job
-                # failures are already recorded on their rows; this catches
-                # what happens *around* them — a database that went away, a
-                # schedule that could not be read — and keeps polling.
+                # Keep polling through errors around jobs; job failures are on their
+                # rows.
                 _LOGGER.exception("worker loop iteration failed; continuing")
                 busy = False
             if not busy:

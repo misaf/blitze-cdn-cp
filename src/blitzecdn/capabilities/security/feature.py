@@ -19,17 +19,11 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.runtime.resources import distribution_version, package_directory
 
-#: This distribution's version, asked of the environment rather than
-#: written down here: it is what ``FeatureMetadata.version`` reports and
-#: what ``blitzecdn plugins`` shows an operator, so the one number that
-#: must not drift from ``pyproject.toml`` is not copied out of it.
+#: The installed distribution's version, read from package metadata.
 __version__ = distribution_version(__name__)
 
-#: The Jinja fragments this capability contributes to the edge's Nginx
-#: configuration, resolved under the same guard its roles are. A sibling of
-#: ``ansible/`` rather than a child: the controller renders these into each
-#: release's configuration, so they are not part of any role this package
-#: ships.
+#: The Nginx fragments this capability contributes, rendered into each
+#: release on the controller rather than shipped inside a role.
 NGINX_TEMPLATES = (
     package_directory(
         __name__,
@@ -54,11 +48,8 @@ FEATURES = (
                 extends=True,
             ),
         ),
-        # The fleet-wide key the Under Attack Mode challenge is signed with.
-        # Not `required`: a controller with no signing secret is a working
-        # control plane with one site setting it will refuse, which is a
-        # deployment check and not a startup failure. The length is declared
-        # so a placeholder is refused at composition.
+        # The fleet key the Under Attack challenge is signed with. Optional: a site
+        # that needs it is refused at deploy. The length is enforced at composition.
         configuration=(
             ConfigurationContribution(
                 feature="security",
@@ -79,10 +70,7 @@ FEATURES = (
                 feature="security",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
-                # Under Attack Mode is an njs script, so this capability needs
-                # the JavaScript engine. `build=False`: njs ships in the
-                # official Alpine image already, and asking pkg-oss to build a
-                # module the base has installed fails the image build.
+                # Under Attack Mode is njs. `build=False`: the official image ships it.
                 edge_modules=(
                     EdgeModule(
                         name="njs",

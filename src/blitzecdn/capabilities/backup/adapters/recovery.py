@@ -14,11 +14,10 @@ from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
 
 class RestoreJournal:
-    """A private, persistent checkpoint, also marking an unfinished restore.
+    """A private, persistent checkpoint that also marks an unfinished restore.
 
-    Unlike an exported backup, this includes machine-specific configuration,
-    file modes, symlinks and absent paths. It is never removed after a failed
-    rollback. A managed restore keeps it until the host publishes configuration.
+    Includes machine-specific configuration, modes, symlinks and absent paths.
+    Kept after a failed rollback, and until a managed host publishes configuration.
     """
 
     def __init__(self, root: Path, *, defer_commit: bool = False) -> None:

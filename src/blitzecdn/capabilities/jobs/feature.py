@@ -1,17 +1,7 @@
-"""Declare the durable work queue.
+"""Declare the durable work queue: commands only.
 
-Contributes a command group and nothing else. There is no route: a job is
-control-plane machinery rather than a resource a client manages, and the two
-things a client actually wants to know — did my deployment run, did my
-certificate renew — are already answerable from the deployment and workflow
-endpoints. Publishing the queue would be publishing an implementation.
-
-Registering the installation's schedules is not here either. It consumes every
-feature's scheduled jobs at once, so the composition root does it when a
-long-lived process starts.
-
-Required, because a control plane without this would accept a deployment,
-record it as queued, and never run it.
+No routes: clients ask about deployments and workflows, not the queue.
+Schedules are registered by the composition root at process start.
 """
 
 from __future__ import annotations

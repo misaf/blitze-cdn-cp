@@ -1,8 +1,4 @@
-"""Declare convergence: the deployment lock, the runs, and drift detection.
-
-Startup recovery and the drift check are operations, built from the
-deployment service in :mod:`blitzecdn.capabilities.deployments.wiring`.
-"""
+"""Declare convergence: the deployment lock, the runs, and drift detection."""
 
 from __future__ import annotations
 

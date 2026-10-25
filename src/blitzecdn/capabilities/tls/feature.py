@@ -1,11 +1,7 @@
-"""Declare the TLS capability: its stable policy, and certificate management.
+"""Declare the TLS capability: its policy contract, and certificate management.
 
-Two features, because they answer to two capability tokens. ``tls`` is the
-contract — ``TlsPolicy``, composed into ``CdnSite`` by serving — and declares
-nothing but its name, because the name is what a refusal is written in: a site
-whose ``ssl_mode`` needs issuance is refused by ``capability_requirements``
-naming ``tls``. ``certificates`` issues, renews and runs Automatic SSL/TLS; its
-rendering and operations are built in :mod:`blitzecdn.capabilities.tls.wiring`.
+``tls`` is the contract and declares only its name, the token refusals name.
+``certificates`` issues, renews and runs Automatic SSL/TLS.
 """
 
 from __future__ import annotations

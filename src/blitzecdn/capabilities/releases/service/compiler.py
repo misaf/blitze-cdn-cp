@@ -1,17 +1,8 @@
 """Compile canonical state into the release the fleet is converged from.
 
-One function, and the constraint that shapes it is what it may *not* do. It
-reads no database, opens no socket, writes no file and looks at no clock. Every
-input arrives as an argument, so a compilation is reproducible by construction:
-run it twice on the same inputs and the digests match, run it in a test and it
-needs nothing running.
-
-Findings rather than exceptions
--------------------------------
-A release that cannot be converged is still compiled, and carries the reasons.
-``blitzecdn validate`` and ``blitzecdn deploy`` ask the same question, and an
-operator fixing a fleet wants every problem in it — a compiler that raised on
-the first would hand them one hostname per run.
+A pure function: no database, socket, file or clock, so equal inputs give equal
+digests. A release that cannot be converged is still compiled and carries every
+reason, so ``validate`` reports all problems at once.
 """
 
 from __future__ import annotations
@@ -20,11 +11,7 @@ from collections.abc import Iterable, Sequence
 
 from blitzecdn.capabilities.dns.domain import unservable_hosts
 
-# `host_source` is reached through its own module rather than the package
-# façade. It inverts the derived-host naming rule, which is a question only
-# something reconstructing a site's provenance asks — this compiler and
-# nothing else so far — and the façade is the surface every capability and
-# every wheel binds to.
+# Imported from its own module: only provenance reconstruction needs it.
 from blitzecdn.capabilities.dns.domain.hosts import host_source
 from blitzecdn.capabilities.releases.domain import (
     COMPILER_VERSION,
@@ -70,9 +57,7 @@ def compile_release(compilation: Compilation) -> Release:
             explanations=_explanations(inputs, sites),
             findings=tuple(findings),
         )
-    # Settings first, so the document an operator reads groups fleet policy
-    # ahead of what was derived from it. They never overlap: a collision is a
-    # finding above, not a precedence rule.
+    # Settings first, for reading order; collisions are findings, not precedence.
     artifact = Artifact.from_document(
         name=DESIRED_STATE_ARTIFACT, document={**inputs.settings, **derived}
     )
@@ -91,12 +76,7 @@ def compile_release(compilation: Compilation) -> Release:
 def _setting_conflicts(
     inputs: ReleaseInputs, derived: dict[str, object]
 ) -> Iterable[ReleaseFinding]:
-    """Fleet settings that name a variable the compiler or a feature derives.
-
-    The edge document carries both, and Ansible would let either silently win.
-    A derived variable is a statement about canonical state, so a setting that
-    names one is refused rather than ranked.
-    """
+    """Fleet settings naming a variable the compiler or a feature derives; refused."""
     for name in sorted(set(inputs.settings) & set(derived)):
         yield ReleaseFinding(
             source="settings",
@@ -109,12 +89,7 @@ def _setting_conflicts(
 
 
 def _derivation_findings(inputs: ReleaseInputs) -> Iterable[ReleaseFinding]:
-    """Groups whose policy no longer composes into a virtual host.
-
-    The derivation drops them rather than raising — one broken zone must not
-    darken a whole fleet's worth of reads — so this is where the drop stops
-    being silent.
-    """
+    """Groups whose policy no longer composes, which the derivation dropped silently."""
     for refused in unservable_hosts(
         list(inputs.domains), list(inputs.rules), list(inputs.records)
     ):
@@ -128,20 +103,12 @@ def _capability_findings(
     installed: tuple[str, ...],
     targets: Sequence[EdgeCapabilities],
 ) -> Iterable[ReleaseFinding]:
-    """What this site asks for that either the controller or an edge lacks.
+    """What this site asks for that the controller or a targeted edge lacks.
 
-    Two checks, because they fail differently and are fixed differently. A
-    capability missing from the *controller* means nothing renders those
-    settings, so the artifact would silently omit them. A capability missing
-    from an *edge* means the artifact is correct and that host cannot execute
-    it — an nginx that never loaded the Brotli module reads a ``brotli on``
-    directive as a syntax error — so the operator rebuilds or replaces the
-    edge, or aims the run elsewhere.
-
-    An edge that has declared nothing is assumed to provide whatever the
-    controller has. That is what every installation registered before edges
-    could declare a set already behaves like, so the second check is opt-in and
-    adding it changes no existing fleet's outcome.
+    Missing on the controller, the artifact silently omits the settings; missing on
+    an edge, the edge cannot execute the artifact (``brotli on`` without the
+    module). An edge that declared nothing is assumed to have what the controller
+    has.
     """
     requested = site.policy.capability_requirements
     for token in sorted(set(requested) - set(installed)):
@@ -177,13 +144,7 @@ def _capability_findings(
 def _explanations(
     inputs: ReleaseInputs, sites: Sequence[CdnSite]
 ) -> tuple[HostExplanation, ...]:
-    """Attribute each compiled host's settings to the zone or rule behind it.
-
-    A host whose source cannot be recovered is skipped rather than guessed at.
-    ``host_source`` inverts the naming rule by asking it, so it answers ``None``
-    only for a name no zone and rule in these inputs could have produced — which
-    means the explanation would be about a different installation's state.
-    """
+    """Attribute each host's settings to its zone or rule; skip unrecoverable names."""
     zones = {zone.name: zone for zone in inputs.domains}
     rules = {(rule.domain, rule.name): rule for rule in inputs.rules}
     explanations: list[HostExplanation] = []

@@ -1,10 +1,8 @@
 """An edge, as Ansible's connection variables.
 
-The mirror of ``blitzecdn.capabilities.dns.adapters.ansible``: the
-capability that owns the model owns the projection of it. The ``blitzecdn``
-inventory plugin publishes the same variables from the same rows and is kept in
-step by ``tests/contract/test_inventory.py``, because that plugin runs inside
-Ansible's own interpreter and cannot import this.
+The inventory plugin publishes the same variables from the same rows; it runs
+inside Ansible and cannot import this, so ``tests/contract/test_inventory.py``
+keeps them in step.
 """
 
 from __future__ import annotations

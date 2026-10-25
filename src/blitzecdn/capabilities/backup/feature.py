@@ -18,10 +18,7 @@ FEATURES = (
         cli_commands=(
             CliCommandGroup(feature="backup", name="backup", app=cli.backup_app),
         ),
-        # Where this capability writes its archives. The same declaration the
-        # backup CLI resolves for itself when it runs with no control plane;
-        # claiming it here is what makes `BLITZE_BACKUP_DIR` a name the
-        # installation recognises rather than one the startup check rejects.
+        # Claimed here so `BLITZE_BACKUP_DIR` is recognised at startup.
         configuration=(CONFIGURATION,),
     ),
 )

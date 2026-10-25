@@ -1,8 +1,4 @@
-"""TLS policy, certificate workflows and automatic origin upgrades.
-
-Shipped with the application. Contracts stay pure; services and concrete
-providers are assembled explicitly by composition.
-"""
+"""TLS policy, certificate workflows, and automatic origin upgrades."""
 
 from blitzecdn.capabilities.tls.contract import (
     CERTIFICATE_ROOTS,

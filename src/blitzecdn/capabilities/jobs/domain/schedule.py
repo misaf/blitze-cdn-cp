@@ -1,16 +1,6 @@
 """When recurring work is next due, kept where a restart cannot forget it.
 
-A schedule kept in memory forgets a firing that fell while the controller was
-down: the job's next chance is a whole interval later, and nothing records that
-one was missed. A row makes "when is this next due" durable. A controller that
-starts up and finds a due schedule enqueues it immediately, which is the
-behaviour an operator already assumes they have.
-
-Deliberately not cron. Every recurring job in this control plane is an interval
-— renew what is expiring, check for drift, prune history — and none of them
-cares what time of day it happens. A cron expression would be a parser, a
-timezone question and a class of "why did this not fire" bugs, bought for a
-scheduling precision nothing here has asked for.
+Intervals, not cron: no job here cares about time of day.
 """
 
 from __future__ import annotations
@@ -33,9 +23,7 @@ class Schedule(BaseModel):
     name: str
     interval_seconds: int = Field(ge=1)
     jitter_seconds: int = Field(default=0, ge=0)
-    #: How long a claim on this job's work is good for. A run that has not
-    #: finished by then is stuck rather than slow, and the lease expiring is
-    #: what lets another worker take it over.
+    #: How long a claim on this job is good for before another worker takes over.
     lease_seconds: int = Field(ge=1)
     next_run_at: datetime
     last_run_at: datetime | None = None
@@ -48,18 +36,10 @@ def next_due(
     jitter_seconds: int = 0,
     entropy: random.Random | None = None,
 ) -> datetime:
-    """When a schedule that just fired should fire again.
+    """When a schedule that just fired should fire again, counted from ``now``.
 
-    From ``now`` rather than from the previous due time, which is the choice
-    that matters after an outage: a controller that was down for six hours and
-    comes back to a schedule six hours overdue runs it once and then resumes
-    its cadence, instead of running it once per missed interval to catch up.
-    Nothing here benefits from catching up — the work is "renew what is
-    expiring", not "produce a report for each hour".
-
-    ``entropy`` is a parameter so a test can pin the jitter. It defaults to the
-    module-level generator, which is fine for spreading load and is not being
-    asked for anything else.
+    After an outage that runs it once, not once per missed interval. ``entropy``
+    lets a test pin the jitter.
     """
     spread = (entropy or random).uniform(0, jitter_seconds) if jitter_seconds else 0.0
     return now + timedelta(seconds=interval_seconds + spread)

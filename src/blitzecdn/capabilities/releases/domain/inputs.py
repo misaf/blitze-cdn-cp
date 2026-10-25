@@ -1,24 +1,8 @@
 """The canonical state a release is compiled from, as one addressable value.
 
-Four sections, because four things are canonical: the zones that hold policy,
-the rules that override it, the records that say which hostnames the edges
-answer for, and the fleet-wide Ansible settings every edge is converged with.
-What an edge is asked to serve is not among them — virtual hosts are derived,
-and writing them down here would put a second, older answer beside the state
-they come from.
-
-The rules are in it for a sharper reason than symmetry. A rollback deletes the
-zone rows and writes them again, and a rule is keyed to its zone with ON DELETE
-CASCADE — so inputs that did not carry rules would not merely fail to restore
-them, they would take every rule in the installation with them.
-
-The settings are in it so a release reproduces the edge it was compiled for:
-read from the live inventory, a rollback would converge an old release with
-today's TLS ciphers, timeouts and log policy.
-
-A typed value rather than a JSON string: the parse happens once, at the edge of
-the system, and everything downstream holds something that cannot be
-malformed.
+Zones, rules, records and fleet settings — never derived hosts. Rules are
+included because a rollback rewrites zones and rules cascade from them;
+settings, so a rollback reproduces the edge's ciphers, timeouts and logging.
 """
 
 from __future__ import annotations
@@ -34,21 +18,13 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 
 __all__ = ["INPUTS_SCHEMA_VERSION", "ReleaseInputs"]
 
-#: A discriminator, not a compatibility layer. Inputs outlive the run that
-#: compiled them — an older successful deployment is a rollback target for as
-#: long as it is in the history table — so a document arriving from storage
-#: says which shape it is. There is exactly one, and a document that is not it
-#: is refused rather than guessed at.
+#: A discriminator for stored documents; there is one shape, and anything
+#: else is refused.
 INPUTS_SCHEMA_VERSION = 4
 
 
 class ReleaseInputs(BaseModel):
-    """Every canonical fact a compilation reads, and nothing else.
-
-    Frozen, because a release is addressed by the digest of these bytes: a
-    value that could be edited after it was digested is a value whose digest
-    means nothing.
-    """
+    """Every canonical fact a compilation reads; frozen, since its digest names it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -69,21 +45,11 @@ class ReleaseInputs(BaseModel):
         *,
         settings: Mapping[str, JsonValue] | None = None,
     ) -> Self:
-        """The state as the stores hand it over, put into canonical order.
+        """The state from the stores, put into canonical order.
 
-        Sorted here rather than trusted from the caller. The stores do return
-        rows in a deterministic order, so this changes no digest in practice —
-        but "in practice" is the wrong footing for a value whose whole purpose
-        is that equal state produces equal bytes. A restore that writes rows
-        back in insertion order, a backup read out of a different engine, or a
-        second store added later would each be free to hand over the same
-        state in a different order, and the release would then be a different
-        release for no reason an operator could see.
-
-        Rules sort by ``order``, which is ``(priority, name)`` — the same key
-        ``resolve_policy`` sorts by before deciding which one wins. Sorting by
-        anything else here would put the canonical form out of step with the
-        semantics, which is a worse defect than not sorting at all.
+        Sorted here rather than trusted, so equal state always yields equal bytes
+        whatever order a restore or another engine returns. Rules sort by ``order``,
+        the key ``resolve_policy`` uses.
         """
         return cls(
             domains=tuple(sorted(domains, key=lambda zone: zone.name)),
@@ -98,23 +64,12 @@ class ReleaseInputs(BaseModel):
         )
 
     def encode(self) -> str:
-        """The canonical bytes of this state: sorted keys, stable ordering.
-
-        Two equal states must produce equal bytes, or the digest below is a
-        random number. ``sort_keys`` settles the key order; the sequences keep
-        the order the stores return, which is itself deterministic — zones and
-        rules come back ordered, and a rule's position is its priority.
-        """
+        """The canonical bytes of this state: sorted keys, deterministic order."""
         return json.dumps(self.model_dump(mode="json"), sort_keys=True)
 
     @property
     def digest(self) -> str:
-        """A stable identity for this state, for comparing two of them.
-
-        A rollback records the canonical state it started from so it can refuse
-        to adopt over a change made while it was converging. Storing the digest
-        rather than a second copy keeps the row the size it was.
-        """
+        """A stable identity for this state; a rollback stores it to detect changes."""
         return hashlib.sha256(self.encode().encode("utf-8")).hexdigest()
 
     @classmethod

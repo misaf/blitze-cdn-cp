@@ -1,9 +1,4 @@
-"""Taking an archive, and putting one back.
-
-`archive.py` is both directions and the retention policy between them, because
-they are one decision maker: what a restore accepts is exactly what a backup
-was allowed to write.
-"""
+"""Taking an archive, and putting one back, with one view of what is allowed."""
 
 from blitzecdn.capabilities.backup.service.archive import BackupPolicy, BackupService
 

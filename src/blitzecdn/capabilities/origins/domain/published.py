@@ -1,15 +1,8 @@
 """Read the origin report one edge published into this capability's values.
 
-Domain rather than adapter: it is a pure function from a recorded host run to
-`EdgeOriginChecks`, with no I/O. One copy: the origin check and the Automatic
-SSL/TLS scan both read the report through it, so a change to the row the role
-publishes is made once.
-
-Deliberately defensive at every step. The document comes off an edge's
-``blitzecdn_report`` fact, which is Ansible's rendering of a role's variables:
-a row that does not parse is dropped rather than failing the whole fleet's
-answer, because a partial origin report is the useful one and an exception here
-would discard four healthy edges over one malformed row.
+A pure function shared by the origin check and the Automatic SSL/TLS scan.
+Defensive: an unparsable row is dropped, so one bad row costs one row, not
+the fleet's answer.
 """
 
 from __future__ import annotations

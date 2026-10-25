@@ -1,8 +1,4 @@
-"""`ssl` — run Cloudflare-style Automatic SSL/TLS scans.
-
-Beside the scan it drives, not beside the certificate commands: the package
-that issues material owns none of the scan.
-"""
+"""`ssl` — run Automatic SSL/TLS scans."""
 
 from __future__ import annotations
 

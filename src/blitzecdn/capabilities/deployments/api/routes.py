@@ -64,12 +64,7 @@ def deployment_targets(
     deployment_id: str,
     control: ServicesDependency,
 ) -> list[DeploymentTarget]:
-    """How far each edge got: the per-edge half of a partial rollout.
-
-    A client polling a queued deployment reads this to watch a fleet converge
-    edge by edge, and reads it after a failure to see which edges are on the
-    new configuration and which are still serving what they had.
-    """
+    """How far each edge got, for watching a rollout or reading a partial failure."""
     return [
         as_operation(target, DeploymentTarget)
         for target in control.deployments.targets(deployment_id)

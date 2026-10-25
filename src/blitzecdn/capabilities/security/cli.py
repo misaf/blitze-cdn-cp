@@ -1,10 +1,4 @@
-"""The `security` contract\'s switches: the request filter and Under Attack Mode.
-
-Edits fields declared by :mod:`blitzecdn.capabilities.security.contract`. Both
-need an implementation on the edges — the `security` capability, and `geoip`
-for the country rules — and a deploy refuses rather than silently serve
-traffic a rule here was meant to block.
-"""
+"""The `security` contract's switches: the request filter and Under Attack Mode."""
 
 from __future__ import annotations
 
@@ -97,7 +91,7 @@ def domain_firewall(
     everyone, and --allow-source is an exemption from --deny-source rather than
     a whitelist. To close a zone, deny everything and list the exceptions:
 
-        blitzecdn zone firewall www-example-com \\
+        blitzecdn domain firewall example.com \\
             --deny-source 0.0.0.0/0 --deny-source ::/0 \\
             --allow-source 203.0.113.0/24
 

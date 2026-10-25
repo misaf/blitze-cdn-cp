@@ -1,10 +1,4 @@
-"""How durable background work is wired to this installation.
-
-Two decisions live here: what a scheduled job's cadence and lease come out as,
-and who the worker calls itself. Which handler runs which kind of job binds
-other capabilities' services to this one, so the application composition root
-supplies that table.
-"""
+"""How durable background work is wired: cadences, leases and worker identity."""
 
 from __future__ import annotations
 
@@ -31,24 +25,14 @@ __all__ = [
 
 
 def worker_identity() -> str:
-    """Who holds a lease, in a form an operator can act on.
-
-    Host and process, because those are the two things somebody reading a
-    stuck job needs in order to go and look at it. Not a random token: a
-    lease held by ``9f3c1a`` tells nobody which container to inspect.
-    """
+    """Who holds a lease, as host and process an operator can go and inspect."""
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
 def schedule_specs(jobs: Mapping[str, ScheduledJob]) -> tuple[ScheduleSpec, ...]:
-    """Translate what the features contributed into what the scheduler stores.
+    """Translate contributed jobs into schedules.
 
-    Two resolutions happen here and both belong at this seam. A job with an
-    interval of zero is disabled — that is how every one of them is turned off
-    by configuration — so it contributes no schedule at all rather than a row
-    the tick has to keep skipping. And a lease of zero means twice the
-    interval, which is the right answer for any job with no opinion: a run that
-    has not finished by then is stuck rather than slow.
+    A zero interval disables the job; a zero lease means twice the interval.
     """
     return tuple(
         ScheduleSpec(
@@ -69,12 +53,7 @@ def build_job_queue(
     handlers: Mapping[str, JobHandler] | None = None,
     clock: Clock = system_clock,
 ) -> JobQueue:
-    """Wire the queue to this installation's job table.
-
-    ``handlers`` is empty for a process that only publishes. The API enqueues
-    and never consumes, and handing it a table it would never use only invites
-    something to call it.
-    """
+    """Wire the queue; ``handlers`` is empty for a publish-only process like the API."""
     return JobQueue(
         jobs=jobs,
         handlers=handlers if handlers is not None else {},

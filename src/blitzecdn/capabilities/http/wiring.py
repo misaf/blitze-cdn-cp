@@ -11,12 +11,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 
 def baseline_listeners(_sites: tuple[CdnSite, ...]) -> FleetStateContribution:
-    """State the baseline: the fleet opens no QUIC listener and names no owner.
-
-    Constant, and deliberately so. Deriving anything from the sites here would
-    put HTTP/3 behavior in a capability that does not own it, and would produce
-    a second source of truth for the HTTP/3 provider's listener state.
-    """
+    """The baseline: no QUIC listener and no owner, constant by design."""
     return FleetStateContribution(
         feature="http",
         variables={

@@ -1,9 +1,7 @@
-"""Resolve live contributions before entering the deterministic compiler.
+"""Resolve live contributions once, before the deterministic compiler.
 
-Certificate stores and deployment preflight checks may inspect the world.
-Their answers are captured here, once, instead of entering the compiler as
-callables closing over the entire control plane. A serialized Compilation can
-be replayed with none of those services available.
+Certificate stores and preflight checks may inspect the world; their answers
+are captured as values, so a serialized Compilation replays without services.
 """
 
 from __future__ import annotations
@@ -41,9 +39,8 @@ def prepare_compilation(
         if site.serves_traffic
     )
     objections = tuple(finding for site in sites for finding in site_checks(site))
-    # A refused site must never be sent to a contributor that requires the
-    # resource the check just found missing. Capture its policy anyway, for
-    # diagnostics and explanations, without inventing an executable artifact.
+    # A refused site never reaches a contributor that needs the missing resource;
+    # its policy is still captured for diagnostics.
     compiled = tuple(
         CompiledSite.from_variables(
             site, {} if objections else contributors.site_variables(site)

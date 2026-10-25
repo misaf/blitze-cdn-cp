@@ -1,17 +1,9 @@
 """Compiling canonical desired state into an immutable, addressable release.
 
-A *release* is what a deployment converges. It is produced by a pure function
-of canonical state — zones, their rules, their records — and of the two things
-outside that state which change what the edges are asked to do: the
-capabilities installed beside this control plane, and the edges the run is
-aimed at.
-
-Answered in several places at several times, "what did that deployment actually
-send" would have no answer after the fact, and "would this state converge" and
-"did this state converge" would be computed by different code from different
-inputs. So there is one answer and it is a value: :class:`~.domain.Release`.
-Compiling it touches no database and no network, it is a function of its inputs
-alone, and it carries the digests that make that claim checkable.
+A release is a pure function of canonical state, the registered capabilities,
+and the targeted edges, carrying the digests that make that checkable. It is
+the one answer to both "would this converge" and "what did that deployment
+send".
 """
 
 from __future__ import annotations

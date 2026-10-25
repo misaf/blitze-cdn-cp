@@ -1,10 +1,4 @@
-"""What is checked before a certificate is asked for.
-
-A report about the world outside: whether the hostname resolves to this fleet,
-whether the record's TTL makes a cutover risky, whether CAA permits our CA. It
-names no certificate type on purpose — nothing here has seen one yet, and the
-issuance that follows is `service/issuance.py`'s.
-"""
+"""What is checked about the outside world before a certificate is asked for."""
 
 from __future__ import annotations
 
@@ -20,23 +14,16 @@ __all__ = [
 ]
 
 
-#: A proxied record with a TTL above this is flagged before issuance.
-#:
-#: Not an error — a long TTL is legitimate for a hostname that has been live
-#: for months. It matters only around a cutover: resolvers that cached the old
-#: address keep answering with it for up to the TTL, and HTTP-01 validation
-#: follows public DNS, so a slow rollover shows up as an issuance failure with
-#: no obvious cause.
+#: A proxied record with a TTL above this is flagged: around a cutover,
+#: resolvers keep the old address for the TTL, and HTTP-01 follows public DNS.
 TTL_CUTOVER_ADVISORY_SECONDS = 3600
 
 
 class PreflightSeverity(StrEnum):
     """Whether a failed check stops issuance or is merely reported.
 
-    ``BLOCKING`` is reserved for conditions under which HTTP-01 validation
-    cannot succeed, so failing early costs nothing and spares the CA's rate
-    limit. Everything a certificate can legitimately be issued in spite of —
-    an origin that is down, a TTL that is high — is ``ADVISORY``.
+    ``BLOCKING`` only where HTTP-01 cannot succeed; anything a certificate can be
+    issued despite is ``ADVISORY``.
     """
 
     BLOCKING = "blocking"

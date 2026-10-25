@@ -1,24 +1,8 @@
 """Enqueueing durable work, and running one item of it correctly.
 
-The rules that make "at least once" safe to build on live here, and there are
-only three of them.
-
-**A claim is leased and fenced.** The worker gets a job and a fence token; every
-write it makes afterwards names that token. A worker that was paused past its
-lease — a long stop-the-world pause, a suspended container, a partition it never
-noticed — comes back to find its token stale and is refused. It cannot mark as
-succeeded a job another worker has since re-run, which is the failure a lease
-alone still allows.
-
-**A failure retries with bounded backoff until its attempts are spent.** Then it
-fails permanently and says why. A job that retried forever would be a job nobody
-is ever told about.
-
-**Duplicate delivery is the handler's problem, and the handlers were built for
-it.** `run_queued` checks the deployment is still QUEUED before converging;
-`MaintenanceService.run` is idempotent by construction. That is why this layer
-does not attempt exactly-once, which on a single database with no distributed
-transaction it could not honestly offer.
+A claim is leased and fenced; failures retry with bounded backoff, then fail
+and say why; duplicate delivery is the handlers' to tolerate, so exactly-once
+is not attempted.
 """
 
 from __future__ import annotations
@@ -46,10 +30,7 @@ __all__ = ["DEPLOYMENT_JOB", "SCHEDULED_JOB", "JobQueue"]
 _LOGGER = logging.getLogger(__name__)
 _DEFERRAL_SECONDS = 5
 
-#: The two kinds of work this control plane queues, and the payload key each
-#: carries. Named constants because they are a durable wire contract between
-#: the process that enqueues and the process that runs — a row written by
-#: yesterday's controller is read by today's worker.
+#: The queued work kinds and their payload keys: a durable cross-process contract.
 DEPLOYMENT_JOB = "deployment"
 SCHEDULED_JOB = "scheduled"
 
@@ -68,25 +49,16 @@ class JobQueue:
         clock: Clock = system_clock,
     ) -> None:
         self.jobs = jobs
-        #: Kind to handler. The worker resolves a claimed job through this and
-        #: learns nothing else about it, which is what lets a convergence and a
-        #: feature-contributed maintenance run share one loop.
+        #: Kind to handler; the worker learns nothing else about a job.
         self.handlers = dict(handlers)
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
         self.retention = retention
-        #: Injected so a test can move time without sleeping. Everything in
-        #: this class reads it rather than calling `datetime.now` directly, so
-        #: there is one clock and a test cannot half-freeze it.
+        #: Injected so tests can move time.
         self.clock = clock
 
     def consume_with(self, handlers: Mapping[str, JobHandler]) -> None:
-        """Give a publishing queue the handlers it consumes with, exactly once.
-
-        Publishing and consuming are one queue, but a handler calls services
-        that are themselves handed this queue to publish through. The
-        composition root breaks that cycle here, after those services exist.
-        """
+        """Hand the queue its handlers once, after the services they call exist."""
         if self.handlers:
             raise RuntimeError("this queue already has its handlers")
         self.handlers = dict(handlers)
@@ -94,13 +66,7 @@ class JobQueue:
     # -- Publishing ----------------------------------------------------
 
     def enqueue_deployment(self, deployment_id: str) -> Job | None:
-        """Queue a convergence for the worker.
-
-        Deduplicated on the deployment id, so a second enqueue of a deployment
-        already waiting is a no-op rather than a second run of the same row.
-        The convergence path checks the deployment is still QUEUED anyway —
-        this makes the common case cost nothing rather than cost a claim.
-        """
+        """Queue a convergence for the worker, deduplicated on the deployment id."""
         return self.jobs.enqueue(
             kind=DEPLOYMENT_JOB,
             payload={"deployment_id": deployment_id},
@@ -111,12 +77,9 @@ class JobQueue:
     def enqueue_scheduled(
         self, job: str, *, available_at: datetime | None = None, max_attempts: int = 1
     ) -> Job | None:
-        """Queue one firing of a recurring job, at most one at a time.
+        """Queue one firing of a recurring job, single-flight and with one attempt.
 
-        ``max_attempts`` of one, and deliberately. Recurring work retries by
-        recurring: a renewal that failed will be attempted again at the next
-        interval, against fresh state, and a queue-level retry minutes later
-        would only add a second failure to the log for the same reason.
+        Recurring work retries by recurring, against fresh state.
         """
         return self.jobs.enqueue(
             kind=SCHEDULED_JOB,
@@ -137,14 +100,7 @@ class JobQueue:
         )
 
     def run_one(self, *, lease_seconds: int | None = None) -> Job | None:
-        """Claim one job, run it, and record what happened.
-
-        Returns the job it ran, or ``None`` when the queue was empty. The
-        return is the job as it was claimed rather than as it ended, because
-        the caller that wants the outcome reads it back — and a value that
-        pretended to be current would be current only until the next worker
-        touched it.
-        """
+        """Claim one job, run it, and return it as claimed, or ``None`` if empty."""
         claim = self.claim(lease_seconds=lease_seconds)
         if claim is None:
             return None
@@ -154,15 +110,9 @@ class JobQueue:
     def run(self, claim: JobClaim) -> None:
         """Run a claimed job under its fence and record what its handler said.
 
-        ``Done`` completes the job. ``Defer`` puts it back without spending an
-        execution attempt. ``Retry`` backs off and spends one; ``Fail`` fails
-        it at once. An exception escaping the handler is an error the handler
-        did not expect, retried like ``Retry`` and logged with its traceback.
-
-        A kind with no handler fails permanently: retrying would meet the same
-        missing handler. That happens when a feature that contributed a job
-        kind is removed while one of its jobs is still queued, which is why the
-        message names the kind.
+        ``Done`` completes, ``Defer`` requeues free, ``Retry`` backs off spending an
+        attempt, ``Fail`` fails now; an escaping exception counts as ``Retry``. A kind
+        with no handler fails permanently, naming the kind.
         """
         job = claim.job
         handler = self.handlers.get(job.kind)
@@ -206,10 +156,7 @@ class JobQueue:
                 )
                 return
         if not self.jobs.complete(job.id, claim.fence, now=self.clock()):
-            # The lease expired and somebody else took the job over while this
-            # worker was inside the handler. The work was done twice, which the
-            # handlers tolerate; what must not happen is this worker recording
-            # an outcome for a run that is no longer its own.
+            # Someone else took the job over meanwhile; record nothing for it.
             _LOGGER.warning(
                 "job %s finished under an expired lease; another worker owns "
                 "it now and this result was discarded",

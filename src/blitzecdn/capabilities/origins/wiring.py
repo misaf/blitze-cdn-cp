@@ -1,8 +1,4 @@
-"""Compose the application's origins services from their declared collaborators.
-
-Configuration, ports and concrete adapters meet here. Services and domain
-values do not discover features or construct the control plane.
-"""
+"""Compose the origins services from their declared collaborators."""
 
 from __future__ import annotations
 

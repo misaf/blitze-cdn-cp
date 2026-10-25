@@ -1,9 +1,4 @@
-"""The material we hold for a site, and the requests that change it.
-
-`preflight.py` beside this is what is checked *before* asking a CA for
-anything. The two never reference each other: a preflight report is about DNS
-and reachability, and a certificate is about what came back.
-"""
+"""The material we hold for a site, and the requests that change it."""
 
 from __future__ import annotations
 
@@ -19,10 +14,6 @@ from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.validation import hostname
 
 #: The journal entry an issuance opens, named by the capability that opens it.
-#:
-#: Declared here rather than as a member of `WorkflowKind` in the control
-#: plane, which would name a distribution that need not be installed in an enum
-#: shipped by one that always is.
 CERTIFICATE_WORKFLOW: WorkflowKind = "certificate"
 
 
@@ -52,23 +43,16 @@ class CertificateInfo(BaseModel):
         )
 
 
-#: Renew an ACME certificate once it has this many days left.
-#:
-#: Let's Encrypt issues for 90 days and recommends renewing at 30, which
-#: leaves two further windows to retry in before anything expires. Renewal
-#: goes through HTTP-01, so a failure is usually a transient DNS or reachability
-#: problem that a later attempt clears.
+#: Renew ACME certificates with this many days left: Let's Encrypt's 30 of 90,
+#: leaving two more windows to retry before expiry.
 CERTIFICATE_RENEWAL_DAYS = 30
 
 
 class CertificateStatus(BaseModel):
     """A stored certificate seen against the clock.
 
-    Separate from ``CertificateInfo`` because that is the record written to
-    ``metadata.json`` and read back under ``extra="forbid"``. That file is also
-    the atomic pointer to its fingerprinted chain/key bundle, so folding a
-    computed field into it would make every stored file fail to reload. This is
-    the derived view, built when someone asks.
+    Derived on request, apart from ``CertificateInfo``, whose ``metadata.json`` is
+    read back with ``extra="forbid"``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -109,12 +93,9 @@ class CertificateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str | None = Field(default=None, max_length=254)
-    #: Issue even though preflight found a blocking problem. Deliberately not
-    #: the default: every blocking check describes a condition under which the
-    #: CA cannot validate, so the usual effect of overriding is to spend a rate
-    #: limit on a request that fails anyway. It exists for the case the
-    #: controller cannot see — split-horizon DNS, or an edge fronted by an
-    #: address the inventory does not name.
+    #: Issue despite a blocking preflight, for what the controller cannot see —
+    #: split-horizon DNS, an edge behind an unlisted address. Usually it just spends
+    #: a rate limit.
     skip_preflight: bool = False
 
     @field_validator("email")
@@ -135,12 +116,8 @@ class CertificateRequest(BaseModel):
 class RenewalResult(BaseModel):
     """The outcome of one renewal sweep, per site.
 
-    Three buckets rather than two, because "not renewed" has two very different
-    causes and only one of them needs a person. ``failed`` is a site the CA or
-    preflight refused; ``skipped`` is a site this run did not get to — the
-    budget ran out, the deployment lock was held, or the certificate is one
-    BlitzeCDN cannot reissue. A skipped site is picked up by the next run, so a
-    sweep full of them is slower renewal rather than missed renewal.
+    ``failed`` needs a person; ``skipped`` — budget spent, lock held, or not
+    reissuable by us — is picked up by the next run.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -155,12 +132,7 @@ class RenewalResult(BaseModel):
 
 
 class ReconciliationResult(BaseModel):
-    """First certificates issued for sites that were ready, and the deploy.
-
-    ``deployment`` is the queued deployment that will install them, or
-    ``None`` when nothing was issued: a run that found no eligible site
-    changes nothing at all. The worker converges it; poll it by its id.
-    """
+    """First certificates issued, and the queued deployment installing them, if any."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

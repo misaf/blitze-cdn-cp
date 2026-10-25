@@ -16,8 +16,5 @@ _DIRECTORY = package_directory(
 #: Handed to the control plane through ``blitzecdn_ansible_contributions``.
 ROLES_PATH = _DIRECTORY / "roles"
 
-#: Passed straight to ``PlaybookRunner.run_playbook``. Core stages the
-#: variables, expands the host limit and applies the timeout; which play runs
-#: is this capability's business and travels with it, rather than being a
-#: core setting pointing at a file core does not own.
+#: Passed to ``PlaybookRunner.run_playbook``.
 ORIGIN_CHECK_PLAYBOOK = _DIRECTORY / "playbooks" / "origin-check.yml"

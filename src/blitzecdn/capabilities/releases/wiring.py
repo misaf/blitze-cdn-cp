@@ -1,16 +1,4 @@
-"""How the releases capability is built.
-
-The compiler is a pure function, so almost all of this is deciding what its
-arguments are: which capabilities are installed, which edges a run would reach,
-who answers a feature's site check, and where compiled releases are kept. Every
-one of those is a composition decision, which is why they are settled here and
-not inside the service.
-
-The two adapters below exist for the same reason. Both bind something the
-composition root has — the feature registry, the edge store — to a port this
-capability declared, and neither has any behaviour a capability test would want
-to fake around.
-"""
+"""How the releases capability is built: settling the pure compiler's inputs."""
 
 from __future__ import annotations
 
@@ -37,24 +25,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class FeatureSiteChecks:
-    """The compiler's view of "what do the installed capabilities object to".
+    """The compiler's view of what the capabilities object to.
 
-    Two jobs, and the second is why this is a class rather than a bound method.
-    A feature issue carries a severity: a blocking one must refuse the
-    deployment, and a warning must be logged and converged anyway. The compiler
-    has no logger and must not acquire one — it is a pure function — so the
-    warning is emitted here and only the blocking issues become findings.
-
-    ``site_objections`` rather than ``validate_site``: the latter also reports
-    capabilities this installation does not have, and the compiler makes that
-    check itself — against the selected edges as well as against the controller
-    — so asking for both would report every missing capability twice. It also
-    matters which kind a finding is: an objection stops the artifact being
-    rendered, and a missing capability does not.
-
-    Attribution survives into the message because the operator reading a
-    refusal may have installed the objecting package yesterday and has to know
-    which one is objecting.
+    Logs warnings here, since the pure compiler has no logger, and turns only
+    blocking issues into findings. Uses ``site_objections``: the compiler checks
+    missing capabilities itself, against edges too. Messages name the objecting
+    feature.
     """
 
     def __init__(
@@ -78,13 +54,7 @@ class FeatureSiteChecks:
 
 
 class StoredEdgeTargets:
-    """The registered fleet, narrowed to the edges a run would actually reach.
-
-    ``host_limit`` is Ansible's ``--limit`` pattern, and it is applied here
-    rather than passed through to the compiler because the compiler must not
-    know what an Ansible limit is. The same matcher the runner uses decides,
-    so "which edges will this run touch" has one answer whoever asks.
-    """
+    """The registered fleet, narrowed by ``host_limit`` as the runner does."""
 
     def __init__(self, edges: EdgeStore) -> None:
         self._edges = edges
@@ -110,12 +80,7 @@ def build_release_service(
     uow: UnitOfWork,
     renderer: ConfigurationRenderer,
 ) -> ReleaseService:
-    """Wire the compiler's inputs to the installation they come from.
-
-    ``retention`` is the deployment history bound. Releases are what that
-    history points at: keeping fewer would strand rollback targets, and keeping
-    more would accumulate documents nothing can reach.
-    """
+    """Wire the compiler's inputs; ``retention`` is the history bound."""
     return ReleaseService(
         state=state,
         targets=StoredEdgeTargets(edges),

@@ -1,11 +1,4 @@
-"""What backing up and restoring needs from the outside world.
-
-Four narrow capabilities, split by what could plausibly be replaced: the
-archive container, the per-component storage, somewhere private to stage files,
-and the ability to take the controller offline for the part of a restore that
-needs it. A single "backup adapter" would have hidden the fact that a TLS-only
-restore needs none of the last one.
-"""
+"""What backing up and restoring needs, split by what could be replaced."""
 
 from __future__ import annotations
 
@@ -31,13 +24,7 @@ class ArchiveEntry(Protocol):
 
 
 class ArchiveGateway(Protocol):
-    """The container format, listed before it is trusted and only then read.
-
-    ``entries`` deliberately comes before ``extract``: every rule in
-    :func:`blitzecdn.capabilities.backup.domain.unsafe_member` has to be applied to
-    the whole archive while nothing has been written, and an adapter that could only
-    extract would make that impossible to express.
-    """
+    """The container format: list entries for checking, then extract."""
 
     def write(self, source: Path, destination: Path) -> None: ...
 
@@ -49,13 +36,7 @@ class ArchiveGateway(Protocol):
 
 
 class BackupComponentGateway(Protocol):
-    """One component's storage: whether it exists, and how it moves.
-
-    ``validate`` is separate from ``restore`` because the whole archive must be
-    known good before any of it is applied. A component that discovered its own
-    missing file halfway through a restore would have already replaced the
-    ones ahead of it in the list.
-    """
+    """One component's storage; every ``validate`` precedes any ``restore``."""
 
     @property
     def component(self) -> BackupComponent: ...
@@ -97,11 +78,7 @@ class SchemaVersions(Protocol):
 
 
 class ServiceControl(Protocol):
-    """Stop the control-plane services for the duration of a block.
-
-    Component recovery runs inside this boundary. The managed host owns actual
-    restarts and must leave services stopped while a recovery checkpoint remains.
-    """
+    """Stop the control-plane services for a block; the host owns the restarts."""
 
     def stopped(self) -> AbstractContextManager[None]: ...
 

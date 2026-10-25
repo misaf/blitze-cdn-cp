@@ -1,7 +1,4 @@
-"""How the edges capability is built.
-
-The same shape as :mod:`blitzecdn.capabilities.dns.wiring`.
-"""
+"""How the edges capability is built."""
 
 from __future__ import annotations
 
@@ -16,11 +13,5 @@ __all__ = ["build_edge_operations_service"]
 def build_edge_operations_service(
     *, edges: EdgeStore, runner: EdgeRunner, events: EventRecorder, uow: UnitOfWork
 ) -> EdgeOperationsService:
-    """Wire the service that owns the roster and what runs against it.
-
-    ``runner`` is the Ansible adapter through this capability's own narrow
-    port, not the generic ``PlaybookRunner``. That one runs a named play and
-    knows nothing about what a play is for, which is right for a package and
-    too little for the capability that owns edge operations.
-    """
+    """Wire the fleet service, with the runner behind this capability's narrow port."""
     return EdgeOperationsService(events=events, runner=runner, edges=edges, uow=uow)

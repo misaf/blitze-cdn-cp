@@ -1,8 +1,6 @@
-"""Explicit delivery projection of composed zone and virtual-host values.
+"""The delivery projection of zones and virtual hosts: explicit, setting by setting.
 
-API, CLI and edge documents name individual settings. Storage and release
-inputs serialize the nested domain values instead; delivery never relies on a
-custom model serializer to make those two representations look identical.
+Storage and release inputs serialize the nested domain values instead.
 """
 
 from typing import Any

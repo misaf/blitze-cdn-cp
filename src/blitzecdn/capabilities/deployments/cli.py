@@ -10,9 +10,7 @@ from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
-#: Root-level verbs. They are contributed with no sub-command name, so an
-#: operator types `blitzecdn deploy` rather than `blitzecdn deployment deploy`:
-#: the registration mechanism should not be visible in the interface.
+#: Root-level verbs: `blitzecdn deploy`, not `blitzecdn deployment deploy`.
 deployment_app = typer.Typer()
 
 
@@ -47,12 +45,8 @@ def deploy(
     """Validate, preview, and apply desired state to the configured edges.
 
     With --limit this is a canary: the named edges converge and the rest keep
-    serving what they have. Re-run without it to finish the rollout.
-
-    --yes answers the confirmation and nothing else: an unattended run still
-    validates and still previews, and still refuses to converge if either says
-    no. Giving those up is --skip-preflight, separately, because a caller that
-    cannot answer a prompt is not thereby a caller that wants no checks.
+    serving. --yes answers only the confirmation; skipping the checks is
+    --skip-preflight.
     """
     control = common.services()
     if not skip_preflight:
@@ -124,8 +118,8 @@ def drift(
 ) -> None:
     """Report whether the edges still match the declared desired state.
 
-    Changes nothing: it is a check-mode run read as a question. Exits 6 when a
-    reachable edge would change, so it can be scheduled and alerted on.
+    A check-mode run that changes nothing. Exits 6 when a reachable edge would
+    change, so it can be scheduled and alerted on.
     """
     report = common.services().deployments.check_drift("cli", host_limit=limit)
     common.emit(
@@ -170,14 +164,7 @@ def status(
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Show one deployment or recent deployment history.
-
-    Naming a deployment also prints how far each edge got. That is the half a
-    fleet-wide result could never carry: an edge missing from one might have
-    succeeded quietly, failed unreported, or never been contacted, and after a
-    stopped rollout the difference is the difference between a fleet that is
-    fine and one running two configurations.
-    """
+    """Show one deployment, with how far each edge got, or recent history."""
     deployments = common.services().deployments
     if not deployment_id:
         common.emit(deployments.list_deployments(limit), json_output=json_output)

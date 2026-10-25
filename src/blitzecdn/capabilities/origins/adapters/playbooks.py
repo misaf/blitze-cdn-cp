@@ -1,16 +1,7 @@
 """The one play this capability runs, and the document it is given.
 
-This is the seam the whole distribution turns on. As a ``run_origin_check``
-method on core's ``AnsibleRunner``, with the play's location a field on
-``Settings``, the shared Ansible adapter — the one every capability reaches
-through — would carry an operation only this capability performs, pointing at a
-file only this capability ships. Core keeps the generic primitive instead: run
-this play, with these variables, against these hosts.
-
-It is also what makes the play reachable from *two* capabilities without either
-knowing the other's internals: the Automatic SSL/TLS scan in ``tls`` is given
-this same adapter, so there is one implementation of "ask the fleet about these
-origins" rather than a copy per caller.
+Core keeps only the generic primitive; this adapter is also handed to the
+Automatic SSL/TLS scan, so there is one way to ask the fleet about origins.
 """
 
 from __future__ import annotations
@@ -25,14 +16,7 @@ __all__ = ["OriginCheckPlaybook"]
 
 
 class OriginCheckPlaybook:
-    """``OriginCheckRunner``, over the control plane's generic play primitive.
-
-    The play and the role it names ship with this capability and are located
-    through :mod:`blitzecdn.capabilities.origins.ansible`. Core is told the
-    *path* — it
-    stages the variables, expands the host limit against the fleet it records,
-    and applies the timeout — and never what the play is for.
-    """
+    """``OriginCheckRunner``, over the control plane's generic play primitive."""
 
     def __init__(self, fleet: FleetPlaybooks) -> None:
         self._fleet = fleet
@@ -45,10 +29,8 @@ class OriginCheckPlaybook:
     ) -> AnsibleRun:
         """Ask each edge in scope to connect to the origins it proxies to.
 
-        The sites travel as run variables rather than being read from the
-        desired-state file: this takes no deployment lock, so that shared file
-        may belong to a deploy in flight, and the check is a question about
-        what is configured *now* rather than about what is being converged.
+        Sites travel as run variables: no lock is taken, so the desired-state file may
+        belong to a deploy in flight.
         """
         return self._fleet.run_playbook(
             name="origin-check",

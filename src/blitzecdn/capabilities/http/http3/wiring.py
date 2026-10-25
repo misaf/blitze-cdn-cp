@@ -9,24 +9,17 @@ from blitzecdn.core.features import FeatureRendering, FleetStateContribution
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
 
-#: The two fleet variables this capability owns the value of. Named once
-#: because they are both contributed and declared as overrides, and the two
-#: lists disagreeing is how a merge conflict at deploy time would be written.
+#: The two fleet variables this feature sets and overrides, named once.
 QUIC_FLEET_VARIABLES = frozenset(
     {"blitzecdn_edge_http3_enabled", "blitzecdn_nginx_http3_listener_owner"}
 )
 
 
 def quic_listener(sites: tuple[CdnSite, ...]) -> FleetStateContribution:
-    """Enable QUIC fleet-wide and select exactly one Nginx listener owner.
+    """Enable QUIC fleet-wide and pick exactly one listener owner.
 
-    Nginx accepts ``reuseport`` on one server block only, so the owner is named
-    rather than left to whichever site rendered first. Sorted by name so the
-    same fleet always picks the same owner and the desired-state document is
-    byte-identical between runs.
-
-    A disabled site converges no server block, so it cannot be the owner and
-    cannot be the reason the listener opens.
+    Nginx takes ``reuseport`` on one server block only; the first enabled site by
+    name owns it, so the document is stable.
     """
     enabled = sorted(
         site.name

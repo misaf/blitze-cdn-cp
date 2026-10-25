@@ -1,10 +1,4 @@
-"""`cache` — remove cached responses from the edges, and a zone's cache settings.
-
-`domain cache` and `domain cache-query-string` sit under `blitzecdn domain`,
-which dns founds, because an operator reaches a zone's settings through the
-zone; they are here because the fields they edit are this capability's
-contract.
-"""
+"""`cache` purge and `stats`, plus the zone cache settings under `domain`."""
 
 from __future__ import annotations
 
@@ -25,13 +19,8 @@ cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses from the edges."
 )
 
-#: `blitzecdn stats` is a root command, not `blitzecdn cache stats`.
-#:
-#: It reads as a verb an operator types directly, so it stays one — the
-#: registration mechanism does not get to reshape the command tree. And it
-#: belongs to this package rather than to `diagnostics`, which would put a
-#: command that reads this capability's report in a capability that has to
-#: import it. The report is this package's, so the command is too.
+#: `blitzecdn stats` is a root verb, contributed by the capability whose report it
+#: reads.
 stats_app = typer.Typer()
 
 #: Joined to `blitzecdn domain`, which dns founds.
@@ -227,9 +216,7 @@ def domain_cache(
         raise typer.BadParameter(
             "give at least one of --on/--off, --success or --not-found"
         )
-    # Built from the dict rather than by keyword: a patch applies the fields
-    # that were *set*, so passing `cache_enabled=None` for an option nobody
-    # named would clear the switch rather than leave it alone.
+    # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
     state = (
         f"caching 2xx for {zone.policy.cache.cache_valid_success} and 404 for "

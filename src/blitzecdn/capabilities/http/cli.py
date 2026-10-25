@@ -1,9 +1,4 @@
-"""The `http` contract\'s switches: protocols, upload limit, scheme redirect.
-
-Edits fields declared by :mod:`blitzecdn.capabilities.http.contract`. `http3` is
-the switch\'s value on the zone document; whether an edge can serve QUIC at all
-is the `http3` capability\'s question, asked at deploy time.
-"""
+"""The `http` contract's switches: protocols, upload limit, scheme redirect."""
 
 from __future__ import annotations
 

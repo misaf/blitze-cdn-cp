@@ -1,8 +1,4 @@
-"""Asking a CA for material, and keeping what came back current.
-
-`issuance.py` is the service and the three collaborator bundles it is built
-from: the policy, the stores it writes, and the execution it drives.
-"""
+"""Asking a CA for material, and keeping what came back current."""
 
 from blitzecdn.capabilities.tls.certificates.service.issuance import (
     CertificateExecution,

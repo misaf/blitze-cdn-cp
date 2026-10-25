@@ -1,11 +1,7 @@
-"""Reading and writing content-addressed releases.
+"""Reading and writing content-addressed releases; every write is insert-if-absent.
 
-Every write here is an insert-if-absent. A release is named by the digest of
-its own contents, so a row that is already there is already identical, and
-"save" means "make sure this is on record" rather than "record this again".
-That is what makes recompiling free: `blitzecdn validate` compiles the current
-state on every invocation, and a store that appended would turn a habit into a
-history table full of the same document.
+A row already present is identical by construction, so recompiling unchanged
+state on every ``validate`` adds nothing.
 """
 
 from __future__ import annotations
@@ -37,22 +33,15 @@ def _rows_affected(result: Result[Any]) -> int:
 class ReleaseStore:
     def __init__(self, database: Database, referenced: ReleaseReferences) -> None:
         self._db = database
-        #: Which releases something else still needs. Injected rather than
-        #: queried: the answer lives in the deployments table, and a store that
-        #: reached across to read it would be this capability holding an
-        #: opinion about another one's schema — the cross-module table access
-        #: the module boundaries exist to refuse.
+        #: Which releases something else still needs, injected so this store never
+        #: reads the deployments table.
         self._referenced = referenced
 
     def save(self, release: Release, inputs: ReleaseInputs) -> Release:
         """Put both rows on record, or leave the identical ones already there.
 
-        The inputs go in first, because the release row's foreign key names
-        them. Both use ``ON CONFLICT DO NOTHING`` rather than a read-then-write:
-        two processes compiling the same unchanged state at the same moment is
-        the ordinary case — a scheduled drift check and an operator's
-        ``validate`` — and a check followed by an insert would make one of them
-        fail on a row that says exactly what it was about to write.
+        Inputs first, for the foreign key. ``ON CONFLICT DO NOTHING`` because
+        concurrent compiles of unchanged state are ordinary.
         """
         if release.inputs_digest != inputs.digest:
             raise ConfigurationError("release inputs do not match the compiled digest")
@@ -81,13 +70,7 @@ class ReleaseStore:
         return release
 
     def save_configuration(self, release: Release, bundle: ConfigurationBundle) -> None:
-        """Record what a stored release rendered to, once.
-
-        Insert-if-absent like everything here: a release renders to one tree,
-        and a second render of the same release is either identical or a
-        template change — in which case the first rendering is the one the
-        release was prepared with, and the one a rollback must ship.
-        """
+        """Record what a release rendered to, once; rollbacks ship that first render."""
         with self._db.session() as session:
             session.execute(
                 sqlite_insert(ReleaseConfigurationRow)
@@ -135,10 +118,7 @@ class ReleaseStore:
             row = self._row(session, release_id)
             inputs = session.get(ReleaseInputsRow, row.inputs_digest)
             if inputs is None:
-                # Only reachable if pruning ever removed inputs a release still
-                # names. It does not — the foreign key forbids it — so this
-                # says which of the two rows went missing rather than raising
-                # an AttributeError two frames further on.
+                # Unreachable while the foreign key holds; names the missing row if not.
                 raise NotFoundError(
                     f"release {release_id!r} names inputs {row.inputs_digest!r}, "
                     "which are not on record"
@@ -162,11 +142,8 @@ class ReleaseStore:
     def prune(self, keep: int) -> int:
         """Drop releases beyond the newest ``keep`` that nothing still names.
 
-        The foreign key from ``deployments`` is what "nothing still names"
-        means, and it is enforced rather than consulted: a release a deployment
-        converged is the fleet's way back, and this must not be able to remove
-        it however old it is. Inputs are left alone — they are named by every
-        release compiled from them, and dropping one would strand the rest.
+        The deployments foreign key enforces "nothing names it". Inputs are kept, since
+        every release compiled from them names them.
         """
         with self._db.session() as session:
             survivors = (
@@ -186,14 +163,7 @@ class ReleaseStore:
 
     @staticmethod
     def _row(session: Any, release_id: str) -> ReleaseRow:
-        """One release by its short id, or by its full digest.
-
-        Both, because both are printed: the short form is what a report and a
-        deployment row carry, and the full digest is what a comparison quotes.
-        Accepting either means an operator who copied the wrong one still gets
-        their release rather than a "does not exist" about a string that plainly
-        does.
-        """
+        """One release by its short id or its full digest; both are printed."""
         row = session.scalars(
             select(ReleaseRow).where(
                 (col(ReleaseRow.id) == release_id)

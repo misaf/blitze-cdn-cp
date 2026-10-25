@@ -1,15 +1,7 @@
 """What a zone's policy becomes for one hostname, and which rule decided it.
 
-The whole of "first match wins" lives here, in one function over values, so
-that the answer can be checked without a database and stated without one: hand
-it a zone, the rules of that zone and a hostname, and it says how that hostname
-is served.
-
-The result carries the name of the rule that applied, or ``None`` for a
-hostname the zone's own policy answers for. That is not decoration. "Why is
-this hostname not caching" is the question an operator actually has, and a
-resolver that returns only the merged settings makes them re-derive the match
-by eye against a list they cannot see the order of.
+All of "first match wins", as a function over values. The rule's name is
+returned too, because "why is this hostname not caching" needs both.
 """
 
 from __future__ import annotations
@@ -30,11 +22,8 @@ class ResolvedPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     fqdn: str
-    #: The zone's policy with the winning rule's overrides applied. Still a
-    #: ``Domain``: the merged document has to satisfy every rule a zone does —
-    #: HTTP/3 needing edge TLS, a certificate mode agreeing with its paths —
-    #: and validating it as one is what says so. A rule that produces an
-    #: impossible combination is refused here rather than at the edge.
+    #: The merged policy, still a ``Domain``, so every zone invariant is checked
+    #: and an impossible rule is refused here rather than at the edge.
     policy: Domain
     #: The rule that applied, or ``None`` when the zone answered by itself.
     rule: str | None = None
@@ -43,10 +32,7 @@ class ResolvedPolicy(BaseModel):
 def resolve_policy(zone: Domain, rules: Sequence[Rule], fqdn: str) -> ResolvedPolicy:
     """Merge the first matching rule's overrides onto the zone's policy.
 
-    ``rules`` is expected in priority order — the store returns them that way,
-    and it is sorted again here rather than trusted, because "first" is the
-    entire semantics and a caller that assembled the list itself should not be
-    able to change the answer by accident.
+    ``rules`` is re-sorted rather than trusted, since order is the semantics.
     """
     for rule in sorted(rules, key=lambda item: item.order):
         if not rule.matches(fqdn):

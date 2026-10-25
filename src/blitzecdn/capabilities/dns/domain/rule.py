@@ -1,25 +1,8 @@
 """An override that applies to some hostnames in a zone, and not to others.
 
-A zone carries one policy and most zones want exactly that. A rule is what a
-zone says when one hostname does not: ``api.example.com`` caches nothing while
-the rest of the zone caches for ten minutes, and saying so should not require a
-second object holding a second copy of the other nineteen settings.
-
-So a rule is a *match* and a set of *overrides*, and nothing else. It cannot
-hold a whole policy, because a rule that could would be a site again — the same
-twenty fields, duplicated per hostname, with nothing making the copies agree.
-
-**First match wins.** The rules in a zone are ordered by ``priority``, and the
-first enabled rule whose match covers a hostname is the only one that applies.
-Merging every matching rule instead would make the effective policy for a
-hostname depend on the intersection of several partial documents, which is a
-thing an operator has to simulate in their head before they can predict what a
-change does. Cloudflare's page rules settled on the same answer for the same
-reason.
-
-The overrides are stored as the fields a rule actually sets, not as a patch
-model with unset fields. The two are the same information, and the mapping is
-the honest shape for it: what is in it is what the rule changes.
+A rule is a match and the overrides it sets, never a whole policy. Rules are
+ordered by ``priority`` and the first enabled match is the only one applied, so
+an operator can predict the result without simulating merges.
 """
 
 from __future__ import annotations
@@ -34,24 +17,15 @@ from blitzecdn.core.domain.validation import SITE_NAME, hostname
 
 __all__ = ["Rule", "RulePatch"]
 
-#: A rule may not change the zone's identity. ``origin_host`` needs no place on
-#: the list: it is not a zone setting at all. Where the edge fetches from is the
-#: business of the per-record value, which splits the two most common reasons to
-#: write a rule — "this host caches differently" and "this host points
-#: elsewhere" — into policy, and the record's own address.
+#: A rule may not change the zone's identity. The origin is the record's value,
+#: not a zone setting.
 _NOT_OVERRIDABLE = frozenset({"name"})
 
 
 def _validate_match(value: str) -> str:
-    """``*``, an exact hostname, or ``*.suffix``. Lowercased, no trailing dot.
+    """``*``, an exact hostname, or ``*.suffix``; lowercased, no trailing dot.
 
-    Deliberately not a full expression language. A hostname pattern is what
-    every rule anyone has asked for so far matches on, it is the same syntax
-    nginx already uses in ``server_name``, and an operator can tell at a glance
-    which of two patterns is more specific. An expression language can be added
-    later as a second kind of match without any stored rule changing meaning;
-    starting with one would have meant designing it before knowing what it is
-    for.
+    nginx's ``server_name`` syntax, where specificity is obvious at a glance.
     """
     normalized = value.strip().lower().rstrip(".")
     if normalized == "*":
@@ -62,15 +36,10 @@ def _validate_match(value: str) -> str:
 
 
 def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Every key a zone setting, every value one the zone would accept.
+    """Every key a zone setting and every value acceptable, checked via ``DomainPatch``.
 
-    Checked by handing the mapping to ``DomainPatch``, which is the model that
-    already knows what each setting takes — rather than by listing the fields
-    again here, which would be a second answer to drift from the first.
-
-    An empty mapping is refused. A rule that overrides nothing still matches,
-    and because the first match wins it would shadow every rule behind it while
-    changing nothing: the most confusing thing a rule can do.
+    An empty mapping is refused: it would shadow every later rule while changing
+    nothing.
     """
     unknown = sorted(set(value) - set(DomainPatch.model_fields))
     if unknown:
@@ -88,11 +57,8 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
         )
     # Raises for a value the zone would refuse, with pydantic's own message.
     DomainPatch.model_validate(dict(value))
-    # Who may set ``certificate_mode`` is deliberately *not* asked here. This
-    # runs on every rule the store rehydrates as well as on every rule an
-    # operator writes, and the issuer's own overrides — which legitimately
-    # carry a controller-managed mode — would stop being readable. The
-    # question belongs to ``RuleService``, which sees only authoring.
+    # Who may set ``certificate_mode`` is ``RuleService``'s question: this also runs
+    # on rehydrated rules, including the issuer's.
     return dict(value)
 
 
@@ -103,9 +69,7 @@ class Rule(BaseModel):
 
     domain: str
     name: str
-    #: Lower runs first, and first match wins. Ties break on the name so that
-    #: two rules at the same priority still have one answer rather than
-    #: whichever the database returned.
+    #: Lower runs first; ties break on the name for one deterministic answer.
     priority: int = Field(default=100, ge=1, le=1000)
     match: str = "*"
     overrides: Mapping[str, Any]
@@ -138,11 +102,7 @@ class Rule(BaseModel):
 
     @model_validator(mode="after")
     def validate_match_is_inside_the_zone(self) -> Self:
-        """A rule in one zone cannot reach a hostname in another.
-
-        ``*`` is the exception and means "everything in this zone", which is
-        what an operator writing a zone-wide exception expects it to mean.
-        """
+        """A rule cannot reach another zone's hostnames; ``*`` means this whole zone."""
         if self.match == "*":
             return self
         target = self.match.removeprefix("*.")
@@ -171,15 +131,9 @@ class Rule(BaseModel):
 
 
 class RulePatch(BaseModel):
-    """A partial update to a rule: every field optional, unset means untouched.
+    """A partial update to a rule; ``domain`` and ``name``, its identity, are fixed.
 
-    ``domain`` and ``name`` are absent. Together they are the rule's identity —
-    moving a rule to another zone is deleting it and writing another, which is
-    also the only way to be sure the new zone's operator meant to have it.
-
-    ``overrides`` is replaced wholesale rather than merged. Merging would leave
-    no way to stop overriding a setting: every key would be additive, and a
-    rule would accumulate settings it could never shed.
+    ``overrides`` replaces wholesale, so a setting can be taken off a rule.
     """
 
     model_config = ConfigDict(extra="forbid")

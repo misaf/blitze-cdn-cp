@@ -1,9 +1,4 @@
-"""The three command groups dns founds, and the `dns` export group.
-
-Separate from the commands so that a command module can import a group without
-importing its siblings. Nothing here is a command; `__init__` imports the
-modules that are, and each of those registers against one of these.
-"""
+"""The command groups dns founds, apart from the commands that register on them."""
 
 from __future__ import annotations
 

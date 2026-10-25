@@ -1,9 +1,4 @@
-"""How well the cache is working, read back from the edges.
-
-The outcome vocabulary is here rather than in `purge`, because it is nginx's
-`$upstream_cache_status` — what the edges logged — and nothing about a purge
-produces or consumes it.
-"""
+"""How well the cache is working, from what nginx logged on the edges."""
 
 from __future__ import annotations
 
@@ -20,16 +15,11 @@ __all__ = [
 ]
 
 
-#: Cache outcomes nginx records in ``$upstream_cache_status`` that mean the
-#: response came from cache. EXPIRED and BYPASS went to the origin; REVALIDATED
-#: did too, but only to confirm the stored copy, so it is counted as a hit —
-#: the origin sent no body and the edge served what it already had.
+#: ``$upstream_cache_status`` values served from cache; REVALIDATED counts,
+#: since the origin sent no body.
 CACHE_HIT_OUTCOMES = frozenset({"HIT", "STALE", "UPDATING", "REVALIDATED"})
 
-#: Outcomes that consulted the cache at all. A request logging an empty value
-#: never reached the cache — a redirect, an nginx-generated error, or a site
-#: with caching disabled — and is excluded from the ratio rather than counted
-#: as a miss.
+#: Values that consulted the cache; an empty status never did and is excluded.
 CACHE_CONSULTED_OUTCOMES = CACHE_HIT_OUTCOMES | {"MISS", "EXPIRED", "BYPASS"}
 
 
@@ -64,12 +54,7 @@ class SiteCacheStats(BaseModel):
 
     @property
     def hit_ratio(self) -> float | None:
-        """Hits over requests that consulted the cache, or None if none did.
-
-        None rather than 0.0 on purpose: a site with no cacheable traffic has
-        no hit ratio, and reporting zero would make an idle site look like a
-        broken one on a dashboard.
-        """
+        """Hits over cache-consulting requests, or None for none: idle is not broken."""
         total = self.cacheable_requests
         return round(self.hits / total, 4) if total else None
 
@@ -138,20 +123,12 @@ class CacheStatsReport(BaseModel):
 
     @property
     def hit_ratio(self) -> float | None:
-        """Fleet hit ratio, weighted by request volume rather than by edge.
-
-        Averaging the per-edge ratios would let an edge serving a hundred
-        requests move the number as much as one serving a million.
-        """
+        """Fleet hit ratio, weighted by request volume rather than averaged per edge."""
         total = self.cacheable_requests
         return round(self.hits / total, 4) if total else None
 
     def by_site(self) -> tuple[SiteCacheStats, ...]:
-        """The same numbers summed across edges, which is how a site is judged.
-
-        A single edge's ratio for a site says as much about which clients
-        landed there as about the cache.
-        """
+        """The numbers summed across edges, which is how a site is judged."""
         merged: dict[str, dict[str, int]] = {}
         for edge in self.reporting:
             for site in edge.sites:

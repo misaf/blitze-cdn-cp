@@ -1,10 +1,8 @@
 """Observe the expected release through the edge's public listener.
 
-A successful reload or an HTTP response can come from the previous release.
-The reserved endpoint returns the digest embedded in the generated virtual
-host, independently of origin health. A stale configuration therefore fails
-verification even while serving otherwise healthy traffic. TLS still checks
-that the certificate names the requested hostname.
+A reload or a response can come from the previous release, so a reserved
+endpoint returns the digest rendered into the virtual host, whatever the
+origin's health. TLS also checks the certificate names the hostname.
 """
 
 from __future__ import annotations
@@ -26,9 +24,7 @@ __all__ = ["ServingProbe", "ServingResult"]
 #: Reserved by the edge configuration, never forwarded to a customer's origin.
 _PATH = "/.blitzecdn/release"
 
-#: A response at all is the pass condition, so this is a bound on waiting
-#: rather than a service-level objective. An edge slower than this during a
-#: converge is an edge worth failing the rollout for.
+#: A response at all is the pass condition; this bounds the wait.
 _TIMEOUT_SECONDS = 10.0
 
 
@@ -61,14 +57,8 @@ class ServingProbe:
     ) -> tuple[ServingResult, ...]:
         """Ask this edge for one hostname per site it should be serving.
 
-        One hostname per site rather than all of them. A site's hostnames share
-        a single ``server`` block by construction — that is what makes them one
-        site — so the second name proves nothing the first did not, and a fleet
-        with a thousand hostnames would turn every deployment into a thousand
-        requests.
-
-        A site with no hostnames contributes no server block and is skipped
-        rather than probed for a name that does not exist.
+        A site's hostnames share one ``server`` block, so one name proves the rest.
+        Sites with no hostnames are skipped.
         """
         results: list[ServingResult] = []
         probes = sites or (
@@ -93,13 +83,9 @@ class ServingProbe:
     def _request(
         self, address: str, hostname: str, site: CdnSite, release_digest: str
     ) -> tuple[bool, str]:
-        """One HTTP request to ``address``, addressed to ``hostname``.
+        """One request to the edge's ``address``, naming ``hostname`` in Host and SNI.
 
-        Connects to the edge's address and sends the hostname in the ``Host``
-        header — and, over TLS, in SNI. That separation is the point: DNS may
-        not yet answer with this edge's address, and often does not at the
-        moment a deployment finishes, so resolving the hostname would test the
-        DNS transition rather than the edge.
+        Not resolved through DNS, which may not point at this edge yet.
         """
         scheme = (
             HttpScheme.HTTPS if site.policy.tls.ssl_mode.serves_tls else HttpScheme.HTTP
@@ -134,27 +120,11 @@ class ServingProbe:
 class _SniConnection(http.client.HTTPSConnection):
     """HTTPS to one address, announcing a different name in SNI.
 
-    ``HTTPSConnection`` takes its SNI from the host it connects to, which is
-    exactly wrong here: the connection goes to the edge's address and the name
-    being asked about is the customer's hostname. DNS may not yet answer with
-    this edge — at the moment a deployment finishes it usually does not — so
-    resolving the hostname would test the DNS transition rather than the edge.
-
-    The chain is not verified. An edge may be serving a certificate this
-    controller has no chain for; an uploaded certificate from a private CA is a
-    supported mode, and verifying here would fail a correct deployment for a
-    trust store this machine happens to lack.
-
-    The *name* is verified, and by this class rather than by ``ssl``. With
-    ``CERT_NONE`` nothing in the handshake looks at the certificate at all, so
-    an edge presenting another site's certificate — a swapped path, a stale
-    file — would otherwise pass as serving. ``check_hostname`` cannot
-    be had without chain verification, so the names are read out of the
-    certificate the edge sent and matched here, after the handshake.
-
-    Expiry is not checked. Whether a deployment should fail for a certificate
-    that is correctly installed but out of date is a policy question, and
-    renewal is where it is answered.
+    The chain is not verified: an uploaded private-CA certificate is supported
+    and this controller may lack its trust root. The name is verified here, after
+    the handshake, because ``check_hostname`` requires chain verification and
+    ``CERT_NONE`` would accept another site's certificate. Expiry is left to
+    renewal.
     """
 
     def __init__(self, address: str, *, sni: str, **arguments: Any) -> None:
@@ -162,17 +132,13 @@ class _SniConnection(http.client.HTTPSConnection):
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         super().__init__(address, context=context, **arguments)
-        # Kept under our own name rather than read back off the base class.
-        # `HTTPSConnection` stores it privately and has changed where over the
-        # years; this is one attribute and it costs nothing to own.
+        # Kept under our own name: `HTTPSConnection` stores it privately.
         self._ssl_context = context
         self._sni = sni
 
     def connect(self) -> None:
         raw = socket.create_connection((self.host, self.port), self.timeout)
-        # Wrapping here rather than letting the base class do it is the whole
-        # reason this subclass exists: this is where the server name announced
-        # in SNI is decided, and it is not the host being connected to.
+        # The reason for this subclass: SNI names the hostname, not the connected host.
         self.sock = self._ssl_context.wrap_socket(raw, server_hostname=self._sni)
         presented = self.sock.getpeercert(binary_form=True)
         if presented is None or not _certificate_covers(presented, self._sni):
@@ -183,14 +149,9 @@ class _SniConnection(http.client.HTTPSConnection):
 
 
 def _certificate_covers(der: bytes, hostname: str) -> bool:
-    """Whether a DER certificate's subject alternative names cover ``hostname``.
+    """Whether a DER certificate's SANs cover ``hostname``; CN alone does not count.
 
-    The SAN extension only, as every current client reads it: a certificate
-    naming its host only in the subject CN is one a browser rejects, so it is
-    not one this may accept. A wildcard covers exactly one leftmost label —
-    ``*.example.com`` names ``cdn.example.com``, not ``example.com`` and not
-    ``a.b.example.com`` — and a probe that asks for a wildcard ``server_name``
-    itself is answered by that same wildcard in the certificate.
+    A wildcard covers exactly one leftmost label.
     """
     try:
         certificate = x509.load_der_x509_certificate(der)

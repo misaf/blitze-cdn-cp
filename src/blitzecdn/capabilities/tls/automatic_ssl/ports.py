@@ -1,11 +1,4 @@
-"""What the Automatic SSL/TLS scan needs from the outside world.
-
-The consumer owns the port, so this is declared here rather than imported from
-the capability that satisfies it. ``origins`` ships an adapter with exactly this
-shape, but the *description* of what the scan calls belongs to the scan:
-an implementation is a fact about wiring, and wiring is
-:mod:`blitzecdn.capabilities.tls.wiring`'s.
-"""
+"""What the Automatic SSL/TLS scan needs from outside; ``origins`` satisfies it."""
 
 from __future__ import annotations
 
@@ -20,9 +13,8 @@ __all__ = ["OriginCheckRunner"]
 class OriginCheckRunner(Protocol):
     """Ask every edge in scope to connect to the origins it proxies to.
 
-    The scan calls it twice — once for each site's current transport and once
-    for the same sites under Full (strict) — and upgrades only where every
-    edge answered and both answers agree.
+    Called for the current transport and again under Full (strict); an upgrade
+    needs every edge answering both, consistently.
     """
 
     def run_origin_check(

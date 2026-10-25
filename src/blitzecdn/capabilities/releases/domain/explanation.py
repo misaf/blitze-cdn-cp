@@ -1,30 +1,10 @@
 """Why one derived host is served the way it is, setting by setting.
 
-"Why is this hostname not caching" is the question operators actually arrive
-with. The ``/resolve`` endpoint names the rule that won, which settles the
-match; it does
-not settle where any individual value came from, and the two are not the same
-question. A rule that wins and overrides nothing relevant leaves the zone's
-value in place, and an operator who reads only "rule ``api`` applied" goes and
-edits the rule.
-
-So an explanation is per setting, and it names one of three origins:
-
-``RULE``
-    the winning rule set this value explicitly; it is in ``rule.overrides``.
-``ZONE``
-    the zone set it, and no rule overrode it.
-``DEFAULT``
-    nobody set it. The value is the one the schema carries for a field nobody
-    has an opinion about, which is the case an operator most often mistakes for
-    a setting they made.
-
-The distinction between ``ZONE`` and ``DEFAULT`` is drawn by comparing against
-the field's declared default rather than by remembering which fields were named
-in the last patch. That is deliberate: an operator who explicitly sets caching
-to the value it already had has changed nothing an edge can observe, and an
-explanation that claimed otherwise would be describing the audit log rather
-than the configuration.
+Knowing which rule won does not say where each value came from: a winning rule
+that overrides nothing relevant leaves the zone's value. Each setting names
+``RULE`` (the rule set it), ``ZONE`` (the zone set it) or ``DEFAULT`` (nobody
+did). ``ZONE`` versus ``DEFAULT`` compares against the declared default, so
+setting a value to what it already was changes nothing observable.
 """
 
 from __future__ import annotations
@@ -57,22 +37,12 @@ class SettingSource(BaseModel):
     #: release document, and a policy value may be an enum or a nested model.
     value: object
     origin: SettingOrigin
-    #: The rule that decided it, when ``origin`` is ``RULE``. Never set
-    #: otherwise: a zone value that a rule *could* have overridden and did not
-    #: is a zone value, and naming the rule beside it reads as though the rule
-    #: chose to leave it alone — which is a decision no rule records.
+    #: Set only when ``origin`` is ``RULE``; a value a rule left alone is the zone's.
     rule: str | None = None
 
 
 class HostExplanation(BaseModel):
-    """Every effective setting for one derived host, and its source.
-
-    Keyed by the derived host rather than by hostname. A group of hostnames
-    that resolve alike *is* one virtual host — same zone, same winning rule,
-    same origin — so one explanation covers all of them, and emitting one per
-    hostname would be the same document repeated with the ``server_names`` list
-    sliced up.
-    """
+    """Every effective setting for one derived host, which covers all its hostnames."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -87,12 +57,7 @@ class HostExplanation(BaseModel):
 
 
 def _declared_defaults() -> dict[str, object]:
-    """Each policy field's schema default, in JSON form.
-
-    Built from the composed policy's flat editing projection. Identity is not
-    a policy component, and nested storage containers are not operator setting
-    names; the explanation must use the same vocabulary as the zone editor.
-    """
+    """Each policy field's schema default, in the zone editor's vocabulary."""
     return SitePolicy().settings(mode="json")
 
 
@@ -106,10 +71,7 @@ def explain(
 ) -> HostExplanation:
     """Attribute every effective setting of one derived host to its source.
 
-    Takes the zone and the winning rule rather than the merged policy, because
-    the merge is exactly the information being recovered: once the two
-    documents are one, ``cache_enabled=False`` no longer says whether the zone
-    or the rule wanted it that way.
+    Takes the zone and rule separately, since merging erases the attribution.
     """
     defaults = _declared_defaults()
     overrides = dict(rule.overrides) if rule is not None else {}

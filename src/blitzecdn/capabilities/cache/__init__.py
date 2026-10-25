@@ -1,8 +1,4 @@
-"""Cache policy and cache operations.
-
-Shipped with the application. Contracts stay pure; services and concrete
-providers are assembled explicitly by composition.
-"""
+"""Cache policy, purging and statistics."""
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 

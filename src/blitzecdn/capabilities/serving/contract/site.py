@@ -21,10 +21,8 @@ from blitzecdn.core.domain.policy import CapabilityPolicy
 class SitePolicy(BaseModel):
     """One serving policy composed from independently validated contracts.
 
-    Policy ownership is a named field rather than a position in an inheritance
-    order. Zones and derived hosts hold this value; neither is a kind of TLS,
-    caching or security policy. Flat settings are an explicit boundary format
-    used by editing commands and edge documents, never the stored model shape.
+    Each contract is a named field, not a base class. Flat settings are only an
+    edit and edge-document format, never the stored shape.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -40,12 +38,7 @@ class SitePolicy(BaseModel):
 
     @classmethod
     def component_types(cls) -> Mapping[str, type[CapabilityPolicy]]:
-        """The declared value fields, with no parallel registry to drift.
-
-        A new contract participates by being an explicitly typed nested field.
-        Reading those fields is ordinary composition; inspecting base classes
-        would let inheritance accidentally add behavior without a value owner.
-        """
+        """The declared contract fields, read from the model itself."""
         components: dict[str, type[CapabilityPolicy]] = {}
         for name, field in cls.model_fields.items():
             if name == "enabled":
@@ -71,12 +64,7 @@ class SitePolicy(BaseModel):
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, Any]) -> Self:
-        """Decode the flat command or edge format at an explicit boundary.
-
-        This is not a model validator: ordinary constructors and stored JSON
-        accept only nested values. Unknown names must fail rather than vanish
-        while partitioning a settings mapping between its owners.
-        """
+        """Decode the flat format, explicitly; unknown names fail rather than vanish."""
         unknown = sorted(set(settings) - set(cls.setting_fields()))
         if unknown:
             raise ValueError("unknown serving settings: " + ", ".join(unknown))
@@ -109,11 +97,9 @@ class SitePolicy(BaseModel):
         return document
 
     def applying(self, changes: Mapping[str, Any]) -> Self:
-        """Revalidate named settings while retaining every unrelated value.
+        """Revalidate named settings, keeping every unrelated value.
 
-        Leaf blocks such as firewall and visitor headers replace wholesale,
-        preserving editing semantics. The capability containers themselves are
-        never blindly replaced with partial dictionaries.
+        Leaf blocks such as firewall and visitor headers replace wholesale.
         """
         return type(self).from_settings(self.settings() | dict(changes))
 

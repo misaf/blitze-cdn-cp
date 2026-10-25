@@ -13,17 +13,11 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.runtime.resources import distribution_version, package_directory
 
-#: This distribution's version, asked of the environment rather than
-#: written down here: it is what ``FeatureMetadata.version`` reports and
-#: what ``blitzecdn plugins`` shows an operator, so the one number that
-#: must not drift from ``pyproject.toml`` is not copied out of it.
+#: The installed distribution's version, read from package metadata.
 __version__ = distribution_version(__name__)
 
-#: The Jinja fragments this capability contributes to the edge's Nginx
-#: configuration, resolved under the same guard its roles are. A sibling of
-#: ``ansible/`` rather than a child: the controller renders these into each
-#: release's configuration, so they are not part of any role this package
-#: ships.
+#: The Nginx fragments this capability contributes, rendered into each
+#: release on the controller rather than shipped inside a role.
 NGINX_TEMPLATES = (
     package_directory(
         __name__,
@@ -53,11 +47,8 @@ FEATURES = (
                 feature="compression",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
-                # gzip is compiled into Nginx; Brotli is not, and it is the
-                # whole reason this capability needs anything from the image.
-                # Only the filter module is loaded: the static one serves
-                # pre-compressed `.br` files from disk, which a proxy cache
-                # never has.
+                # Brotli is not compiled into Nginx. Only the filter module: a proxy
+                # cache has no pre-compressed `.br` files for the static one.
                 edge_modules=(
                     EdgeModule(
                         name="brotli",

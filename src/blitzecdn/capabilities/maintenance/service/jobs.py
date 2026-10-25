@@ -1,11 +1,7 @@
-"""Running one scheduled job, and paying off what it left owing.
+"""Running one scheduled job, and converging what it left owing.
 
-Every scheduled job is contributed by the feature that owns the work — renewing
-certificates belongs to `certificates`, checking drift to `deployments` — so
-this service does not know what any of them do. What it owns is the rule that
-holds across all of them: a maintenance run that changed something a fleet has
-not seen yet must be followed by a convergence, or the change sits in the
-database until an operator happens to deploy for another reason.
+Features own the jobs; this owns the rule that a run leaving a deployment
+requirement pending is followed by a convergence.
 """
 
 from __future__ import annotations
@@ -27,10 +23,7 @@ class MaintenanceService:
     def run(self, job: str, operator: str = "scheduler") -> None:
         """Run one named job, then converge if it left a requirement pending.
 
-        The name arrived in a queue message, so it may name a job that no
-        longer exists — a feature removed while its last message was still in
-        flight. That is a `NotFoundError` naming what is installed rather than
-        a `KeyError`, because an operator reads the worker log.
+        An unknown name — a removed feature's queued job — is a ``NotFoundError``.
         """
         table = self._jobs
         if job not in table:

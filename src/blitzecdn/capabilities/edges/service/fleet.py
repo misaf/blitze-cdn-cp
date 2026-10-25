@@ -1,19 +1,7 @@
 """The fleet: who is in it, and what can be done to it short of converging.
 
-Registering, updating and removing an edge changes *which hosts exist* — and
-because the Ansible inventory is read from the same rows, writing one here is
-what publishes it to Ansible. Decommissioning acts on the fleet without
-changing desired state; it writes no deployment record and, deliberately, does
-not take the deployment lock.
-
-Registration goes through a service rather than straight to the store so that
-both entry points reach it the same way and every change is audited: "who added
-this edge, and when" is a question the audit trail can answer.
-
-What is *stored* on the edges is a different question, and it is not this
-capability's: purging and cache statistics are ``cache``'s, and asking the
-edges whether they can reach their origins is ``origins``'. That they also
-reach the fleet describes the transport rather than the work.
+Writing an edge publishes it to Ansible, and every change is audited.
+Decommissioning writes no deployment and takes no deployment lock.
 """
 
 from __future__ import annotations
@@ -53,14 +41,7 @@ class EdgeOperationsService:
         return self.edges.get_edge(name)
 
     def add_edge(self, edge: Edge, operator: str) -> Edge:
-        """Register an edge. It joins the fleet on the next run, not this one.
-
-        Nothing is converged here and nothing reaches the host. The edge simply
-        exists from now on, which means the next deploy includes it — so a new
-        edge goes from registered to serving in one ``blitzecdn deploy``,
-        rather than needing an inventory file to be written first and hoping
-        the two agree.
-        """
+        """Register an edge; it joins the fleet on the next deploy."""
         with self.uow.transaction():
             created = self.edges.create_edge(edge)
             self.events.record(
@@ -81,11 +62,9 @@ class EdgeOperationsService:
         return created
 
     def update_edge(self, name: str, patch: EdgePatch, operator: str) -> Edge:
-        """Change an existing edge's connection or public details.
+        """Change an edge's connection or public details; renaming is not possible.
 
-        Renaming is deliberately not possible. The name is how a certificate
-        preflight, a ``--limit`` and every audit event so far refer to this
-        host; a rename would silently orphan all of them. Remove and re-add.
+        Certificates, ``--limit`` and audit events refer to the name. Remove and re-add.
         """
         current = self.edges.get_edge(name)
         updated = Edge.model_validate(
@@ -105,14 +84,7 @@ class EdgeOperationsService:
         return saved
 
     def remove_edge(self, name: str, operator: str) -> None:
-        """Stop managing an edge without touching the host.
-
-        The narrow case: a host already wiped by other means, or one that no
-        longer exists. Everything BlitzeCDN put on a live host — its
-        configuration, and the private keys for every certificate it serves —
-        stays exactly where it is, which is why ``decommission_edge`` is what
-        the CLI reaches for by default.
-        """
+        """Stop managing an edge without touching the host, whose keys stay in place."""
         with self.uow.transaction():
             self.edges.delete_edge(name)
             self.events.record(domain_event(operator, "edge.removed", "edge", name))
@@ -124,17 +96,9 @@ class EdgeOperationsService:
     ) -> tuple[HostRun, ...]:
         """Strip an edge of BlitzeCDN state, then take it out of inventory.
 
-        The order is the whole point. Removing the inventory entry first would
-        leave a host that no playbook can address again, still serving the
-        virtual hosts it last converged and still holding the private keys for
-        them. So the teardown runs while the host is still reachable, and the
-        entry is deleted only once it reports clean.
-
-        ``force`` drops the entry after a failed or unreachable teardown. It is
-        for a host that no longer exists — a destroyed instance cannot be
-        cleaned and would otherwise block its own removal forever. On a host
-        that is merely down it is the wrong answer: the keys stay where they
-        are and nothing will ever come back for them.
+        Teardown first, while the host is still addressable; the entry goes only once
+        it reports clean. ``force`` drops it anyway, for a destroyed host — on one that
+        is merely down, its keys stay behind for good.
         """
         if name not in {edge.name for edge in self.edges.list_edges()}:
             raise ConfigurationError(f"edge does not exist: {name}")
@@ -147,15 +111,12 @@ class EdgeOperationsService:
             failure = str(error)
         else:
             hosts = run.hosts
-            # Deliberately not HostRun.in_sync: a teardown that removed
-            # anything reports changed>0, which is what success looks like
-            # here. Only failed and unreachable mean files were left behind.
+            # Not `in_sync`: a teardown that removed things reports changes. Only failed
+            # and unreachable mean files were left.
             if not hosts:
                 failure = run.unreported("teardown")
             elif not run.succeeded or any(not host.succeeded for host in hosts):
-                # run.summary() names the task that failed, on the host it
-                # failed on. That is the difference between "teardown failed"
-                # and "teardown failed removing /etc/blitzecdn on edge-b".
+                # run.summary() names the failed task and host.
                 failure = run.summary()
 
         if failure is not None and not force:

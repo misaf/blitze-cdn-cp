@@ -29,35 +29,18 @@ from blitzecdn.core.persistence.engine import Database
 
 
 def _rows_affected(result: Result[Any]) -> int:
-    """``rowcount`` for a DML statement.
-
-    ``Session.execute`` is typed as returning ``Result``, which has no
-    ``rowcount`` — only the ``CursorResult`` a DML statement actually produces
-    does. The narrowing is here rather than at each call site so "how many rows
-    did that touch" stays one readable expression.
-    """
+    """``rowcount`` for a DML statement, narrowed from ``Result`` once, here."""
     return cast("CursorResult[Any]", result).rowcount
 
 
 class DeploymentStore:
-    """Deployment history, and which release each run converged.
-
-    Holds no desired state of its own. A deployment names a release, the
-    release is immutable and content-addressed, and the release capability
-    owns both it and the canonical inputs behind it, so a row carries a
-    sixteen-character reference rather than a copy of every zone and record.
-    """
+    """Deployment history, and which release each run converged, by reference."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
 
     def in_use(self) -> Sequence[str]:
-        """Every release some deployment still names.
-
-        Satisfies ``releases.ports.ReleaseReferences``, which pruning asks
-        before it removes anything: a release a deployment converged is the
-        fleet's way back to that state, and age is no reason to drop it.
-        """
+        """Every release some deployment still names; pruning must keep them."""
         with self._db.session() as session:
             return list(
                 session.scalars(select(col(DeploymentRow.release_id)).distinct()).all()
@@ -88,19 +71,14 @@ class DeploymentStore:
             )
             session.add(row)
             session.flush()
-            # Built from the row this call wrote, inside the transaction that
-            # wrote it. Re-reading afterwards would be a second transaction,
-            # describing whatever the table said by then rather than what was
-            # just created.
+            # Built from the row just written, inside the same transaction.
             return self._deployment(row)
 
     def save(self, before: Deployment, after: Deployment) -> Deployment:
-        """Record a transition ``before.start(...)`` or ``before.finish(...)`` made.
+        """Record a transition, only while the row is still in ``before``'s status.
 
-        Whether the step is lawful was decided by the domain method that built
-        ``after``. This owns the race: the write happens only while the row is
-        still in ``before``'s status, so the loser of two processes moving one
-        deployment gets a ``ConflictError`` rather than overwriting the winner.
+        The domain method decided the step is lawful; this decides the race, so the
+        loser of two processes gets a ``ConflictError`` instead of overwriting.
         """
         if after.id != before.id:
             raise ValueError("a transition cannot change which deployment it is")
@@ -174,12 +152,7 @@ class DeploymentStore:
             return [self._deployment(row) for row in rows]
 
     def abandon_running(self) -> int:
-        """Close out deployments the last controller process left in flight.
-
-        They are given a result of their own rather than only a status: every
-        reader now expects to find why a deployment ended in `result`, and
-        "the controller restarted" is as much an answer as a failed task is.
-        """
+        """Close out deployments a dead controller process left running."""
         now = self._db.now()
         abandoned = abandoned_run(
             "the controller restarted before this deployment completed", now=now
@@ -200,23 +173,9 @@ class DeploymentStore:
     def prune_history(self, keep: int) -> int:
         """Drop finished check-mode deployments beyond the newest ``keep``.
 
-        Only check-mode rows. A real deployment is history an operator reads
-        after an incident and, more to the point, is what
-        :meth:`successful_rollback_target` chooses from — pruning one could
-        remove the last deployment naming the release the fleet needs to go
-        back to. Check-mode runs can
-        never be that: rollback selection filters them out.
-
-        Queued and running checks are recovery state, not history. Removing
-        them would also cascade-delete their target checkpoints while a job
-        can still be waiting to execute or resume them.
-
-        They are also the ones that accumulate. The drift timer fires hourly
-        and each firing writes a row. A row is cheap — it names a release
-        rather than embedding one — but it is still a row an hour
-        that says nothing an operator will read. Run-log retention exists for
-        the same reason on the same schedule; this is that policy applied to
-        the rows.
+        Only check-mode rows: real deployments are what rollback chooses from, and
+        queued or running checks are recovery state. The hourly drift check is what
+        makes these accumulate.
         """
         finished = tuple(status.value for status in TERMINAL_STATUSES)
         with self._db.session() as session:
@@ -241,10 +200,8 @@ class DeploymentStore:
             )
 
     def successful_rollback_target(self, current_release: str) -> Deployment:
-        # `host_limit IS NULL` keeps canaries out of the automatic choice. A
-        # limited run only proves one edge reached that release, so rolling
-        # the fleet back to it would converge most edges onto a state they
-        # were never running. An operator can still name one explicitly.
+        # `host_limit IS NULL` keeps canaries out of the automatic choice: one edge
+        # reaching a release does not make it a state the fleet was running.
         with self._db.session() as session:
             row = session.scalars(
                 select(DeploymentRow)
@@ -320,23 +277,15 @@ __all__ = [
 class DeploymentTargetStore:
     """Per-edge rollout progress, written under a fence.
 
-    Every write names the generation it was read at. A worker that was paused
-    past its job lease and comes back believing it still owns the rollout
-    updates zero rows and is told so, rather than recording an outcome for an
-    edge somebody else has since converged.
+    Every write names the generation it read, so a worker that outlived its lease
+    updates nothing and is told so.
     """
 
     def __init__(self, database: Database) -> None:
         self._db = database
 
     def claim_generation(self, deployment_id: str) -> int:
-        """Take this deployment over, and return the fence that proves it.
-
-        Incrementing rather than setting, so two workers that both try to take
-        the same deployment end up with different fences and only the later one
-        can write. The increment and the read are one statement for the obvious
-        reason: read-then-increment would hand both workers the same number.
-        """
+        """Take this deployment over atomically, returning the new fence."""
         with self._db.session() as session:
             generation = session.execute(
                 update(DeploymentRow)
@@ -363,20 +312,12 @@ class DeploymentTargetStore:
             return row.generation
 
     def plan(self, deployment_id: str, edges: Sequence[str], *, fence: int) -> None:
-        """Record the edges this rollout aims at, and stamp them with its fence.
+        """Record the edges this rollout aims at, and stamp every row with its fence.
 
-        Two jobs, and the second is the takeover. Rows are inserted where
-        absent — so resuming an interrupted rollout adds the edges a fleet
-        gained since and leaves the progress of the rest alone — and *every*
-        row for this deployment is then stamped with the claiming generation.
-
-        That stamp is what makes the fence work. A generation on the deployment
-        alone says who claimed it; a generation on each row is what a
-        conditional write can name, so the previous owner's next write matches
-        nothing and it is told rather than left believing it succeeded.
-
-        Written when the rollout starts rather than when each edge is reached,
-        because "three edges were never attempted" has to be a fact on a row.
+        Missing rows are inserted, so a resumed rollout picks up newly added edges and
+        keeps the rest's progress. Stamping each row is what lets the previous owner's
+        next conditional write match nothing. Written up front so edges never attempted
+        are a fact on a row.
         """
         with self._db.transaction(), self._db.session() as session:
             deployment = session.get(DeploymentRow, deployment_id)
@@ -466,13 +407,7 @@ class DeploymentTargetStore:
     def skip_remaining(
         self, deployment_id: str, *, fence: int, now: datetime, reason: str
     ) -> int:
-        """Close out the edges a stopped rollout never reached.
-
-        SKIPPED rather than FAILED, and the distinction is the point: these
-        edges are still serving whatever they had and nothing is known to be
-        wrong with them. Reporting them as failures would send an operator to
-        look at hosts that are fine.
-        """
+        """Mark edges a stopped rollout never reached SKIPPED: none is known bad."""
         with self._db.session() as session:
             return _rows_affected(
                 session.execute(

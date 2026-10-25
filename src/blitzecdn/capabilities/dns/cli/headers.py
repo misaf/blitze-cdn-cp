@@ -1,10 +1,4 @@
-"""What the edge tells the origin about the visitor.
-
-Edits the block declared by :mod:`blitzecdn.capabilities.serving.contract.headers`,
-which this capability owns for the reason given there: writing the trusted
-`BZ-*` headers is something a managed edge does with nothing installed beside
-the control plane, so there is no distribution to reunite it with.
-"""
+"""What the edge tells the origin about the visitor; the block serving owns."""
 
 from __future__ import annotations
 

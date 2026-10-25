@@ -91,11 +91,8 @@ class CertificateStore:
             private_key_digest=hashlib.sha256(private_key_pem).hexdigest(),
             email=email,
         )
-        # The chain and key are one logical value. Fixed filenames would make
-        # two otherwise-atomic replaces unsafe as a pair: a crash between them
-        # would leave a new chain beside the old key. Immutable fingerprinted
-        # files plus a metadata commit written last give readers either the
-        # complete old pair or the complete new pair.
+        # Chain and key are one value: immutable fingerprinted files plus metadata
+        # written last give readers the complete old pair or the complete new pair.
         self._write_version(
             directory / f"fullchain-{info.certificate_digest}.pem", certificate_pem
         )
@@ -115,14 +112,9 @@ class CertificateStore:
         return CertificateInfo.model_validate_json(path.read_bytes())
 
     def list_all(self) -> list[CertificateInfo]:
-        """Every certificate this store holds, oldest expiry first.
+        """Every certificate held on disk, oldest expiry first, including orphaned ones.
 
-        Reads the store rather than the sites table on purpose: a certificate
-        whose site was deleted still occupies disk and still expires, and an
-        operator asking what they hold should be told about it. A directory
-        without readable metadata is skipped — it is not a certificate we can
-        say anything true about, and raising would make one damaged file hide
-        every healthy one.
+        Unreadable metadata is skipped so one damaged file hides nothing else.
         """
         root = self._settings.certificate_dir
         if not root.is_dir():
@@ -161,10 +153,9 @@ class CertificateStore:
     def collect(self, referenced_paths: Sequence[str]) -> tuple[str, ...]:
         """Delete only recognizable immutable files absent from every root.
 
-        The caller owns the deployment lock and canonical write transaction.
-        Metadata is another root, including material installed before a failed
-        writeback. Validate every metadata root before deleting any candidate.
-        Symlinked directories/files and unknown files are never traversed.
+        The caller holds the deployment lock and write transaction. Every metadata root
+        is validated before anything is deleted; symlinks and unknown files are never
+        traversed.
         """
         root = self._settings.certificate_dir
         if not root.is_dir() or root.is_symlink():
@@ -203,11 +194,7 @@ class CertificateStore:
 
     @staticmethod
     def _write_version(path: Path, payload: bytes) -> None:
-        """Never overwrite content already addressed by a release.
-
-        Retain superseded versions: an older release can still refer to them.
-        Metadata is inventory; canonical policy selects a compilation's version.
-        """
+        """Write a fingerprinted version; never overwrite one a release may name."""
         if path.exists():
             if path.read_bytes() != payload:
                 raise ConfigurationError(
@@ -276,9 +263,7 @@ class CertificateStore:
 class CertbotIssuer:
     def __init__(self, settings: Settings, certbot: str) -> None:
         self._settings = settings
-        # Passed rather than read off `Settings`, which does not carry it:
-        # which certbot to run is this capability's configuration, and an
-        # installation without this distribution has no certbot to name.
+        # Passed in: which certbot to run is this capability's configuration.
         self._certbot = certbot
 
     def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]:
@@ -315,19 +300,9 @@ class CertbotIssuer:
             f"{hook} absent",
             "--non-interactive",
             "--agree-tos",
-            # Certbot's default is `--keep-until-expiring`: given an existing
-            # lineage that is not near expiry it prints "Certificate not yet
-            # due for renewal", exits 0, and leaves `live/` untouched. This
-            # adapter then reads the *old* PEM back and returns it as freshly
-            # issued, so a renewal reports success, stores the same
-            # fingerprint, and changes nothing on any edge.
-            #
-            # Whether a certificate is due is this product's decision, taken
-            # before `issue` is ever called -- by the renewal threshold, or by
-            # an operator passing `--force`. Certbot re-making that decision
-            # from its own view of expiry can only silently overrule the
-            # caller, never inform it, because "kept" and "issued" are the
-            # same exit code and the same files.
+            # Certbot's default `--keep-until-expiring` exits 0 without renewing a
+            # lineage it thinks is not due, and the old PEM would be returned as fresh.
+            # Whether a certificate is due is decided before `issue` is called.
             "--force-renewal",
             "--email",
             email,

@@ -23,12 +23,9 @@ from blitzecdn.capabilities.tls.contract import (
 class AutomaticSslService:
     """Probe both origin transports and apply only proven upgrades.
 
-    Cloudflare's scanner compares HTTP and HTTPS representations and rolls an
-    upgrade out gradually. BlitzeCDN cannot split a single Nginx virtual host by
-    traffic percentage, so it takes the conservative equivalent available to
-    this architecture: every edge must answer, HTTP and HTTPS must return the
-    same status on each edge, and one fleet-wide deploy applies the upgrade.
-    Any missing or inconsistent answer leaves the current mode untouched.
+    Nginx cannot split one virtual host by traffic share, so instead of a gradual
+    rollout every edge must answer, HTTP and HTTPS must agree on each, and one
+    fleet deploy applies it. Anything missing or inconsistent leaves the mode alone.
     """
 
     def __init__(

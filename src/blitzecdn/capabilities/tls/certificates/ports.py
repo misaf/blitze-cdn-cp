@@ -30,17 +30,7 @@ from blitzecdn.core.ports.operations import EventRecorder
 
 
 class SiteEditor(Protocol):
-    """The one write this capability performs, and it is not to a site.
-
-    A virtual host is derived from a zone, its rules and its records, so there
-    is nothing to update on the host itself. These two record their result
-    against whatever *authored* the host — the zone, or the rule that bent it
-    — and the host service knows which. That the two methods still take
-    a host is right: the host is what a certificate was issued for.
-
-    The two writeback methods are declared here because this package is
-    their consumer.
-    """
+    """Record issuance results against the zone or rule that authored a host."""
 
     def activate_managed_certificate(
         self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
@@ -52,16 +42,7 @@ class SiteEditor(Protocol):
 
 
 class RecordReader(Protocol):
-    """Finding a record for a hostname, for its TTL.
-
-    Preflight compares the record's TTL against how long a validation may take,
-    so this stays pointed at `dns` — it is genuinely a question about DNS and
-    not about the host.
-
-    It asks by hostname rather than by host name now. A host is a group of
-    hostnames that resolve alike, and "a record routed to this site" stopped
-    being a stored relationship anything could look up.
-    """
+    """Finding a record for a hostname, for preflight's TTL check."""
 
     def record_for_hostname(self, fqdn: str) -> DnsRecord: ...
 
@@ -147,10 +128,9 @@ class MaterialReferences(Protocol):
 
 
 class ReleaseHistory(Protocol):
-    """Current canonical state and the state each retained release was built from.
+    """Current canonical state, and the state each retained release was built from.
 
-    Certificate collection must keep every certificate version that current
-    policy or a retained rollback target still names.
+    Collection keeps every certificate version either still names.
     """
 
     def inputs(self) -> ReleaseInputs: ...

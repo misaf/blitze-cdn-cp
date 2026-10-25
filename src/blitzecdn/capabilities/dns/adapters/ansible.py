@@ -12,10 +12,7 @@ __all__ = ["site_to_ansible"]
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
-    """Serialize a host, omitting nulls and empty blocks that opt into omission.
-
-    Blocks declare this behavior with ``OmittedWhenEmpty``; the adapter does not
-    need to know their capability-specific fields."""
+    """Serialize a host, omitting nulls and empty ``OmittedWhenEmpty`` blocks."""
     document = serving_document(site)
     document = {name: value for name, value in document.items() if value is not None}
     for field, value in site.policy.settings().items():

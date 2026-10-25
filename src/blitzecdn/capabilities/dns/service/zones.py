@@ -1,7 +1,4 @@
-"""Zone and record editing, DNS export, and desired-state validation.
-
-Zones, rules, and records are canonical desired state. Virtual hosts are
-derived by ``dns.domain.hosts`` and are never stored independently."""
+"""Zone and record editing, DNS export, and desired-state validation."""
 
 from __future__ import annotations
 
@@ -38,9 +35,7 @@ class DnsService:
         uow: UnitOfWork,
     ) -> None:
         self.zones = zones
-        #: ``RuleReader`` and not ``RuleStore``: validation resolves hostnames
-        #: the way a deployment will, and the zone editor may never write a
-        #: rule. The narrow port is what says so.
+        #: Read-only rules: validation resolves hostnames as a deployment will.
         self.rules = rules
         self.events = events
         self.uow = uow
@@ -65,23 +60,13 @@ class DnsService:
     def update_domain(self, name: str, command: PolicyCommand, operator: str) -> Domain:
         """Change the policy every hostname in the zone is served by.
 
-        Resolve replacement or selective-edit intent against the stored zone
-        inside the transaction. Validate the complete result: the rules
-        that read across two settings — HTTP/3 needing edge TLS, a certificate
-        mode agreeing with its two paths — cannot be checked on a patch that
-        mentions one of them, and rejecting the merged zone is what stops a
-        half-applied pair from reaching an edge.
-
-        Nothing is resynced afterwards. This changes how hostnames are served,
-        not which ones exist, and ``server_names`` is a projection of records.
+        Intent is resolved against the stored zone inside the transaction, and the
+        merged zone is validated whole, so cross-field rules (HTTP/3 needing TLS, a
+        certificate mode and its paths) hold.
         """
         with self.uow.transaction():
-            # Read inside the boundary, and write against what was read. A
-            # patch is merged onto the whole stored document, so the write
-            # carries every field — including the ones this operator did not
-            # mention. Read outside, and a zone edited in between is not
-            # merged with but overwritten by a document assembled from a
-            # version that no longer exists.
+            # Read inside the boundary and write against what was read, so a concurrent
+            # edit is merged with, not overwritten.
             current = self.zones.get_domain(name)
             changes = command.changes(current.policy)
             reject_issuer_owned_certificate(changes)
@@ -99,12 +84,7 @@ class DnsService:
         return saved
 
     def delete_domain(self, name: str, operator: str) -> None:
-        """Remove a zone, every record in it, and every rule on it.
-
-        Both go by cascade, and nothing needs recomputing afterwards: the
-        virtual hosts a zone produced were derived from the rows that just
-        went, so they stop existing by the same act.
-        """
+        """Remove a zone with its records and rules; its hosts go with them."""
         with self.uow.transaction():
             self.zones.delete_domain(name)
             self.events.record(domain_event(operator, "domain.deleted", "domain", name))
@@ -163,13 +143,8 @@ class DnsService:
     ) -> DnsRecord:
         """Put a hostname on the edge, served by its zone's policy.
 
-        Only half the switch. The edge starts serving the hostname on the next
-        deploy, but the record only reaches clients once DNS answers with an
-        edge address rather than with the record's own.
-
-        ``value`` is left alone: it is the address the edge fetches from while
-        the orange cloud is on, and the DNS answer when it is off. Proxying
-        changes what the address means, not what it is.
+        The edge serves it from the next deploy; clients reach it once DNS answers
+        with an edge address. ``value`` stays as the origin.
         """
         return self.update_record(
             domain, name, type_, RecordPatch(proxied=True), operator
@@ -180,10 +155,7 @@ class DnsService:
     ) -> DnsRecord:
         """Take a hostname off the edge, answering with ``value`` instead.
 
-        The address is required rather than carried over from the origin. On
-        Cloudflare unproxying leaves the origin address behind as the public
-        answer, which publishes the origin to anyone who looks; naming the
-        replacement is one field more and one surprise fewer.
+        Required rather than carried over, so the origin is never published by default.
         """
         return self.update_record(
             domain, name, type_, RecordPatch(proxied=False, value=value), operator
@@ -200,12 +172,7 @@ class DnsService:
             )
 
     def record_for_hostname(self, fqdn: str) -> DnsRecord:
-        """A record answering for this hostname.
-
-        Certificate preflight needs one, for its TTL. Any of them will do — a
-        dual-stack hostname's two records carry the same TTL in every case
-        worth distinguishing.
-        """
+        """Any record answering for this hostname; preflight wants its TTL."""
         for record in self.zones.list_records():
             if record.fqdn == fqdn:
                 return record
@@ -217,17 +184,10 @@ class DnsService:
     # -- Reporting -----------------------------------------------------
 
     def dns_export(self) -> dict[str, object]:
-        """Every record, for the system that publishes DNS — and who that is.
+        """Every record, for the system that publishes DNS, with who that is.
 
-        An envelope rather than a bare list, because a list alone reads as an
-        answer to a question it does not answer. A caller
-        fetching it wants to know what DNS should say; what it also has to know
-        is that nothing here is going to say it. ``publication`` carries that,
-        so a client cannot consume this without meeting it.
-
-        A proxied record's address stays home: it is the origin the edge
-        fetches from, not the public answer, and the published A/AAAA is the
-        fleet's — edge addressing belongs to the DNS system rather than here.
+        ``publication`` travels with the records. A proxied record's origin is never
+        exported; its public answer is the fleet's address.
         """
         return {
             "publication": PUBLICATION.model_dump(mode="json"),
@@ -239,10 +199,8 @@ class DnsService:
                     "type": record.type.value,
                     "ttl": record.ttl,
                     "proxied": record.proxied,
-                    # The answer this record asks for, said outright rather
-                    # than left to the reader: a proxied hostname needs an edge
-                    # address, which only the fleet knows, and an unproxied one
-                    # needs exactly this value.
+                    # A proxied hostname needs an edge address only the fleet
+                    # knows; an unproxied one needs exactly this value.
                     "answer": ("an edge address" if record.proxied else record.value),
                     **({} if record.proxied else {"value": record.value}),
                 }
@@ -252,29 +210,18 @@ class DnsService:
 
     @staticmethod
     def publication() -> DnsPublication:
-        """Whether this installation publishes DNS. It does not.
-
-        A method on the service rather than a constant every caller imports,
-        because the delivery surfaces reach the domain through here and a
-        capability that did publish would answer this differently.
-        """
+        """Whether this installation publishes DNS. It does not."""
         return PUBLICATION
 
     def validation_errors(self) -> list[str]:
         """Report proxy configurations no edge could serve.
 
-        A hostname's proxied records must all point at the same origin: the
-        A and the AAAA resolve to the same virtual host, and a virtual host has
-        one upstream. Deployment validation also covers state loaded through
-        backup restoration or rollback, which can bypass the editing services.
+        A hostname's proxied records must share one origin, since a virtual host has
+        one upstream. Also catches restored or rolled-back state.
         """
         domains = self.zones.list_domains()
         records = self.zones.list_records()
-        # What the derivation refused to build. `derive_hosts` drops those
-        # groups rather than raising — one zone left inconsistent by a rollback
-        # must not make every read of the fleet fail — which means the drop is
-        # silent unless somebody asks. This is the asking, and a deploy asks
-        # before it converges.
+        # What `derive_hosts` dropped silently, reported here before a deploy.
         errors = [
             refused.message
             for refused in unservable_hosts(domains, self.rules.list_rules(), records)

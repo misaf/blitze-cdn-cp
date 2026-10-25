@@ -1,13 +1,8 @@
 """Creating and restoring a backup, as a sequence of decisions.
 
-The order is the whole design. Creating stages every component into a private
-directory, writes the manifest last, and only then publishes one archive under
-a name nothing else holds. Restoring reads and checks the entire archive before
-it writes a single byte of it anywhere real, because a restore that discovers a
-problem halfway has already destroyed the state it was asked to recover.
-
-Nothing here knows what a tar file is, how SQLite copies itself, or where a
-certificate lives. Those are the ports.
+Creation stages everything privately, writes the manifest last, then publishes
+under a fresh name. Restoration checks the whole archive before writing a byte
+anywhere real.
 """
 
 from __future__ import annotations
@@ -45,10 +40,7 @@ from blitzecdn.core.ports.clock import system_clock
 class BackupPolicy:
     """Where backups go and what this installation calls itself."""
 
-    #: The directory `create` writes into when no destination is given. It is
-    #: made `0700` on first use: the archives in it carry private keys, and a
-    #: mode on the files alone would still let anyone list what a controller
-    #: holds and when it was last backed up.
+    #: Default destination, made `0700` so archive names and dates stay private.
     backup_dir: Path
     #: Recorded in the manifest so an archive can say which release wrote it.
     version: str
@@ -88,11 +80,8 @@ class BackupService:
     ) -> Path:
         """Write one archive and return where it landed.
 
-        A full backup takes what is there: a controller that has never issued a
-        certificate has no TLS component, and refusing to back it up until it
-        does would be absurd. An explicit selection is the opposite — asking
-        for `--only tls` on such a controller is a mistake worth reporting,
-        because the operator believes they are protecting something.
+        A full backup takes whatever exists; an explicit selection of a component
+        that does not exist is an error.
         """
         moment = self.clock()
         selection = self._select(only)
@@ -111,9 +100,7 @@ class BackupService:
                 ),
                 components=tuple(selection),
             )
-            # Written last, so an archive that has a manifest has everything
-            # the manifest claims. A crash between the two leaves a staging
-            # directory nothing publishes rather than an archive that lies.
+            # Written last, so a manifest implies everything it claims is present.
             (staging / MANIFEST_NAME).write_text(
                 manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
             )
@@ -160,9 +147,7 @@ class BackupService:
             self.policy.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.policy.backup_dir.chmod(0o700)
         target = destination or (self.policy.backup_dir / backup_filename(moment))
-        # Checked here as well as at the atomic rename. This is the message an
-        # operator gets; the rename is what makes the answer true under a
-        # second process racing this one.
+        # The operator-facing check; the atomic rename is what enforces it.
         if target.exists():
             raise ConfigurationError(
                 f"{target} already exists; refusing to overwrite a backup"
@@ -178,12 +163,7 @@ class BackupService:
     # -- Restoring -----------------------------------------------------
 
     def restore(self, archive: Path) -> BackupManifest:
-        """Restore exactly the components the archive's manifest declares.
-
-        The manifest is the instruction, which is why there is no `--only`
-        here. A database-only archive restores a database; asking for TLS as
-        well would either be ignored or invent files, and neither is an answer.
-        """
+        """Restore exactly the components the archive's manifest declares."""
         manifest = self._validated_manifest(archive)
         gateways = [self._components[name] for name in manifest.components]
         with self.workspace.scratch("blitzecdn-restore-") as staging:
@@ -192,9 +172,7 @@ class BackupService:
                 gateway.validate(staging / gateway.component.value)
             self._check_staged_schema(manifest, staging)
             if BackupComponent.DATABASE in manifest.components:
-                # Check the archived revision before upgrading it. Migration
-                # and metadata verification must finish on the private copy
-                # before any live component is replaced.
+                # Migrate and verify the private copy before replacing anything live.
                 self.schema.migrate(staging / "database" / "blitzecdn.db")
             # Everything above changes staging only. Live writes start here.
             offline = any(gateway.requires_offline for gateway in gateways)
@@ -210,11 +188,7 @@ class BackupService:
     # -- Validation ----------------------------------------------------
 
     def _validated_manifest(self, archive: Path) -> BackupManifest:
-        """Every check that can be made from the archive alone.
-
-        Ordered cheapest and most fundamental first: a file that is not an
-        archive should not produce a complaint about a component.
-        """
+        """Every check the archive alone allows, most fundamental first."""
         if not archive.is_file():
             raise NotFoundError(f"{archive} does not exist")
         entries = self.archive.entries(archive)
@@ -275,13 +249,7 @@ class BackupService:
             )
 
     def _check_schema(self, manifest: BackupManifest) -> None:
-        """Refuse a database this installation could only migrate backwards.
-
-        Alembic migrates forward from a revision it knows. A revision it has
-        never heard of is a database from a *later* release, and restoring it
-        would leave tables the running code cannot read while reporting
-        success. There is no downgrade path here on purpose.
-        """
+        """Refuse a database from a later release; there is no downgrade path."""
         revision = manifest.database_schema_version
         if BackupComponent.DATABASE not in manifest.components or revision is None:
             return

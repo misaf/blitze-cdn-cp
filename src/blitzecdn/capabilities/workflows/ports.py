@@ -1,9 +1,4 @@
-"""What the workflow service calls, and what a caller of it must provide.
-
-`WorkflowJournal` is the store this capability's service writes through: a port
-with a service, a store and a table behind it is a capability seen from the
-outside, not a cross-cutting contract in core.
-"""
+"""What the workflow service calls: the journal it writes through."""
 
 from __future__ import annotations
 

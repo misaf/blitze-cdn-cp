@@ -1,9 +1,4 @@
-"""What this capability opens: certbot, the key material on disk, and DNS.
-
-`store.py` holds the certificate store and the certbot issuer, and
-`preflight.py` the resolver checks that decide whether an order is worth
-placing.
-"""
+"""Certbot and the key material on disk (`store`), and DNS checks (`preflight`)."""
 
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,

@@ -1,20 +1,9 @@
 """What the fleet says about the origins it proxies to.
 
-The check runs *on the fleet*, not on the controller. Run on the controller it
-answers about the controller's network — its routes, its resolver, its egress
-firewall — and none of those are the ones that matter. An origin that
-allow-lists the edges' addresses refuses the controller, and one reachable only
-from the controller's subnet passes and then 502s on every edge: both are the
-check reporting confidently on a question nobody asked.
-
-So each edge answers for itself, through the same ``blitzecdn_report`` channel
-the statistics role uses, and the report is per edge *and* per site: "the origin
-is up" is not a fleet-wide fact, and an origin reachable from three edges out of
-four is exactly the situation worth surfacing.
-
-``OriginCheck`` — one edge's answer about one origin — is deliberately *not*
-here: the controller's own advisory probe inside certificate preflight produces
-one without ever running this play, so it lives in ``edges``.
+Checked from the edges, not the controller, whose network is not the one
+carrying traffic: an origin allow-listing the edges refuses the controller.
+Reported per edge and per site, since reachable from three edges of four is
+the case worth surfacing.
 """
 
 from __future__ import annotations
@@ -47,13 +36,7 @@ class EdgeOriginChecks(BaseModel):
 
 
 class OriginReport(BaseModel):
-    """Every edge's answer, read per site rather than per edge.
-
-    Which is how to decide whether something is wrong: an origin every edge can
-    reach is healthy, one no edge can reach is down, and one some edges can
-    reach is a routing or allow-list problem that a single vantage point could
-    never have told apart.
-    """
+    """Every edge's answer, read per site: all reach it, none do, or some do."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -71,12 +54,7 @@ class OriginReport(BaseModel):
 
     @property
     def failing_sites(self) -> dict[str, tuple[str, ...]]:
-        """Sites with a failing origin, and the edges that could not reach it.
-
-        The shape the answer is wanted in: a site name is what an operator is
-        looking up, and the list of edges beside it is what says whether this is
-        the origin being down or the path from one edge being broken.
-        """
+        """Sites with a failing origin, and the edges that could not reach it."""
         failures: dict[str, list[str]] = {}
         for edge in self.reporting:
             for check in edge.failing:

@@ -1,11 +1,4 @@
-"""The HTTP shapes this capability publishes.
-
-Restated here rather than serialising the domain models directly, for the
-reason every capability's ``api`` package restates its own: a published schema
-is a contract with clients outside this repository, and a domain model is free
-to change. The two are the same today and the freezing test in
-``tests/contract/frozen`` is what will say so when they stop being.
-"""
+"""The HTTP shapes this capability publishes, restated from the domain models."""
 
 from __future__ import annotations
 
@@ -38,13 +31,7 @@ class ReleaseFinding(Model):
 
 
 class ArtifactDigest(Model):
-    """An artifact's name and digest, without the document itself.
-
-    The listing shape. A desired-state document carries every site's full
-    policy, so returning one inline everywhere would make ``GET /v1/releases``
-    grow with the fleet; the document is available from the artifact route,
-    which a client asks for when it actually wants to diff one.
-    """
+    """An artifact's name and digest, without the document; fetch that separately."""
 
     name: str
     digest: str
