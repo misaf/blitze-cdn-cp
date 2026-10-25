@@ -1,9 +1,8 @@
 """Host-side Docker SDK runner, copied by Ansible into /etc/blitzecdn.
 
-This file runs with the bootstrap interpreter without importing the application.
-The managed Compose document remains the service definition; this adapter accepts
-only the subset emitted by our role and rejects unsupported settings before it
-stops anything. Compose still owns installation and image builds.
+Runs under the bootstrap interpreter without the application. It accepts only
+the Compose subset our role emits, refusing anything else before stopping
+anything; Compose still owns installation and builds.
 """
 
 from __future__ import annotations
@@ -95,9 +94,8 @@ class ServiceDefinitions:
                 SERVICE_LABEL: name,
                 "com.docker.compose.oneoff": "False",
                 "com.docker.compose.container-number": "1",
-                # Compose discovers managed containers by the presence of this
-                # label. Its own hash differs, so the next install reconciles
-                # the SDK-created container from the authoritative service file.
+                # Compose finds managed containers by this label; the next install
+                # reconciles.
                 "com.docker.compose.config-hash": "blitzecdn-sdk",
             },
         }

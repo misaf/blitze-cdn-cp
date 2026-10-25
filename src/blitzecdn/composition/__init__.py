@@ -1,21 +1,9 @@
 """Where the application is put together, and the only place that decides.
 
-* :mod:`~blitzecdn.composition.roster` — the features this application ships,
-  and the rendering and operations each one binds.
-* :mod:`~blitzecdn.composition.infrastructure` — the concrete adapters: the
-  database, the fleet runner, the probes, the job queue.
-* :mod:`~blitzecdn.composition.services` — the service graph, built once from
-  the infrastructure.
-* :mod:`~blitzecdn.composition.processes` — one container per process, holding
-  only what that process uses, and its start and stop.
-* :mod:`~blitzecdn.composition.installation` — explicit database maintenance
-  without constructing application services.
-* :mod:`~blitzecdn.composition.repository` — which capability stores sit on one
-  SQLite database.
-
-The processes themselves — :mod:`blitzecdn.entrypoints` — import from here. The names
-re-exported below are the whole public face; nothing outside this package imports one of
-its modules by name.
+``roster`` lists the features and what each binds; ``infrastructure`` builds
+the concrete adapters; ``services`` the service graph; ``processes`` one
+container per process; ``installation`` database maintenance; ``repository``
+which stores share the database. Import only the names re-exported here.
 """
 
 from blitzecdn.composition.infrastructure import FleetRunner, Infrastructure

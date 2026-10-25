@@ -1,17 +1,9 @@
-"""Command-line adapter package.
+"""Command-line adapter package; imports nothing at package import time.
 
-Nothing is imported at package import time, and that is load-bearing. Every capability's
-command module does ``from blitzecdn.entrypoints.cli import common``, which runs this
-file first — so an eager ``from blitzecdn.entrypoints.cli.main import app`` here meant
-importing a capability's commands re-entered the module that assembles them, and feature
-discovery found itself half-loaded.
-
-``app`` is still reachable as ``blitzecdn.entrypoints.cli.app`` through PEP 562, for the
-published introspection surface the documentation site reads. Resolving it on access
-rather than on import is what keeps the cycle broken; the root Typer and its global
-options live in :mod:`blitzecdn.entrypoints.cli.root`, which is deliberately not named
-``app`` — a submodule of that name would shadow this attribute the moment anything
-imported it.
+Every command module imports ``common`` from here, so an eager import of the
+assembled app would re-enter command loading. ``app`` is resolved lazily via
+PEP 562 for the documentation site; the root Typer lives in ``root``, never a
+submodule named ``app``, which would shadow it.
 """
 
 from typing import Any

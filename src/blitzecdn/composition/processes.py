@@ -1,10 +1,7 @@
 """What each process is given, and what it does when it starts and stops.
 
-Every container here is built from the one service graph in
-:mod:`blitzecdn.composition.services` and holds only what its process uses.
-Delivery code reads its own container, so an API route cannot reach a service
-the API was not given, and a process's differences are which container it
-builds rather than branches inside one object.
+Each container holds only what its process uses, so a route cannot reach a
+service the API was not given.
 """
 
 from __future__ import annotations
@@ -97,13 +94,7 @@ class ApiServices:
     _infrastructure: Infrastructure
 
     def start(self) -> None:
-        """Run every feature's node startup, then publish the schedules.
-
-        The API is the process that lives as long as the node does, so
-        recovery work belongs to it. Registration is idempotent, never moves
-        an existing schedule's next firing, and drops a schedule nothing
-        contributes any more.
-        """
+        """Run every feature's node startup, then register the schedules."""
         self._operations.startup()
         self._scheduler.register(schedule_specs(self._jobs))
 
@@ -248,13 +239,7 @@ def build_install_handoff(services: ApplicationServices) -> HandoffServices:
 def _job_handlers(
     deployments: DeploymentService, maintenance: MaintenanceService
 ) -> dict[str, JobHandler]:
-    """What each kind of job does in the worker.
-
-    Both handlers call a service already built for duplicate delivery:
-    ``run_queued`` leaves terminal deployments untouched and resumes unfinished
-    ones; maintenance runs are idempotent. The deployment's persisted outcome,
-    including on redelivery, determines whether its job succeeded.
-    """
+    """What each job kind does in the worker; both handlers tolerate redelivery."""
     failed_states = TERMINAL_STATUSES - {DeploymentStatus.SUCCEEDED}
 
     def deployment(payload: Mapping[str, Any]) -> JobOutcome:

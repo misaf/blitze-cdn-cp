@@ -1,14 +1,6 @@
 """First-run commands: scaffold the local configuration a controller needs.
 
-Named for the command it carries, the way `configuration.py` next door is named
-for `config`. Calling it `bootstrap.py` would make `bootstrap` two unrelated
-things one import apart: the composition root, and the two commands that
-scaffold a `.env` before a control plane can be wired.
-
-``setup`` creates no inventory file. The fleet lives in the ``edges`` table and
-Ansible reads it through the ``blitzecdn`` inventory plugin, so the only
-inventory artefact is the plugin's configuration — which is tracked and ships
-with the project.
+No inventory file: Ansible reads the fleet through the inventory plugin.
 """
 
 from __future__ import annotations
