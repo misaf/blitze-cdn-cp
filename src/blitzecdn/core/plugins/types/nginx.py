@@ -1,7 +1,7 @@
 """Nginx template fragments an installed capability contributes.
 
-Answered by ``blitzecdn_nginx_contributions``, and rendered into the tree
-``blitzecdn_nginx`` writes.
+Answered by ``blitzecdn_nginx_contributions``, and rendered into each release's
+configuration tree on the controller.
 """
 
 from __future__ import annotations

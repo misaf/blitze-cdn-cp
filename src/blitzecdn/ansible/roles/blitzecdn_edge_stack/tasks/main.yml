@@ -5,8 +5,8 @@
 - name: Converge the edge runtime stack
   block:
     # The edge playbook runs prepare.yml as a pre-task, before the firewall
-    # opens the public ports and before blitzecdn_nginx renders a line of
-    # configuration. A playbook that uses this role on its own — the integration
+    # opens the public ports and before a release's configuration is staged.
+    # A playbook that uses this role on its own — the integration
     # tests do — gets the same preparation here instead of a confusing failure
     # about an undefined image.
     - name: Prepare the edge runtime

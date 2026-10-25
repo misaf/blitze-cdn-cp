@@ -7,6 +7,11 @@ argument_specs:
         type: str
         required: true
         description: Full immutable release identity supplied by the control plane.
+      blitzecdn_config_release_bundle:
+        type: path
+        description: >-
+          Controller-local path of the configuration bundle the control plane
+          rendered for this release. Required to stage a candidate.
       blitzecdn_config_release_root:
         type: path
         default: /etc/blitzecdn/releases

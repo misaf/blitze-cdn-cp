@@ -50,7 +50,7 @@ class OmittedWhenEmpty(BaseModel):
     It is deliberately not every nested block. ``visitor_headers`` carries
     switches whose *default* is meaningful to the role, so a block that has
     never been configured is not the same as one that is off, and pruning it
-    would change what the edge renders.
+    would change what a release renders.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

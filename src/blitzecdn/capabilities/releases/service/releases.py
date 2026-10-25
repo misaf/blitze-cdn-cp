@@ -34,6 +34,7 @@ from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["ReleaseService"]
@@ -119,15 +120,44 @@ class ReleaseService:
             release = compile_release(captured)
             stored = self.releases.save(release, inputs)
             self.releases.prune(self.retention)
+        if stored.artifacts:
+            self._record_configuration(stored)
         return stored
 
-    def render(self, release: Release) -> ConfigurationBundle:
-        """The edge configuration tree this release's document renders to.
+    def _record_configuration(self, release: Release) -> None:
+        """Render a prepared release once and keep what it rendered to.
 
-        Refused, as its artifact is, for a release an installed capability
-        objected to: there is no document to render.
+        A deployment ships these bytes, and a rollback months later ships the
+        same ones whatever the templates have become. Rendered outside the
+        write transaction — it takes seconds, and the database has one writer
+        — and only when nothing is on record: unchanged state is prepared
+        again on every drift check. An interruption between the two writes
+        leaves a release with no configuration, which the next preparation of
+        it fills in and a deployment refuses to ship.
         """
-        return self.renderer.render(release.execution_document())
+        try:
+            self.releases.configuration(release.id)
+        except NotFoundError:
+            bundle = self.renderer.render(release.execution_document())
+            with self.uow.transaction():
+                self.releases.save_configuration(release, bundle)
+
+    def configuration(self, release_id: str) -> ConfigurationBundle:
+        """The configuration a prepared release rendered to, as it was rendered."""
+        return self.releases.configuration(release_id)
+
+    def render(self, release: Release) -> ConfigurationBundle:
+        """The edge configuration tree this release renders to.
+
+        The recorded rendering for a prepared release, so what an operator
+        reviews is what a deployment ships; a fresh rendering for one that was
+        only compiled. Refused, as its artifact is, for a release an installed
+        capability objected to: there is no document to render.
+        """
+        try:
+            return self.releases.configuration(release.id)
+        except NotFoundError:
+            return self.renderer.render(release.execution_document())
 
     def get(self, release_id: str) -> Release:
         return self.releases.get(release_id)

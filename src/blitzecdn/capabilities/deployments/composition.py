@@ -13,6 +13,8 @@ here means editing that file.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRequirements,
     DeploymentRunner,
@@ -37,11 +39,46 @@ from blitzecdn.capabilities.deployments.service.convergence import (
 from blitzecdn.capabilities.deployments.service.rollout import Rollout
 from blitzecdn.capabilities.dns.ports import ZoneStore
 from blitzecdn.capabilities.edges.ports import EdgeStore
+from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
-from blitzecdn.core.runtime.filesystem import atomic_write_yaml, read_log_tail
+from blitzecdn.core.runtime.filesystem import (
+    atomic_write_bytes,
+    atomic_write_yaml,
+    read_log_tail,
+)
 
-__all__ = ["RegisteredEdgeAddresses", "build_deployment_service"]
+__all__ = [
+    "CONFIGURATION_BUNDLE",
+    "RegisteredEdgeAddresses",
+    "build_deployment_service",
+    "publish_release",
+]
+
+#: Beside the execution document, in the controller's state directory.
+CONFIGURATION_BUNDLE = "configuration-bundle.json"
+
+
+def publish_release(
+    release: Release, bundle: ConfigurationBundle, variables: Path
+) -> None:
+    """Put a release where the edge play reads it: its tree, then its document.
+
+    The bundle first, so a document never names a bundle that is not there.
+    Its path rides in the execution envelope beside the release digest,
+    outside the artifact hash: where the controller keeps a file is not
+    desired state.
+    """
+    bundle_path = variables.with_name(CONFIGURATION_BUNDLE)
+    atomic_write_bytes(bundle_path, bundle.encode().encode("utf-8"))
+    atomic_write_yaml(
+        variables,
+        {
+            **release.execution_document(),
+            "blitzecdn_config_release_bundle": str(bundle_path),
+        },
+    )
 
 
 class RegisteredEdgeAddresses:
@@ -140,10 +177,12 @@ def build_deployment_service(
                 runner=runner,
                 addresses=addresses,
                 verifier=verifier,
-                # The PREPARE phase writes the release's execution document to
-                # the one path Ansible reads desired state from.
-                publish=lambda release: atomic_write_yaml(
-                    settings.generated_vars_path, release.execution_document()
+                # The PREPARE phase writes the release's configuration and its
+                # execution document beside it, for the edge play to stage.
+                publish=lambda release: publish_release(
+                    release,
+                    releases.configuration(release.id),
+                    settings.generated_vars_path,
                 ),
             ),
             addresses=addresses,

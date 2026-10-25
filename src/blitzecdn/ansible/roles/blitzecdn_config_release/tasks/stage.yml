@@ -1,0 +1,45 @@
+---
+# The controller rendered this release's configuration and stored it with the
+# release; the edge stages exactly those bytes. A candidate already sealed by an
+# earlier attempt is verified against the bundle rather than written again.
+- name: Require the controller-rendered configuration
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_config_release_bundle is defined
+      - blitzecdn_config_release_bundle | length > 0
+    fail_msg: >-
+      The edge play stages the configuration the control plane rendered for
+      this release, and no bundle was supplied.
+
+# A check-mode run is how drift is detected: an edge not yet on this release
+# has a candidate to stage, which is a change it would make.
+- name: Report the candidate this run would stage
+  ansible.builtin.debug:
+    msg: "Release {{ blitzecdn_release_digest }} would be staged on this edge."
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - not blitzecdn_config_release_seal.stat.exists
+
+- name: Ship the release configuration bundle
+  ansible.builtin.copy:
+    src: "{{ blitzecdn_config_release_bundle }}"
+    dest: "{{ blitzecdn_config_release_root }}/.{{ blitzecdn_release_digest }}.bundle.json"
+    owner: root
+    group: root
+    mode: "0600"
+  # The whole tree, base64-encoded: a diff of it would be the bundle again.
+  diff: false
+  when: not ansible_check_mode
+
+- name: Stage the candidate exactly as the bundle describes it
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ blitzecdn_config_release_helper }}"
+      - stage
+      - "{{ blitzecdn_config_release_root }}"
+      - "{{ blitzecdn_release_digest }}"
+      - "{{ blitzecdn_config_release_root }}/.{{ blitzecdn_release_digest }}.bundle.json"
+  changed_when: not blitzecdn_config_release_seal.stat.exists
+  when: not ansible_check_mode

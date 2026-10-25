@@ -3,7 +3,7 @@
 #
 # Runs from the edge play's capability slot: after the container engine, the
 # runtime image and the persistent directories exist, and before the firewall
-# opens a port or blitzecdn_nginx renders and validates the configuration tree.
+# opens a port or the release's configuration is staged and validated.
 # That order is what makes this role's two outputs usable — the database has to
 # be on disk and the `conf.d` snippet has to define $blitzecdn_country before
 # `nginx -t` sees a site that reads it.

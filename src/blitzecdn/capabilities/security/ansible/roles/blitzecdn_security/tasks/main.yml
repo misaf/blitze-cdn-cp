@@ -1,10 +1,11 @@
 ---
-# The security capability's edge implementation: the njs module that serves the
-# challenge, the secret it signs with, and the `conf.d` snippet that loads it.
+# The security capability's edge host state: the key the Under Attack Mode
+# challenge signs with. The njs module and the `conf.d` snippet that loads it
+# are configuration, rendered into each release by the controller.
 #
-# Runs from the edge play's capability slot, before blitzecdn_nginx renders and
-# validates the tree — which is what makes the module importable by the time
-# `nginx -t` reads a site that dispatches to it.
+# Runs from the edge play's capability slot, before the release's configuration
+# is staged and validated — which is what makes the signing key includable by
+# the time `nginx -t` reads a site that dispatches to the challenge.
 #
 # The package-owned Nginx fragments render request filtering and challenge
 # locations into the core skeleton. This role provisions the runtime resources

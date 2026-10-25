@@ -178,6 +178,22 @@ def upgrade() -> None:
         batch_op.create_index("ix_releases_id", ["id"], unique=True)
 
     op.create_table(
+        "release_configurations",
+        sa.Column("release_digest", sa.String(), nullable=False),
+        sa.Column("digest", sa.String(), nullable=False),
+        sa.Column(
+            "created_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column("document", sa.String(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["release_digest"], ["releases.digest"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("release_digest"),
+    )
+
+    op.create_table(
         "deployments",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False),
@@ -425,6 +441,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_releases_id")
         batch_op.drop_index("ix_releases_created_at")
 
+    op.drop_table("release_configurations")
     op.drop_table("releases")
     op.drop_table("release_inputs")
     with op.batch_alter_table("job_schedules", schema=None) as batch_op:

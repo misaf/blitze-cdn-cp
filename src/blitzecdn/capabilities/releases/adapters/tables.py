@@ -1,6 +1,6 @@
-"""Where compiled releases and the state behind them are kept.
+"""Where compiled releases, the state behind them and their rendering are kept.
 
-Two tables, because the two things have different lifetimes and different
+Three tables, because the three things have different lifetimes and different
 identities. A release is addressed by the digest of what the compiler decided;
 its inputs are addressed by the digest of the canonical state it read. Bumping
 the compiler version produces a second release over one unchanged set of
@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Index, Integer, String
+from sqlalchemy import Column, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlmodel import Field
 
@@ -71,3 +71,24 @@ class ReleaseRow(Base, table=True):
     created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
     #: The whole compiled release: sites, artifacts, explanations, findings.
     document: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+
+
+class ReleaseConfigurationRow(Base, table=True):
+    """The edge configuration tree one release rendered to, as it was rendered.
+
+    Stored rather than re-rendered when a deployment needs it, so a rollback
+    ships the exact bytes the release first produced even after the templates
+    that produced them have changed. Removed with its release. ``document`` is
+    the encoded bundle, verified against its manifest and ``digest`` on read.
+    """
+
+    __tablename__ = "release_configurations"
+
+    release_digest: str = Field(
+        sa_column=Column(
+            String, ForeignKey("releases.digest", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    digest: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    document: str

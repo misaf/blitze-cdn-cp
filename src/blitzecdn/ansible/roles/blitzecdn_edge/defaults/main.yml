@@ -4,8 +4,8 @@
 # One description of the environment every edge role converges against: where
 # the runtime keeps its files, which ports it listens on, where its health can
 # be read, and where an installed capability leaves data for it to read.
-# blitzecdn_nginx renders a
-# configuration for it, blitzecdn_edge_stack runs a container inside it and
+# A release's configuration is rendered for it, blitzecdn_edge_stack runs a
+# container inside it and
 # blitzecdn_firewall opens the host to it — three roles that need the same
 # answers and previously got them by reaching into each other's defaults.
 #

@@ -95,6 +95,10 @@ blitzecdn	column	jobs.leased_until	type=UtcDateTime(VARCHAR) null
 blitzecdn	column	jobs.max_attempts	type=INTEGER not-null
 blitzecdn	column	jobs.payload	type=JSON not-null
 blitzecdn	column	jobs.status	type=VARCHAR not-null
+blitzecdn	column	release_configurations.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	release_configurations.digest	type=VARCHAR not-null
+blitzecdn	column	release_configurations.document	type=VARCHAR not-null
+blitzecdn	column	release_configurations.release_digest	type=VARCHAR not-null pk fk=releases.digest ondelete=CASCADE
 blitzecdn	column	release_inputs.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	release_inputs.digest	type=VARCHAR not-null pk
 blitzecdn	column	release_inputs.document	type=VARCHAR not-null

@@ -183,8 +183,8 @@ def ansible_roles_path() -> None:
     Composing it here rather than restating it also brings the refusals along.
     A capability shipping a role name core already owns is caught by the same
     check that catches it at startup, in a command that costs nothing to run,
-    rather than by an operator noticing that `blitzecdn_nginx` renders
-    something nobody wrote.
+    rather than by an operator noticing that an edge converges a role nobody
+    wrote.
 
     The plugins are loaded here rather than taken from a control plane because
     the answer depends only on what is installed: this runs in a lint step,

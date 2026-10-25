@@ -20,9 +20,9 @@ __version__ = distribution_version(__name__)
 
 #: The Jinja fragments this capability contributes to the edge's Nginx
 #: configuration, resolved under the same guard its roles are. A sibling of
-#: ``ansible/`` rather than a child: core's ``blitzecdn_nginx`` renders these
-#: from the resolved contribution, so they are not part of any role this
-#: package ships.
+#: ``ansible/`` rather than a child: the controller renders these into each
+#: release's configuration, so they are not part of any role this package
+#: ships.
 NGINX_TEMPLATES = (
     package_directory(
         __name__,
