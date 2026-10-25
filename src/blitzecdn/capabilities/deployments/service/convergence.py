@@ -266,9 +266,10 @@ class DeploymentService:
         longer than any HTTP client will wait, so callers poll
         ``GET /v1/deployments/{id}`` for the outcome.
         """
-        return self._submit(
-            lambda: self._queue(operator, check=check, host_limit=host_limit)
-        )
+        with self.execution.runner.lock():
+            return self._queue(
+                operator, check=check, host_limit=host_limit, enqueue=True
+            )
 
     def rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
@@ -297,9 +298,10 @@ class DeploymentService:
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
         """Queue a rollback for the worker and return the queued record."""
-        return self._submit(
-            lambda: self._queue_rollback(operator, deployment_id, check=check)
-        )
+        with self.execution.runner.lock():
+            return self._queue_rollback(
+                operator, deployment_id, check=check, enqueue=True
+            )
 
     def run_queued(self, deployment_id: str) -> Deployment:
         """Resume durable progress under the exclusive deployment lock.
@@ -409,6 +411,7 @@ class DeploymentService:
         rollback_of: str | None = None,
         host_limit: str | None = None,
         canonical_digest: str | None = None,
+        enqueue: bool = False,
     ) -> Deployment:
         """Record a QUEUED deployment. Callers must hold the deployment lock.
 
@@ -417,6 +420,11 @@ class DeploymentService:
         state here — under the lock, so the release a deployment names is the
         state as it stood when the run was admitted rather than whatever it had
         become by the time a worker picked the row up.
+
+        Preparation retains the release and renders its configuration before
+        opening the admission transaction. When requested, the job is written
+        in that transaction with the deployment and targets, so a refused
+        enqueue leaves no stranded deployment.
         """
         # Normalised before it is stored, so the record shows what actually ran
         # rather than what was typed, and a malformed limit is refused before a
@@ -464,10 +472,17 @@ class DeploymentService:
                     },
                 )
             )
+            if enqueue:
+                self.execution.background.enqueue(deployment.id)
         return deployment
 
     def _queue_rollback(
-        self, operator: str, deployment_id: str | None, *, check: bool
+        self,
+        operator: str,
+        deployment_id: str | None,
+        *,
+        check: bool,
+        enqueue: bool = False,
     ) -> Deployment:
         target = rollback_policy.select_target(
             self.persistence.deployments, self.releases, deployment_id
@@ -483,33 +498,8 @@ class DeploymentService:
             # record writes, and restoring wholesale over one would delete it
             # with no conflict and nothing left to say it existed.
             canonical_digest=self.releases.inputs().digest,
+            enqueue=enqueue,
         )
-
-    def _submit(self, queue: Callable[[], Deployment]) -> Deployment:
-        """Record a queued deployment and its job as one commit.
-
-        One transaction, so a deployment never exists without the job that will
-        run it. This used to be two steps — commit the row, then publish its
-        ID — because the queue was a Redis broker and the two could not be
-        atomic: a crash between them left a QUEUED row nothing would deliver,
-        and a refused publish had to go back and mark the row FAILED. Since the
-        queue became rows in this database (ADR 0008) there is no between: a
-        refused enqueue rolls the deployment back with it, and the caller's
-        error is the whole outcome.
-
-        The release a forward deploy compiles is prepared inside the same
-        transaction, so it holds the SQLite writer for that long. It is an
-        operator's action that already holds the fleet-wide deployment lock,
-        and a concurrent writer waits under ``busy_timeout`` rather than
-        failing.
-        """
-        with (
-            self.execution.runner.lock(),
-            self.persistence.uow.transaction(),
-        ):
-            deployment = queue()
-            self.execution.background.enqueue(deployment.id)
-        return deployment
 
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
         """Roll this deployment's release out edge by edge. Callers hold the lock.
