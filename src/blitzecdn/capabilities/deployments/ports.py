@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +38,16 @@ class RuleRestore(Protocol):
     """
 
     def replace_all_rules(self, rules: list[Rule]) -> None: ...
+
+
+class SettingRestore(Protocol):
+    """Putting the fleet settings back, for a rollback that adopts a release.
+
+    Wholesale, like the rules: the release carries the complete set its edges
+    were converged with, so a setting added since is withdrawn with it.
+    """
+
+    def replace_all_settings(self, settings: Mapping[str, Any]) -> None: ...
 
 
 class DeploymentRequirements(Protocol):
@@ -277,6 +287,7 @@ __all__ = [
     "Releases",
     "RuleRestore",
     "ServingVerifier",
+    "SettingRestore",
     "UnitOfWork",
     "WorkflowProgress",
     "WorkflowRun",

@@ -45,6 +45,7 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     Releases,
     RuleRestore,
+    SettingRestore,
     UnitOfWork,
     Workflows,
     YamlWriter,
@@ -91,6 +92,8 @@ class DeploymentPersistence:
     zones: ZoneStore
     #: Only a rollback writes here, and only wholesale.
     rules: RuleRestore
+    #: The same, for the fleet settings a release was converged with.
+    settings: SettingRestore
     uow: UnitOfWork
     requirements: DeploymentRequirements
 
@@ -611,6 +614,7 @@ class DeploymentService:
                 rollback_policy.adopt_inputs(
                     self.persistence.zones,
                     self.persistence.rules,
+                    self.persistence.settings,
                     self.releases.inputs_for(release.id),
                 )
             deployment = self.persistence.deployments.transition(

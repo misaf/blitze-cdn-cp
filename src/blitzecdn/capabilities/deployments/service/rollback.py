@@ -27,6 +27,7 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
     Releases,
     RuleRestore,
+    SettingRestore,
     ZoneStore,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
@@ -94,10 +95,15 @@ def require_unchanged_canonical(releases: Releases, deployment: Deployment) -> N
         )
 
 
-def adopt_inputs(zones: ZoneStore, rules: RuleRestore, inputs: ReleaseInputs) -> None:
+def adopt_inputs(
+    zones: ZoneStore,
+    rules: RuleRestore,
+    settings: SettingRestore,
+    inputs: ReleaseInputs,
+) -> None:
     """Make the converged release's state canonical desired state.
 
-    Two writes and an order between them. ``replace_all_records`` deletes the
+    Three writes and one order between them. ``replace_all_records`` deletes the
     zone rows and writes them again, and a rule is keyed to its zone with ON
     DELETE CASCADE — so the rules go back after the zones, never before, or
     they would be written into a table that is about to be emptied.
@@ -110,3 +116,4 @@ def adopt_inputs(zones: ZoneStore, rules: RuleRestore, inputs: ReleaseInputs) ->
     """
     zones.replace_all_records(list(inputs.domains), list(inputs.records))
     rules.replace_all_rules(list(inputs.rules))
+    settings.replace_all_settings(inputs.settings)

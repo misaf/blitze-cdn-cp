@@ -1,16 +1,20 @@
 """The canonical state a release is compiled from, as one addressable value.
 
-Three sections, because three things are canonical: the zones that hold policy,
-the rules that override it, and the records that say which hostnames the edges
-answer for. What an edge is asked to serve is not among them — virtual hosts
-are derived, and writing them down here would put a second, older answer beside
-the state they come from. See
-``docs/decisions/0001-zone-policy-and-composition.md``.
+Four sections, because four things are canonical: the zones that hold policy,
+the rules that override it, the records that say which hostnames the edges
+answer for, and the fleet-wide Ansible settings every edge is converged with.
+What an edge is asked to serve is not among them — virtual hosts are derived,
+and writing them down here would put a second, older answer beside the state
+they come from. See ``docs/decisions/0001-zone-policy-and-composition.md``.
 
 The rules are in it for a sharper reason than symmetry. A rollback deletes the
 zone rows and writes them again, and a rule is keyed to its zone with ON DELETE
 CASCADE — so inputs that did not carry rules would not merely fail to restore
 them, they would take every rule in the installation with them.
+
+The settings are in it so a release reproduces the edge it was compiled for.
+They used to reach every play from the live inventory, which meant a rollback
+converged an old release with today's TLS ciphers, timeouts and log policy.
 
 This is a typed value rather than the JSON string it used to be. The string had
 to be parsed at four call sites, each of which re-derived what the sections
@@ -24,9 +28,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 
@@ -37,7 +42,7 @@ __all__ = ["INPUTS_SCHEMA_VERSION", "ReleaseInputs"]
 #: long as it is in the history table — so a document arriving from storage
 #: says which shape it is. There is exactly one, and a document that is not it
 #: is refused rather than guessed at.
-INPUTS_SCHEMA_VERSION = 3
+INPUTS_SCHEMA_VERSION = 4
 
 
 class ReleaseInputs(BaseModel):
@@ -54,6 +59,9 @@ class ReleaseInputs(BaseModel):
     domains: tuple[Domain, ...] = ()
     records: tuple[DnsRecord, ...] = ()
     rules: tuple[Rule, ...] = ()
+    #: Fleet-wide Ansible settings by name, as `blitzecdn config set` stored
+    #: them. Non-secret by construction: the setting store refuses credentials.
+    settings: dict[str, JsonValue] = Field(default_factory=dict)
 
     @classmethod
     def of(
@@ -61,6 +69,8 @@ class ReleaseInputs(BaseModel):
         domains: list[Domain],
         records: list[DnsRecord],
         rules: list[Rule],
+        *,
+        settings: Mapping[str, JsonValue] | None = None,
     ) -> Self:
         """The state as the stores hand it over, put into canonical order.
 
@@ -87,6 +97,7 @@ class ReleaseInputs(BaseModel):
                 )
             ),
             rules=tuple(sorted(rules, key=lambda rule: (rule.domain, *rule.order))),
+            settings=dict(sorted((settings or {}).items())),
         )
 
     def encode(self) -> str:

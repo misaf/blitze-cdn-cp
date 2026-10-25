@@ -43,11 +43,11 @@ def set_setting(name: str, value: str) -> None:
     if parsed is None:
         raise typer.BadParameter("value must not be null")
     common.control_plane().ansible_settings.set_setting(_name(name), parsed)
-    typer.echo(f"Set {name}")
+    typer.echo(f"Set {name}; it reaches the edges with the next deployment.")
 
 
 @config_app.command("unset")
 def unset_setting(name: str) -> None:
     """Remove an override and fall back to the shipped default."""
     common.control_plane().ansible_settings.delete_setting(_name(name))
-    typer.echo(f"Unset {name}")
+    typer.echo(f"Unset {name}; it reaches the edges with the next deployment.")

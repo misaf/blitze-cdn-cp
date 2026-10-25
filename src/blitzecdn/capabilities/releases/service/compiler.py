@@ -60,7 +60,15 @@ def compile_release(compilation: Compilation) -> Release:
     for site in sites:
         findings.extend(_capability_findings(site, installed, ordered_targets))
     findings.extend(compilation.objections)
-    if compilation.objections:
+    compiled = compilation.sites
+    derived = {
+        **compilation.fleet_variables.document,
+        "blitzecdn_nginx_allow_empty_sites": compilation.allow_empty_sites,
+        "blitzecdn_nginx_sites": [entry.variables for entry in compiled],
+    }
+    conflicts = tuple(_setting_conflicts(inputs, derived))
+    findings.extend(conflicts)
+    if compilation.objections or conflicts:
         return Release(
             compiler_version=COMPILER_VERSION,
             inputs_digest=inputs.digest,
@@ -69,14 +77,11 @@ def compile_release(compilation: Compilation) -> Release:
             explanations=_explanations(inputs, sites),
             findings=tuple(findings),
         )
-    compiled = compilation.sites
+    # Settings first, so the document an operator reads groups fleet policy
+    # ahead of what was derived from it. They never overlap: a collision is a
+    # finding above, not a precedence rule.
     artifact = Artifact.from_document(
-        name=DESIRED_STATE_ARTIFACT,
-        document={
-            **compilation.fleet_variables.document,
-            "blitzecdn_nginx_allow_empty_sites": compilation.allow_empty_sites,
-            "blitzecdn_nginx_sites": [entry.variables for entry in compiled],
-        },
+        name=DESIRED_STATE_ARTIFACT, document={**inputs.settings, **derived}
     )
     return Release(
         compiler_version=COMPILER_VERSION,
@@ -88,6 +93,26 @@ def compile_release(compilation: Compilation) -> Release:
         explanations=_explanations(inputs, sites),
         findings=tuple(findings),
     )
+
+
+def _setting_conflicts(
+    inputs: ReleaseInputs, derived: dict[str, object]
+) -> Iterable[ReleaseFinding]:
+    """Fleet settings that name a variable the compiler or a feature derives.
+
+    The edge document carries both, and Ansible would let either silently win.
+    A derived variable is a statement about canonical state, so a setting that
+    names one is refused rather than ranked.
+    """
+    for name in sorted(set(inputs.settings) & set(derived)):
+        yield ReleaseFinding(
+            source="settings",
+            host=None,
+            message=(
+                f"fleet setting {name!r} names a variable this release derives; "
+                f"remove it with `blitzecdn config unset {name}`"
+            ),
+        )
 
 
 def _derivation_findings(inputs: ReleaseInputs) -> Iterable[ReleaseFinding]:

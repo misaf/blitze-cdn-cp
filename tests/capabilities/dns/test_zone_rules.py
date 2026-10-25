@@ -510,9 +510,34 @@ def test_a_rollback_restores_the_rules_the_release_was_compiled_from(settings):
     assert repository.rules.list_rules() == []
 
     with repository.transaction():
-        rollback_policy.adopt_inputs(repository.zones, repository.rules, inputs)
+        rollback_policy.adopt_inputs(
+            repository.zones, repository.rules, repository.ansible_settings, inputs
+        )
 
     assert [rule.name for rule in repository.rules.list_rules()] == ["api"]
+
+
+def test_a_rollback_restores_the_settings_the_release_was_compiled_from(settings):
+    """The release carries the fleet settings its edges were converged with."""
+    from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
+
+    repository = Repository(settings.database_path)
+    _control(settings, repository)
+    repository.ansible_settings.set_setting("blitzecdn_nginx_hsts_enabled", True)
+    inputs = repository.release_inputs()
+    assert inputs.settings == {"blitzecdn_nginx_hsts_enabled": True}
+
+    repository.ansible_settings.delete_setting("blitzecdn_nginx_hsts_enabled")
+    repository.ansible_settings.set_setting("blitzecdn_nginx_ssl_stapling", True)
+
+    with repository.transaction():
+        rollback_policy.adopt_inputs(
+            repository.zones, repository.rules, repository.ansible_settings, inputs
+        )
+
+    assert repository.ansible_settings.list_settings() == {
+        "blitzecdn_nginx_hsts_enabled": True
+    }
 
 
 def _competing_writer(control, write):

@@ -381,3 +381,70 @@ def test_inputs_that_are_not_an_object_are_refused():
 def test_inputs_that_are_not_json_are_refused_as_json():
     with pytest.raises(ValueError, match="not valid JSON"):
         ReleaseInputs.decode("{oh no")
+
+
+# -- Fleet settings ---------------------------------------------------------
+
+
+def _with_settings(**settings: object) -> ReleaseInputs:
+    base = inputs_for()
+    return ReleaseInputs.of(
+        list(base.domains), list(base.records), list(base.rules), settings=settings
+    )
+
+
+def test_fleet_settings_are_part_of_the_release_identity():
+    """A rollback must reproduce the edge, so a setting change is a new release."""
+    hsts = _with_settings(blitzecdn_nginx_hsts_enabled=True)
+    plain = _with_settings(blitzecdn_nginx_hsts_enabled=False)
+
+    assert hsts.digest != plain.digest
+    assert compile_for(hsts).digest != compile_for(plain).digest
+
+
+def test_fleet_settings_reach_the_edge_document():
+    release = compile_for(_with_settings(blitzecdn_nginx_proxy_read_timeout="60s"))
+    document = release.artifact(DESIRED_STATE_ARTIFACT).document
+
+    assert document["blitzecdn_nginx_proxy_read_timeout"] == "60s"
+    assert release.findings == ()
+
+
+def test_settings_are_canonical_whatever_order_they_were_read_in():
+    base = inputs_for()
+    forward = ReleaseInputs.of(
+        list(base.domains),
+        list(base.records),
+        [],
+        settings={"blitzecdn_a": 1, "blitzecdn_b": 2},
+    )
+    backward = ReleaseInputs.of(
+        list(base.domains),
+        list(base.records),
+        [],
+        settings={"blitzecdn_b": 2, "blitzecdn_a": 1},
+    )
+
+    assert forward.encode() == backward.encode()
+
+
+def test_a_setting_that_names_a_derived_variable_withholds_the_artifact():
+    """Ansible would let one of the two win silently; the compiler refuses."""
+    release = compile_for(_with_settings(blitzecdn_site_count=99))
+
+    assert release.artifacts == ()
+    (finding,) = release.findings
+    assert finding.source == "settings"
+    assert finding.host is None
+    assert "blitzecdn_site_count" in finding.message
+
+
+def test_older_input_documents_are_refused_rather_than_upcast():
+    document = (
+        _with_settings().encode().replace('"schema_version": 4', '"schema_version": 3')
+    )
+
+    with pytest.raises(
+        ValueError, match="unsupported release inputs schema version: 3"
+    ):
+        ReleaseInputs.decode(document)
