@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 
 from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
 from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
-from blitzecdn.entrypoints.api.models import HostRun, Model
+from blitzecdn.entrypoints.api.models import Model
 
 
 class Edge(Model):
@@ -49,10 +49,4 @@ class EdgePatch(Model):
         return DomainEdgePatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class EdgeRemoval(Model):
-    name: str
-    decommissioned: bool
-    hosts: tuple[HostRun, ...] = ()
-
-
-__all__ = ["Edge", "EdgePatch", "EdgeRemoval"]
+__all__ = ["Edge", "EdgePatch"]

@@ -36,8 +36,15 @@ class JobStore(Protocol):
     ) -> JobClaim | None:
         """Take the oldest runnable job, including lapsed leases, or ``None``."""
 
-    def complete(self, job_id: str, fence: int, *, now: datetime) -> bool:
-        """Mark a job succeeded, refusing a worker whose lease was taken over."""
+    def complete(
+        self,
+        job_id: str,
+        fence: int,
+        *,
+        now: datetime,
+        result: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Mark a job succeeded with its result, refusing a stale worker."""
 
     def fail(
         self,

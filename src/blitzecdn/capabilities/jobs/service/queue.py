@@ -131,7 +131,7 @@ class JobQueue:
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)
             return
         match outcome:
-            case Done():
+            case Done(result=result):
                 pass
             case Defer(reason=reason):
                 self._defer(claim, reason)
@@ -155,7 +155,7 @@ class JobQueue:
                     permanent=True,
                 )
                 return
-        if not self.jobs.complete(job.id, claim.fence, now=self.clock()):
+        if not self.jobs.complete(job.id, claim.fence, now=self.clock(), result=result):
             # Someone else took the job over meanwhile; record nothing for it.
             _LOGGER.warning(
                 "job %s finished under an expired lease; another worker owns "

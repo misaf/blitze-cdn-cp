@@ -1,61 +1,68 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, status
 
-from blitzecdn.capabilities.cache.api.models import (
-    CacheStatsReport,
-    PurgeRequest,
-    PurgeResult,
-    StatsRequest,
+from blitzecdn.capabilities.cache.api.models import PurgeRequest, StatsRequest
+from blitzecdn.capabilities.cache.service.operations import (
+    PURGE_OPERATION,
+    STATS_OPERATION,
+    purge_payload,
+    stats_payload,
 )
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     ServicesDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import as_operation
+from blitzecdn.entrypoints.api.models import Operation, as_queued
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.post(
     "/v1/cache/purge",
-    response_model=PurgeResult,
-    responses={
-        status.HTTP_409_CONFLICT: {
-            "model": PurgeResult,
-            "description": (
-                "Some edge did not purge. The body is the same PurgeResult "
-                "as a success, with complete=false and failed_hosts naming "
-                "the edges that may still be serving the cached copy."
-            ),
-        }
-    },
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 def purge_cache(
     request: PurgeRequest,
     operator: OperatorDependency,
     control: ServicesDependency,
-    response: Response,
-) -> PurgeResult:
-    """Remove cached responses from the edges and report partial failure."""
-    result = control.cache.purge_cache(
-        operator,
+) -> Operation:
+    """Queue a purge on the edges; the operation's result is a PurgeResult.
+
+    A request that could only purge nothing is refused here, before queueing.
+    The result's ``complete`` and ``failed_hosts`` name edges that may still
+    serve the cached copy.
+    """
+    entries = control.cache.check_purge(
         entries=[entry.to_domain() for entry in request.entries],
         purge_all=request.purge_all,
-        host_limit=request.host_limit,
     )
-    if not result.complete:
-        response.status_code = status.HTTP_409_CONFLICT
-    return as_operation(result, PurgeResult)
+    return as_queued(
+        control.queued_operations.submit(
+            PURGE_OPERATION,
+            purge_payload(
+                operator,
+                entries=entries,
+                purge_all=request.purge_all,
+                host_limit=request.host_limit,
+            ),
+        )
+    )
 
 
-@router.post("/v1/cache/stats", response_model=CacheStatsReport)
+@router.post(
+    "/v1/cache/stats",
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def cache_stats(
     request: StatsRequest,
     operator: OperatorDependency,
     control: ServicesDependency,
-) -> CacheStatsReport:
-    """Collect cache effectiveness from the edges."""
-    return as_operation(
-        control.cache.cache_stats(operator, host_limit=request.host_limit),
-        CacheStatsReport,
+) -> Operation:
+    """Queue a collection of cache effectiveness; the result is a CacheStatsReport."""
+    return as_queued(
+        control.queued_operations.submit(
+            STATS_OPERATION, stats_payload(operator, host_limit=request.host_limit)
+        )
     )

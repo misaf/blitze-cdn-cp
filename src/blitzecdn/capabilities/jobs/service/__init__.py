@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.jobs.service.operations import OperationService
 from blitzecdn.capabilities.jobs.service.queue import (
     DEPLOYMENT_JOB,
     SCHEDULED_JOB,
@@ -16,5 +17,6 @@ __all__ = [
     "JobQueue",
     "JobRunner",
     "JobScheduler",
+    "OperationService",
     "ScheduleSpec",
 ]

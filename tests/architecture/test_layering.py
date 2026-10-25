@@ -414,7 +414,7 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 # composes the individual contracts and dns consumes it.
 ALLOWED_CONTRACT_DEPENDENCIES = {
     "backup": set(),
-    "origins": {"http", "tls"},
+    "origins": set(),
     "cache": {"http"},
     "compression": set(),
     "deployments": {"http"},

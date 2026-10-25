@@ -242,6 +242,14 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "config set", None, "see `config list`."),
     ("blitzecdn", "config unset", None, "see `config list`."),
     # -- Edge operations ---------------------------------------------------
+    (
+        "blitzecdn",
+        None,
+        "GET /v1/operations/{operation_id}",
+        "polls an edge operation the API queued for the worker. The CLI runs "
+        "the same operations in-process and prints their result, so it has "
+        "nothing to poll.",
+    ),
     ("blitzecdn", "cache purge", "POST /v1/cache/purge", ""),
     ("blitzecdn", "stats", "POST /v1/cache/stats", ""),
     ("blitzecdn", "origin check", "POST /v1/origins/check", ""),

@@ -23,6 +23,7 @@ blitzecdn	route	GET /v1/hosts
 blitzecdn	route	GET /v1/hosts/{name}
 blitzecdn	route	GET /v1/hosts/{name}/certificate
 blitzecdn	route	GET /v1/hosts/{name}/certificate/preflight
+blitzecdn	route	GET /v1/operations/{operation_id}
 blitzecdn	route	GET /v1/releases
 blitzecdn	route	GET /v1/releases/current
 blitzecdn	route	GET /v1/releases/{release_id}
@@ -69,9 +70,6 @@ blitzecdn	schema	AuditEvent.resource_id	string|null optional
 blitzecdn	schema	AuditEvent.resource_type	string required
 blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.certificate	string required
 blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.private_key	string required
-blitzecdn	schema	CacheStatsReport.collected_at	string required
-blitzecdn	schema	CacheStatsReport.edges	array[EdgeStats] optional
-blitzecdn	schema	CacheStatsReport.host_limit	string|null optional
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional
@@ -197,10 +195,6 @@ blitzecdn	schema	Edge.private_key_file	string|null optional
 blitzecdn	schema	Edge.public_addresses	array[string] optional
 blitzecdn	schema	Edge.ssh_sources	array[string] optional
 blitzecdn	schema	Edge.user	string optional
-blitzecdn	schema	EdgeOriginChecks.checked_at	string|null optional
-blitzecdn	schema	EdgeOriginChecks.checks	array[OriginCheck] optional
-blitzecdn	schema	EdgeOriginChecks.error	string|null optional
-blitzecdn	schema	EdgeOriginChecks.host	string required
 blitzecdn	schema	EdgePatch.capabilities	array[string]|null optional
 blitzecdn	schema	EdgePatch.host	string|null optional
 blitzecdn	schema	EdgePatch.port	integer|null optional
@@ -208,15 +202,6 @@ blitzecdn	schema	EdgePatch.private_key_file	string|null optional
 blitzecdn	schema	EdgePatch.public_addresses	array[string]|null optional
 blitzecdn	schema	EdgePatch.ssh_sources	array[string]|null optional
 blitzecdn	schema	EdgePatch.user	string|null optional
-blitzecdn	schema	EdgeRemoval.decommissioned	boolean required
-blitzecdn	schema	EdgeRemoval.hosts	array[HostRun] optional
-blitzecdn	schema	EdgeRemoval.name	string required
-blitzecdn	schema	EdgeStats.collected_at	string|null optional
-blitzecdn	schema	EdgeStats.connections	object optional
-blitzecdn	schema	EdgeStats.error	string|null optional
-blitzecdn	schema	EdgeStats.host	string required
-blitzecdn	schema	EdgeStats.nginx_reachable	boolean optional
-blitzecdn	schema	EdgeStats.sites	array[SiteCacheStats] optional
 blitzecdn	schema	HTTPValidationError.detail	array[ValidationError] optional
 blitzecdn	schema	HostExplanation.host	string required
 blitzecdn	schema	HostExplanation.origin_host	string required
@@ -235,20 +220,14 @@ blitzecdn	schema	HostRun.report	object|null optional
 blitzecdn	schema	HostRun.rescued	integer optional
 blitzecdn	schema	HostRun.skipped	integer optional
 blitzecdn	schema	HostRun.unreachable	integer optional
-blitzecdn	schema	OriginCheck.content_sha256	string|null optional
-blitzecdn	schema	OriginCheck.detail	string|null optional
-blitzecdn	schema	OriginCheck.origin	string required
-blitzecdn	schema	OriginCheck.reachable	boolean optional
-blitzecdn	schema	OriginCheck.scheme	HttpScheme required
-blitzecdn	schema	OriginCheck.site	string required
-blitzecdn	schema	OriginCheck.sni	string|null optional
-blitzecdn	schema	OriginCheck.ssl_mode	SslMode required
-blitzecdn	schema	OriginCheck.status	integer|null optional
-blitzecdn	schema	OriginCheck.tls_verified	boolean|null optional
+blitzecdn	schema	Operation.created_at	string required
+blitzecdn	schema	Operation.error	string|null optional
+blitzecdn	schema	Operation.finished_at	string|null optional
+blitzecdn	schema	Operation.id	string required
+blitzecdn	schema	Operation.kind	string required
+blitzecdn	schema	Operation.result	object|null optional
+blitzecdn	schema	Operation.status	enum[pending,running,succeeded,failed] required
 blitzecdn	schema	OriginCheckRequest.host_limit	string|null optional
-blitzecdn	schema	OriginReport.checked_at	string required
-blitzecdn	schema	OriginReport.edges	array[EdgeOriginChecks] optional
-blitzecdn	schema	OriginReport.host_limit	string|null optional
 blitzecdn	schema	PreflightCheck.detail	string required
 blitzecdn	schema	PreflightCheck.name	string required
 blitzecdn	schema	PreflightCheck.passed	boolean required
@@ -261,13 +240,6 @@ blitzecdn	schema	PurgeEntry.uri	string required
 blitzecdn	schema	PurgeRequest.entries	array[PurgeEntry] optional
 blitzecdn	schema	PurgeRequest.host_limit	string|null optional
 blitzecdn	schema	PurgeRequest.purge_all	boolean optional
-blitzecdn	schema	PurgeResult.complete	boolean required
-blitzecdn	schema	PurgeResult.entries	array[PurgeEntry] optional
-blitzecdn	schema	PurgeResult.failed_hosts	array[string] required
-blitzecdn	schema	PurgeResult.host_limit	string|null optional
-blitzecdn	schema	PurgeResult.hosts	array[HostRun] optional
-blitzecdn	schema	PurgeResult.purge_all	boolean optional
-blitzecdn	schema	PurgeResult.purged_at	string required
 blitzecdn	schema	ReconciliationResult.deployment	Deployment|null optional
 blitzecdn	schema	ReconciliationResult.failed	object optional
 blitzecdn	schema	ReconciliationResult.issued	array[string] optional
@@ -325,8 +297,6 @@ blitzecdn	schema	SettingSource.origin	SettingOrigin required
 blitzecdn	schema	SettingSource.rule	string|null optional
 blitzecdn	schema	SettingSource.setting	string required
 blitzecdn	schema	SettingSource.value	any required
-blitzecdn	schema	SiteCacheStats.outcomes	object optional
-blitzecdn	schema	SiteCacheStats.site	string required
 blitzecdn	schema	SslAutomaticReconciliation.deployment	Deployment|null optional
 blitzecdn	schema	SslAutomaticReconciliation.scanned	array[string] optional
 blitzecdn	schema	SslAutomaticReconciliation.skipped	object optional

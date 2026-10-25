@@ -9,6 +9,7 @@ complete a job someone else re-ran.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -91,6 +92,8 @@ class Job(BaseModel):
     created_at: datetime
     finished_at: datetime | None = None
     last_error: str | None = None
+    #: What the handler reported on success, as JSON; ``None`` for most kinds.
+    result: dict[str, Any] | None = None
 
     @property
     def exhausted(self) -> bool:
@@ -121,7 +124,9 @@ class JobClaim(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class Done:
-    """The work is finished."""
+    """The work is finished, optionally with a JSON result for the poller."""
+
+    result: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

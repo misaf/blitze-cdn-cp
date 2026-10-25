@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch, EdgeRemoval
+from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
+from blitzecdn.capabilities.edges.service.operations import (
+    REMOVE_OPERATION,
+    remove_dedupe_key,
+    remove_payload,
+)
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     ServicesDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import HostRun, as_operation
+from blitzecdn.entrypoints.api.models import Operation, as_queued
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -42,7 +47,11 @@ def update_edge(
     )
 
 
-@router.delete("/v1/edges/{name}", response_model=EdgeRemoval)
+@router.delete(
+    "/v1/edges/{name}",
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def remove_edge(
     name: str,
     operator: OperatorDependency,
@@ -62,14 +71,17 @@ def remove_edge(
             "its configuration and private keys in place."
         ),
     ),
-) -> EdgeRemoval:
-    """Tear the host down, then deregister it — in that order."""
-    if not decommission:
-        control.edges.remove_edge(name, operator)
-        return EdgeRemoval(name=name, decommissioned=False)
-    hosts = control.edges.decommission_edge(name, operator, force=force)
-    return EdgeRemoval(
-        name=name,
-        decommissioned=True,
-        hosts=tuple(as_operation(host, HostRun) for host in hosts),
+) -> Operation:
+    """Queue tearing the host down, then deregistering it, in that order.
+
+    The result is ``{name, decommissioned, hosts}``. A failed teardown fails the
+    operation and keeps the edge registered unless ``force`` was given.
+    """
+    control.edges.get_edge(name)
+    return as_queued(
+        control.queued_operations.submit(
+            REMOVE_OPERATION,
+            remove_payload(operator, name=name, decommission=decommission, force=force),
+            dedupe_key=remove_dedupe_key(name),
+        )
     )

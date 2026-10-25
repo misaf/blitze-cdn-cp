@@ -23,6 +23,7 @@ from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
     Defer,
+    Done,
     Fail,
     JobOutcome,
     Retry,
@@ -34,6 +35,7 @@ from blitzecdn.capabilities.jobs.service import (
     JobQueue,
     JobRunner,
     JobScheduler,
+    OperationService,
 )
 from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.capabilities.maintenance import MaintenanceService
@@ -44,9 +46,9 @@ from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.composition.infrastructure import Infrastructure
-from blitzecdn.composition.services import ApplicationServices
+from blitzecdn.composition.services import ApplicationServices, OperationRun
 from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.exceptions import BlitzeError, DeploymentBusyError
 from blitzecdn.core.features import (
     FeatureRegistry,
     HealthCheck,
@@ -88,6 +90,7 @@ class ApiServices:
     automatic_ssl: AutomaticSslService
     workflow_history: WorkflowStore
     health_checks: tuple[HealthCheck, ...]
+    queued_operations: OperationService
     _operations: Operations
     _scheduler: JobScheduler
     _jobs: Mapping[str, ScheduledJob]
@@ -183,6 +186,7 @@ def build_api(services: ApplicationServices) -> ApiServices:
         automatic_ssl=services.automatic_ssl,
         workflow_history=services.workflow_history,
         health_checks=services.health_checks,
+        queued_operations=services.queued_operations,
         _operations=services.operations,
         _scheduler=services.job_scheduler,
         _jobs=services.jobs,
@@ -193,7 +197,10 @@ def build_api(services: ApplicationServices) -> ApiServices:
 def build_worker(services: ApplicationServices) -> WorkerServices:
     """The worker's container. Only this installs the queue's handlers."""
     services.job_queue.consume_with(
-        _job_handlers(services.deployments, services.maintenance)
+        {
+            **_job_handlers(services.deployments, services.maintenance),
+            **_operation_handlers(services.operation_runs),
+        }
     )
     return WorkerServices(
         job_runner=services.job_runner,
@@ -271,3 +278,18 @@ def _job_handlers(
         return DONE
 
     return {DEPLOYMENT_JOB: deployment, SCHEDULED_JOB: scheduled}
+
+
+def _operation_handlers(runs: Mapping[str, OperationRun]) -> dict[str, JobHandler]:
+    """Each edge operation as a job: its report is the result, a refusal fails it."""
+
+    def handler(run: OperationRun) -> JobHandler:
+        def handle(payload: Mapping[str, Any]) -> JobOutcome:
+            try:
+                return Done(result=run(payload))
+            except BlitzeError as error:
+                return Fail(str(error))
+
+        return handle
+
+    return {kind: handler(run) for kind, run in runs.items()}

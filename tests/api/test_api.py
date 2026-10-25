@@ -3,9 +3,13 @@ import time
 from fastapi.testclient import TestClient
 from support.control_plane import (
     API_HEADERS,
+    FakeRunner,
+    build_application,
     control_plane_app,
     host_run,
+    run_queued_operations,
     seed_site_over_http,
+    serve,
 )
 
 from blitzecdn.capabilities.deployments import DeploymentService
@@ -386,13 +390,15 @@ def test_an_unknown_site_is_a_404(settings):
 def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch):
     monkeypatch.setattr(
         EdgeOperationsService,
-        "decommission_edge",
-        lambda _self, _name, _operator, **_kwargs: (_ for _ in ()).throw(
+        "update_edge",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             ConfigurationError("edge does not exist: edge-01")
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
+        response = client.patch(
+            "/v1/edges/edge-01", json={"port": 22}, headers=API_HEADERS
+        )
     assert response.status_code == 400
     assert response.json()["detail"] == "edge does not exist: edge-01"
 
@@ -400,13 +406,15 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
 def test_an_execution_error_is_a_502(settings, monkeypatch):
     monkeypatch.setattr(
         EdgeOperationsService,
-        "decommission_edge",
-        lambda _self, _name, _operator, **_kwargs: (_ for _ in ()).throw(
+        "update_edge",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             ExecutionError("ansible would not start")
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
+        response = client.patch(
+            "/v1/edges/edge-01", json={"port": 22}, headers=API_HEADERS
+        )
     assert response.status_code == 502
 
 
@@ -503,26 +511,45 @@ def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
         assert client.get("/v1/edges", headers=API_HEADERS).json() == []
 
 
-def test_removing_an_edge_without_decommissioning_says_so(settings):
-    """The narrow case, and the response has to be honest about it.
-
-    `decommission=false` leaves configuration and TLS private keys on the host,
-    so the body reports which kind of removal happened.
-    """
+def _queued_removal(settings, monkeypatch, path):
+    """DELETE an edge, run the queued removal as the worker would, and read it."""
+    control = build_application(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )
+    serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
+        queued = client.delete(path, headers=API_HEADERS)
+        assert queued.status_code == 202, queued.text
+        run_queued_operations(control)
+        operation = client.get(
+            f"/v1/operations/{queued.json()['id']}", headers=API_HEADERS
+        ).json()
+        edges = [
+            edge["name"] for edge in client.get("/v1/edges", headers=API_HEADERS).json()
+        ]
+    return operation, edges
 
-        response = client.delete(
-            "/v1/edges/edge-01?decommission=false", headers=API_HEADERS
-        )
 
-        assert response.status_code == 200
-        assert response.json() == {
-            "name": "edge-01",
-            "decommissioned": False,
-            "hosts": [],
-        }
-        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
+def test_removing_an_edge_without_decommissioning_says_so(settings, monkeypatch):
+    """The narrow case, and the result has to be honest about it.
+
+    `decommission=false` leaves configuration and TLS private keys on the host,
+    so the result reports which kind of removal happened.
+    """
+    operation, edges = _queued_removal(
+        settings, monkeypatch, "/v1/edges/edge-01?decommission=false"
+    )
+
+    assert operation["status"] == "succeeded"
+    assert operation["result"] == {
+        "name": "edge-01",
+        "decommissioned": False,
+        "hosts": [],
+    }
+    assert edges == []
 
 
 def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
@@ -538,15 +565,18 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
             ExecutionError("teardown of edge-01 failed")
         ),
     )
+
+    operation, edges = _queued_removal(settings, monkeypatch, "/v1/edges/edge-01")
+
+    assert operation["status"] == "failed"
+    assert operation["error"] == "teardown of edge-01 failed"
+    assert edges == ["edge-01"]
+
+
+def test_removing_an_unknown_edge_is_refused_before_queueing(settings):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
-
-        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
-
-        assert response.status_code == 502
-        assert [
-            edge["name"] for edge in client.get("/v1/edges", headers=API_HEADERS).json()
-        ] == ["edge-01"]
+        response = client.delete("/v1/edges/nowhere", headers=API_HEADERS)
+    assert response.status_code == 404
 
 
 def test_registering_an_edge_is_audited(settings):
@@ -574,7 +604,7 @@ def test_edge_routes_require_authentication(settings):
 
 
 def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
-    """The body carries the teardown result, which is why this is not a 204."""
+    """The operation's result carries what each host's teardown did."""
     monkeypatch.setattr(
         EdgeOperationsService,
         "decommission_edge",
@@ -582,16 +612,13 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
             host_run("edge-01", changes=("remove /etc/blitzecdn",)),
         ),
     )
-    with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
 
-        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
+    operation, _ = _queued_removal(settings, monkeypatch, "/v1/edges/edge-01")
 
-        assert response.status_code == 200
-        body = response.json()
-        assert body["decommissioned"] is True
-        assert [host["host"] for host in body["hosts"]] == ["edge-01"]
-        assert body["hosts"][0]["changes"][0]["task"] == "remove /etc/blitzecdn"
+    result = operation["result"]
+    assert result["decommissioned"] is True
+    assert [host["host"] for host in result["hosts"]] == ["edge-01"]
+    assert result["hosts"][0]["changes"][0]["task"] == "remove /etc/blitzecdn"
 
 
 def test_no_cloudflare_header_name_is_published_by_the_api(settings):

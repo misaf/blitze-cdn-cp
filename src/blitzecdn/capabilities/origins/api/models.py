@@ -1,51 +1,12 @@
-"""HTTP representations owned by origin checks. Shared response behavior
-comes from the API model toolkit; origin report shapes remain beside origins."""
+"""The origin check's HTTP request. Its report is the queued operation's result."""
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from pydantic import Field
-
-from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.capabilities.tls.contract import SslMode
-from blitzecdn.entrypoints.api.models import Model
 from blitzecdn.entrypoints.api.requests import FleetRequest
-
-
-class OriginCheck(Model):
-    site: str
-    origin: str
-    scheme: HttpScheme
-    ssl_mode: SslMode
-    sni: str | None = None
-    reachable: bool = False
-    tls_verified: bool | None = None
-    status: int | None = None
-    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    detail: str | None = None
-
-
-class EdgeOriginChecks(Model):
-    host: str
-    checked_at: datetime | None = None
-    checks: tuple[OriginCheck, ...] = ()
-    error: str | None = None
-
-
-class OriginReport(Model):
-    checked_at: datetime
-    host_limit: str | None = None
-    edges: tuple[EdgeOriginChecks, ...] = ()
 
 
 class OriginCheckRequest(FleetRequest):
     """Which edges should answer. All of them, unless narrowed."""
 
 
-__all__ = [
-    "EdgeOriginChecks",
-    "OriginCheck",
-    "OriginCheckRequest",
-    "OriginReport",
-]
+__all__ = ["OriginCheckRequest"]

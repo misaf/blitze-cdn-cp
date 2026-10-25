@@ -37,6 +37,7 @@ from blitzecdn.composition import (
     Infrastructure,
     Repository,
     build_services,
+    build_worker,
     load_registry,
 )
 from blitzecdn.core.config import Settings
@@ -751,6 +752,17 @@ def serve(monkeypatch: pytest.MonkeyPatch, control: ApplicationServices) -> None
     monkeypatch.setattr(
         "blitzecdn.entrypoints.api.app.build_services", lambda _infra: control
     )
+
+
+def run_queued_operations(control: ApplicationServices) -> None:
+    """Run every queued job the way the worker does, until the queue is empty.
+
+    The worker's handlers are installed on the shared queue the first time.
+    """
+    if not control.job_queue.handlers:
+        build_worker(control)
+    while control.job_queue.run_one() is not None:
+        pass
 
 
 def advance(
