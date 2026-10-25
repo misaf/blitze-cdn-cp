@@ -12,7 +12,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 set dotenv-load := false
 
 # Ansible needs these to find the vendored roles and the inventory plugin.
-export ANSIBLE_CONFIG := "src/blitzecdn/ansible/ansible.cfg"
+export ANSIBLE_CONFIG := "src/blitzecdn/assets/ansible/ansible.cfg"
 export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
 # ansible.cfg no longer names this: it can only point inside the wheel the
 # platform roles now ship in, and collections are state.
@@ -43,7 +43,7 @@ install: && collections
 # `ANSIBLE_COLLECTIONS_PATH`. Without these a role fails to parse, which reads
 # as a broken role rather than a missing dependency.
 collections:
-    uv run ansible-galaxy collection install -r src/blitzecdn/ansible/requirements.yml -p {{collections}}
+    uv run ansible-galaxy collection install -r src/blitzecdn/assets/ansible/requirements.yml -p {{collections}}
 
 # The complete application without development tools.
 install-prod:
@@ -103,11 +103,11 @@ release-version version:
     core.write_text(reversion(core.read_text()))
 
     pins = {
-        "src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml": (
+        "src/blitzecdn/assets/ansible/roles/blitzecdn_edge/defaults/main.yml": (
             r"(blitzecdn_edge_runtime_image_default: .*blitzecdn-edge):\S+",
             r"\1:%s" % version,
         ),
-        "src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml": (
+        "src/blitzecdn/assets/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml": (
             r'(?m)^blitzecdn_edge_image_tag: ".*"$',
             'blitzecdn_edge_image_tag: "%s"' % version,
         ),
@@ -150,7 +150,7 @@ shell-lint:
 # The tag is only a local name: production pulls the published image by the tag
 # and digest recorded in the fleet settings, never a locally built one.
 edge-image tag="blitzecdn-edge:dev":
-    docker build --tag {{tag}} src/blitzecdn/docker/edge
+    docker build --tag {{tag}} src/blitzecdn/assets/docker/edge
 
 # Slow, privileged proof of a clean Ubuntu edge running the containerised
 # runtime: real HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli and Under Attack Mode,
@@ -215,7 +215,7 @@ test-profile *args:
 # The syntax checks use the dynamic inventory plugin in its explicit non-strict
 # mode. A fresh checkout has no control-plane database, and a syntax check does
 # not need hosts; production keeps using the strict inventory in
-# `src/blitzecdn/ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
+# `src/blitzecdn/assets/ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
 #
 # `ANSIBLE_ROLES_PATH` and the capability slot lists are not written out here.
 # Both are asked of the control plane, which composes them from the installed
@@ -238,12 +238,12 @@ ansible-check:
     slots="$(uv run blitzecdn ansible slots)"
     uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
-        src/blitzecdn/ansible/playbooks/edge.yml --syntax-check \
+        src/blitzecdn/assets/ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml \
         --extra-vars "$slots"
     uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
-        src/blitzecdn/ansible/playbooks/decommission.yml --syntax-check \
+        src/blitzecdn/assets/ansible/playbooks/decommission.yml --syntax-check \
         --extra-vars "$slots"
     uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
@@ -251,8 +251,8 @@ ansible-check:
         --syntax-check
     for play in \
         tests/integration/*.yml \
-        src/blitzecdn/ansible/playbooks/control-plane.yml \
-        src/blitzecdn/ansible/playbooks/uninstall.yml
+        src/blitzecdn/assets/ansible/playbooks/control-plane.yml \
+        src/blitzecdn/assets/ansible/playbooks/uninstall.yml
     do
         uv run ansible-playbook -i localhost, "$play" --syntax-check
     done
@@ -262,7 +262,7 @@ ansible-check:
     # cache roles reached only by cache's own plays were already being linted
     # transitively; naming them by glob makes that explicit and costs nothing.
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
-        src/blitzecdn/ansible/playbooks/*.yml \
+        src/blitzecdn/assets/ansible/playbooks/*.yml \
         src/blitzecdn/capabilities \
         src/blitzecdn/providers \
         tests/integration/*.yml
@@ -282,8 +282,8 @@ docker-lint version="v2.15.1":
     #!/usr/bin/env bash
     set -euo pipefail
     files=(
-        src/blitzecdn/docker/edge/Dockerfile
-        src/blitzecdn/docker/control-plane/Dockerfile
+        src/blitzecdn/assets/docker/edge/Dockerfile
+        src/blitzecdn/assets/docker/control-plane/Dockerfile
     )
     if command -v hadolint >/dev/null 2>&1; then
         exec hadolint "${files[@]}"

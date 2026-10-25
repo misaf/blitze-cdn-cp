@@ -224,7 +224,8 @@ def test_installer_installs_only_third_party_collections():
     """
     script = _script()
     assert (
-        '-r src/blitzecdn/ansible/requirements.yml -p "${collections_path}"' in script
+        '-r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"'
+        in script
     )
     assert "--force" not in script
     assert "collection build" not in script

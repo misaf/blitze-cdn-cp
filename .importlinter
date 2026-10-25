@@ -148,12 +148,12 @@ forbidden_modules =
     yaml
     sqlalchemy
     sqlmodel
-    blitzecdn.ansible
+    blitzecdn.assets.ansible
     blitzecdn.entrypoints.api
     blitzecdn.capabilities
     blitzecdn.entrypoints.cli
     blitzecdn.composition
-    blitzecdn.docker
+    blitzecdn.assets.docker
     blitzecdn.host.host_runtime
     blitzecdn.entrypoints.install_handoff
     blitzecdn.providers
@@ -176,13 +176,13 @@ type = forbidden
 # The process that consumes durable work is never a dependency of the code
 # that produces it.
 source_modules =
-    blitzecdn.ansible
+    blitzecdn.assets.ansible
     blitzecdn.entrypoints.api
     blitzecdn.capabilities
     blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.core
-    blitzecdn.docker
+    blitzecdn.assets.docker
     blitzecdn.host.host_runtime
     blitzecdn.entrypoints.install_handoff
     blitzecdn.providers

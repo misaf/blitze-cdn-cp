@@ -6,14 +6,14 @@ from paths import CORE_DOCKER, REPO_ROOT
 
 
 def test_the_published_docker_paths_are_the_ones_in_the_checkout():
-    """`blitzecdn.docker` and the checkout tree are the same directory.
+    """`blitzecdn.assets.docker` and the checkout tree are the same directory.
 
     The module resolves through `importlib.resources`, which in a checkout
     with an editable install answers the checkout — so every other suite can
     read the constants and still be reading the files under review. The day
     that stops being true is the day the packaging moved and nothing said so.
     """
-    from blitzecdn import docker
+    from blitzecdn.assets import docker
 
     assert docker.EDGE_CONTEXT == CORE_DOCKER / "edge"
     assert docker.CONTROL_PLANE_DOCKERFILE == CORE_DOCKER / "control-plane/Dockerfile"
@@ -59,13 +59,13 @@ def test_no_tracked_file_names_the_old_top_level_docker_directory():
         # them somewhere that no longer exists just as surely as a command
         # would.
         if path.is_file()
-        and not name.startswith("src/blitzecdn/docker/")
+        and not name.startswith("src/blitzecdn/assets/docker/")
         and path != Path(__file__).resolve()
         for number, line in enumerate(
             path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
         )
         for stale in ("docker/edge", "docker/control-plane")
-        if stale in line and f"src/blitzecdn/{stale}" not in line
+        if stale in line and f"src/blitzecdn/assets/{stale}" not in line
     ]
     assert offenders == [], (
         "these name the pre-move `docker/` directory, which only a checkout "

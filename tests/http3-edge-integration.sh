@@ -55,7 +55,7 @@ in_edge() { docker exec "${edge}" bash -lc "$1"; }
 # at run time, so this harness resolves `blitzecdn_geoip` and
 # `blitzecdn_security` the same way a deployment does rather than from a
 # directory in the checkout.
-readonly ROLES_PATH='/workspace/src/blitzecdn/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/providers/geoip/ansible/roles:/workspace/src/blitzecdn/providers/hardening/ansible/roles:/workspace/src/blitzecdn/providers/http3/ansible/roles:/workspace/src/blitzecdn/providers/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
+readonly ROLES_PATH='/workspace/src/blitzecdn/assets/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/providers/geoip/ansible/roles:/workspace/src/blitzecdn/providers/hardening/ansible/roles:/workspace/src/blitzecdn/providers/http3/ansible/roles:/workspace/src/blitzecdn/providers/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
 converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
@@ -88,7 +88,7 @@ printf '  %s\n' "${module_args[@]}"
 
 say "Building the BlitzeCDN edge image"
 docker build "${module_args[@]}" --tag "${EDGE_TAG}" \
-  "${project_dir}/src/blitzecdn/docker/edge"
+  "${project_dir}/src/blitzecdn/assets/docker/edge"
 
 # The image an upgrade moves to: one layer on top of the one above, carrying a
 # label and nothing else.
@@ -161,7 +161,7 @@ done
 
 say "Installing the minimal Ansible test runner"
 in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core openssl curl ca-certificates iproute2 >/dev/null'
-in_edge 'ansible-galaxy collection install -r /workspace/src/blitzecdn/ansible/requirements.yml >/dev/null'
+in_edge 'ansible-galaxy collection install -r /workspace/src/blitzecdn/assets/ansible/requirements.yml >/dev/null'
 # Under the runtime contract's capability data directory, which is where the
 # `blitzecdn_geoip` role expects it and the only place core mounts read-only
 # into the edge container. Placed by hand because this runner has no MaxMind

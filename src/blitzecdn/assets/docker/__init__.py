@@ -2,7 +2,7 @@
 
 The edge runtime's Dockerfile and the Nginx probe baked into it, and the
 control plane's own Dockerfile, ship *inside this wheel* for the
-same reason :mod:`blitzecdn.ansible` does: they are part of the deployment
+same reason :mod:`blitzecdn.assets.ansible` does: they are part of the deployment
 implementation, and an installed controller has no repository to find them in
 — an air-gapped fleet has to build its edge image on the controller.
 

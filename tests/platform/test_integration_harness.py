@@ -372,7 +372,8 @@ def test_the_install_harness_reads_the_logs_where_the_host_keeps_them():
     state_dir = yaml.safe_load(
         (
             REPO_ROOT
-            / "src/blitzecdn/ansible/roles/blitzecdn_controlplane/defaults/main.yml"
+            / "src/blitzecdn/assets/ansible"
+            / "roles/blitzecdn_controlplane/defaults/main.yml"
         ).read_text(encoding="utf-8")
     )["blitzecdn_controlplane_state_dir"]
     commands = _commands(INSTALL_HARNESS)

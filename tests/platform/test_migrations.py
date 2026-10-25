@@ -34,7 +34,7 @@ def _config(path) -> Config:
     config = Config()
     config.set_main_option(
         "script_location",
-        str(SOURCE / "migrations"),
+        str(SOURCE / "assets/migrations"),
     )
     config.set_main_option("sqlalchemy.url", f"sqlite+pysqlite:///{path}")
     return config
@@ -132,7 +132,7 @@ def test_every_capability_table_module_reaches_the_metadata():
         path.parent.parent.name
         for path in (SOURCE / "capabilities").rglob("adapters/tables.py")
     }
-    env = (SOURCE / "migrations/env.py").read_text(encoding="utf-8")
+    env = (SOURCE / "assets/migrations/env.py").read_text(encoding="utf-8")
     missing = {
         capability
         for capability in declared

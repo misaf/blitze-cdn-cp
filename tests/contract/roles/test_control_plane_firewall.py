@@ -23,7 +23,7 @@ def test_the_control_plane_admits_the_port_its_api_actually_listens_on():
     the play would succeed, the container would be healthy, and the first
     symptom would be an allowed operator timing out. So the role's default is
     held to the constant the listener uses, the way the Dockerfile path is
-    already held to `blitzecdn.docker.CONTROL_PLANE_DOCKERFILE`.
+    already held to `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`.
     """
     from blitzecdn.entrypoints.api.__main__ import API_PORT
 

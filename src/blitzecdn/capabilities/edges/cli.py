@@ -252,7 +252,7 @@ def edge_image_spec(
     command emits them, in the form `docker build --build-arg` takes:
 
         docker build $(blitzecdn edge image spec | sed 's/^/--build-arg /') \\
-            "$(python -c 'from blitzecdn import docker; print(docker.EDGE_CONTEXT)')"
+            "$(python -c 'import blitzecdn.assets.docker as d; print(d.EDGE_CONTEXT)')"
 
     What it prints is the *superset* an image should carry, not what one edge
     loads. An image is shared by fleets whose attached capabilities differ, so

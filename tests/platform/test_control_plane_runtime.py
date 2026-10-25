@@ -11,7 +11,7 @@ import jinja2
 import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
-from blitzecdn.docker import (
+from blitzecdn.assets.docker import (
     CONTROL_PLANE_DOCKERFILE,
     CONTROL_PLANE_DOCKERIGNORE,
 )
@@ -278,7 +278,7 @@ def test_host_permissions_match_container_write_requirements():
 
 
 def test_the_image_is_built_from_the_dockerfile_the_package_publishes():
-    """One path, named by `blitzecdn.docker` and pointed at by the role.
+    """One path, named by `blitzecdn.assets.docker` and pointed at by the role.
 
     The template used to spell the Dockerfile's location inline, back when
     it sat in a top-level directory: that was a second copy of a location

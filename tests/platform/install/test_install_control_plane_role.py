@@ -1,6 +1,6 @@
 """The `blitzecdn_controlplane` role, which owns the host state.
 
-Host state lives in the role under ``src/blitzecdn/ansible/roles/`` rather than
+Host state lives in the role under ``src/blitzecdn/assets/ansible/roles/`` rather than
 in bash, so the properties are asserted against the role's tasks.
 """
 
@@ -26,7 +26,7 @@ from paths import CORE_ANSIBLE
 # --- the control-plane role --------------------------------------------------
 #
 # Host state moved out of this script and into the blitzecdn_controlplane
-# role under src/blitzecdn/ansible/roles/, so the properties that used to be
+# role under src/blitzecdn/assets/ansible/roles/, so the properties that used to be
 # asserted against bash are asserted against the role's tasks. What the role
 # *does* is covered by running it on a real Debian/Ubuntu host; these pin the
 # invariants that a reader cannot see from one successful run.

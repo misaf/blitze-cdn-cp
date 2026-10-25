@@ -35,7 +35,9 @@ from blitzecdn.core.runtime.resources import package_directory
 #: helper the Ansible tree uses rather than by counting ``..`` from
 #: ``__file__``, a count that is silently wrong the moment a module moves.
 MIGRATIONS_PATH = (
-    package_directory("blitzecdn", resolves="Alembic reads its migration tree by path")
+    package_directory(
+        "blitzecdn.assets", resolves="Alembic reads its migration tree by path"
+    )
     / "migrations"
 )
 

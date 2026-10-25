@@ -69,7 +69,9 @@ def contributed_roles() -> dict[str, Path]:
 
 def _role(name: str) -> Path:
     candidate = ROLES_DIR / name
-    assert candidate.is_dir(), f"{name} is missing from src/blitzecdn/ansible/roles/"
+    assert candidate.is_dir(), (
+        f"{name} is missing from src/blitzecdn/assets/ansible/roles/"
+    )
     return candidate
 
 

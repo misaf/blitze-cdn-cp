@@ -127,8 +127,8 @@ if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${A
   # an opaque import error several layers inside the installer.
   # The expansions belong to the container shell.
   # shellcheck disable=SC2016
-  in_container 'for path in /opt/blitzecdn/src/blitzecdn/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
-  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py' || true
+  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
+  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py' || true
   fail "install failed on ${IMAGE}"
 fi
 
@@ -202,7 +202,7 @@ say "Seeding the edge runtime image this host will run"
 # everything as it expects and reports no change on its second run. This is the
 # only step in this script that pre-empts a role, and it does so with that
 # role's own configuration.
-docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzecdn/docker/edge" >/dev/null
+docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzecdn/assets/docker/edge" >/dev/null
 
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
   fail "could not install the Docker repository prerequisites"

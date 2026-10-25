@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from blitzecdn import ansible as core_ansible
+from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.wiring import build_cache_service
 from blitzecdn.capabilities.deployments.ports import (

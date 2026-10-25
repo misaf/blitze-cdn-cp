@@ -27,7 +27,7 @@ CIDR. Managed edges must be fresh Ubuntu 26.04 LTS hosts.
 Inspect the generated inventory when troubleshooting:
 
 ```bash
-ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg \
+ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
   ansible-inventory --list
 ```
 
@@ -121,10 +121,10 @@ either out. Both are composed by the functions the composition root itself
 calls, so a play run this way resolves exactly what a deployment would:
 
 ```bash
-ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg \
+ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
 ANSIBLE_LOCAL_TEMP=.state/ansible-local \
 ANSIBLE_ROLES_PATH="$(blitzecdn ansible roles-path)" \
-  ansible-playbook src/blitzecdn/ansible/playbooks/edge.yml \
+  ansible-playbook src/blitzecdn/assets/ansible/playbooks/edge.yml \
   --extra-vars "$(blitzecdn ansible slots)"
 ```
 
