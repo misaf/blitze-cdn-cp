@@ -9,6 +9,7 @@ from control_plane_fixtures import (
     FakeServingProbe,
     RecordingBackgroundQueue,
     RefusingBackgroundQueue,
+    advance,
     ansible_run,
     build_application,
     host_run,
@@ -263,12 +264,10 @@ def test_redelivered_job_reports_the_saved_terminal_deployment(settings, termina
     queued = control.deployments.submit_deployment("alice")
     claim = control.job_queue.claim(lease_seconds=1)
     assert claim is not None
-    repository.deployments.transition(
-        queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-    )
-    repository.deployments.transition(
+    advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
+    advance(
+        repository.deployments,
         queued.id,
-        DeploymentStatus.RUNNING,
         terminal,
         error=None
         if terminal is DeploymentStatus.SUCCEEDED
@@ -575,9 +574,7 @@ def test_a_deployment_its_worker_died_in_resumes_on_redelivery(settings):
         repository.workflows.advance("died-in", WorkflowStatus.RUNNING)
         repository.workflows.create("in-the-api", "certificate", "bob", "example-com")
         repository.workflows.advance("in-the-api", WorkflowStatus.RUNNING)
-        repository.deployments.transition(
-            queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-        )
+        advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
     later = datetime.now(UTC) + timedelta(seconds=5)
     control.job_queue.clock = lambda: later
 
@@ -611,9 +608,7 @@ def test_startup_republishes_an_interrupted_deployment_for_resumption(settings):
     queued = control.deployments.submit_deployment("alice")
     claim = control.job_queue.claim(lease_seconds=1)
     assert claim is not None
-    repository.deployments.transition(
-        queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-    )
+    advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
     assert control.deployments.initialize() == 1
     later = datetime.now(UTC) + timedelta(seconds=5)
     control.job_queue.clock = lambda: later
@@ -798,9 +793,7 @@ def test_worker_resumes_checkpoints_and_reobserves_completed_edges(
     seed_edge(control, name="edge-b", host="192.0.2.11")
     seed_record(control)
     queued = control.deployments.submit_deployment("alice")
-    repository.deployments.transition(
-        queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-    )
+    advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
     targets = repository.deployment_targets
     fence = targets.claim_generation(queued.id)
     targets.plan(queued.id, ["edge-a", "edge-b"], fence=fence)

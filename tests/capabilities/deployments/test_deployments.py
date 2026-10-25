@@ -2,6 +2,7 @@ import pytest
 from application_support import _seed_proxied_record
 from control_plane_fixtures import (
     FakeRunner,
+    advance,
     ansible_run,
     build_application,
     host_run,
@@ -107,13 +108,9 @@ def test_newer_non_applied_runs_do_not_hide_a_deployed_site(
             )
             if status is DeploymentStatus.QUEUED:
                 continue
-            repository.deployments.transition(
-                newer.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-            )
+            advance(repository.deployments, newer.id, DeploymentStatus.RUNNING)
             if status is not DeploymentStatus.RUNNING:
-                repository.deployments.transition(
-                    newer.id, DeploymentStatus.RUNNING, status
-                )
+                advance(repository.deployments, newer.id, status)
 
     assert control.deployments.site_is_deployed("example-com") is True
     assert control.deployments.site_is_deployed("missing-site") is False
@@ -235,3 +232,32 @@ def _proxied_site_with_certificate(control, repository, certificate_pair, *, day
     site = _seed_proxied_record(control)
     certificate, key = certificate_pair((site.server_names[0],), days=days)
     return control.certificates.upload_certificate(site.name, certificate, key, "alice")
+
+
+def test_a_transition_is_a_new_value_and_keeps_what_it_did_not_change():
+    """`start` and `finish` return the next state; the original is untouched."""
+    from datetime import UTC, datetime, timedelta
+
+    from blitzecdn.capabilities.deployments.domain import Deployment
+
+    created = datetime(2030, 1, 1, tzinfo=UTC)
+    queued = Deployment(
+        id="d" * 32,
+        status=DeploymentStatus.QUEUED,
+        operator="alice",
+        check_mode=False,
+        release_id="r1",
+        created_at=created,
+    )
+    running = queued.start(now=created + timedelta(seconds=1))
+    failed = running.finish(
+        DeploymentStatus.FAILED,
+        now=created + timedelta(seconds=9),
+        error="edge-b did not answer",
+    )
+
+    assert queued.status is DeploymentStatus.QUEUED
+    assert running.started_at == created + timedelta(seconds=1)
+    assert failed.started_at == running.started_at
+    assert failed.finished_at == created + timedelta(seconds=9)
+    assert failed.detail == "edge-b did not answer"

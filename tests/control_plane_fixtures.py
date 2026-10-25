@@ -5,7 +5,7 @@ from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from cryptography import x509
@@ -21,6 +21,7 @@ from policy_support import (
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
+from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -819,6 +820,24 @@ def serve(monkeypatch: pytest.MonkeyPatch, control: ApplicationServices) -> None
         lambda *_args, **_kwargs: control.infrastructure,
     )
     monkeypatch.setattr("blitzecdn.api.app.build_services", lambda _infra: control)
+
+
+def advance(
+    deployments: Any, deployment_id: str, status: DeploymentStatus, **fields: Any
+) -> Deployment:
+    """Put a stored deployment into ``status``, the way the service would.
+
+    For setting up a state a test is about; ``fields`` are ``finish``'s
+    ``result`` and ``error``.
+    """
+    current = deployments.get_deployment(deployment_id)
+    now = datetime.now(UTC)
+    after = (
+        current.start(now=now)
+        if status is DeploymentStatus.RUNNING
+        else current.finish(status, now=now, **fields)
+    )
+    return cast(Deployment, deployments.save(current, after))
 
 
 def repository_on(settings: Settings) -> Repository:

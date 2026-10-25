@@ -10,7 +10,6 @@ from typing import Any, Protocol
 from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
-    DeploymentStatus,
     DeploymentTarget,
     TargetPhase,
     TargetStatus,
@@ -82,13 +81,7 @@ class DeploymentStore(Protocol):
         canonical_digest: str | None = None,
     ) -> Deployment: ...
 
-    def transition(
-        self,
-        deployment_id: str,
-        expected: DeploymentStatus,
-        target: DeploymentStatus,
-        **values: Any,
-    ) -> Deployment: ...
+    def save(self, before: Deployment, after: Deployment) -> Deployment: ...
 
     def get_deployment(self, deployment_id: str) -> Deployment: ...
 
