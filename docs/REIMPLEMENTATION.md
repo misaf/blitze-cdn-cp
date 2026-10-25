@@ -417,3 +417,22 @@ real-failure exhaustion and rejection of stale/double attempt refunds.
 Formatting, lint and strict types passed. Schema and frozen surfaces are
 unchanged. Ansible execution was simulated; no live edge was changed and no
 tests ran on the workstation.
+
+## Deployment job outcomes
+
+The deployment job handler now requires a saved successful deployment before
+reporting job success. Failed, timed-out and explicitly abandoned deployments
+produce permanent job failures with their recorded reasons, including when a
+worker redelivers an already finished deployment. Runner exceptions that already
+finalized failure no longer schedule a misleading retry. Errors that leave work
+unfinished remain retryable, and busy-lock deferral is preserved.
+
+Remote Ubuntu 26.04/Python 3.14.4 verification on 2026-10-25 passed **222 focused
+tests** across jobs, deployments, scheduled certificates, startup, frozen
+contracts, layering and recovery journeys. Fourteen new cases cover deployment
+and rollback failures, timeouts, verification failures, runner exceptions,
+redelivery of every terminal status and pre-execution delivery retries. Ten of
+those cases failed against the original handler. Formatting, lint and strict
+types across 38 source files passed. Schema and frozen surfaces are unchanged.
+Ansible execution was simulated; no live edge was changed and no tests ran on
+the workstation.
