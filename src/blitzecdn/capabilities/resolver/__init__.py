@@ -1,4 +1,4 @@
-"""The application's geoip runtime provider.
+"""The resolver capability: edge-host roles and nothing else.
 
 This implementation and its edge resources ship in the BlitzeCDN distribution.
 Configuration controls their use; the installed application always includes them.

@@ -51,7 +51,7 @@
         fail_msg: >-
           systemd-resolved is not running on this host, so a drop-in would be
           written and ignored. Configure DNS where this image actually reads
-          it, or disable blitzecdn.providers.resolver.
+          it, or disable blitzecdn.capabilities.resolver.
 
     - name: Create the resolved drop-in directory
       ansible.builtin.file:

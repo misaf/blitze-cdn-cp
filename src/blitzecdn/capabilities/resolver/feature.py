@@ -1,6 +1,6 @@
 """Declare the capability that decides what an edge host resolves names with.
 
-A focused runtime provider: two Ansible roles, no desired-state contribution,
+Infrastructure only: two Ansible roles, no desired-state contribution,
 service, route or command. It always ships with the application. Its configured
 enabled flag controls host DNS management; site policy never requests its token.
 
@@ -23,8 +23,8 @@ position in its own plays and never learns either role's name.
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.resolver import __version__, ansible
 from blitzecdn.core.features import AnsibleContribution, Feature, FeatureMetadata
-from blitzecdn.providers.resolver import __version__, ansible
 
 FEATURES = (
     Feature(

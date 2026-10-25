@@ -12,10 +12,10 @@ installed, which is the case this file cannot see.
 
 import pytest
 
+from blitzecdn.capabilities.security.geoip.feature import FEATURES
 from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import load_registry
-from blitzecdn.providers.geoip.feature import FEATURES
 
 (FEATURE,) = FEATURES
 

@@ -153,7 +153,6 @@ forbidden_modules =
     blitzecdn.assets.docker
     blitzecdn.host.host_runtime
     blitzecdn.entrypoints.install_handoff
-    blitzecdn.providers
     blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
@@ -182,7 +181,6 @@ source_modules =
     blitzecdn.assets.docker
     blitzecdn.host.host_runtime
     blitzecdn.entrypoints.install_handoff
-    blitzecdn.providers
 forbidden_modules =
     blitzecdn.entrypoints.worker
 allow_indirect_imports = True
@@ -195,7 +193,6 @@ type = forbidden
 # through `api.dependencies` and `cli.common`, never by naming the root.
 source_modules =
     blitzecdn.capabilities
-    blitzecdn.providers
 forbidden_modules =
     blitzecdn.composition
 allow_indirect_imports = True
@@ -208,8 +205,7 @@ type = forbidden
 # would be a cycle. Routes and commands are declared in `feature.py`, loaded by
 # name.
 source_modules =
-    blitzecdn.capabilities.*.wiring
-    blitzecdn.providers.*.wiring
+    blitzecdn.capabilities.**.wiring
 forbidden_modules =
     fastapi
     typer

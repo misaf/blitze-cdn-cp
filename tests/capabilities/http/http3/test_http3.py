@@ -9,15 +9,15 @@ import pytest
 from control_plane_fixtures import build_application
 from policy_support import TEST_CERTIFICATE_VERSION
 
+from blitzecdn.capabilities.http.http3 import __version__
+from blitzecdn.capabilities.http.http3.feature import FEATURES
+from blitzecdn.capabilities.http.http3.wiring import QUIC_FLEET_VARIABLES, quic_listener
 from blitzecdn.capabilities.http.wiring import baseline_listeners
 from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import managed_certificate_paths
 from blitzecdn.composition import load_registry
 from blitzecdn.core.features import FeatureMetadata, merge_variables
-from blitzecdn.providers.http3 import __version__
-from blitzecdn.providers.http3.feature import FEATURES
-from blitzecdn.providers.http3.wiring import QUIC_FLEET_VARIABLES, quic_listener
 
 (FEATURE,) = FEATURES
 

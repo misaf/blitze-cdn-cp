@@ -1,4 +1,4 @@
-"""The application's hardening runtime provider.
+"""The geoip slice of the security capability: edge roles and Nginx fragments.
 
 This implementation and its edge resources ship in the BlitzeCDN distribution.
 Configuration controls their use; the installed application always includes them.

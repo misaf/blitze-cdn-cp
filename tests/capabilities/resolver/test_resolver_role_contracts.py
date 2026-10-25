@@ -6,7 +6,7 @@ it — and the pair only works while they agree. Core used to hold the second
 copy and could not be asked to keep agreeing with a wheel it may not have
 installed.
 
-Read through :data:`blitzecdn.providers.resolver.ansible.ROLES_PATH`, the same path a
+Read through :data:`blitzecdn.capabilities.resolver.ansible.ROLES_PATH`, the same path a
 deployment resolves the roles by, rather than a directory in the checkout that
 an installed wheel would not have.
 """
@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from blitzecdn.providers.resolver import ansible
+from blitzecdn.capabilities.resolver import ansible
 
 RESOLVER = ansible.ROLES_PATH / "blitzecdn_resolver"
 TEARDOWN = ansible.ROLES_PATH / "blitzecdn_resolver_teardown"

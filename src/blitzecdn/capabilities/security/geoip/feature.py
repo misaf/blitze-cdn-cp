@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.security.geoip import __version__, ansible
 from blitzecdn.core.features import (
     AnsibleContribution,
     ConfigurationContribution,
@@ -12,7 +13,6 @@ from blitzecdn.core.features import (
     NginxContribution,
 )
 from blitzecdn.core.runtime.resources import package_directory
-from blitzecdn.providers.geoip import __version__, ansible
 
 #: The Jinja fragments this capability contributes to the edge's Nginx
 #: configuration, resolved under the same guard its roles are. A sibling of

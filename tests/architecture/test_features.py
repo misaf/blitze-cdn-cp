@@ -21,6 +21,7 @@ from typer import Typer
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
 from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
+from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.settings import CertificateConfig
@@ -54,18 +55,26 @@ from blitzecdn.core.features import (
     merge_variables,
 )
 from blitzecdn.entrypoints.cli.main import register_commands
-from blitzecdn.providers.http3.wiring import RENDERING as HTTP3_RENDERING
 
-#: The capability features, without the focused providers. A registry missing
-#: `geoip` and `http3` is what lets these tests watch a capability be absent.
+#: The features that only realize an edge capability: roles and fragments, no
+#: service. A registry missing `geoip` and `http3` is what lets these tests
+#: watch a capability be absent.
+_EDGE_PROVIDERS = frozenset(
+    {
+        "blitzecdn.capabilities.hardening.feature",
+        "blitzecdn.capabilities.http.http3.feature",
+        "blitzecdn.capabilities.resolver.feature",
+        "blitzecdn.capabilities.security.geoip.feature",
+    }
+)
 _CAPABILITY_FEATURES = tuple(
-    path for path in BUILTIN_FEATURES if path.startswith("blitzecdn.capabilities.")
+    path for path in BUILTIN_FEATURES if path not in _EDGE_PROVIDERS
 )
 
 
 @pytest.fixture
 def baseline() -> FeatureRegistry:
-    """The capability features this application ships, without providers."""
+    """The capability features this application ships, without edge providers."""
     return FeatureRegistry(load_features(_CAPABILITY_FEATURES))
 
 

@@ -1,7 +1,7 @@
 """The baseline HTTP capability: its policy contract and its listener stance.
 
 HTTP/3's *derivation* is not here. It moved out with the capability that owns
-it — `tests/providers/http3` — and what stays is the half core keeps
+it — `tests/capabilities/http/http3` — and what stays is the half core keeps
 whether or not that distribution is installed: the scheme, the port sets, the
 `http3_enabled` switch the stored site contract carries, and the baseline this
 feature writes into the fleet document.
@@ -111,7 +111,7 @@ def test_a_registry_without_http3_refuses_a_site_that_requests_it():
             tuple(
                 path
                 for path in BUILTIN_FEATURES
-                if path.startswith("blitzecdn.capabilities.")
+                if path != "blitzecdn.capabilities.http.http3.feature"
             )
         )
     )

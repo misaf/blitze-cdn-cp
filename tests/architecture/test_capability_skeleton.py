@@ -1,4 +1,4 @@
-"""Every capability and provider is built from the same parts, under one name each.
+"""Every capability is built from the same parts, under one name each.
 
 A part may be a module or a package — `cli.py` and `dns/cli/` are both the
 CLI — but it may not be a third name for a job one of these already does. A
@@ -14,7 +14,6 @@ import pytest
 from paths import SOURCE
 
 _CAPABILITIES = SOURCE / "capabilities"
-_PROVIDERS = SOURCE / "providers"
 
 PARTS = frozenset(
     {
@@ -49,10 +48,13 @@ KNOWN_DEVIATIONS = {
 
 #: Slices nested inside a capability rather than beside it. `test_layering`
 #: refuses them a top-level package of their own (`certificates` and
-#: `automatic_ssl` are strategies `tls` owns), so they stay where they are and
+#: `automatic_ssl` are strategies `tls` owns, `http3` a version of `http`,
+#: `geoip` a source `security` filters on), so they stay where they are and
 #: are held to the same skeleton one level down.
 NESTED_SLICES = frozenset(
     {
+        "capabilities/http/http3",
+        "capabilities/security/geoip",
         "capabilities/tls/automatic_ssl",
         "capabilities/tls/certificates",
     }
@@ -72,8 +74,7 @@ def _has_content(path: Path) -> bool:
 def _slices() -> list[Path]:
     roots = [
         path
-        for parent in (_CAPABILITIES, _PROVIDERS)
-        for path in sorted(parent.iterdir())
+        for path in sorted(_CAPABILITIES.iterdir())
         if path.is_dir() and (path / "__init__.py").is_file()
     ]
     return roots + [SOURCE / name for name in sorted(NESTED_SLICES)]

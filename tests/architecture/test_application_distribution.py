@@ -1,4 +1,4 @@
-"""Application assembly is explicit; runtime providers own infrastructure only."""
+"""Application assembly is explicit; edge providers own infrastructure only."""
 
 import ast
 import importlib
@@ -12,7 +12,7 @@ from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.features.resolution import resolve_nginx_resources
 
 
-def test_one_distribution_owns_the_application_and_all_internal_providers():
+def test_one_distribution_owns_the_application_and_every_capability():
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert manifest["project"]["name"] == "blitzecdn"
     assert "optional-dependencies" not in manifest["project"]
@@ -49,10 +49,19 @@ def test_all_shipped_features_share_the_application_version():
         assert Path(importlib.import_module(module).__file__).is_relative_to(SOURCE)
 
 
-def test_focused_runtime_providers_have_no_business_services_or_delivery_layers():
-    for provider in (SOURCE / "providers").iterdir():
-        if not provider.is_dir() or provider.name == "__pycache__":
-            continue
+#: The slices that realize an edge capability and nothing more. They sit with
+#: the capabilities they serve; this is what keeps them from growing a service.
+EDGE_PROVIDERS = (
+    "capabilities/hardening",
+    "capabilities/http/http3",
+    "capabilities/resolver",
+    "capabilities/security/geoip",
+)
+
+
+def test_edge_providers_have_no_business_services_or_delivery_layers():
+    for name in EDGE_PROVIDERS:
+        provider = SOURCE / name
         assert (provider / "feature.py").is_file()
         assert not any(
             (provider / layer).exists() for layer in ("service", "domain", "api", "cli")

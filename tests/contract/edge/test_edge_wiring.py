@@ -108,7 +108,7 @@ def test_no_reference_to_the_retired_edge_collection_remains():
 
 
 # The two assertions that were here — the drop-in's directives and the role's
-# defaults — moved to `tests/providers/hardening/` with the roles
+# defaults — moved to `tests/capabilities/hardening/` with the roles
 # themselves. This half of the SSH contract stays, because `ansible.cfg` is the
 # control plane's own file and holds whether or not that package is attached.
 def test_controller_refuses_password_authentication():
