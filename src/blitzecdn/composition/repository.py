@@ -15,9 +15,10 @@ journal. The directory is what says which of the two any module is.
 
 ``release_inputs`` is the one thing that cannot belong to a single store,
 because the desired state a release is compiled from spans the zones, their
-rules, and the records in them. It is read inside one transaction for the same
-reason: three separate reads would let a record be written between the second
-and the third, and the release would then describe a state that never existed.
+rules, the records in them, and the fleet-wide Ansible settings. It is read
+inside one transaction for the same reason: separate reads would let a record
+be written between two of them, and the release would then describe a state
+that never existed.
 """
 
 from __future__ import annotations
@@ -102,9 +103,9 @@ class Repository:
     def release_inputs(self) -> ReleaseInputs:
         """The canonical desired state a release is compiled from.
 
-        Spans three tables, so it belongs to the bundle rather than to any one
+        Spans four tables, so it belongs to the bundle rather than to any one
         store, and it is read inside a single transaction so that what comes
-        back is one consistent instant rather than three.
+        back is one consistent instant rather than four.
 
         Sites are not read here and are not in the document. They are derived
         from these three by the compiler, so writing them down would put a
@@ -115,6 +116,7 @@ class Repository:
                 self.zones.list_domains(),
                 self.zones.list_records(),
                 self.rules.list_rules(),
+                settings=self.ansible_settings.list_settings(),
             )
 
     def transaction(self) -> AbstractContextManager[None]:

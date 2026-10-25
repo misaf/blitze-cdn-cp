@@ -6,6 +6,7 @@ named a capability at runtime. Both the store and the table it reads are
 ``deployments``' own now.
 """
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, Result, delete, select
@@ -71,6 +72,24 @@ class AnsibleSettingStore:
             )
             if result == 0:
                 raise NotFoundError(f"Ansible setting {name!r} does not exist")
+
+    def replace_all_settings(self, settings: Mapping[str, Any]) -> None:
+        """Restore the table wholesale, for a rollback that adopts a release.
+
+        Every name is validated as `set_setting` would: a release's settings
+        were written through this store, but they are read back from storage.
+        """
+        names = {name: validate_setting_name(name) for name in settings}
+        now = self._db.now()
+        with self._db.session() as session:
+            session.execute(delete(AnsibleSettingRow))
+            session.flush()
+            session.add_all(
+                [
+                    AnsibleSettingRow(name=names[name], value=value, updated_at=now)
+                    for name, value in sorted(settings.items())
+                ]
+            )
 
 
 __all__ = ["AnsibleSettingStore"]

@@ -52,7 +52,7 @@ __all__ = [
 #: the fleet would go on serving an artifact no code in the tree still
 #: produces. It is not a schema version and it is not a wire version — those
 #: belong to the documents, which carry their own.
-COMPILER_VERSION = 3
+COMPILER_VERSION = 4
 
 #: The one artifact a release carries today: the document Ansible reads with
 #: ``--extra-vars``. A name rather than a position, so a second artifact does
@@ -109,7 +109,8 @@ class ReleaseFinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     #: Who found it: a capability token, ``"capabilities"`` for a missing
-    #: implementation, ``"derivation"`` for a group that would not compose.
+    #: implementation, ``"derivation"`` for a group that would not compose,
+    #: ``"settings"`` for a fleet setting that names a derived variable.
     source: str
     #: The derived host it concerns, or ``None`` for a fleet-wide finding.
     host: str | None

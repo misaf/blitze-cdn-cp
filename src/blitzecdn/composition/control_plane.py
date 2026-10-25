@@ -424,6 +424,7 @@ class ControlPlane:
             deployments=store.deployments,
             zones=store.zones,
             rules=store.rules,
+            fleet_settings=store.ansible_settings,
             requirements=store.deployment_requirements,
             releases=self.releases,
             targets=store.deployment_targets,

@@ -103,8 +103,17 @@ sets a value to what it already was has changed nothing an edge can observe.
 an old artifact alone would put the edges back and leave the control plane still
 asserting the newer state — so the next ordinary reconciliation would compile
 the state the control plane still holds and undo the rollback, quietly, within
-the hour. `adopt_inputs` restores the zones, rules and records, which is what
-makes a rollback a change of desired target rather than a temporary override.
+the hour. `adopt_inputs` restores the zones, rules, records and fleet settings,
+which is what makes a rollback a change of desired target rather than a
+temporary override.
+
+**Fleet settings are inputs.** The `blitzecdn config set` rows are captured in
+the same transaction as zones, rules and records, digested with them, and
+emitted into the edge document. That document reaches the edge play as
+extra-vars, which outrank the inventory's live copy, so a release converges with
+the settings it was compiled from and a rollback reproduces them. A setting that
+names a variable the release derives is a `settings` finding, and the artifact
+is withheld rather than letting Ansible pick a winner.
 
 **Deployments hold a reference, not a document.** `deployments.release_id` is a
 foreign key to a content-addressed row, so two deployments of unchanged state

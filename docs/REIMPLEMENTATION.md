@@ -230,8 +230,20 @@ Each step is committed separately and needs its own confirmation.
    and strict types pass; the fast suite had 1,774 passed and 5 failed — the
    same environmental failures as the unmodified baseline (no Node.js, no
    `.git` in the copy, running as root beside `/opt/blitzecdn`).
-3. Pending: render final Nginx configuration on the controller and ship it in
-   the content-addressed release.
+3. In progress, in three separately committed parts: render final Nginx
+   configuration on the controller and ship it in the content-addressed
+   release, with Ansible only staging, validating and activating it. The Under
+   Attack signing secret moves to an edge-local file so no bundle carries it.
+   - 3a complete: fleet settings are release inputs (schema 4, compiler 4).
+     They are digested, emitted into the edge document — which outranks the
+     inventory's live copy — and restored by a rollback that adopts a release.
+     A setting naming a derived variable withholds the artifact. Local: strict
+     types and 1,785 tests pass. Remote Ubuntu 26.04: format, lint and strict
+     types pass; 1,780 passed with the same 5 environmental failures.
+   - 3b pending: a controller renderer using ansible-core's templar over the
+     shipped templates, with a parity test against today's edge rendering.
+   - 3c pending: the bundle becomes the sealed candidate; Ansible copies it,
+     checks its manifest, validates and activates.
 
 ## Per-step authorization
 
