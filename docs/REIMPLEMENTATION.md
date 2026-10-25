@@ -397,3 +397,23 @@ with it enabled. A fifth new case synchronizes two independent scheduler
 connections on the same due snapshot and verifies exactly one queued job.
 Formatting, lint and strict types passed. Frozen surfaces and schema are
 unchanged. No tests ran on the workstation or changed a live deployment.
+
+## Deployment lock deferral
+
+Queued deployments and rollbacks now translate a busy deployment lock into an
+explicit job deferral. The fenced store returns the same job to pending with a
+five-second delay, keeps its deduplication key, clears its lease and refunds
+only that claim's execution attempt. Stale or repeated deferrals cannot modify
+another claim. Actual execution failures and expired claims still consume the
+bounded attempt budget; lock waiting no longer depends on API startup repair.
+
+Remote Ubuntu 26.04/Python 3.14.4 verification on 2026-10-25 passed **208 focused
+tests**, covering durable jobs, deployments, scheduled certificates, startup,
+frozen contracts, layering and recovery journeys. Three regression cases failed
+with deferral handling disabled. Tests use real OS deployment locks to hold
+queued deployment and rollback jobs beyond their attempt limit, then release
+the lock and complete the same job without restart. Further regressions verify
+real-failure exhaustion and rejection of stale/double attempt refunds.
+Formatting, lint and strict types passed. Schema and frozen surfaces are
+unchanged. Ansible execution was simulated; no live edge was changed and no
+tests ran on the workstation.

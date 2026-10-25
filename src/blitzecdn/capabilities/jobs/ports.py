@@ -71,6 +71,11 @@ class JobStore(Protocol):
     def renew(self, job_id: str, fence: int, *, until: datetime) -> bool:
         """Extend a lease this worker still holds."""
 
+    def defer(
+        self, job_id: str, fence: int, *, retry_at: datetime, reason: str
+    ) -> bool:
+        """Return unstarted work to pending and refund only this claim's attempt."""
+
     def get(self, job_id: str) -> Job: ...
 
     def list_jobs(

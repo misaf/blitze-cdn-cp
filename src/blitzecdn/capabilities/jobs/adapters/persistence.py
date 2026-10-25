@@ -251,6 +251,34 @@ class JobStore:
                 )
             )
 
+    def defer(
+        self, job_id: str, fence: int, *, retry_at: datetime, reason: str
+    ) -> bool:
+        with self._db.session() as session:
+            return bool(
+                _rows_affected(
+                    session.execute(
+                        update(JobRow)
+                        .where(
+                            col(JobRow.id) == job_id,
+                            col(JobRow.fence) == fence,
+                            col(JobRow.status) == JobStatus.RUNNING.value,
+                            col(JobRow.attempts) > 0,
+                        )
+                        .values(
+                            status=JobStatus.PENDING.value,
+                            attempts=col(JobRow.attempts) - 1,
+                            fence=fence + 1,
+                            available_at=retry_at,
+                            leased_until=None,
+                            leased_by=None,
+                            finished_at=None,
+                            last_error=reason,
+                        )
+                    )
+                )
+            )
+
     def renew(self, job_id: str, fence: int, *, until: datetime) -> bool:
         with self._db.session() as session:
             return bool(

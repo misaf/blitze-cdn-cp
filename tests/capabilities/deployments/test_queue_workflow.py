@@ -26,6 +26,7 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
 from blitzecdn.core.plugins import ProcessKind
@@ -210,6 +211,58 @@ def test_submit_releases_the_lock_after_queue_publication(settings):
     again = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rollback):
+    class LockedRunner(FakeRunner):
+        def lock(self):
+            return DeploymentLock(settings.deployment_lock_path)
+
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=LockedRunner(),
+        process=ProcessKind.WORKER,
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    if rollback:
+        target = control.deployments.deploy("alice")
+        queued = control.deployments.submit_rollback("alice", target.id)
+    else:
+        queued = control.deployments.submit_deployment("alice")
+    now = datetime.now(UTC)
+    control.job_queue.clock = lambda: now
+    (original,) = control.job_queue.list_jobs()
+
+    with DeploymentLock(settings.deployment_lock_path):
+        for _ in range(original.max_attempts + 2):
+            assert control.job_runner.tick()
+            (waiting,) = control.job_queue.list_jobs()
+            assert waiting.id == original.id
+            assert waiting.status is JobStatus.PENDING
+            assert waiting.attempts == 0
+            assert waiting.dedupe_key == original.dedupe_key
+            assert "another deployment" in waiting.last_error
+            assert waiting.available_at > now
+            assert not control.job_runner.tick()
+            assert (
+                control.deployments.get_deployment(queued.id).status
+                is DeploymentStatus.QUEUED
+            )
+            now = waiting.available_at
+
+    assert control.job_runner.tick()
+    (finished,) = control.job_queue.list_jobs()
+    assert finished.id == original.id
+    assert finished.status is JobStatus.SUCCEEDED
+    assert finished.attempts == 1
+    assert (
+        control.deployments.get_deployment(queued.id).status
+        is DeploymentStatus.SUCCEEDED
+    )
 
 
 def test_a_queued_deployment_converges_when_its_identifier_is_delivered(settings):

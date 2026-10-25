@@ -58,7 +58,7 @@ from blitzecdn.capabilities.jobs.composition import (
     build_job_scheduler,
     schedule_specs,
 )
-from blitzecdn.capabilities.jobs.domain import PermanentJobError
+from blitzecdn.capabilities.jobs.domain import DeferredJobError, PermanentJobError
 from blitzecdn.capabilities.jobs.ports import JobHandler
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
@@ -97,6 +97,7 @@ from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.core.plugins import (
     ExtensionContext,
     HealthCheck,
@@ -613,7 +614,10 @@ def _job_handlers(
     def deployment(payload: Mapping[str, Any]) -> None:
         # Explicitly abandoned work is terminal. A process killed before it
         # finalized RUNNING instead resumes through the deployment service.
-        result = deployments.run_queued(str(payload["deployment_id"]))
+        try:
+            result = deployments.run_queued(str(payload["deployment_id"]))
+        except DeploymentBusyError as exc:
+            raise DeferredJobError(str(exc)) from exc
         if result.abandoned:
             raise PermanentJobError(
                 f"deployment {result.id} was abandoned: "

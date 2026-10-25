@@ -172,13 +172,9 @@ class DeploymentService:
             with self.execution.runner.lock():
                 interrupted = self.persistence.deployments.running_deployments()
                 self.workflows.reconcile_interrupted()
-                # Not for a crash between a deployment's commit and its job's:
-                # those are one commit now. For a QUEUED deployment whose job
-                # failed without running it — a worker that found the lock
-                # held by a CLI deploy spends its three attempts in seconds,
-                # and the row is QUEUED with nothing left to deliver it. The
-                # enqueue is deduplicated, so one whose job is still pending
-                # costs nothing.
+                # Repair admitted work that no longer has an active delivery.
+                # Pending jobs, including lock deferrals, are deduplicated;
+                # waiting on a busy lock does not need this startup repair.
                 for deployment in [
                     *interrupted,
                     *self.persistence.deployments.queued_deployments(),
