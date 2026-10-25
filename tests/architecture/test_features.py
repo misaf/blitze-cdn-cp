@@ -312,7 +312,7 @@ def test_a_declared_override_wins_wherever_it_registered():
     }
 
 
-def test_two_plugins_writing_one_variable_is_a_conflict_not_a_race():
+def test_two_features_writing_one_variable_is_a_conflict_not_a_race():
     contributions = [
         SiteStateContribution(
             feature="cache", variables={"cache_valid_success": "10m"}
@@ -324,7 +324,7 @@ def test_two_plugins_writing_one_variable_is_a_conflict_not_a_race():
         merge_variables(contributions, subject="desired state")
 
 
-def test_two_plugins_cannot_both_claim_to_override_one_variable():
+def test_two_features_cannot_both_claim_to_override_one_variable():
     contributions = [
         SiteStateContribution(
             feature="a", variables={"x": 1}, overrides=frozenset({"x"})
@@ -385,7 +385,7 @@ def test_deployment_checks_are_collected_from_every_feature(baseline):
     assert len(result.issues) == 2
 
 
-def test_a_site_no_plugin_objects_to_is_deployable(baseline):
+def test_a_site_no_feature_objects_to_is_deployable(baseline):
     assert baseline.bind_rendering(()).validate_site(site()).ok
 
 
@@ -541,7 +541,7 @@ def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
 # --- feature metadata --------------------------------------------------------
 
 
-def test_a_plugin_name_has_to_be_usable_as_an_identifier():
+def test_a_feature_name_has_to_be_usable_as_an_identifier():
     with pytest.raises(ValueError, match="must be alphanumeric"):
         FeatureMetadata(name="not a name!", version="1.0")
 

@@ -24,7 +24,7 @@ def test_only_enabled_compression_requires_the_implementation() -> None:
     assert enabled.required_capabilities == frozenset({"compression"})
 
 
-def test_plugin_provides_compression() -> None:
+def test_feature_provides_compression() -> None:
     metadata = FEATURE.metadata
     assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "compression"

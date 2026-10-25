@@ -49,7 +49,7 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
     return context
 
 
-def test_the_role_this_distribution_ships_is_where_it_says_it_is():
+def test_the_role_this_capability_ships_is_where_it_says_it_is():
     assert ansible.ROLES_PATH.is_dir()
     assert [path.name for path in ansible.ROLES_PATH.iterdir()] == [ansible.EDGE_ROLE]
     assert TASKS.is_file()
@@ -92,7 +92,7 @@ def test_the_snippet_imports_the_module_and_includes_the_key():
     )
 
 
-def test_package_resources_dispatch_into_the_module_this_role_installs():
+def test_nginx_resources_dispatch_into_the_module_this_role_installs():
     """The Nginx resources name the njs functions the role provides; this is the only
     place both sides are read together.
     """

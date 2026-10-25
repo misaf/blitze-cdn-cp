@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 # Provision and probe a complete containerised BlitzeCDN edge.
 #
-# The edge host is a privileged Ubuntu 26.04 container running systemd, and the
-# roles install a real Docker Engine inside it — so the thing under test is a
-# Docker-in-Docker edge, which is as close to a real host as CI gets. The edge
-# container itself uses host networking, which inside this host container means
-# the host container's own network namespace: the origin and the HTTP/3 client
-# reach it on the outer Docker network exactly as visitors would reach a real
-# edge.
+# The edge host is a privileged Ubuntu 26.04 container running systemd, with a
+# real Docker Engine installed inside it by the roles. The edge container uses
+# host networking, so the origin and the HTTP/3 client reach it on the outer
+# Docker network as visitors would reach a real edge.
 #
-# What this proves, in order: a fresh install converges and is idempotent; every
-# supported listener answers over HTTP/1.1, HTTP/2 and HTTP/3; GeoIP2, Brotli
-# and Under Attack Mode survived containerisation; a site change reloads without
-# replacing the container; an image upgrade replaces it and keeps the cache and
-# the TLS material; a broken image is rolled back and the edge keeps serving;
-# the stack returns after the engine restarts; and a teardown distinguishes
-# removing the runtime from destroying what it was serving.
+# Proves: a fresh install converges and is idempotent; every listener answers
+# over HTTP/1.1, HTTP/2 and HTTP/3; GeoIP2, Brotli and Under Attack Mode work; a
+# site change reloads without replacing the container; an image upgrade replaces
+# it and keeps cache and TLS material; a broken image is rolled back; the stack
+# returns after an engine restart; and teardown distinguishes removing the
+# runtime from destroying its data.
 set -Eeuo pipefail
 
 readonly HOST_IMAGE=ubuntu:26.04
@@ -25,9 +21,8 @@ readonly MMDB_SHA256=b37601903448683d241af52893c8cbf0fed461e0cdebe0bfaca01891fde
 readonly EDGE_TAG=blitzecdn-edge:integration
 readonly EDGE_TAG_NEXT=blitzecdn-edge:integration-next
 readonly EDGE_TAG_BROKEN=blitzecdn-edge:integration-broken
-# Where the `blitzecdn_geoip` role reads its database: under the edge runtime
-# contract's capability data directory, not a distribution path. Core creates
-# and mounts that directory and never learns what is in it.
+# Where the `blitzecdn_geoip` role reads its database: the runtime contract's
+# capability data directory, which core creates and mounts.
 readonly GEOIP_DIR=/var/lib/blitzecdn/edge-data/geoip
 readonly GEOIP_DB="${GEOIP_DIR}/GeoIP2-Country-Test.mmdb"
 
@@ -50,26 +45,16 @@ trap cleanup EXIT
 say() { printf '\n=== %s ===\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 in_edge() { docker exec "${edge}" bash -lc "$1"; }
-# Core's roles, then the roles the optional capabilities ship inside their own
-# wheels — composed here exactly as `blitzecdn.core.ansible.roles` composes it
-# at run time, so this harness resolves `blitzecdn_geoip` and
-# `blitzecdn_security` the same way a deployment does rather than from a
-# directory in the checkout.
+# Core's roles, then each capability's, composed as
+# `blitzecdn.core.ansible.roles` composes them at run time.
 readonly ROLES_PATH='/workspace/src/blitzecdn/assets/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/capabilities/security/geoip/ansible/roles:/workspace/src/blitzecdn/capabilities/hardening/ansible/roles:/workspace/src/blitzecdn/capabilities/http/http3/ansible/roles:/workspace/src/blitzecdn/capabilities/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
 converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
 
-# Which modules the image is built with is not a constant, and must not be
-# written down twice. `blitzecdn edge image spec` composes it from the
-# capabilities installed in this checkout, and the workflow that publishes the
-# edge runtime builds from exactly this output — so the image probed here is
-# the image an operator is given, and a capability added to the workspace is
-# carried by both without either being edited.
-#
-# Resolved here rather than by the CI job so the harness stays runnable by
-# hand: `ssh` to a host with Docker, run this script, and it needs nothing to
-# have been prepared for it.
+# The module set comes from `blitzecdn edge image spec`, the same command the
+# publishing workflow builds from, so the image probed here is the one operators
+# get. Resolved here so the script runs by hand on any host with Docker.
 say "Resolving the modules the installed capabilities declare"
 command -v uv >/dev/null 2>&1 ||
   fail "uv is not on PATH, and the edge image's module set is resolved with it"
@@ -80,8 +65,7 @@ while IFS= read -r argument; do
     module_args+=(--build-arg "${argument}")
   fi
 done < <(uv run --project "${project_dir}" --no-sync blitzecdn edge image spec)
-# An empty spec would build an image with no modules and fail four steps later
-# at an invariant naming a capability, which is a long way from the cause.
+# An empty spec would build an image with no modules and fail much later.
 [[ ${#module_args[@]} -gt 0 ]] ||
   fail "blitzecdn edge image spec named no build arguments"
 printf '  %s\n' "${module_args[@]}"
@@ -90,29 +74,17 @@ say "Building the BlitzeCDN edge image"
 docker build "${module_args[@]}" --tag "${EDGE_TAG}" \
   "${project_dir}/src/blitzecdn/assets/docker/edge"
 
-# The image an upgrade moves to: one layer on top of the one above, carrying a
-# label and nothing else.
-#
-# It used to be `docker tag` — a second name for identical bytes — on the
-# theory that an upgrade is a change of reference. It is not. blitzecdn_edge_stack
-# resolves a reference to a digest and pins the Compose file to that, precisely
-# so a tag that resolves to bytes already running is not churn, so retagging
-# left the compose file identical and nothing was recreated. The role was
-# right and the assertion below was wrong; it now upgrades to different bytes,
-# which is what an upgrade is, and the pull, validate, recreate and health path
-# runs for real.
-#
-# A label rather than anything functional, so this still does not pretend a
-# different Nginx exists: same binary, same modules, same configuration, new
-# digest.
+# The image an upgrade moves to: one label on top, so new bytes with the same
+# Nginx. blitzecdn_edge_stack pins a digest, so a mere retag would recreate
+# nothing.
 say "Building the image the upgrade moves to"
 printf 'FROM %s\nLABEL org.opencontainers.image.revision=integration-next\n' \
   "${EDGE_TAG}" > "${workdir}/Dockerfile.next"
 docker build --tag "${EDGE_TAG_NEXT}" --file "${workdir}/Dockerfile.next" "${workdir}"
 
-# And one that cannot serve. The base configuration lives inside the image, so
-# breaking it there is a runtime failure the host filesystem cannot cause and
-# the configuration test must catch before the running container is replaced.
+# One that cannot serve: its base configuration is broken inside the image,
+# which the configuration test must catch before the running container is
+# replaced.
 say "Building a deliberately broken edge image"
 printf 'FROM %s\nRUN printf "this is not nginx configuration\\n" > /etc/nginx/nginx.conf\n' \
   "${EDGE_TAG}" > "${workdir}/Dockerfile.broken"
@@ -130,15 +102,9 @@ docker run -d --name "${origin}" --network "${network}" \
   >/dev/null
 
 say "Starting a clean Ubuntu 26.04 edge host"
-# `-v /var/lib/docker -v /var/lib/containerd`: anonymous volumes, and the only
-# reason this host can run a container at all. The engine installed inside it
-# assembles every image as an overlay mount whose upper and lower directories
-# live under those paths, and those paths are the *outer* container's rootfs,
-# which is itself overlay. Stacking one on the other is refused with a bare
-# `invalid argument` about a mount, naming no image and no layer. A volume is
-# backed by the outer daemon's own filesystem rather than by that rootfs, which
-# is what `docker:dind` does with `VOLUME /var/lib/docker` and for this reason.
-# Both paths: this engine keeps its snapshots under containerd's.
+# Anonymous volumes for /var/lib/docker and /var/lib/containerd: the nested
+# engine's overlay mounts cannot sit on the outer container's overlay rootfs
+# (they fail with a bare `invalid argument`), as with `docker:dind`.
 docker run -d --name "${edge}" --hostname blitzecdn-http3-edge \
   --network "${network}" --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
@@ -162,20 +128,14 @@ done
 say "Installing the minimal Ansible test runner"
 in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core openssl curl ca-certificates iproute2 >/dev/null'
 in_edge 'ansible-galaxy collection install -r /workspace/src/blitzecdn/assets/ansible/requirements.yml >/dev/null'
-# Under the runtime contract's capability data directory, which is where the
-# `blitzecdn_geoip` role expects it and the only place core mounts read-only
-# into the edge container. Placed by hand because this runner has no MaxMind
-# credentials — which is also the supported path for an air-gapped fleet, so it
-# is worth exercising.
+# Placed by hand under the capability data directory, since this runner has no
+# MaxMind credentials; that is also the air-gapped path.
 in_edge "install -d -m 0755 ${GEOIP_DIR} && curl -fsSL --proto '=https' --tlsv1.2 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/${MMDB_COMMIT}/test-data/GeoIP2-Country-Test.mmdb' -o ${GEOIP_DB} && echo '${MMDB_SHA256}  ${GEOIP_DB}' | sha256sum -c -"
 in_edge "install -d -m 0700 /etc/blitzecdn/tls && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=site-one.test' -addext 'subjectAltName=DNS:site-one.test,DNS:site-two.test' -keyout /etc/blitzecdn/tls/integration.key -out /etc/blitzecdn/tls/integration.pem >/dev/null 2>&1 && chmod 0600 /etc/blitzecdn/tls/integration.key"
 in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0600 /run/blitzecdn-under-attack-secret"
 
-# The images were saved on the outer host and mounted at /images, and the edge
-# playbook is told not to pull, so they have to reach this host's own engine
-# before anything asks for them. `docker load` needs that engine, and the
-# engine is installed by the very converge that then requires the image — so
-# the engine goes in first, on its own.
+# The images must reach this host's own engine (the playbook does not pull), and
+# `docker load` needs the engine first, so it is installed on its own.
 say "Installing the container engine and loading the edge runtime images"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/docker-engine.yml"
 in_edge 'docker load -i /images/edge-images.tar'
@@ -212,16 +172,8 @@ in_edge "ss -H -lnu | grep -q ':443 '" || fail "nothing is listening on UDP/443"
 in_edge "grep -qx 'tcp|443|any' /etc/blitzecdn/firewall-rules"
 in_edge "grep -qx 'udp|443|any' /etc/blitzecdn/firewall-rules"
 
-# `--diff` here and not on the fresh converge above. A first converge changes
-# everything and would print every rendered file; a repeated one should change
-# nothing, so whatever it prints is exactly the thing that failed to settle.
-# Without it this check reports a count — `changed=1` — and leaves the reader
-# to guess which attribute of which path is flipping, which is a poor trade
-# for a job that takes five minutes to reach this line.
-#
-# Safe to print: the one task that renders the fleet secret is `no_log: true`
-# in blitzecdn_security, which suppresses its diff with everything else, and
-# no Nginx fragment carries the secret.
+# `--diff` only on the repeated converge, so it prints exactly what failed to
+# settle. Safe: the task rendering the fleet secret is `no_log: true`.
 say "Checking provisioning convergence"
 converged=$(converge --diff)
 printf '%s\n' "${converged}"
@@ -274,24 +226,16 @@ grep -qi 'content-encoding: br' <<<"${brotli}"
 # --------------------------------------------------------------------------
 # HTTP-01
 # --------------------------------------------------------------------------
-# The one flow where the controller writes a file on the host and the runtime
-# has to read it back out of a bind mount. Nginx serves the webroot as the
-# image's uid, which matches neither a host owner nor a host group, so a mode
-# that admits only a host account answers 403 for a file that is plainly
-# there — and ACME reports that as a failed challenge, never as a permission.
-# Every gate was green while that was true of the whole fleet, because nothing
-# issued a certificate.
-#
-# Driven through the shipped playbook, not by writing the file here. The writer
-# and the server agreeing is the entire property; a harness that published the
-# token itself would pass while the real writer put it somewhere unreadable.
+# The one flow where the controller writes on the host and the runtime reads
+# through a bind mount, as the image's uid. Driven through the shipped playbook,
+# since the writer and server agreeing is the property.
 say "Serving an HTTP-01 challenge the way ACME asks for one"
 readonly ACME_TOKEN=blitzecdn-integration-token
 readonly ACME_VALIDATION=blitzecdn-integration-token.EhSCDKFbQfBRXBcJ2Vd0
 readonly ACME_PLAYBOOK=src/blitzecdn/capabilities/tls/ansible/playbooks/acme-challenge.yml
 readonly ACME_URL="http://site-one.test/.well-known/acme-challenge/${ACME_TOKEN}"
-# Port 80 and no -f: the code is the assertion, and a redirect to HTTPS is a
-# failure worth seeing rather than following. A CA does not follow one either.
+# Port 80 and no -f: the code is the assertion, and a CA does not follow
+# redirects either.
 acme_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -sS --resolve "site-one.test:80:${edge_ip}")
 
 publish_challenge() {
@@ -307,8 +251,7 @@ publish_challenge present || fail "the ACME challenge playbook could not publish
 
 served=$("${acme_client[@]}" -o /dev/null -w '%{http_code}' "${ACME_URL}")
 if [[ ${served} != 200 ]]; then
-  # Ownership numerically, because the names are the confusion: the host's
-  # passwd file and the image's disagree, and only the uid crosses the mount.
+  # Numeric ownership: only the uid crosses the mount.
   in_edge 'ls -lna /var/lib/blitzecdn/acme/.well-known/acme-challenge' || true
   in_edge 'docker exec blitzecdn-edge id' || true
   in_edge 'docker logs --tail 20 blitzecdn-edge' || true
@@ -319,8 +262,7 @@ body=$("${acme_client[@]}" "${ACME_URL}")
 [[ ${body} == "${ACME_VALIDATION}" ]] ||
   fail "the edge served '${body}' rather than the validation value"
 
-# Withdrawal is the other half: a token that outlives its order is a file the
-# next validation could answer with the wrong value.
+# A token outliving its order could answer the next validation wrongly.
 publish_challenge absent || fail "the ACME challenge playbook could not withdraw a token"
 withdrawn=$("${acme_client[@]}" -o /dev/null -w '%{http_code}' "${ACME_URL}")
 [[ ${withdrawn} == 404 ]] ||

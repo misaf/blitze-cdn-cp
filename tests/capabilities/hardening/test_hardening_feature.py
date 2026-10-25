@@ -21,7 +21,7 @@ from blitzecdn.core.features.resolution import (
 # --- registration -----------------------------------------------------------
 
 
-def test_plugin_provides_hardening_as_a_required_provider() -> None:
+def test_feature_provides_hardening_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
     assert isinstance(metadata, FeatureMetadata)
@@ -118,7 +118,7 @@ def test_converging_and_withdrawing_are_different_roles() -> None:
     assert not set(contribution.host_roles) & set(contribution.teardown_roles)
 
 
-def test_the_wheel_actually_carries_the_roles_it_names() -> None:
+def test_the_package_actually_carries_the_roles_it_names() -> None:
     """The path a deployment resolves by, not a directory in the checkout."""
     for role in ansible.HOST_ROLES + ansible.TEARDOWN_ROLES:
         assert (ansible.ROLES_PATH / role / "tasks/main.yml").is_file(), role

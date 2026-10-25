@@ -244,7 +244,7 @@ def test_a_job_with_no_lease_opinion_gets_twice_its_interval():
     assert spec.lease_seconds == 7200
 
 
-def test_an_uninstalled_plugins_schedule_is_forgotten(repository):
+def test_a_removed_features_schedule_is_forgotten(repository):
     """Otherwise it enqueues forever and resolves to nothing."""
     clock = Clock()
     scheduler, _ = scheduler_for(repository, clock)

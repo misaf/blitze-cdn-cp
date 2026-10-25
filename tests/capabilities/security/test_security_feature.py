@@ -98,7 +98,7 @@ def test_a_secret_too_short_to_sign_with_never_reaches_this_capability() -> None
         _checks("short")
 
 
-def test_the_edge_role_travels_with_the_distribution() -> None:
+def test_the_edge_role_travels_with_the_capability() -> None:
     """The contribution is how core learns the challenge role exists and that the
     edge play should run it; nothing in the control plane names either.
     """
