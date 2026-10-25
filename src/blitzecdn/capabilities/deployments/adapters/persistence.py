@@ -159,6 +159,20 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
+    def latest_successful_applied(self) -> Deployment | None:
+        """The newest successful applied run, regardless of newer checks."""
+        with self._db.session() as session:
+            row = session.scalars(
+                select(DeploymentRow)
+                .where(
+                    col(DeploymentRow.status) == DeploymentStatus.SUCCEEDED.value,
+                    col(DeploymentRow.check_mode).is_(False),
+                )
+                .order_by(col(DeploymentRow.created_at).desc())
+                .limit(1)
+            ).first()
+            return self._deployment(row) if row is not None else None
+
     def queued_deployments(self) -> list[Deployment]:
         with self._db.session() as session:
             rows = session.scalars(
