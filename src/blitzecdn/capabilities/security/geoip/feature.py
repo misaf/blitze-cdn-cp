@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.security.geoip import __version__, ansible
+from blitzecdn.capabilities.security.geoip.settings import CONFIGURATION
 from blitzecdn.core.features import (
     AnsibleContribution,
-    ConfigurationContribution,
     EdgeModule,
-    EnvironmentKey,
     Feature,
     FeatureMetadata,
     NginxContribution,
@@ -34,27 +33,7 @@ FEATURES = (
         ),
         # MaxMind credentials for the GeoLite2 updater; optional, since sites needing
         # geoip are refused by capability token.
-        configuration=(
-            ConfigurationContribution(
-                feature="geoip",
-                environment_keys=(
-                    EnvironmentKey(
-                        name="BLITZE_MAXMIND_ACCOUNT_ID",
-                        summary=(
-                            "The MaxMind account id the GeoLite2 updater "
-                            "authenticates with."
-                        ),
-                    ),
-                    EnvironmentKey(
-                        name="BLITZE_MAXMIND_LICENSE_KEY",
-                        summary=(
-                            "The MaxMind license key the GeoLite2 updater "
-                            "authenticates with."
-                        ),
-                    ),
-                ),
-            ),
-        ),
+        configuration=(CONFIGURATION,),
         ansible=(
             AnsibleContribution(
                 feature="geoip",

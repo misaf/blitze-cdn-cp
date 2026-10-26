@@ -9,7 +9,6 @@ the rest derive from the project directory.
 from __future__ import annotations
 
 import os
-import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -24,6 +23,7 @@ from pydantic_settings import (
 )
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.core.domain.environment import parse_environment
 from blitzecdn.core.exceptions import ConfigurationError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -234,35 +234,13 @@ def read_environment_file(path: Path) -> dict[str, str]:
     Stricter than python-dotenv: a symlink or an unquoted space is refused, because
     this file holds the controller's secrets.
     """
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    if path.is_symlink() or not path.is_file():
+    if path.is_symlink():
         raise ConfigurationError(f"refusing to load unsafe environment file: {path}")
-    for number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        name, separator, raw_value = line.partition("=")
-        name = name.strip()
-        if not separator or not name or not name.replace("_", "a").isalnum():
-            raise ConfigurationError(f"invalid assignment in {path}:{number}")
-        try:
-            parts = shlex.split(raw_value, comments=True, posix=True)
-        except ValueError as exc:
-            raise ConfigurationError(
-                f"invalid value in {path}:{number}: {exc}"
-            ) from exc
-        if len(parts) > 1:
-            raise ConfigurationError(
-                f"quote values containing spaces in {path}:{number}"
-            )
-        values.setdefault(name, parts[0] if parts else "")
-    return values
+    if not path.exists():
+        return {}
+    if not path.is_file():
+        raise ConfigurationError(f"refusing to load unsafe environment file: {path}")
+    return parse_environment(path.read_text(encoding="utf-8"), source=str(path))
 
 
 def _scalar(value: object) -> str:

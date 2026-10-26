@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from blitzecdn.core.exceptions import ConfigurationError, FeatureError
 from blitzecdn.core.features.types import (
@@ -20,6 +20,7 @@ from blitzecdn.core.features.types import (
     EnvironmentKey,
     SettingValue,
 )
+from blitzecdn.core.features.types.configuration import ConfigurationModel
 
 __all__ = [
     "CapabilityConfig",
@@ -42,6 +43,18 @@ class CapabilityConfig:
     #: The non-secret half, coerced to each setting's declared type. A setting
     #: always has a value; a secret is only ever asked whether it is set.
     settings: Mapping[str, SettingValue] = field(default_factory=dict)
+    model: ConfigurationModel | None = None
+
+    def as_model[T: ConfigurationModel](self, kind: type[T]) -> T:
+        """The validated settings object, without string-key reads in services."""
+        if isinstance(self.model, kind):
+            return self.model
+        try:
+            return kind.model_validate({**self.settings, **self.values})
+        except ValidationError as exc:
+            raise ConfigurationError(
+                f"invalid configuration for feature {self.feature!r}: {exc}"
+            ) from exc
 
     def secret(self, name: str) -> SecretStr:
         """This key's value, empty when the controller has not set it."""
@@ -197,6 +210,8 @@ def resolve_feature_configuration(
     database will not open. Collisions and unclaimed names are checked once at
     startup by :func:`resolve_capability_environment`.
     """
+    if contribution.model is not None:
+        return _resolve_model(contribution, configured, from_file, state_dir)
     values = {
         key.name: configured.get(key.name, SecretStr(""))
         for key in sorted(contribution.environment_keys, key=lambda item: item.name)
@@ -216,6 +231,57 @@ def resolve_feature_configuration(
         for setting in sorted(contribution.settings, key=lambda item: item.name)
     }
     return CapabilityConfig(contribution.feature, values, settings)
+
+
+def _resolve_model(
+    contribution: ConfigurationContribution,
+    configured: Mapping[str, SecretStr],
+    from_file: Mapping[str, str],
+    state_dir: Path,
+) -> CapabilityConfig:
+    """Merge sources once, validate with Pydantic, and retain the typed result."""
+    assert contribution.model is not None  # noqa: S101 - narrowed by caller
+    supplied: dict[str, object] = {}
+    for key in contribution.environment_keys:
+        if key.name in from_file:
+            raise ConfigurationError(
+                f"these are secrets and cannot be set in blitzecdn.toml: "
+                f"{key.name.removeprefix('BLITZE_').lower()}"
+            )
+        value = configured.get(key.name, SecretStr(""))
+        _check_value(contribution.feature, key, value)
+        supplied[key.name] = value
+    for setting in contribution.settings:
+        raw = (
+            configured[setting.name].get_secret_value()
+            if setting.name in configured
+            else from_file.get(setting.name, "")
+        ).strip()
+        setting_value: SettingValue = raw if raw else setting.default
+        if isinstance(setting.default, Path):
+            setting_value = _under(Path(raw) if raw else setting.default, state_dir)
+        supplied[setting.name] = setting_value
+    try:
+        model = contribution.model.model_validate(supplied)
+    except ValidationError as exc:
+        raise ConfigurationError(
+            f"invalid configuration for feature {contribution.feature!r}: {exc}"
+        ) from exc
+    resolved = {
+        field.alias: getattr(model, name)
+        for name, field in contribution.model.model_fields.items()
+    }
+    return CapabilityConfig(
+        contribution.feature,
+        {key.name: resolved[key.name] for key in contribution.environment_keys},
+        {
+            setting.name: ""
+            if resolved[setting.name] is None
+            else resolved[setting.name]
+            for setting in contribution.settings
+        },
+        model=model,
+    )
 
 
 def _optional_secret(value: str | None) -> SecretStr | None:

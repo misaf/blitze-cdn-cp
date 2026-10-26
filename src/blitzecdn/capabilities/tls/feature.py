@@ -12,13 +12,12 @@ from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
 from blitzecdn.capabilities.tls.certificates.api import routes as certificates_routes
-from blitzecdn.capabilities.tls.settings import SETTINGS
+from blitzecdn.capabilities.tls.settings import CONFIGURATION
 from blitzecdn.capabilities.tls.wiring import (
     __version__ as certificates_version,
 )
 from blitzecdn.core.features import (
     CliCommandGroup,
-    ConfigurationContribution,
     Feature,
     FeatureMetadata,
 )
@@ -55,11 +54,7 @@ CERTIFICATES = Feature(
             feature="certificates", name="ssl", app=automatic_ssl_cli.ssl_app
         ),
     ),
-    # Controller-side settings and no secrets, which is what a
-    # `CapabilitySetting` is for.
-    configuration=(
-        ConfigurationContribution(feature="certificates", settings=SETTINGS),
-    ),
+    configuration=(CONFIGURATION,),
 )
 
 FEATURES = (TLS, CERTIFICATES)

@@ -23,6 +23,7 @@ from blitzecdn.core.config import (
     is_portable_config_key,
     is_portable_environment_key,
 )
+from blitzecdn.core.domain.environment import parse_environment
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
@@ -36,7 +37,7 @@ LINKS_MEMBER = ".links.json"
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
-_ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
+_ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
 def _copy_tree(source: Path, destination: Path, *, links: dict[str, str]) -> None:
@@ -141,11 +142,12 @@ def _environment_assignments(payload: bytes) -> dict[str, str]:
         lines = payload.decode("utf-8").splitlines()
     except UnicodeDecodeError as exc:
         raise ConfigurationError("config/env is not valid UTF-8") from exc
+    parse_environment("\n".join(lines), source="config/env")
     assignments: dict[str, str] = {}
     for line in lines:
         match = _ASSIGNMENT.match(line.strip())
         if match:
-            assignments[match.group(1)] = line
+            assignments.setdefault(match.group(1), line)
     return assignments
 
 

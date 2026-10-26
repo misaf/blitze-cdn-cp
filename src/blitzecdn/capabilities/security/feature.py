@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.security import ansible, cli
-from blitzecdn.capabilities.security.settings import (
-    MINIMUM_SECRET_BYTES,
-    SECRET_VARIABLE,
-)
+from blitzecdn.capabilities.security.settings import CONFIGURATION
 from blitzecdn.core.features import (
     AnsibleContribution,
     CliCommandGroup,
-    ConfigurationContribution,
     EdgeModule,
-    EnvironmentKey,
     Feature,
     FeatureMetadata,
     NginxContribution,
@@ -50,21 +45,7 @@ FEATURES = (
         ),
         # The fleet key the Under Attack challenge is signed with. Optional: a site
         # that needs it is refused at deploy. The length is enforced at composition.
-        configuration=(
-            ConfigurationContribution(
-                feature="security",
-                environment_keys=(
-                    EnvironmentKey(
-                        name=SECRET_VARIABLE,
-                        minimum_bytes=MINIMUM_SECRET_BYTES,
-                        summary=(
-                            "The fleet-wide key the Under Attack Mode challenge "
-                            "is signed with."
-                        ),
-                    ),
-                ),
-            ),
-        ),
+        configuration=(CONFIGURATION,),
         ansible=(
             AnsibleContribution(
                 feature="security",

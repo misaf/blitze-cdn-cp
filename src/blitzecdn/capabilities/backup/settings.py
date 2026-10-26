@@ -8,45 +8,37 @@ checks still run at control-plane startup.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
+
+from pydantic import Field
 
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
-    CapabilitySetting,
-    ConfigurationContribution,
+    ConfigurationModel,
     resolve_feature_configuration,
 )
 
 __all__ = ["CONFIGURATION", "BackupConfig"]
 
-BACKUP_DIR = "BLITZE_BACKUP_DIR"
+BACKUP_DIR: Final = "BLITZE_BACKUP_DIR"
+
 
 #: Relative, so under the state directory in a checkout; an installed
 #: controller is configured to ``/var/backups/blitzecdn``, outside what an
 #: uninstall removes.
-CONFIGURATION = ConfigurationContribution(
-    feature="backup",
-    settings=(
-        CapabilitySetting(
-            name=BACKUP_DIR,
-            default=Path("backups"),
-            # Not portable: it describes the dead host, not an operator decision.
-            portable=False,
-            summary=(
-                "Where archives are written. A relative path is taken as under "
-                "the controller's state directory."
-            ),
-        ),
-    ),
-)
-
-
-@dataclass(frozen=True, slots=True)
-class BackupConfig:
+class BackupConfig(ConfigurationModel):
     """What this capability needs from the controller's configuration."""
 
-    backup_dir: Path
+    backup_dir: Path = Field(
+        default=Path("backups"),
+        alias=BACKUP_DIR,
+        json_schema_extra={"portable": False},
+        description=(
+            "Where archives are written. A relative path is taken as under "
+            "the controller's state directory."
+        ),
+    )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> BackupConfig:
@@ -57,4 +49,7 @@ class BackupConfig:
             settings.capability_config_file,
             settings.state_dir,
         )
-        return cls(backup_dir=config.path(BACKUP_DIR))
+        return config.as_model(cls)
+
+
+CONFIGURATION = BackupConfig.configuration("backup")
