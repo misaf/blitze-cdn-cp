@@ -82,6 +82,9 @@ These rules are executable: [.importlinter](.importlinter) checks import
 direction, while [architecture tests](tests/architecture/) check capability
 layout, dependency declarations, and other structural constraints.
 
+See [transaction boundaries](docs/transactions.md) for atomic updates, nested
+service calls, and coordination with external work.
+
 ## How work runs
 
 **Desired state:** DNS records, per-hostname policy, edge registrations, and

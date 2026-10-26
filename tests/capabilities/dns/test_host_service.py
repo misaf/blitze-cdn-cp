@@ -41,6 +41,52 @@ def test_host_reads_follow_canonical_edits(control):
         control.sites.get_site(site.name)
 
 
+def test_host_reads_share_one_snapshot_and_join_an_existing_write(control, monkeypatch):
+    seed_site(control)
+    database = control.transactions.database
+    observed = []
+
+    def observe(read):
+        def wrapped():
+            session = database.current_session()
+            assert session is not None
+            observed.append(session)
+            return read()
+
+        return wrapped
+
+    for store, method in (
+        (control.sites.zones, "list_domains"),
+        (control.sites.rules, "list_rules"),
+        (control.sites.zones, "list_records"),
+    ):
+        monkeypatch.setattr(store, method, observe(getattr(store, method)))
+
+    assert control.sites.list_sites()
+    assert len(observed) == 3
+    assert all(session is observed[0] for session in observed)
+    assert database.current_session() is None
+
+    observed.clear()
+    with control.transactions.transaction():
+        session = database.current_session()
+        assert control.sites.get_site("example-com")
+        assert all(value is session for value in observed)
+
+
+def test_host_read_failure_releases_the_transaction(control, monkeypatch):
+    def broken():
+        raise RuntimeError("read interrupted")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(control.sites.rules, "list_rules", broken)
+        with pytest.raises(RuntimeError, match="read interrupted"):
+            control.sites.list_sites()
+
+    assert control.transactions.database.current_session() is None
+    assert seed_site(control).name == "example-com"
+
+
 @pytest.mark.parametrize("rule_owned", [False, True])
 def test_certificate_writeback_changes_only_the_host_source(control, rule_owned):
     original = seed_site(control)

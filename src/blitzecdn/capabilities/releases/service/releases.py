@@ -72,7 +72,7 @@ class ReleaseService:
         return compile_release(self.capture(host_limit=host_limit))
 
     def capture(self, *, host_limit: str | None = None) -> Compilation:
-        """Snapshot database facts together, then resolve external resources."""
+        """Snapshot facts, then resolve local resources within any outer transaction."""
         with self.uow.transaction():
             inputs = self.inputs()
             targets = self.targets.targets(host_limit=host_limit)
@@ -87,8 +87,7 @@ class ReleaseService:
 
     def prepare(self, *, host_limit: str | None = None) -> Release:
         """Compile the current state and put it on record, idempotently by digest."""
-        # Admission and material collection share the write boundary. A
-        # captured resource must become retained before collection can run.
+        # Retain local material before collection can run; render after commit.
         with self.uow.transaction():
             captured = self.capture(host_limit=host_limit)
             inputs = captured.inputs

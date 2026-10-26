@@ -337,6 +337,23 @@ def test_transactions_never_leak_between_repository_instances(settings):
     assert [domain.name for domain in second.zones.list_domains()] == ["second.example"]
 
 
+def test_failed_nested_use_case_rolls_back_every_store_and_resets_the_session(settings):
+    repository = Repository(settings.database_path)
+
+    with pytest.raises(RuntimeError, match="nested failure"), repository.transaction():
+        repository.zones.create_domain(Domain(name="example.com"))
+        with repository.transaction():
+            repository.audit_log.audit("alice", "domain.added", "domain", "example.com")
+            raise RuntimeError("nested failure")
+
+    assert repository.database.current_session() is None
+    assert repository.zones.list_domains() == []
+    assert repository.audit_log.list_audit_events() == []
+    with repository.transaction():
+        repository.zones.create_domain(Domain(name="retry.example"))
+    assert repository.zones.get_domain("retry.example").name == "retry.example"
+
+
 def test_workflow_progress_is_durable(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
