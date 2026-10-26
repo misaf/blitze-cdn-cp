@@ -66,7 +66,9 @@ def job_show(
     job_id: Annotated[str, typer.Argument(help="The job's identifier.")],
     json_output: common.JsonOutput = False,
 ) -> None:
-    """One job, including its lease owner, deadline and last error.
+    """One job, including its lease owner, deadline, last error and result.
+
+    result is what a finished operation an API client queued reported.
 
     leased_by records the worker host/process; it does not prove liveness.
     If that worker stopped, a fresh worker must wait until leased_until before
@@ -77,7 +79,8 @@ def job_show(
     Expiry permits a claim; it does not guarantee immediate or successful work.
     Do not edit queue rows or submit duplicate work to bypass the wait.
     """
-    common.emit(_row(common.services().job_queue.get(job_id)), json_output=json_output)
+    job = common.services().job_queue.get(job_id)
+    common.emit({**_row(job), "result": job.result}, json_output=json_output)
 
 
 @job_app.command("schedules")
