@@ -101,12 +101,11 @@
     # distribution instead of setting a variable in a role it never wanted.
     - role: blitzecdn_kernel
       tags: [kernel, activate]
-    # Every installed capability's own edge role, in one slot.
+    # Every capability's own edge role, in one slot.
     #
-    # The control plane composes the list from the plugins it discovered —
+    # The control plane composes the list from its features —
     # `blitzecdn_capability_roles` arrives as an extra-var on every run — so
-    # this play names no capability and needs no edit when one is attached or
-    # detached. An installation with none runs nothing here.
+    # this play names no capability and needs no edit when one is added.
     #
     # The position is the contract. After the pre-tasks above, because a
     # capability role may need the container engine, the runtime image or the

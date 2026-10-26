@@ -46,7 +46,7 @@
         name: njs
         objects: [ngx_http_js_module.so]
     # A direct Ansible harness has no Python composition root, so state the
-    # resources that installed plugins would normally resolve automatically.
+    # resources the control plane's features would normally resolve.
     blitzecdn_nginx_resources:
       http:
         - plugin: cache
@@ -192,7 +192,7 @@
     #
     # The slot's own parameter, and not the same name as the play variable
     # above it. `blitzecdn_capability_roles` is what a control plane composes
-    # from its installed plugins and passes in; `blitzecdn_capabilities_roles`
+    # from its features and passes in; `blitzecdn_capabilities_roles`
     # is what this role is given for the slot it is standing in, because the
     # play uses it twice and the two slots hold different lists. edge.yml
     # translates one into the other at every invocation, and a harness that

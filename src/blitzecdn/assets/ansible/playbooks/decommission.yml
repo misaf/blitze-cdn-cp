@@ -13,9 +13,9 @@
   max_fail_percentage: 0
   serial: "100%"
   roles:
-    # The decommission slot: each installed capability withdraws what its own
-    # roles put on this host. Composed by the control plane from the plugins it
-    # discovered and passed as an extra-var on every run, exactly like the edge
+    # The decommission slot: each capability withdraws what its own roles put
+    # on this host. Composed by the control plane from its features and passed
+    # as an extra-var on every run, exactly like the edge
     # play's two slots, so this play names no capability either.
     #
     # It runs *before* blitzecdn_edge_teardown, and the position is the contract.

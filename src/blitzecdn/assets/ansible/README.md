@@ -106,7 +106,7 @@ plane makes overrides it with `ANSIBLE_ROLES_PATH`.
 
 `roles/blitzecdn_capabilities` is how a contributed role actually runs. It
 names no capability: the control plane passes the slot's list as an extra-var
-on every run, composed from the installed plugins, and the role includes each
+on every run, composed from the shipped features, and the role includes each
 one. There are three slots, and each position is a contract:
 
 | slot | extra-var | where | for |

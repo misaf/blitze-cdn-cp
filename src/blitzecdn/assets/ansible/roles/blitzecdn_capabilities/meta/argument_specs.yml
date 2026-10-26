@@ -4,10 +4,9 @@ argument_specs:
     short_description: Run the roles the installed capabilities contribute.
     description:
       - >-
-        The slot an optional distribution's Ansible fills. It names no
-        capability: the control plane resolves the role list from the plugins
-        it discovered and passes it on every run, and this role includes each
-        one in turn.
+        The slot a capability's Ansible fills. It names no capability: the
+        control plane resolves the role list from its features and passes it
+        on every run, and this role includes each one in turn.
       - >-
         Core's plays use this role once per slot, and there are three. The edge
         slot runs before blitzecdn_firewall and blitzecdn_nginx, for a

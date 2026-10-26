@@ -22,7 +22,7 @@ from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 REQUIRES_CAPABILITIES = {
-    "test_plugins_shows_a_settings_value_and_only_a_secrets_presence": (
+    "test_features_shows_a_settings_value_and_only_a_secrets_presence": (
         "certificates",
         "security",
     ),
@@ -182,25 +182,25 @@ def test_group_help_mentions_the_derived_site_model():
     assert "You do not create virtual hosts" in strip_ansi(result.output)
 
 
-def test_plugins_lists_every_feature_and_the_tokens_it_answers_for(
+def test_features_lists_every_feature_and_the_tokens_it_answers_for(
     settings, monkeypatch
 ):
     """The table an operator reads to see what this controller has."""
     _control(settings, monkeypatch)
 
-    result = runner.invoke(cli.app, ["plugins", "--json"])
+    result = runner.invoke(cli.app, ["features", "--json"])
     document = json.loads(result.stdout)
 
     assert {"dns", "deployments"} <= {
-        feature["name"] for feature in document["plugins"]
+        feature["name"] for feature in document["features"]
     }
-    by_name = {feature["name"]: feature for feature in document["plugins"]}
+    by_name = {feature["name"]: feature for feature in document["features"]}
     assert by_name["dns"]["capabilities"] == ["dns"]
     assert "dns" in document["capabilities"]
     assert "rejected" not in document
 
 
-def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
+def test_features_shows_a_settings_value_and_only_a_secrets_presence(
     settings, monkeypatch
 ):
     """Two kinds of configuration, and the difference is what may be printed.
@@ -209,11 +209,11 @@ def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
     """
     _control(settings, monkeypatch)
 
-    result = runner.invoke(cli.app, ["plugins", "--json"])
+    result = runner.invoke(cli.app, ["features", "--json"])
     document = json.loads(result.stdout)
     configuration = {
         entry["name"]: entry
-        for feature in document["plugins"]
+        for feature in document["features"]
         for entry in feature["configuration"]
     }
 

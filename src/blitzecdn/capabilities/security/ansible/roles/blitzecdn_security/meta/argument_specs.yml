@@ -10,9 +10,7 @@ argument_specs:
         and the conf.d snippet that imports it.
       - >-
         Run from the edge play's capability slot, which the control plane fills
-        from the installed plugins. Detaching the distribution removes this role
-        from Ansible's search path and from the play, with no line of the
-        control plane edited.
+        from its features.
       - >-
         Package-owned Nginx fragments render the per-site rules and challenge
         locations into the stable server skeleton.
