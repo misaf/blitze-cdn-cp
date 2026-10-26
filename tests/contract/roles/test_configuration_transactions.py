@@ -5,7 +5,7 @@ import runpy
 from pathlib import Path
 
 import pytest
-from support.paths import CORE_ANSIBLE
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 _HELPER = CORE_ANSIBLE / "roles/blitzecdn_config_release/files/configuration_release.py"
 ConfigurationRelease = runpy.run_path(str(_HELPER))["ConfigurationRelease"]
@@ -445,6 +445,8 @@ def test_a_check_run_reports_an_unstaged_release_as_drift(tmp_path, sealed):
         | {
             "ANSIBLE_ROLES_PATH": str(CORE_ANSIBLE / "roles"),
             "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-temp"),
+            # The `json` callback is ansible.posix's, installed in the checkout.
+            "ANSIBLE_COLLECTIONS_PATH": str(REPO_ROOT / ".state/collections"),
             "ANSIBLE_STDOUT_CALLBACK": "json",
         },
         capture_output=True,
