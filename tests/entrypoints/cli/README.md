@@ -12,6 +12,7 @@ temporary database, grouped by the command tree each module exercises.
 | `test_cli_headers.py` | The `BZ-*` visitor-header switches |
 | `test_cli_firewall.py` | `zone firewall`: which lists an option replaces |
 | `test_cli_records.py` | Proxying a hostname on and off the edge |
+| `test_cli_jobs.py` | `job list` and `job show`, including an operation's result |
 | `test_cli_introspection.py` | Help, features, versions, `doctor` |
 | `test_cli_runtime.py` | Setup, the composition root, refusing to serve unauthenticated |
 
