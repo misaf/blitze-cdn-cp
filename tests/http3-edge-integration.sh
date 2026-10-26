@@ -152,7 +152,7 @@ docker network create "${network}" >/dev/null
 say "Starting a compressible origin response"
 docker run -d --name "${origin}" --network "${network}" \
   --network-alias blitzecdn-http3-origin python:3.14-alpine \
-  sh -c 'mkdir -p /srv && head -c 8192 /dev/zero | tr "\0" x > /srv/index.html && exec python -m http.server 443 -d /srv' \
+  sh -c 'mkdir -p /srv && head -c 8192 /dev/zero | tr "\0" x > /srv/index.html && exec python -m http.server 80 -d /srv' \
   >/dev/null
 
 say "Starting a clean Ubuntu 26.04 edge host"

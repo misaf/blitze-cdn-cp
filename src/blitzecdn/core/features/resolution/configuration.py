@@ -240,7 +240,10 @@ def _resolve_model(
     state_dir: Path,
 ) -> CapabilityConfig:
     """Merge sources once, validate with Pydantic, and retain the typed result."""
-    assert contribution.model is not None  # noqa: S101 - narrowed by caller
+    if contribution.model is None:
+        raise FeatureError(
+            f"feature {contribution.feature!r} has no configuration model"
+        )
     supplied: dict[str, object] = {}
     for key in contribution.environment_keys:
         if key.name in from_file:
