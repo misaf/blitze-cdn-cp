@@ -13,6 +13,7 @@ from support.control_plane import (
     ansible_run,
     build_application,
     host_run,
+    install_worker,
     seed_edge,
     seed_record,
     seed_site,
@@ -27,7 +28,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import Repository, build_worker
+from blitzecdn.composition import Repository
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
@@ -193,7 +194,7 @@ def test_terminal_deployment_failure_fails_its_real_job_without_retry(
         runner=runner,
         serving_probe=probe,
     )
-    build_worker(control)
+    install_worker(control)
     seed_edge(control, name="edge-a")
     seed_site(control)
     if rollback:
@@ -254,7 +255,7 @@ def test_redelivered_job_reports_the_saved_terminal_deployment(settings, termina
         repository=repository,
         runner=runner,
     )
-    build_worker(control)
+    install_worker(control)
     seed_edge(control, name="edge-a")
     seed_site(control)
     queued = control.deployments.submit_deployment("alice")
@@ -299,7 +300,7 @@ def test_delivery_errors_before_deployment_execution_remain_retryable(
         repository=repository,
         runner=FakeRunner(),
     )
-    build_worker(control)
+    install_worker(control)
     seed_edge(control, name="edge-a")
     seed_site(control)
     queued = control.deployments.submit_deployment("alice")
@@ -356,7 +357,7 @@ def test_submit_releases_the_lock_after_queue_publication(settings):
     control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
     # A second submission proves the publisher handed the lock back.
-    control.infrastructure.runner.results = [ansible_run(host_run("edge-a"))]
+    control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
@@ -374,7 +375,7 @@ def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rol
         repository=repository,
         runner=LockedRunner(),
     )
-    build_worker(control)
+    install_worker(control)
     seed_edge(control, name="edge-a")
     seed_site(control)
     if rollback:
@@ -459,7 +460,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
 
     # And the lock came back, so the control plane still works.
     refusing.refuse = False
-    control.infrastructure.runner.results = [ansible_run(host_run("edge-a"))]
+    control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(refusing.ids.pop())
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
@@ -549,7 +550,7 @@ def test_a_deployment_its_worker_died_in_resumes_on_redelivery(settings):
         repository=repository,
         runner=FakeRunner(),
     )
-    build_worker(control)
+    install_worker(control)
     seed_site(control)
     queued = control.deployments.submit_deployment("alice")
 
@@ -591,7 +592,7 @@ def test_startup_republishes_an_interrupted_deployment_for_resumption(settings):
         repository=repository,
         runner=FakeRunner(),
     )
-    build_worker(control)
+    install_worker(control)
     seed_site(control)
     queued = control.deployments.submit_deployment("alice")
     claim = control.job_queue.claim(lease_seconds=1)
@@ -621,7 +622,7 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(
         repository=repository,
         runner=FakeRunner(),
     )
-    build_worker(control)
+    install_worker(control)
     seed_edge(control, name="edge-a")
     seed_site(control)
     if rollback:

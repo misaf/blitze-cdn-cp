@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from blitzecdn.core.domain.audit import AuditEvent
 from blitzecdn.core.domain.events import DomainEvent
@@ -42,4 +42,14 @@ class EventRecorder(Protocol):
     def record(self, event: DomainEvent) -> None: ...
 
 
-__all__ = ["AuditTrail", "EventRecorder", "PlaybookRunner"]
+class FleetSettings(Protocol):
+    """Fleet-wide, non-secret Ansible values an operator overrides by name."""
+
+    def list_settings(self) -> dict[str, Any]: ...
+
+    def set_setting(self, name: str, value: Any) -> None: ...
+
+    def delete_setting(self, name: str) -> None: ...
+
+
+__all__ = ["AuditTrail", "EventRecorder", "FleetSettings", "PlaybookRunner"]

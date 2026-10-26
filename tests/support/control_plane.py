@@ -12,11 +12,16 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from dishka import Container, Provider, make_container
+from dishka.integrations.fastapi import FastapiProvider
 from fastapi import FastAPI
 from pydantic import SecretStr
 
+from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
+from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
@@ -27,19 +32,38 @@ from blitzecdn.capabilities.dns.domain import (
     RulePatch,
 )
 from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
+from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns.service import HostService, RuleService
+from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.jobs.service import (
+    JobQueue,
+    JobRunner,
+    JobScheduler,
+    OperationService,
+)
+from blitzecdn.capabilities.origins.service.checks import OriginCheckService
+from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.composition import (
-    ApplicationServices,
+    Adapters,
+    ApiNode,
+    ApiProvider,
     FleetRunner,
-    Infrastructure,
+    InfrastructureProvider,
     Repository,
-    build_services,
-    build_worker,
+    ServiceProvider,
+    Worker,
+    WorkerProvider,
     load_registry,
+    refuse_missing_capabilities,
 )
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
     AnsibleRun,
@@ -49,7 +73,15 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.features import (
+    FeatureRegistry,
+    Operations,
+    Rendering,
+    ScheduledJob,
+)
+from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.ports.operations import AuditTrail
 from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common as cli_common
 from support.policy import (
@@ -94,7 +126,7 @@ def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
 
 
 def _set_policy(
-    control: ApplicationServices,
+    control: ControlPlane,
     domain: str,
     rule: str | None,
     policy: Mapping[str, object],
@@ -121,7 +153,7 @@ def _set_policy(
 
 
 def seed_site(
-    control: ApplicationServices,
+    control: ControlPlane,
     *,
     name: str = "example-com",
     origin: str = "198.51.100.10",
@@ -217,7 +249,7 @@ _DEFAULT_ORIGINS = {RecordType.A: "198.51.100.10", RecordType.AAAA: "2001:db8::1
 
 
 def seed_edge(
-    control: ApplicationServices,
+    control: ControlPlane,
     *,
     name: str = "edge-a",
     host: str = "192.0.2.10",
@@ -268,7 +300,7 @@ class FakeServingProbe:
 
 
 def seed_record(
-    control: ApplicationServices,
+    control: ControlPlane,
     *,
     domain: str = "example.com",
     name: str = "cdn",
@@ -617,7 +649,7 @@ def record_payload() -> dict[str, object]:
 
 
 @pytest.fixture
-def seeded(settings: Settings) -> Callable[..., tuple[ApplicationServices, Repository]]:
+def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
     """A control plane holding one site with one hostname routed to it.
 
     Returns ``(control, repository)``.
@@ -625,7 +657,7 @@ def seeded(settings: Settings) -> Callable[..., tuple[ApplicationServices, Repos
 
     def build(
         runner: FleetRunner | None = None,
-    ) -> tuple[ApplicationServices, Repository]:
+    ) -> tuple[ControlPlane, Repository]:
         repository = Repository(settings.database_path)
         control = build_application(
             settings=settings,
@@ -713,7 +745,8 @@ def cli_control_plane(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
-) -> ApplicationServices:
+    providers: Sequence[Provider] = (),
+) -> ControlPlane:
     """A control plane wired to doubles, with the CLI pointed at it.
 
     The command tree is assembled from every feature, so every CLI test drives the
@@ -723,45 +756,149 @@ def cli_control_plane(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_double or FakeRunner(),
+        providers=providers,
     )
-    monkeypatch.setattr(cli_common, "services", lambda: control)
+    monkeypatch.setattr(cli_common, "container", lambda: control.container)
     monkeypatch.setattr(cli_common, "settings", lambda: settings)
     return control
 
 
-def build_application(*, settings: Settings, **adapters: Any) -> ApplicationServices:
+class _Resolved[T]:
+    """A service read off the test's container by attribute."""
+
+    def __init__(self, kind: type[T]) -> None:
+        self.kind = kind
+
+    def __get__(self, control: ControlPlane, owner: object = None) -> T:
+        return control.container.get(self.kind)
+
+
+class ControlPlane:
+    """The production graph every process shares, read by attribute in tests.
+
+    One container with the API's and the worker's additions, so a test can
+    serve it over HTTP and run its queue. Resolving :attr:`worker` installs
+    the queue's handlers, as starting a worker does.
+    """
+
+    def __init__(self, container: Container) -> None:
+        self.container = container
+
+    settings = _Resolved(Settings)
+    repository = _Resolved(Repository)
+    features = _Resolved(FeatureRegistry)
+    edge_contributions = _Resolved(EdgeContributions)
+    certificate_store = _Resolved(CertificateStore)
+    job_queue = _Resolved(JobQueue)
+    job_scheduler = _Resolved(JobScheduler)
+    job_runner = _Resolved(JobRunner)
+    dns = _Resolved(DnsService)
+    site_editor = _Resolved(HostService)
+    rules = _Resolved(RuleService)
+    rendering = _Resolved(Rendering[CdnSite])
+    releases = _Resolved(ReleaseService)
+    deployments = _Resolved(DeploymentService)
+    edges = _Resolved(EdgeOperationsService)
+    cache = _Resolved(CacheService)
+    origins = _Resolved(OriginCheckService)
+    queued_operations = _Resolved(OperationService)
+    certificates = _Resolved(CertificateService)
+    automatic_ssl = _Resolved(AutomaticSslService)
+    operations = _Resolved(Operations)
+    api = _Resolved(ApiNode)
+    worker = _Resolved(Worker)
+
+    # Ports are Protocols, which `type[T]` cannot name.
+
+    @property
+    def runner(self) -> FleetRunner:
+        return cast(FleetRunner, self.container.get(FleetRunner))
+
+    @property
+    def sites(self) -> SiteReader:
+        return cast(SiteReader, self.container.get(SiteReader))
+
+    @property
+    def audit(self) -> AuditTrail:
+        return cast(AuditTrail, self.container.get(AuditTrail))
+
+    @property
+    def transactions(self) -> Repository:
+        return self.repository
+
+    @property
+    def events(self) -> AuditLog:
+        return self.repository.audit_log
+
+    @property
+    def jobs(self) -> Mapping[str, ScheduledJob]:
+        return self.operations.scheduled_jobs
+
+    def close(self) -> None:
+        self.container.close()
+
+
+def build_application(
+    *, settings: Settings, providers: Sequence[Provider] = (), **adapters: Any
+) -> ControlPlane:
     """The production service graph over real adapters, except those passed.
 
-    ``adapters`` are :meth:`Infrastructure.build`'s keywords — ``repository``,
-    ``runner``, ``serving_probe`` and the rest — so a test replaces only what
-    it is about.
+    ``adapters`` are :class:`Adapters`' fields — ``repository``, ``runner``,
+    ``serving_probe`` and the rest — so a test replaces only what it is about.
+    ``providers`` decorate services the graph built.
     """
-    return build_services(Infrastructure.build(settings, **adapters))
-
-
-def serve(monkeypatch: pytest.MonkeyPatch, control: ApplicationServices) -> None:
-    """Make the next `create_app` lifespan serve ``control``'s services.
-
-    The API builds its infrastructure inside its lifespan, so a test that has
-    already seeded a service graph hands that one over instead.
-    """
-    monkeypatch.setattr(
-        "blitzecdn.entrypoints.api.app.Infrastructure.build",
-        lambda *_args, **_kwargs: control.infrastructure,
-    )
-    monkeypatch.setattr(
-        "blitzecdn.entrypoints.api.app.build_services", lambda _infra: control
+    return ControlPlane(
+        refuse_missing_capabilities(
+            make_container(
+                InfrastructureProvider(),
+                ServiceProvider(),
+                ApiProvider(),
+                WorkerProvider(),
+                FastapiProvider(),
+                *providers,
+                context={Settings: settings, Adapters: Adapters(**adapters)},
+            )
+        )
     )
 
 
-def run_queued_operations(control: ApplicationServices) -> None:
-    """Run every queued job the way the worker does, until the queue is empty.
+class _Borrowed:
+    """A test's container lent to the API, which closes what its lifespan built."""
 
-    The worker's handlers are installed on the shared queue the first time.
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._container(*args, **kwargs)
+
+    def get(self, kind: Any) -> Any:
+        return self._container.get(kind)
+
+    def close(self) -> None:
+        pass
+
+
+def serve(monkeypatch: pytest.MonkeyPatch, control: ControlPlane) -> None:
+    """Make the next `create_app` lifespan serve ``control``'s container.
+
+    The API builds its container inside its lifespan, so a test that has
+    already seeded a graph hands that one over instead.
     """
-    if not control.job_queue.handlers:
-        build_worker(control)
-    while control.job_queue.run_one() is not None:
+    monkeypatch.setattr(
+        "blitzecdn.entrypoints.api.app.api_container",
+        lambda *_args, **_kwargs: _Borrowed(control.container),
+    )
+
+
+def install_worker(control: ControlPlane) -> Worker:
+    """The worker over ``control``'s graph: its queue now has every handler."""
+    return control.worker
+
+
+def run_queued_operations(control: ControlPlane) -> None:
+    """Run every queued job the way the worker does, until the queue is empty."""
+    queue = control.worker.runner.queue
+    while queue.run_one() is not None:
         pass
 
 

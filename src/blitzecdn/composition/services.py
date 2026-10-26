@@ -1,23 +1,24 @@
 """The application's service graph, defined once.
 
-:func:`build_services` decides which collaborator goes where; each capability's
-`wiring.py` does the building. Processes and lifecycle are in
+:class:`ServiceProvider` decides which collaborator goes where; each
+capability's `wiring.py` does the building. Processes are in
 :mod:`blitzecdn.composition.processes`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, NewType, cast
+
+from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
 from blitzecdn.capabilities.deployments.ports import (
-    DeploymentLocker,
-    DeploymentRequirements,
+    QueueBackgroundRunner,
+    ServingVerifier,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.deployments.wiring import build_deployment_service
@@ -30,6 +31,8 @@ from blitzecdn.capabilities.dns.wiring import (
     build_rule_service,
 )
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.edges.service import operations as edge_operations
 from blitzecdn.capabilities.edges.wiring import build_edge_operations_service
 from blitzecdn.capabilities.jobs.service import (
@@ -58,294 +61,340 @@ from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
 )
-from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
-from blitzecdn.composition.infrastructure import Infrastructure
+from blitzecdn.composition.infrastructure import (
+    Adapters,
+    FleetRunner,
+    QueueReadiness,
+)
+from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import (
     OperationInputs,
     RenderingInputs,
     bind_operations,
     bind_renderings,
 )
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
-from blitzecdn.core.features import (
-    FeatureRegistry,
-    HealthCheck,
-    Operations,
-    Rendering,
-    ScheduledJob,
-)
+from blitzecdn.core.features import FeatureRegistry, Operations, Rendering
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
-from blitzecdn.core.persistence.configuration import AnsibleSettingStore
-from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.ports.operations import (
-    AuditTrail,
-    EventRecorder,
-    PlaybookRunner,
-)
 
-__all__ = ["ApplicationServices", "OperationRun", "build_services"]
+__all__ = ["OperationRun", "OperationRuns", "ServiceProvider"]
 
 #: One edge operation's run: its JSON payload in, its JSON report out.
 OperationRun = Callable[[Mapping[str, Any]], dict[str, Any]]
 
-
-@dataclass(frozen=True, slots=True, weakref_slot=True)
-class ApplicationServices:
-    """Every service, and the infrastructure they were built on."""
-
-    infrastructure: Infrastructure
-    #: The read side of the audit trail. Entry layers get this rather than
-    #: `events`, so they cannot record an event no service performed.
-    audit: AuditTrail
-    events: EventRecorder
-    transactions: UnitOfWork
-    deployment_requirements: DeploymentRequirements
-    deployment_lock: DeploymentLocker
-    fleet: PlaybookRunner
-    workflows: WorkflowCoordinator
-    workflow_history: WorkflowStore
-    dns: DnsService
-    site_editor: HostService
-    sites: SiteReader
-    rules: RuleService
-    rendering: Rendering[CdnSite]
-    releases: ReleaseService
-    deployments: DeploymentService
-    edges: EdgeOperationsService
-    cache: CacheService
-    origins: OriginCheckService
-    certificate_config: CertificateConfig
-    certificates: CertificateService
-    automatic_ssl: AutomaticSslService
-    operations: Operations
-    maintenance: MaintenanceService
-    job_runner: JobRunner
-    #: Edge operations the API queues, and each kind's run in the worker.
-    queued_operations: OperationService
-    operation_runs: Mapping[str, OperationRun]
-
-    # -- what entry layers read from the infrastructure ------------------
-
-    @property
-    def settings(self) -> Settings:
-        return self.infrastructure.settings
-
-    @property
-    def features(self) -> FeatureRegistry:
-        return self.infrastructure.features
-
-    @property
-    def capability_config(self) -> ResolvedCapabilityEnvironment:
-        return self.infrastructure.capability_config
-
-    @property
-    def ansible_settings(self) -> AnsibleSettingStore:
-        return self.infrastructure.repository.ansible_settings
-
-    @property
-    def certificate_store(self) -> CertificateStore:
-        return self.infrastructure.certificate_store
-
-    @property
-    def job_queue(self) -> JobQueue:
-        return self.infrastructure.job_queue
-
-    @property
-    def job_scheduler(self) -> JobScheduler:
-        return self.infrastructure.job_scheduler
-
-    @property
-    def jobs(self) -> Mapping[str, ScheduledJob]:
-        """Every contributed scheduled job, by the name the queue carries."""
-        return self.operations.scheduled_jobs
-
-    @property
-    def health_checks(self) -> tuple[HealthCheck, ...]:
-        """Every reason the shipped features have to call this node unhealthy."""
-        return self.operations.health_checks
-
-    def queue_ready(self) -> bool:
-        """Whether the job queue can be read; an unmigrated database has no ``jobs``."""
-        return self.infrastructure.queue_ready()
-
-    def close(self) -> None:
-        """Release the infrastructure this graph opened."""
-        self.infrastructure.close()
+#: Every edge operation the API may queue, by kind, and its run in the worker.
+OperationRuns = NewType("OperationRuns", dict[str, OperationRun])
 
 
-def build_services(infrastructure: Infrastructure) -> ApplicationServices:
-    """Build every service, each handed exactly the collaborators it declared."""
-    infra = infrastructure
-    settings = infra.settings
-    store = infra.repository
-    events = store.audit_log
-    clock = infra.clock
-    workflows = WorkflowCoordinator(
-        journal=store.workflows,
-        uow=store,
-        retention=settings.history_retention,
-        clock=clock,
-    )
+class ServiceProvider(Provider):
+    """Every service, each handed exactly the collaborators it declared."""
 
-    # DNS owns canonical zones, rules, records, and their host projection.
-    dns = build_dns_service(
-        zones=store.zones, rules=store.rules, events=events, uow=store
-    )
-    site_editor = build_host_service(
-        zones=store.zones, rules=store.rules, events=events, uow=store
-    )
-    # A rule may consult the zone policy it overrides and may never write one.
-    rules = build_rule_service(
-        rules=store.rules, zones=store.zones, events=events, uow=store
-    )
+    scope = Scope.APP
 
-    # What every feature renders into a release, bound from configuration and
-    # adapters only, before the compiler that consumes it.
-    rendering = infra.features.bind_rendering(
-        bind_renderings(
-            RenderingInputs(
-                capability_config=infra.capability_config,
-                certificate_store=infra.certificate_store,
+    sites = alias(source=HostService, provides=SiteReader)
+
+    @provide
+    def workflows(
+        self, settings: Settings, adapters: Adapters, repository: Repository
+    ) -> WorkflowCoordinator:
+        return WorkflowCoordinator(
+            journal=repository.workflows,
+            uow=repository,
+            retention=settings.history_retention,
+            clock=adapters.clock,
+        )
+
+    # -- DNS owns canonical zones, rules, records, and their host projection.
+
+    @provide
+    def dns(self, repository: Repository) -> DnsService:
+        return build_dns_service(
+            zones=repository.zones,
+            rules=repository.rules,
+            events=repository.audit_log,
+            uow=repository,
+        )
+
+    @provide
+    def site_editor(self, repository: Repository) -> HostService:
+        return build_host_service(
+            zones=repository.zones,
+            rules=repository.rules,
+            events=repository.audit_log,
+            uow=repository,
+        )
+
+    @provide
+    def rules(self, repository: Repository) -> RuleService:
+        # A rule may consult the zone policy it overrides and may never write one.
+        return build_rule_service(
+            rules=repository.rules,
+            zones=repository.zones,
+            events=repository.audit_log,
+            uow=repository,
+        )
+
+    # -- releases and their rollout ----------------------------------------
+
+    @provide
+    def rendering(
+        self,
+        features: FeatureRegistry,
+        capability_config: ResolvedCapabilityEnvironment,
+        certificate_store: CertificateStore,
+    ) -> Rendering[CdnSite]:
+        """What every feature renders into a release, from configuration and
+        adapters only."""
+        return features.bind_rendering(
+            bind_renderings(
+                RenderingInputs(
+                    capability_config=capability_config,
+                    certificate_store=certificate_store,
+                )
             )
         )
-    )
-    releases = build_release_service(
-        state=store,
-        releases=store.releases,
-        edges=infra.edges,
-        contributors=rendering,
-        objections=rendering.site_objections,
-        capabilities=tuple(infra.features.capabilities),
-        allow_empty_sites=settings.allow_empty_sites,
-        retention=settings.history_retention,
-        uow=store,
-        # The shipped templates and defaults, from the package itself, whatever
-        # directory its playbooks run from.
-        renderer=EdgeRenderer(
-            ansible_dir=core_ansible.ROLES_PATH.parent,
-            contributions=infra.edge_contributions,
-        ),
-    )
-    deployments = build_deployment_service(
-        settings=settings,
-        deployments=store.deployments,
-        zones=store.zones,
-        rules=store.rules,
-        fleet_settings=store.ansible_settings,
-        requirements=store.deployment_requirements,
-        releases=releases,
-        targets=store.deployment_targets,
-        edges=infra.edges,
-        verifier=infra.serving_probe,
-        runner=infra.runner,
-        background=infra.background,
-        dns=dns,
-        workflows=workflows,
-        events=events,
-        uow=store,
-        clock=clock,
-    )
-    edges = build_edge_operations_service(
-        edges=infra.edges, runner=infra.runner, events=events, uow=store
-    )
-    cache = build_cache_service(
-        sites=site_editor, events=events, fleet=infra.runner, clock=clock
-    )
-    origins = build_origin_check_service(
-        sites=site_editor,
-        events=events,
-        fleet=infra.runner,
-        origin_probe=infra.origin_probe,
-        clock=clock,
-    )
-    certificate_config = CertificateConfig.from_capability_config(
-        infra.capability_config.for_feature("certificates")
-    )
-    certificates = build_certificate_service(
-        settings=settings,
-        config=certificate_config,
-        store=infra.certificate_store,
-        releases=releases,
-        sites=site_editor,
-        edges=infra.edges,
-        origin_probe=infra.origin_probe,
-        requirements=store.deployment_requirements,
-        lock=infra.runner,
-        events=events,
-        dns=dns,
-        site_editor=site_editor,
-        deployments=deployments,
-        # ``@contextmanager`` exposes its concrete private context-manager
-        # type to mypy. The behavior is the narrow protocol TLS declares.
-        workflows=cast(CertificateWorkflows, workflows),
-        uow=store,
-        clock=clock,
-    )
-    automatic_ssl = build_automatic_ssl_service(
-        sites=site_editor,
-        origin_checks=OriginCheckPlaybook(infra.runner),
-        origin_probe=infra.origin_probe,
-        site_editor=site_editor,
-        deployments=deployments,
-    )
 
-    # Contributed jobs close over services, so they are bound once every
-    # service exists.
-    operations = infra.features.bind_operations(
-        bind_operations(
-            OperationInputs(
-                settings=settings,
-                deployments=deployments,
-                certificates=certificates,
-                automatic_ssl=automatic_ssl,
-                certificate_config=certificate_config,
-                read_database=lambda: store.workflows.list_workflows(1),
-                queue_ready=infra.queue_ready,
+    @provide
+    def releases(
+        self,
+        settings: Settings,
+        repository: Repository,
+        features: FeatureRegistry,
+        edges: EdgeStorePort,
+        rendering: Rendering[CdnSite],
+        edge_contributions: EdgeContributions,
+    ) -> ReleaseService:
+        return build_release_service(
+            state=repository,
+            releases=repository.releases,
+            edges=edges,
+            contributors=rendering,
+            objections=rendering.site_objections,
+            capabilities=tuple(features.capabilities),
+            allow_empty_sites=settings.allow_empty_sites,
+            retention=settings.history_retention,
+            uow=repository,
+            # The shipped templates and defaults, from the package itself,
+            # whatever directory its playbooks run from.
+            renderer=EdgeRenderer(
+                ansible_dir=core_ansible.ROLES_PATH.parent,
+                contributions=edge_contributions,
+            ),
+        )
+
+    @provide
+    def deployments(
+        self,
+        settings: Settings,
+        adapters: Adapters,
+        repository: Repository,
+        releases: ReleaseService,
+        edges: EdgeStorePort,
+        verifier: ServingVerifier,
+        runner: FleetRunner,
+        background: QueueBackgroundRunner,
+        dns: DnsService,
+        workflows: WorkflowCoordinator,
+    ) -> DeploymentService:
+        return build_deployment_service(
+            settings=settings,
+            deployments=repository.deployments,
+            zones=repository.zones,
+            rules=repository.rules,
+            fleet_settings=repository.ansible_settings,
+            requirements=repository.deployment_requirements,
+            releases=releases,
+            targets=repository.deployment_targets,
+            edges=edges,
+            verifier=verifier,
+            runner=runner,
+            background=background,
+            dns=dns,
+            workflows=workflows,
+            events=repository.audit_log,
+            uow=repository,
+            clock=adapters.clock,
+        )
+
+    # -- edge operations ---------------------------------------------------
+
+    @provide
+    def edge_operations(
+        self, repository: Repository, edges: EdgeStorePort, runner: FleetRunner
+    ) -> EdgeOperationsService:
+        return build_edge_operations_service(
+            edges=edges, runner=runner, events=repository.audit_log, uow=repository
+        )
+
+    @provide
+    def cache(
+        self,
+        adapters: Adapters,
+        repository: Repository,
+        sites: HostService,
+        runner: FleetRunner,
+    ) -> CacheService:
+        return build_cache_service(
+            sites=sites,
+            events=repository.audit_log,
+            fleet=runner,
+            clock=adapters.clock,
+        )
+
+    @provide
+    def origins(
+        self,
+        adapters: Adapters,
+        repository: Repository,
+        sites: HostService,
+        runner: FleetRunner,
+        origin_probe: OriginProbePort,
+    ) -> OriginCheckService:
+        return build_origin_check_service(
+            sites=sites,
+            events=repository.audit_log,
+            fleet=runner,
+            origin_probe=origin_probe,
+            clock=adapters.clock,
+        )
+
+    @provide
+    def operation_runs(
+        self,
+        cache: CacheService,
+        origins: OriginCheckService,
+        edges: EdgeOperationsService,
+    ) -> OperationRuns:
+        return OperationRuns(
+            {
+                **cache_operations.operation_handlers(cache),
+                **origin_operations.operation_handlers(origins),
+                **edge_operations.operation_handlers(edges),
+            }
+        )
+
+    @provide
+    def queued_operations(
+        self, queue: JobQueue, runs: OperationRuns
+    ) -> OperationService:
+        return OperationService(queue=queue, kinds=runs)
+
+    # -- TLS ---------------------------------------------------------------
+
+    @provide
+    def certificate_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> CertificateConfig:
+        return CertificateConfig.from_capability_config(
+            capability_config.for_feature("certificates")
+        )
+
+    @provide
+    def certificates(
+        self,
+        settings: Settings,
+        adapters: Adapters,
+        repository: Repository,
+        config: CertificateConfig,
+        store: CertificateStore,
+        releases: ReleaseService,
+        site_editor: HostService,
+        edges: EdgeStorePort,
+        origin_probe: OriginProbePort,
+        runner: FleetRunner,
+        dns: DnsService,
+        deployments: DeploymentService,
+        workflows: WorkflowCoordinator,
+    ) -> CertificateService:
+        return build_certificate_service(
+            settings=settings,
+            config=config,
+            store=store,
+            releases=releases,
+            sites=site_editor,
+            edges=edges,
+            origin_probe=origin_probe,
+            requirements=repository.deployment_requirements,
+            lock=runner,
+            events=repository.audit_log,
+            dns=dns,
+            site_editor=site_editor,
+            deployments=deployments,
+            # ``@contextmanager`` exposes its concrete private context-manager
+            # type to mypy. The behavior is the narrow protocol TLS declares.
+            workflows=cast(CertificateWorkflows, workflows),
+            uow=repository,
+            clock=adapters.clock,
+        )
+
+    @provide
+    def automatic_ssl(
+        self,
+        site_editor: HostService,
+        runner: FleetRunner,
+        origin_probe: OriginProbePort,
+        deployments: DeploymentService,
+    ) -> AutomaticSslService:
+        return build_automatic_ssl_service(
+            sites=site_editor,
+            origin_checks=OriginCheckPlaybook(runner),
+            origin_probe=origin_probe,
+            site_editor=site_editor,
+            deployments=deployments,
+        )
+
+    # -- contributed jobs and the queue's runner ----------------------------
+
+    @provide
+    def operations(
+        self,
+        settings: Settings,
+        repository: Repository,
+        features: FeatureRegistry,
+        deployments: DeploymentService,
+        certificates: CertificateService,
+        automatic_ssl: AutomaticSslService,
+        certificate_config: CertificateConfig,
+        queue_ready: QueueReadiness,
+    ) -> Operations:
+        """Contributed jobs close over services, so they bind once every
+        service exists."""
+        return features.bind_operations(
+            bind_operations(
+                OperationInputs(
+                    settings=settings,
+                    deployments=deployments,
+                    certificates=certificates,
+                    automatic_ssl=automatic_ssl,
+                    certificate_config=certificate_config,
+                    read_database=lambda: repository.workflows.list_workflows(1),
+                    queue_ready=queue_ready,
+                )
             )
         )
-    )
-    maintenance = build_maintenance_service(
-        jobs=operations.scheduled_jobs,
-        deployments=deployments,
-    )
-    operation_runs: dict[str, OperationRun] = {
-        **cache_operations.operation_handlers(cache),
-        **origin_operations.operation_handlers(origins),
-        **edge_operations.operation_handlers(edges),
-    }
-    return ApplicationServices(
-        infrastructure=infra,
-        audit=store.audit_log,
-        events=events,
-        transactions=store,
-        deployment_requirements=store.deployment_requirements,
-        deployment_lock=infra.runner,
-        fleet=infra.runner,
-        workflows=workflows,
-        workflow_history=store.workflows,
-        dns=dns,
-        site_editor=site_editor,
-        sites=site_editor,
-        rules=rules,
-        rendering=rendering,
-        releases=releases,
-        deployments=deployments,
-        edges=edges,
-        cache=cache,
-        origins=origins,
-        certificate_config=certificate_config,
-        certificates=certificates,
-        automatic_ssl=automatic_ssl,
-        operations=operations,
-        maintenance=maintenance,
-        job_runner=JobRunner(
-            queue=infra.job_queue,
-            scheduler=infra.job_scheduler,
+
+    @provide
+    def maintenance(
+        self, operations: Operations, deployments: DeploymentService
+    ) -> MaintenanceService:
+        return build_maintenance_service(
+            jobs=operations.scheduled_jobs, deployments=deployments
+        )
+
+    @provide
+    def job_runner(
+        self,
+        settings: Settings,
+        adapters: Adapters,
+        queue: JobQueue,
+        scheduler: JobScheduler,
+    ) -> JobRunner:
+        return JobRunner(
+            queue=queue,
+            scheduler=scheduler,
             poll_seconds=settings.worker_poll_seconds,
-            clock=clock,
-        ),
-        queued_operations=OperationService(queue=infra.job_queue, kinds=operation_runs),
-        operation_runs=operation_runs,
-    )
+            clock=adapters.clock,
+        )

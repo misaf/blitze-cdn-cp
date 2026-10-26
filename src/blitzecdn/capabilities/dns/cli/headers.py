@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.app import domain_app
 from blitzecdn.capabilities.dns.cli.editing import report
 from blitzecdn.capabilities.dns.domain import EditVisitorHeaders
@@ -50,7 +51,6 @@ def domain_visitor_headers(
 
     Options you do not name are left as they are.
     """
-    control = common.services()
     supplied = {"connecting_ip": connecting_ip, "ip_country": ip_country}
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
@@ -58,7 +58,7 @@ def domain_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    zone = control.dns.update_domain(
+    zone = common.service(DnsService).update_domain(
         name, EditVisitorHeaders.model_validate(named), "cli"
     )
     sent = [

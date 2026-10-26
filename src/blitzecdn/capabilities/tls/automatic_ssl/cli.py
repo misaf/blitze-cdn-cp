@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
@@ -19,7 +20,7 @@ def reconcile(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Run the same Automatic SSL/TLS scan as the monthly scheduler."""
-    result = common.services().automatic_ssl.reconcile("cli")
+    result = common.service(AutomaticSslService).reconcile("cli")
     common.emit(result, json_output=json_output)
     if not json_output:
         if result.upgraded:

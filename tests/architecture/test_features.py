@@ -29,8 +29,6 @@ from blitzecdn.composition import (
     BUILTIN_FEATURES,
     ROSTER,
     Repository,
-    build_api,
-    build_worker,
     load_registry,
 )
 from blitzecdn.core.exceptions import FeatureError
@@ -471,9 +469,9 @@ def test_deployment_recovery_runs_when_the_api_starts_and_not_the_worker(
         control.deployments, "initialize", lambda: calls.append("initialize")
     )
 
-    build_worker(control).start()
+    control.worker.start()
     assert calls == []
-    build_api(control).start()
+    control.api.start()
     assert calls == ["initialize"]
     control.close()
 

@@ -57,13 +57,15 @@ def test_finalize_standalone_registers_and_updates_the_local_edge(settings):
     )
 
     first = finalize_standalone(
-        control,
+        control.edges,
+        control.deployments,
         admin_cidr="198.51.100.8/24",
         public_addresses=["203.0.113.10"],
         deploy=False,
     )
     second = finalize_standalone(
-        control,
+        control.edges,
+        control.deployments,
         admin_cidr="198.51.100.8/24",
         public_addresses=["203.0.113.11"],
         deploy=False,

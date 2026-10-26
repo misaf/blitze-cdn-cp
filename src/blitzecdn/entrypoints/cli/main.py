@@ -17,7 +17,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, FeatureError, classify
 from blitzecdn.core.features import CliCommandGroup, FeatureRegistry
 from blitzecdn.entrypoints.cli import common, configuration, setup
-from blitzecdn.entrypoints.cli.common import ExitCode, emit, services, settings
+from blitzecdn.entrypoints.cli.common import ExitCode, emit, settings
 from blitzecdn.entrypoints.cli.root import app, main
 
 app.add_typer(configuration.config_app, name="config")
@@ -95,7 +95,6 @@ __all__ = [
     "main",
     "register_commands",
     "run",
-    "services",
     "settings",
     "setup",
 ]

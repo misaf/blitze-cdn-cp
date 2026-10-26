@@ -1,23 +1,29 @@
 import logging
 
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
 
-from blitzecdn.entrypoints.api.dependencies import ServicesDependency, require_operator
+from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.core.features import Operations
+from blitzecdn.entrypoints.api.dependencies import require_operator
 
-router = APIRouter()
+router = APIRouter(route_class=DishkaSyncRoute)
 _LOGGER = logging.getLogger(__name__)
 _METRICS_WINDOW = 100
 
 
 @router.get("/health")
-def health(response: Response, control: ServicesDependency) -> dict[str, str]:
+def health(response: Response, operations: FromDishka[Operations]) -> dict[str, str]:
     """Whether this controller can actually answer, not merely respond.
 
     Every check is a feature contribution; the first failure decides, and is named
     in the body.
     """
-    for check in control.health_checks:
+    for check in operations.health_checks:
         try:
             check.check()
         except Exception as exc:
@@ -36,9 +42,13 @@ def health(response: Response, control: ServicesDependency) -> dict[str, str]:
     response_class=PlainTextResponse,
     dependencies=[Depends(require_operator)],
 )
-def metrics(control: ServicesDependency) -> str:
+def metrics(
+    deployments: FromDishka[DeploymentService],
+    edges: FromDishka[EdgeOperationsService],
+    sites: FromDishka[SiteReader],
+) -> str:
     """Prometheus gauges derived from persisted control-plane state."""
-    recent = control.deployments.list_deployments(_METRICS_WINDOW)
+    recent = deployments.list_deployments(_METRICS_WINDOW)
     by_status: dict[str, int] = {}
     for deployment in recent:
         by_status[deployment.status.value] = (
@@ -47,10 +57,10 @@ def metrics(control: ServicesDependency) -> str:
     lines = [
         "# HELP blitzecdn_edges Registered edge servers.",
         "# TYPE blitzecdn_edges gauge",
-        f"blitzecdn_edges {len(control.edges.list_edges())}",
+        f"blitzecdn_edges {len(edges.list_edges())}",
         "# HELP blitzecdn_sites Derived virtual hosts.",
         "# TYPE blitzecdn_sites gauge",
-        f"blitzecdn_sites {len(control.sites.list_sites())}",
+        f"blitzecdn_sites {len(sites.list_sites())}",
         "# HELP blitzecdn_deployments Deployments in the recent window, by status.",
         "# TYPE blitzecdn_deployments gauge",
     ]

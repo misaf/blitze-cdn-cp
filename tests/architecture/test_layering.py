@@ -381,13 +381,14 @@ def test_domain_models_do_not_render_adapter_documents():
 #: for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     "backup": set(),
-    "origins": {"edges", "serving"},
-    "cache": {"dns", "serving"},
+    "origins": {"edges", "jobs", "serving"},
+    "cache": {"dns", "jobs", "serving"},
     "compression": {"dns"},
     "deployments": {"dns", "edges", "releases", "serving", "workflows"},
-    "diagnostics": set(),
+    # Readiness and metrics read the state these own.
+    "diagnostics": {"deployments", "dns", "edges"},
     "dns": {"serving"},
-    "edges": {"serving"},
+    "edges": {"jobs", "serving"},
     "hardening": set(),
     "http": {"dns", "serving"},
     "jobs": set(),
@@ -653,17 +654,18 @@ def test_the_compiler_accepts_only_captured_values():
 
 #: The modules that start a process, and the one container each may build.
 _PROCESS_ENTRY_POINTS = {
-    "entrypoints/api/app.py": "build_api",
-    "entrypoints/cli/common.py": "build_cli",
-    "entrypoints/worker.py": "build_worker",
-    "entrypoints/install_handoff.py": "build_install_handoff",
+    "entrypoints/api/app.py": "api_container",
+    "entrypoints/cli/common.py": "cli_container",
+    "entrypoints/worker.py": "worker_container",
+    "entrypoints/install_handoff.py": "handoff_container",
 }
 
-#: What of composition each delivery layer may name: its own container, and for
-#: the CLI the schema maintenance that runs before any service exists.
-_DELIVERY_CONTAINERS = {
-    "api": {"ApiServices"},
-    "cli": {"CliServices", "migrate_database"},
+#: What of composition each delivery layer may name. Services arrive by type
+#: from the process's container, so only the CLI's schema maintenance, which
+#: runs before any service exists.
+_DELIVERY_CONTAINERS: dict[str, set[str]] = {
+    "api": set(),
+    "cli": {"migrate_database"},
 }
 
 
@@ -701,10 +703,8 @@ def test_each_process_builds_only_its_own_container():
     assert offenders == []
 
 
-def test_delivery_code_reaches_only_its_own_process_container():
-    """A route cannot reach a service the API was not given, nor a command one
-    the CLI was not given: neither may name the service graph or another
-    process's container."""
+def test_delivery_code_names_no_part_of_the_composition():
+    """A route or command takes services by type and never names a container."""
     offenders = []
     for path in sorted(_SOURCE.rglob("*.py")):
         layer = _delivery_layer(path)

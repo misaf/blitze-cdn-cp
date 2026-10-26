@@ -9,10 +9,12 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.cli.app import domain_app
 from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
+from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.entrypoints.cli import common
 
 
@@ -28,7 +30,9 @@ def domain_add(
     at anything.
     """
     common.emit(
-        serving_document(common.services().dns.create_domain(Domain(name=name), "cli")),
+        serving_document(
+            common.service(DnsService).create_domain(Domain(name=name), "cli")
+        ),
         json_output=json_output,
     )
 
@@ -48,7 +52,7 @@ def domain_hosts(
     been deployed is already here. Use 'drift' for the fleet's view.
     """
     common.emit(
-        [serving_document(site) for site in common.services().sites.list_sites()],
+        [serving_document(site) for site in common.service(SiteReader).list_sites()],
         json_output=json_output,
     )
 
@@ -60,7 +64,7 @@ def domain_show(
 ) -> None:
     """Show a zone and the policy every hostname in it is served by."""
     common.emit(
-        serving_document(common.services().dns.get_domain(name)),
+        serving_document(common.service(DnsService).get_domain(name)),
         json_output=json_output,
     )
 
@@ -169,7 +173,7 @@ def domain_enable(
 def domain_list(json_output: common.JsonOutput = False) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
     common.emit(
-        [serving_document(zone) for zone in common.services().dns.list_domains()],
+        [serving_document(zone) for zone in common.service(DnsService).list_domains()],
         json_output=json_output,
     )
 
@@ -185,5 +189,5 @@ def domain_remove(
     """
     if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()
-    common.services().dns.delete_domain(name, "cli")
+    common.service(DnsService).delete_domain(name, "cli")
     typer.echo(f"Deleted {name}")

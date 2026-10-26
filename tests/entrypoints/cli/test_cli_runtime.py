@@ -36,7 +36,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "record", "list", "absent.example"])
 
@@ -54,7 +54,7 @@ def test_control_plane_factory_builds_from_the_environment(settings, monkeypatch
         cli.Settings, "from_environment", classmethod(lambda cls: settings)
     )
     assert cli.common.settings() is settings
-    assert cli.common.services().settings is settings
+    assert cli.common.service(cli.Settings) is settings
 
 
 def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
@@ -83,14 +83,12 @@ def test_one_invocation_builds_its_services_once_and_closes_them(settings, monke
         def close(self):
             self.closed = True
 
-    def build(_services):
+    def build(_settings):
         built.append(Built())
         return built[-1]
 
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
-    monkeypatch.setattr(cli.common.Infrastructure, "build", lambda *_a, **_k: None)
-    monkeypatch.setattr(cli.common, "build_services", lambda _infra: None)
-    monkeypatch.setattr(cli.common, "build_cli", build)
+    monkeypatch.setattr(cli.common, "cli_container", build)
     seen = []
     app = typer.Typer()
 
@@ -100,7 +98,7 @@ def test_one_invocation_builds_its_services_once_and_closes_them(settings, monke
 
     @app.command()
     def twice() -> None:
-        seen.append(cli.common.services() is cli.common.services())
+        seen.append(cli.common.container() is cli.common.container())
         seen.append(built[0].closed)
 
     assert runner.invoke(app, ["twice"]).exit_code == 0

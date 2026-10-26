@@ -1,7 +1,7 @@
-"""What each process is given, and what it does when it starts and stops.
+"""One container per process, and what each process does when it starts and stops.
 
-Each container holds only what its process uses, so a route cannot reach a
-service the API was not given.
+Every process resolves from the same graph. They differ in what is added to
+it: the API's node startup, and the worker's job handlers.
 """
 
 from __future__ import annotations
@@ -10,16 +10,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from blitzecdn.capabilities.cache.service import CacheService
+from dishka import Container, Provider, Scope, make_container, provide
+from dishka.integrations.fastapi import FastapiProvider
+
 from blitzecdn.capabilities.deployments.domain import (
     TERMINAL_STATUSES,
     DeploymentStatus,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
-from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.dns.service import RuleService
-from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
     Defer,
@@ -35,212 +33,134 @@ from blitzecdn.capabilities.jobs.service import (
     JobQueue,
     JobRunner,
     JobScheduler,
-    OperationService,
 )
 from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.capabilities.maintenance import MaintenanceService
-from blitzecdn.capabilities.origins.service.checks import OriginCheckService
-from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
-from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.settings import CertificateConfig
-from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
-from blitzecdn.composition.infrastructure import Infrastructure
-from blitzecdn.composition.services import ApplicationServices, OperationRun
+from blitzecdn.composition.infrastructure import Adapters, InfrastructureProvider
+from blitzecdn.composition.services import OperationRun, OperationRuns, ServiceProvider
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, DeploymentBusyError
-from blitzecdn.core.features import (
-    FeatureRegistry,
-    HealthCheck,
-    Operations,
-    ScheduledJob,
-)
-from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
-from blitzecdn.core.persistence.configuration import AnsibleSettingStore
-from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
+from blitzecdn.core.features import FeatureRegistry, Operations
 
 __all__ = [
-    "ApiServices",
-    "CliServices",
-    "HandoffServices",
-    "WorkerServices",
-    "build_api",
-    "build_cli",
-    "build_install_handoff",
-    "build_worker",
+    "ApiNode",
+    "ApiProvider",
+    "Worker",
+    "WorkerProvider",
+    "api_container",
+    "cli_container",
+    "handoff_container",
+    "refuse_missing_capabilities",
+    "worker_container",
 ]
 
 
 @dataclass(frozen=True, slots=True)
-class ApiServices:
-    """What the HTTP API's routes call, and the node's startup duties."""
+class ApiNode:
+    """The API process's startup duties."""
 
-    settings: Settings
-    audit: AuditTrail
-    sites: SiteReader
-    dns: DnsService
-    rules: RuleService
-    releases: ReleaseService
-    deployments: DeploymentService
-    edges: EdgeOperationsService
-    cache: CacheService
-    origins: OriginCheckService
-    certificate_config: CertificateConfig
-    certificates: CertificateService
-    automatic_ssl: AutomaticSslService
-    workflow_history: WorkflowStore
-    health_checks: tuple[HealthCheck, ...]
-    queued_operations: OperationService
-    _operations: Operations
-    _scheduler: JobScheduler
-    _jobs: Mapping[str, ScheduledJob]
-    _infrastructure: Infrastructure
+    operations: Operations
+    scheduler: JobScheduler
 
     def start(self) -> None:
         """Run every feature's node startup, then register the schedules."""
-        self._operations.startup()
-        self._scheduler.register(schedule_specs(self._jobs))
+        self.operations.startup()
+        self.scheduler.register(schedule_specs(self.operations.scheduled_jobs))
 
     def stop(self) -> None:
-        self._operations.shutdown()
-
-    def close(self) -> None:
-        self._infrastructure.close()
+        self.operations.shutdown()
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerServices:
+class Worker:
     """The durable job loop, with every job kind's handler installed."""
 
-    job_runner: JobRunner
-    job_scheduler: JobScheduler
-    _operations: Operations
-    _jobs: Mapping[str, ScheduledJob]
-    _infrastructure: Infrastructure
+    runner: JobRunner
+    scheduler: JobScheduler
+    operations: Operations
 
     def start(self) -> None:
         """Publish the schedules. Recovery is the API's startup, not this."""
-        self.job_scheduler.register(schedule_specs(self._jobs))
+        self.scheduler.register(schedule_specs(self.operations.scheduled_jobs))
 
     def stop(self) -> None:
-        self._operations.shutdown()
-
-    def close(self) -> None:
-        self._infrastructure.close()
+        self.operations.shutdown()
 
 
-@dataclass(frozen=True, slots=True)
-class CliServices:
-    """What the command groups call. A CLI invocation starts nothing."""
+class ApiProvider(Provider):
+    scope = Scope.APP
 
-    settings: Settings
-    features: FeatureRegistry
-    capability_config: ResolvedCapabilityEnvironment
-    ansible_settings: AnsibleSettingStore
-    audit: AuditTrail
-    fleet: PlaybookRunner
-    sites: SiteReader
-    dns: DnsService
-    rules: RuleService
-    releases: ReleaseService
-    deployments: DeploymentService
-    edges: EdgeOperationsService
-    cache: CacheService
-    origins: OriginCheckService
-    certificates: CertificateService
-    automatic_ssl: AutomaticSslService
-    job_queue: JobQueue
-    job_scheduler: JobScheduler
-    _infrastructure: Infrastructure
-
-    def close(self) -> None:
-        self._infrastructure.close()
+    @provide
+    def node(self, operations: Operations, scheduler: JobScheduler) -> ApiNode:
+        return ApiNode(operations=operations, scheduler=scheduler)
 
 
-@dataclass(frozen=True, slots=True)
-class HandoffServices:
-    """What the installer's handoff needs: the local edge and a first deploy."""
+class WorkerProvider(Provider):
+    scope = Scope.APP
 
-    edges: EdgeOperationsService
-    deployments: DeploymentService
-    _infrastructure: Infrastructure
+    @provide
+    def worker(
+        self,
+        queue: JobQueue,
+        runner: JobRunner,
+        scheduler: JobScheduler,
+        operations: Operations,
+        deployments: DeploymentService,
+        maintenance: MaintenanceService,
+        runs: OperationRuns,
+    ) -> Worker:
+        """Only this installs the queue's handlers."""
+        queue.consume_with(
+            {
+                **_job_handlers(deployments, maintenance),
+                **_operation_handlers(runs),
+            }
+        )
+        return Worker(runner=runner, scheduler=scheduler, operations=operations)
 
-    def close(self) -> None:
-        self._infrastructure.close()
 
-
-def build_api(services: ApplicationServices) -> ApiServices:
-    return ApiServices(
-        settings=services.settings,
-        audit=services.audit,
-        sites=services.sites,
-        dns=services.dns,
-        rules=services.rules,
-        releases=services.releases,
-        deployments=services.deployments,
-        edges=services.edges,
-        cache=services.cache,
-        origins=services.origins,
-        certificate_config=services.certificate_config,
-        certificates=services.certificates,
-        automatic_ssl=services.automatic_ssl,
-        workflow_history=services.workflow_history,
-        health_checks=services.health_checks,
-        queued_operations=services.queued_operations,
-        _operations=services.operations,
-        _scheduler=services.job_scheduler,
-        _jobs=services.jobs,
-        _infrastructure=services.infrastructure,
+def _container(
+    settings: Settings, adapters: Adapters | None, *extra: Provider
+) -> Container:
+    container = make_container(
+        InfrastructureProvider(),
+        ServiceProvider(),
+        *extra,
+        context={Settings: settings, Adapters: adapters or Adapters()},
     )
+    return refuse_missing_capabilities(container)
 
 
-def build_worker(services: ApplicationServices) -> WorkerServices:
-    """The worker's container. Only this installs the queue's handlers."""
-    services.job_queue.consume_with(
-        {
-            **_job_handlers(services.deployments, services.maintenance),
-            **_operation_handlers(services.operation_runs),
-        }
-    )
-    return WorkerServices(
-        job_runner=services.job_runner,
-        job_scheduler=services.job_scheduler,
-        _operations=services.operations,
-        _jobs=services.jobs,
-        _infrastructure=services.infrastructure,
-    )
+def refuse_missing_capabilities(container: Container) -> Container:
+    """Resolve the registry now: the graph is lazy, and a command that needs
+    no feature must still refuse an installation missing a required one."""
+    try:
+        container.get(FeatureRegistry)
+    except BaseException:
+        container.close()
+        raise
+    return container
 
 
-def build_cli(services: ApplicationServices) -> CliServices:
-    return CliServices(
-        settings=services.settings,
-        features=services.features,
-        capability_config=services.capability_config,
-        ansible_settings=services.ansible_settings,
-        audit=services.audit,
-        fleet=services.fleet,
-        sites=services.sites,
-        dns=services.dns,
-        rules=services.rules,
-        releases=services.releases,
-        deployments=services.deployments,
-        edges=services.edges,
-        cache=services.cache,
-        origins=services.origins,
-        certificates=services.certificates,
-        automatic_ssl=services.automatic_ssl,
-        job_queue=services.job_queue,
-        job_scheduler=services.job_scheduler,
-        _infrastructure=services.infrastructure,
-    )
+def api_container(settings: Settings, adapters: Adapters | None = None) -> Container:
+    """The HTTP API's graph, with its node startup and a scope per request."""
+    return _container(settings, adapters, ApiProvider(), FastapiProvider())
 
 
-def build_install_handoff(services: ApplicationServices) -> HandoffServices:
-    return HandoffServices(
-        edges=services.edges,
-        deployments=services.deployments,
-        _infrastructure=services.infrastructure,
-    )
+def worker_container(settings: Settings, adapters: Adapters | None = None) -> Container:
+    return _container(settings, adapters, WorkerProvider())
+
+
+def cli_container(settings: Settings, adapters: Adapters | None = None) -> Container:
+    """What the command groups resolve from. A CLI invocation starts nothing."""
+    return _container(settings, adapters)
+
+
+def handoff_container(
+    settings: Settings, adapters: Adapters | None = None
+) -> Container:
+    """What the installer's handoff resolves: the local edge and a first deploy."""
+    return _container(settings, adapters)
 
 
 def _job_handlers(

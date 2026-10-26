@@ -330,9 +330,7 @@ def test_a_release_carries_every_installed_capability_fragment(settings):
     try:
         installed = {
             resource.name.removesuffix(".j2")
-            for resource in control.infrastructure.edge_contributions.nginx_resources[
-                "http"
-            ]
+            for resource in control.edge_contributions.nginx_resources["http"]
         }
         assert installed
         assert _http_fragments(control.releases.renderer, settings) == installed
@@ -343,7 +341,7 @@ def test_a_release_carries_every_installed_capability_fragment(settings):
 def test_a_detached_capabilitys_fragment_is_not_in_the_release(settings):
     control = build_application(settings=settings)
     try:
-        contributions = control.infrastructure.edge_contributions
+        contributions = control.edge_contributions
         resources = {
             context: tuple(item for item in items if item.feature != "security")
             for context, items in contributions.nginx_resources.items()

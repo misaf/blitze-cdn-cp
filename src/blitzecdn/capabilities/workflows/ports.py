@@ -1,4 +1,4 @@
-"""What the workflow service calls: the journal it writes through."""
+"""What the workflow service calls, and what the API reads."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 
-__all__ = ["WorkflowJournal"]
+__all__ = ["WorkflowHistory", "WorkflowJournal"]
 
 
 class WorkflowJournal(Protocol):
@@ -35,3 +35,11 @@ class WorkflowJournal(Protocol):
     def unfinished(self) -> list[Workflow]: ...
 
     def prune_finished(self, keep: int) -> int: ...
+
+
+class WorkflowHistory(Protocol):
+    """The journal, read-only: the service writes through `WorkflowJournal`."""
+
+    def get(self, workflow_id: str) -> Workflow: ...
+
+    def list_workflows(self, limit: int = 100) -> list[Workflow]: ...

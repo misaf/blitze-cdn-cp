@@ -15,6 +15,7 @@ from blitzecdn.capabilities.jobs.service import (
     JobQueue,
     JobRunner,
     JobScheduler,
+    OperationService,
     ScheduleSpec,
 )
 
@@ -27,6 +28,7 @@ __all__ = [
     "JobRunner",
     "JobScheduler",
     "JobStatus",
+    "OperationService",
     "Schedule",
     "ScheduleSpec",
 ]

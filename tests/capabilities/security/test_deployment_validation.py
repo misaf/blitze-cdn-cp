@@ -119,7 +119,7 @@ def test_cli_error_semantics_are_unchanged_by_the_new_refusal(
     attribution.
     """
     control = _control_serving(unprovisioned, FakeRunner(), under_attack_mode=True)
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     monkeypatch.setattr(cli.common, "settings", lambda: unprovisioned)
 
     result = runner.invoke(cli.app, ["validate", "--json"])

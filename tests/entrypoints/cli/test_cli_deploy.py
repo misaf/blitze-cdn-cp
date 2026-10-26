@@ -44,7 +44,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
     seed_site(control)
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
     # --skip-preflight: one scripted run per command. The validate-and-preview flow
@@ -75,7 +75,7 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
     # Cache and compression off: this is about the interactive flow, not about
     # which capabilities the site requests.
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
     assert "Configuration is valid" in result.stdout
@@ -167,7 +167,7 @@ def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
         ),
     )
     seed_edge(control)
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
 
     assert runner.invoke(cli.app, ["plan"]).exit_code == cli.ExitCode.DEPLOYMENT_FAILED
 
@@ -196,7 +196,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
 
@@ -247,7 +247,7 @@ def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkey
     )
     seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
 
     # No `input=`: a prompt here would fail the test rather than hang it, which
     # is the point — --yes still answers the confirmation.
@@ -265,7 +265,7 @@ def test_skip_preflight_is_what_gives_up_the_checks(settings, monkeypatch):
         settings=settings, repository=Repository(settings.database_path), runner=fake
     )
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
 
     result = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight"])
 
