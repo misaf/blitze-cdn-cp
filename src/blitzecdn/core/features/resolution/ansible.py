@@ -44,7 +44,7 @@ def resolve_role_search_path(
         if not path.is_dir():
             raise FeatureError(
                 f"feature {contribution.feature!r} contributes the Ansible roles "
-                f"directory {path}, which does not exist. Its distribution was "
+                f"directory {path}, which does not exist. The package was "
                 "built without its Ansible resources, or was installed in a way "
                 "that did not carry them."
             )

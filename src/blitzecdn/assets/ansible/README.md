@@ -2,8 +2,9 @@
 
 The control plane invokes the playbooks and roles in this directory to manage
 BlitzeCDN edges. They live *inside* the `blitzecdn` package, so they ship in the
-wheel and resolve identically in a checkout and on a controller that has no
-checkout — the same way every optional capability carries its own Ansible. There is no host inventory file to edit: the inventory plugin
+control-plane image and resolve identically in a checkout and on a controller
+that has no checkout — the same way every capability carries its own Ansible.
+There is no host inventory file to edit: the inventory plugin
 reads registered edges and fleet configuration from the control-plane database.
 
 Install the controller from the project root, then register and deploy an edge:
@@ -65,10 +66,9 @@ blitzecdn_edge_runtime:
 `paths.data` and `paths.modules` are the two members that exist for someone
 else. Core creates both and mounts them read-only into the edge container and
 into the configuration test; what goes in them — a lookup database, an njs
-module — is an installed capability's business, written by that capability's
-own role. There is deliberately no `geoip` member any more: the shared contract
-every edge role reads carried the name of a distribution that may not be
-installed.
+module — is a capability's business, written by that capability's own role.
+There is deliberately no `geoip` member: the shared contract every edge role
+reads names no capability.
 
 The three roles read it and never each other. A value only one role uses stays
 in that role — Nginx policy in `blitzecdn_nginx`, the Compose project and the
@@ -93,14 +93,15 @@ which stages the configuration the control plane rendered for a release. The
 Nginx templates and their defaults live in `blitzecdn_nginx` because they are
 the controller renderer's source; no edge renders them.
 
-An optional capability's roles are not here. They ship inside that
-capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`
-and `blitzecdn_cache_stats` in `blitzecdn-cache`, `blitzecdn_hardening_sshd`,
-`blitzecdn_hardening_fail2ban` and `blitzecdn_hardening_teardown` in
-`blitzecdn-hardening`, `blitzecdn_resolver` and
-`blitzecdn_resolver_teardown` in `blitzecdn-resolver`, and so on — and the control plane
-composes the real role search path from core's directory plus the directory
-each installed plugin reports. `roles_path` in `ansible.cfg` is only what a
+A capability's roles are not here. They live beside that capability's
+feature — `blitzecdn_geoip` under `capabilities/security/geoip`,
+`blitzecdn_cache` and `blitzecdn_cache_stats` under `capabilities/cache`,
+`blitzecdn_hardening_sshd`, `blitzecdn_hardening_fail2ban` and
+`blitzecdn_hardening_teardown` under `capabilities/hardening`,
+`blitzecdn_resolver` and `blitzecdn_resolver_teardown` under
+`capabilities/resolver`, and so on — and the control plane composes the real
+role search path from core's directory plus the directory each feature
+reports. `roles_path` in `ansible.cfg` is only what a
 bare `ansible-playbook` in a checkout resolves against; every run the control
 plane makes overrides it with `ANSIBLE_ROLES_PATH`.
 
@@ -115,7 +116,7 @@ one. There are three slots, and each position is a contract:
 | host | `blitzecdn_host_capability_roles` | after `blitzecdn_edge_stack` in `playbooks/edge.yml` | a capability configuring the host underneath a runtime that is already serving; an edge whose containers are all broken must still be reachable for Ansible to repair it |
 | teardown | `blitzecdn_edge_teardown_capability_roles` | before `blitzecdn_edge_teardown` in `playbooks/decommission.yml` | a capability withdrawing what it wrote from a host that is leaving inventory, while the state tree is still there and before core's clean-host assertion passes the verdict |
 
-To run the edge play by hand against a fleet with capabilities attached, ask
+To run the edge play by hand with the capabilities' roles included, ask
 the control plane for the roles path and the slot lists rather than writing
 either out. Both are composed by the functions the composition root itself
 calls, so a play run this way resolves exactly what a deployment would:

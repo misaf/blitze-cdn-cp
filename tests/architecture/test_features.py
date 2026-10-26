@@ -262,23 +262,6 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     assert metadata.capabilities == {"acme-waf", "waf", "ratelimit"}
 
 
-def test_requiring_a_capability_nothing_provides_names_it(baseline):
-    """The message an operator reads when configuration requires an unknown token.
-
-    It names the missing token and what is available, so a typo is told apart
-    from an absent capability.
-    """
-    baseline.require(["dns"], subject="a test")
-
-    with pytest.raises(FeatureError) as failure:
-        baseline.require(["dns", "waf"], subject="this installation")
-
-    message = str(failure.value)
-    assert "waf" in message
-    assert "this installation" in message
-    assert "dns" in message
-
-
 # --- ordering ---------------------------------------------------------------
 
 

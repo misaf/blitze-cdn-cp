@@ -37,7 +37,7 @@ class EdgeRow(Base, table=True):
     #: the edge, and never joined or filtered on.
     public_addresses: list[Any] = Field(default_factory=list, sa_type=JSON)
     ssh_sources: list[Any] = Field(default_factory=list, sa_type=JSON)
-    #: NULL means undeclared, assume the controller's set; an empty list means no
-    #: optional capability at all. The inventory plugin does not read this column.
+    #: NULL means undeclared, assume the controller's set; an empty list means
+    #: the edge's runtime provides none. The inventory plugin does not read this column.
     capabilities: list[Any] | None = Field(default=None, sa_type=JSON)
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

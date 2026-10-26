@@ -1,17 +1,16 @@
 ---
 # Everything the security capability needs on an edge, owned by the
-# distribution that provides the capability.
+# capability.
 #
-# The role ships inside the `blitzecdn-security` wheel; the control plane finds
-# it through the plugin's Ansible contribution, and detaching the distribution
-# takes the njs implementation, its secret and its `conf.d` snippet off every
-# subsequent deploy with no line of core edited.
+# The role lives beside the security feature; the control plane finds it
+# through the feature's Ansible contribution, so the njs implementation, its
+# secret and its `conf.d` snippet are named by no line of core.
 
 # Whether this fleet can serve the Layer-7 browser challenge.
 #
 # Fleet Ansible policy — `blitzecdn config set
-# blitzecdn_security_under_attack_enabled true` — and separate from whether the
-# distribution is installed, exactly as the site setting is separate from both.
+# blitzecdn_security_under_attack_enabled true` — and separate from the site
+# setting that asks for it.
 # A site asking for Under Attack Mode while this is false fails the assertion
 # in tasks/main.yml rather than silently reaching its origin unchallenged.
 blitzecdn_security_under_attack_enabled: false

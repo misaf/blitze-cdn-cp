@@ -3,11 +3,8 @@
 # Start with the official, versioned Nginx image and add only the third-party
 # modules and runtime files BlitzeCDN needs. Which modules those are is not
 # written down here: it is an input, emitted by `blitzecdn edge image spec`
-# from the capability distributions that declare them, so attaching a
-# capability that needs a module extends this image without the Dockerfile
-# learning the capability's name. It used to enumerate them, which made the
-# image a third register of which capabilities exist — and the only one that
-# kept naming a capability after its distribution had been detached.
+# from the features that declare them, so a capability that needs a module
+# extends this image without the Dockerfile learning the capability's name.
 #
 # The modules named are built with Nginx's own pkg-oss tooling against this
 # exact base image, keeping the binary and dynamic modules ABI-compatible.

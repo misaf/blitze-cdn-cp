@@ -78,8 +78,8 @@ def features(
 ) -> None:
     """List the features this controller ships and the configuration they claim.
 
-    `capabilities` are the tokens configuration depends on through
-    `required_capabilities`, which is usually just the feature's name.
+    `capabilities` are the tokens a site's settings and an edge's runtime are
+    checked against, which is usually just the feature's name.
 
     `configuration` is the other half of the same question: which `BLITZE_*`
     names each feature claims, and whether this controller has set them.

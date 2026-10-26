@@ -84,7 +84,7 @@ class EdgeContributions:
             "blitzecdn_edge_teardown_capability_roles": list(self.teardown_roles),
             "blitzecdn_nginx_modules": [
                 {
-                    "plugin": module.feature,
+                    "feature": module.feature,
                     "name": module.name,
                     "objects": list(module.objects),
                 }
@@ -93,7 +93,7 @@ class EdgeContributions:
             "blitzecdn_nginx_resources": {
                 context: [
                     {
-                        "plugin": resource.feature,
+                        "feature": resource.feature,
                         "name": resource.name,
                         "template": str(resource.template),
                     }

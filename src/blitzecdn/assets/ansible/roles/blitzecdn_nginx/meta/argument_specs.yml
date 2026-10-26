@@ -35,7 +35,7 @@ argument_specs:
             description: >-
               Require a signed BlitzeCDN browser clearance before cache or
               origin processing. The challenge itself is the `security`
-              capability's; a site asking for this without that distribution is
+              capability's; a site asking for this on an edge without it is
               refused by the control plane, by name, before any play starts.
           origin_request_host: {type: str}
           origin_sni: {type: str}
@@ -150,20 +150,20 @@ argument_specs:
         required: true
         description: >-
           Validated package-owned static fragments grouped by stable Nginx
-          context. Resolved from installed plugin contributions at run time.
+          context. Resolved from the features' contributions at run time.
       blitzecdn_nginx_modules:
         type: list
         elements: dict
         required: true
         description: >-
-          The Nginx dynamic modules the installed capabilities load, composed
-          by the control plane and delivered as an extra-var. Each entry names
-          the contributing plugin, the module and its shared objects; the
+          The Nginx dynamic modules the capabilities load, composed by the
+          control plane and delivered as an extra-var. Each entry names the
+          contributing feature, the module and its shared objects; the
           rendered list is mounted over the one the runtime image was built
-          with, so an edge loads what is installed rather than what the image
-          carries. Empty is a valid edge.
+          with, so an edge loads what the features ask for rather than what the
+          image carries. Empty is a valid edge.
         options:
-          plugin: {type: str, required: true}
+          feature: {type: str, required: true}
           name: {type: str, required: true}
           objects: {type: list, elements: str, required: true}
       blitzecdn_nginx_module_directory:

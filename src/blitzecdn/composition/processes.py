@@ -40,7 +40,7 @@ from blitzecdn.composition.infrastructure import Adapters, InfrastructureProvide
 from blitzecdn.composition.services import OperationRun, OperationRuns, ServiceProvider
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, DeploymentBusyError
-from blitzecdn.core.features import FeatureRegistry, Operations
+from blitzecdn.core.features import Operations
 
 __all__ = [
     "ApiNode",
@@ -50,7 +50,6 @@ __all__ = [
     "api_container",
     "cli_container",
     "handoff_container",
-    "refuse_missing_capabilities",
     "worker_container",
 ]
 
@@ -122,24 +121,12 @@ class WorkerProvider(Provider):
 def _container(
     settings: Settings, adapters: Adapters | None, *extra: Provider
 ) -> Container:
-    container = make_container(
+    return make_container(
         InfrastructureProvider(),
         ServiceProvider(),
         *extra,
         context={Settings: settings, Adapters: adapters or Adapters()},
     )
-    return refuse_missing_capabilities(container)
-
-
-def refuse_missing_capabilities(container: Container) -> Container:
-    """Resolve the registry now: the graph is lazy, and a command that needs
-    no feature must still refuse an installation missing a required one."""
-    try:
-        container.get(FeatureRegistry)
-    except BaseException:
-        container.close()
-        raise
-    return container
 
 
 def api_container(settings: Settings, adapters: Adapters | None = None) -> Container:

@@ -119,17 +119,8 @@ class InfrastructureProvider(Provider):
             store.close()
 
     @provide
-    def features(self, settings: Settings, adapters: Adapters) -> FeatureRegistry:
-        registry = (
-            adapters.features if adapters.features is not None else load_registry()
-        )
-        # Refuse missing required capabilities before building anything that
-        # would use them.
-        registry.require(
-            settings.required_capabilities,
-            subject="this installation's `required_capabilities`",
-        )
-        return registry
+    def features(self, adapters: Adapters) -> FeatureRegistry:
+        return adapters.features if adapters.features is not None else load_registry()
 
     @provide
     def capability_config(

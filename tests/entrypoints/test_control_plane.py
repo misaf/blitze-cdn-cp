@@ -741,32 +741,6 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     assert control.sites.get_site(original.name) == original
 
 
-@pytest.mark.parametrize("injected", [False, True])
-def test_a_missing_required_capability_is_refused_before_persistence_opens(
-    settings, monkeypatch, injected
-):
-    closed = []
-    original_close = Repository.close
-
-    def close(repository):
-        closed.append(repository)
-        original_close(repository)
-
-    repository = Repository(settings.database_path) if injected else None
-    monkeypatch.setattr(Repository, "close", close)
-    invalid = settings.model_copy(
-        update={"required_capabilities": ("absent-provider",)}
-    )
-    from blitzecdn.core.exceptions import FeatureError
-
-    with pytest.raises(FeatureError, match="absent-provider"):
-        build_application(settings=invalid, repository=repository)
-    assert closed == []
-    if repository is not None:
-        assert repository.zones.list_domains() == []
-        repository.close()
-
-
 def test_tls_services_share_application_ownership_and_are_garbage_collectable(settings):
     import gc
     import weakref

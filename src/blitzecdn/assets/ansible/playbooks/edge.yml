@@ -94,11 +94,10 @@
   roles:
     - role: blitzecdn_base
       tags: [base, activate]
-    # Host DNS resolution is no longer named here. It ships as
-    # `blitzecdn-resolver` and asks for the capability slot below, which is
-    # still before the staged configuration's origin hostnames are looked up
-    # by the runtime — so a fleet whose DNS belongs to its network detaches the
-    # distribution instead of setting a variable in a role it never wanted.
+    # Host DNS resolution is not named here. It is the resolver capability's,
+    # in the capability slot below, which is still before the staged
+    # configuration's origin hostnames are looked up by the runtime, and is off
+    # unless the fleet turns it on.
     - role: blitzecdn_kernel
       tags: [kernel, activate]
     # Every capability's own edge role, in one slot.
@@ -138,10 +137,10 @@
     # The second capability slot: what an installed capability does to the
     # *host* rather than to the runtime, once the edge is already serving.
     #
-    # This is where SSH policy and Fail2Ban run, and they are no longer named
-    # here — `blitzecdn-hardening` ships both and asks for this slot, so a
-    # fleet whose host access belongs to a golden image or a bastion detaches
-    # the distribution instead of forking this play.
+    # This is where SSH policy and Fail2Ban run, and they are not named here —
+    # the hardening capability owns both and asks for this slot, so a fleet
+    # whose host access belongs to a golden image or a bastion turns them off
+    # in fleet configuration instead of forking this play.
     #
     # The position is as much a contract as the edge slot's, and for a reason
     # that is nearly the opposite. A role here must come after the firewall,

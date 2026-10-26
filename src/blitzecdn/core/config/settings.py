@@ -40,7 +40,6 @@ class Settings(BaseSettings):
             "history_retention",
             "preflight_dns_timeout_seconds",
             "preflight_dns_servers",
-            "required_capabilities",
             "allow_empty_sites",
             "origin_check_timeout_seconds",
             "drift_check_interval_seconds",
@@ -99,8 +98,6 @@ class Settings(BaseSettings):
     #: Resolvers preflight asks instead of the host's, to see what the CA sees
     #: rather than a split-horizon view. Empty uses the host resolver.
     preflight_dns_servers: Annotated[tuple[str, ...], NoDecode] = ()
-    #: Capability tokens this installation requires; a missing one fails startup.
-    required_capabilities: Annotated[tuple[str, ...], NoDecode] = ()
     #: `BLITZE_*` variables core does not consume, staged for features to claim
     #: through `ConfigurationContribution`. `SecretStr`, because core cannot
     #: tell which are credentials. Core's own names, the API keys included, are
@@ -172,20 +169,6 @@ class Settings(BaseSettings):
                 ) from exc
             servers.append(part)
         return tuple(servers)
-
-    @field_validator("required_capabilities", mode="before")
-    @classmethod
-    def validate_capabilities(cls, value: object) -> tuple[str, ...]:
-        tokens: list[str] = []
-        for part in _split(value, "required_capabilities"):
-            if not part.replace("_", "").replace("-", "").isalnum():
-                raise ValueError(
-                    f"required capability {part!r} must be alphanumeric, "
-                    "such as 'backup'"
-                )
-            if part not in tokens:
-                tokens.append(part)
-        return tuple(tokens)
 
     @field_validator("allowed_ips", mode="before")
     @classmethod

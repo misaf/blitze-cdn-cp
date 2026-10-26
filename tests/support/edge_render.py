@@ -57,7 +57,7 @@ def _nginx_resources() -> dict[str, list[dict[str, str]]]:
     return {
         context: [
             {
-                "plugin": resource.feature,
+                "feature": resource.feature,
                 "name": resource.name,
                 "template": str(resource.template),
             }

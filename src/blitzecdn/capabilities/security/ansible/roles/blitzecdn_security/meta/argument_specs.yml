@@ -4,8 +4,8 @@ argument_specs:
     short_description: Provision the edge's Layer-7 browser challenge.
     description:
       - >-
-        The `security` capability's edge implementation, shipped inside the
-        blitzecdn-security wheel: the njs module that serves and verifies the
+        The `security` capability's edge implementation, contributed by the
+        security feature: the njs module that serves and verifies the
         Under Attack Mode challenge, the fleet secret it signs clearances with,
         and the conf.d snippet that imports it.
       - >-

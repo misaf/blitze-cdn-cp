@@ -113,23 +113,6 @@ class FeatureRegistry:
         """Which of ``required`` no installed feature provides, sorted."""
         return tuple(sorted(set(required) - self.capabilities))
 
-    def require(self, required: Iterable[str], *, subject: str) -> None:
-        """Refuse to start while a configured capability has no provider.
-
-        A startup failure naming the token, rather than a control plane that
-        comes up and quietly serves its absence.
-        """
-        absent = self.missing(required)
-        if absent:
-            installed = ", ".join(sorted(self.capabilities)) or "none"
-            raise FeatureError(
-                f"{subject} requires the "
-                f"{'capabilities' if len(absent) > 1 else 'capability'} "
-                f"{', '.join(absent)}, which no installed feature provides. "
-                f"Installed capabilities: {installed}. Install the distribution "
-                "that supplies it, or remove it from `required_capabilities`."
-            )
-
     # --- declarations ------------------------------------------------------
 
     def api_routers(self) -> tuple[APIRouter, ...]:

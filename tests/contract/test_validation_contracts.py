@@ -319,7 +319,7 @@ def _http_fragments(renderer: EdgeRenderer, settings) -> set[str]:
         (PROJECT_DIR / "tests/fixtures/desired-state.yml").read_text(encoding="utf-8")
     )
     bundle = renderer.render({**fixture, "blitzecdn_release_digest": "a" * 64})
-    prefix = "nginx/conf.d/blitzecdn-plugin-"
+    prefix = "nginx/conf.d/blitzecdn-feature-"
     return {
         name.removeprefix(prefix) for name in bundle.files if name.startswith(prefix)
     }
