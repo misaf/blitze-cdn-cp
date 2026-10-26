@@ -4,8 +4,8 @@
 # tests/http3-edge-integration.sh builds the edge runtime images on the outer
 # host and hands them to this host as a tarball, because the test has to prove
 # the image *this repository* produces rather than whatever the registry
-# currently publishes — which is also why http3-edge.yml sets
-# blitzecdn_edge_stack_image_pull to false.
+# currently publishes — which is also why the harness's runner variables
+# (http3-edge/runner.yml) set blitzecdn_edge_stack_image_pull to false.
 #
 # That leaves an ordering problem the main playbook cannot solve on its own:
 # `docker load` needs an engine, and the engine is installed by the same

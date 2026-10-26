@@ -6,6 +6,12 @@
 # host networking, so the origin and the HTTP/3 client reach it on the outer
 # Docker network as visitors would reach a real edge.
 #
+# The edge is converged by the shipped edge play, from a release: the desired
+# state in tests/integration/http3-edge/ is rendered on this host by the control
+# plane's own renderer (tests/http3_release.py), and the play stages, seals,
+# activates and commits it as a rollout does, with the served release checked in
+# between. A copy of the play would pass while the real one drifted.
+#
 # Proves: a fresh install converges and is idempotent; every listener answers
 # over HTTP/1.1, HTTP/2 and HTTP/3; GeoIP2, Brotli and Under Attack Mode work; a
 # site change reloads without replacing the container; an image upgrade replaces
@@ -45,11 +51,49 @@ trap cleanup EXIT
 say() { printf '\n=== %s ===\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 in_edge() { docker exec "${edge}" bash -lc "$1"; }
-# Core's roles, then each capability's, composed as
-# `blitzecdn.core.ansible.roles` composes them at run time.
-readonly ROLES_PATH='/workspace/src/blitzecdn/assets/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/capabilities/security/geoip/ansible/roles:/workspace/src/blitzecdn/capabilities/hardening/ansible/roles:/workspace/src/blitzecdn/capabilities/http/http3/ansible/roles:/workspace/src/blitzecdn/capabilities/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
+readonly EDGE_PLAYBOOK=src/blitzecdn/assets/ansible/playbooks/edge.yml
+readonly EDGE_INVENTORY=tests/integration/edges-local.ini
+readonly RELEASE_STATE=tests/integration/http3-edge/release.yml
+readonly RELEASE_RUNNER=tests/integration/http3-edge/runner.yml
+# Where the rendered release lands on this host, and where the edge host sees it.
+release_dir="${workdir}/release"
+readonly EDGE_RELEASE_DIR=/harness/release
+# The active release's own nginx.conf: the container serves from it, and a bare
+# `nginx -t` would test the image's default configuration instead.
+readonly ACTIVE_CONF=/etc/blitzecdn/releases/current/nginx.conf
+
+# Renders a release from the desired state, with NAME=VALUE overrides, and
+# leaves it where `converge` reads it. Prints the release digest.
+render_release() {
+  uv run --project "${project_dir}" --no-sync python "${project_dir}/tests/http3_release.py" \
+    "${project_dir}/${RELEASE_STATE}" "${project_dir}/${RELEASE_RUNNER}" \
+    "${release_dir}" "${EDGE_RELEASE_DIR}" "$@"
+}
+
+# The shipped edge play against the rendered release; extra arguments go to
+# ansible-playbook. Variables in the order a control plane layers them: the
+# capability contributions, the runner's, then the execution document.
 converge() {
-  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
+  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook \
+    -i ${EDGE_INVENTORY} ${EDGE_PLAYBOOK} \
+    -e @${EDGE_RELEASE_DIR}/contributions.yml -e @${RELEASE_RUNNER} \
+    -e @${EDGE_RELEASE_DIR}/release.yml $*"
+}
+
+# A rollout of one release to the one edge: stage and activate, ask the edge
+# over HTTPS which release it serves, and commit only if it is this one. Every
+# step returns explicitly, because callers capture a failure with `|| true` and
+# `set -e` does not apply inside a function called that way.
+deploy() {
+  local digest served
+  digest=$(render_release "$@") || return
+  converge || return
+  served=$("${client[@]}" https://site-one.test/.blitzecdn/release) || return
+  if [[ ${served} != "${digest}" ]]; then
+    printf 'FAIL: the edge serves release %s, not %s\n' "${served}" "${digest}" >&2
+    return 1
+  fi
+  converge --tags commit
 }
 
 # The module set comes from `blitzecdn edge image spec`, the same command the
@@ -70,6 +114,15 @@ done < <(uv run --project "${project_dir}" --no-sync blitzecdn edge image spec)
   fail "blitzecdn edge image spec named no build arguments"
 printf '  %s\n' "${module_args[@]}"
 
+# Core's roles, then each capability's: the search path the control plane
+# composes at run time, from the same function, as the edge host sees the
+# checkout. Not a literal, which is how it drifted once.
+roles_path=$(uv run --project "${project_dir}" --no-sync blitzecdn ansible roles-path)
+ROLES_PATH=${roles_path//"${project_dir}"//workspace}
+[[ ${ROLES_PATH} == /workspace/* && ${ROLES_PATH} != *"${project_dir}"* ]] ||
+  fail "the role search path is not inside the checkout: ${roles_path}"
+readonly ROLES_PATH
+
 say "Building the BlitzeCDN edge image"
 docker build "${module_args[@]}" --tag "${EDGE_TAG}" \
   "${project_dir}/src/blitzecdn/assets/docker/edge"
@@ -82,11 +135,12 @@ printf 'FROM %s\nLABEL org.opencontainers.image.revision=integration-next\n' \
   "${EDGE_TAG}" > "${workdir}/Dockerfile.next"
 docker build --tag "${EDGE_TAG_NEXT}" --file "${workdir}/Dockerfile.next" "${workdir}"
 
-# One that cannot serve: its base configuration is broken inside the image,
-# which the configuration test must catch before the running container is
-# replaced.
+# One that cannot serve: a file the release's configuration includes from the
+# image is broken, which the configuration test must catch before the running
+# container is replaced. Not the image's nginx.conf, which a release never
+# loads: the container runs the release's own.
 say "Building a deliberately broken edge image"
-printf 'FROM %s\nRUN printf "this is not nginx configuration\\n" > /etc/nginx/nginx.conf\n' \
+printf 'FROM %s\nRUN printf "this is not nginx configuration\\n" > /etc/nginx/mime.types\n' \
   "${EDGE_TAG}" > "${workdir}/Dockerfile.broken"
 docker build --tag "${EDGE_TAG_BROKEN}" --file "${workdir}/Dockerfile.broken" "${workdir}"
 
@@ -111,7 +165,7 @@ docker run -d --name "${edge}" --hostname blitzecdn-http3-edge \
   --tmpfs /run --tmpfs /run/lock \
   -v /var/lib/docker -v /var/lib/containerd \
   -v "${project_dir}:/workspace:ro" \
-  -v "${workdir}:/images:ro" \
+  -v "${workdir}:/harness:ro" \
   "${HOST_IMAGE}" \
   bash -c 'apt-get update -qq && apt-get install -y -qq systemd systemd-sysv >/dev/null && exec /sbin/init' \
   >/dev/null
@@ -124,6 +178,11 @@ for _ in $(seq 60); do
 done
 [[ ${state} == running || ${state} == degraded ]] ||
   fail "systemd did not start (last state: ${state})"
+
+# A visitor on the outer network, as the rollout's own verification is one.
+edge_ip=$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" "${edge}")
+client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -kfsS --resolve "site-one.test:443:${edge_ip}")
+challenge_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS --resolve "site-two.test:443:${edge_ip}")
 
 say "Installing the minimal Ansible test runner"
 in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core openssl curl ca-certificates iproute2 >/dev/null'
@@ -138,7 +197,7 @@ in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0
 # `docker load` needs the engine first, so it is installed on its own.
 say "Installing the container engine and loading the edge runtime images"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/docker-engine.yml"
-in_edge 'docker load -i /images/edge-images.tar'
+in_edge 'docker load -i /harness/edge-images.tar'
 for tag in "${EDGE_TAG}" "${EDGE_TAG_NEXT}" "${EDGE_TAG_BROKEN}"; do
   in_edge "docker image inspect ${tag} >/dev/null" ||
     fail "${tag} did not reach the edge host's engine"
@@ -148,7 +207,7 @@ done
 # Fresh installation
 # --------------------------------------------------------------------------
 say "Converging a fresh Docker edge"
-converge
+deploy
 
 say "Proving the host runs no traffic-serving BlitzeCDN packages"
 in_edge '! command -v nginx' || fail "nginx was installed on the edge host"
@@ -160,9 +219,9 @@ say "Proving the runtime is a Compose project"
 in_edge 'docker compose --file /etc/blitzecdn/compose.yml ps --format "{{.Service}} {{.State}}"'
 in_edge 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy'
 in_edge 'docker inspect -f "{{.HostConfig.NetworkMode}}" blitzecdn-edge | grep -qx host'
-in_edge 'docker exec blitzecdn-edge nginx -t'
+in_edge "docker exec blitzecdn-edge nginx -t -c ${ACTIVE_CONF}"
 in_edge 'docker exec blitzecdn-edge nginx -V 2>&1 | grep -q -- --with-http_v3_module'
-in_edge "docker exec blitzecdn-edge nginx -T 2>&1 | grep -q 'geoip2 ${GEOIP_DB}'"
+in_edge "docker exec blitzecdn-edge nginx -T -c ${ACTIVE_CONF} 2>&1 | grep -q 'geoip2 ${GEOIP_DB}'"
 
 say "Checking every supported public listener"
 for port in 80 8080 8880 2052 2082 2086 2095 443 2053 2083 2087 2096 8443; do
@@ -172,10 +231,13 @@ in_edge "ss -H -lnu | grep -q ':443 '" || fail "nothing is listening on UDP/443"
 in_edge "grep -qx 'tcp|443|any' /etc/blitzecdn/firewall-rules"
 in_edge "grep -qx 'udp|443|any' /etc/blitzecdn/firewall-rules"
 
-# `--diff` only on the repeated converge, so it prints exactly what failed to
-# settle. Safe: the task rendering the fleet secret is `no_log: true`.
+# In check mode, which is how the control plane detects drift: activating a
+# release is a transaction that always runs, so a repeated real converge always
+# reports it. A check run of an edge already serving its release reports
+# nothing. `--diff` so it prints exactly what failed to settle. Safe: the task
+# rendering the fleet secret is `no_log: true`.
 say "Checking provisioning convergence"
-converged=$(converge --diff)
+converged=$(converge --check --diff)
 printf '%s\n' "${converged}"
 grep -Eq 'changed=0[[:space:]]' <<<"${converged}" ||
   fail "a repeated converge reported changes"
@@ -185,10 +247,6 @@ container_id=$(in_edge 'docker inspect -f "{{.Id}}" blitzecdn-edge')
 # --------------------------------------------------------------------------
 # Traffic
 # --------------------------------------------------------------------------
-edge_ip=$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" "${edge}")
-client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -kfsS --resolve "site-one.test:443:${edge_ip}")
-challenge_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS --resolve "site-two.test:443:${edge_ip}")
-
 say "Under Attack Mode intercept before origin processing"
 challenge=$("${challenge_client[@]}" --http2 -D - -o /dev/null https://site-two.test/private)
 printf '%s\n' "${challenge}"
@@ -273,7 +331,7 @@ withdrawn=$("${acme_client[@]}" -o /dev/null -w '%{http_code}' "${ACME_URL}")
 # --------------------------------------------------------------------------
 say "A configuration change reloads rather than recreates the container"
 in_edge 'install -d -m 0755 /var/cache/nginx/blitzecdn/keep && touch /var/cache/nginx/blitzecdn/keep/marker'
-converge -e blitzecdn_nginx_hsts_enabled=true
+deploy blitzecdn_nginx_hsts_enabled=true
 in_edge "docker inspect -f '{{.Id}}' blitzecdn-edge | grep -qx '${container_id}'" ||
   fail "a configuration change replaced the edge container"
 hsts=$("${client[@]}" --http2 -D - -o /dev/null https://site-one.test/)
@@ -281,16 +339,17 @@ grep -qi '^strict-transport-security:' <<<"${hsts}" ||
   fail "the reloaded configuration is not in force"
 
 say "An invalid configuration is refused and rolled back"
-broken=$(in_edge "printf 'this is not nginx configuration\n' > /etc/nginx/conf.d/zz-broken.conf; docker exec blitzecdn-edge nginx -t 2>&1; rm -f /etc/nginx/conf.d/zz-broken.conf" || true)
+conf_d=/etc/blitzecdn/releases/current/nginx/conf.d
+broken=$(in_edge "printf 'this is not nginx configuration\n' > ${conf_d}/zz-broken.conf; docker exec blitzecdn-edge nginx -t -c ${ACTIVE_CONF} 2>&1; rm -f ${conf_d}/zz-broken.conf" || true)
 grep -qi 'emerg' <<<"${broken}" ||
   fail "the containerised nginx accepted a broken configuration"
-in_edge 'docker exec blitzecdn-edge nginx -t'
+in_edge "docker exec blitzecdn-edge nginx -t -c ${ACTIVE_CONF}"
 
 # --------------------------------------------------------------------------
 # Image upgrade
 # --------------------------------------------------------------------------
 say "Upgrading the edge runtime image"
-converge -e blitzecdn_edge_image="${EDGE_TAG_NEXT}"
+deploy blitzecdn_edge_image="${EDGE_TAG_NEXT}"
 in_edge "docker inspect -f '{{.Id}}' blitzecdn-edge | grep -qx '${container_id}'" &&
   fail "an image upgrade did not replace the edge container"
 in_edge 'docker inspect -f "{{.Config.Image}}" blitzecdn-edge'
@@ -309,7 +368,7 @@ say "Traffic survived the upgrade"
 # Rollback
 # --------------------------------------------------------------------------
 say "A broken image is refused and the previous one restored"
-rollback=$(converge -e blitzecdn_edge_image="${EDGE_TAG_BROKEN}" 2>&1 || true)
+rollback=$(deploy blitzecdn_edge_image="${EDGE_TAG_BROKEN}" 2>&1 || true)
 printf '%s\n' "${rollback}"
 grep -q 'failed=1' <<<"${rollback}" ||
   fail "converging a broken edge image reported success"
