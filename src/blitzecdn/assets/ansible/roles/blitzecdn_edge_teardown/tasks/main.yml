@@ -154,9 +154,9 @@
     - "{{ blitzecdn_edge_teardown_data_path }}"
   when: blitzecdn_edge_teardown_remove_data | bool
 # Found rather than listed. The units on an edge are whichever ones the
-# installed capabilities wrote, and this role has no way to know — and no
-# business knowing — which packages the controller that converged this host had
-# attached. Everything we install is named `blitzecdn-*`, and nothing else is.
+# capabilities wrote, and this role has no way to know — and no business
+# knowing — which of them converged this host. Everything we install is named
+# `blitzecdn-*`, and nothing else is.
 - name: Find edge-owned timers and service units
   ansible.builtin.find:
     paths: /etc/systemd/system
@@ -183,9 +183,8 @@
     label: "{{ item.path }}"
   notify: Reload systemd after edge teardown
 
-# The kernel drop-in alone. The SSH policy and the Fail2Ban jail were removed
-# here too until `blitzecdn-hardening` grew a teardown role of its own; they are
-# that package's files, and a role core installs everywhere must not name them.
+# The kernel drop-in alone. The SSH policy and the Fail2Ban jail are the
+# hardening capability's files, removed by its own teardown role.
 - name: Remove managed kernel settings
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_sysctl_file }}"
@@ -202,11 +201,10 @@
 # there is no way back to it.
 #
 # It is a verdict on what *core* wrote, and it is the last thing the
-# decommission play runs. An installed capability withdraws its own files in
-# the slot before this role, so anything it left behind is already gone by the
-# time this looks — and a path this role does not know, such as the resolver
-# drop-in `blitzecdn-resolver` writes or the SSH policy `blitzecdn-hardening`
-# does, is not one it could have listed anyway. Each of those is asserted by
+# decommission play runs. A capability withdraws its own files in the slot
+# before this role, so anything it left behind is already gone by the time
+# this looks — and a path this role does not know, such as the resolver
+# drop-in or the SSH policy, is not one it could have listed anyway. Each of those is asserted by
 # the role that removed it, in that same earlier slot.
 - name: Confirm the host is clean
   ansible.builtin.stat:

@@ -259,7 +259,7 @@ def edge_image_spec(
         common.emit(
             [
                 {
-                    "plugin": module.feature,
+                    "feature": module.feature,
                     "name": module.name,
                     "objects": list(module.objects),
                     "build": module.build,

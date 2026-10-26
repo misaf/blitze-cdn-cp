@@ -4,7 +4,7 @@
 # inside the edge's. It is a one-shot that talks to MaxMind and nothing local:
 # it shares no network, no lifecycle and no restart policy with the process
 # serving traffic, and keeping it here means core's Compose template carries no
-# service that exists only because this distribution is installed.
+# service that exists only for the geoip capability.
 name: {{ blitzecdn_geoip_project }}
 
 services:

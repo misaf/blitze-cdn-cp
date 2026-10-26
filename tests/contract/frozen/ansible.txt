@@ -204,9 +204,9 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_format_name	type=str requ
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_managed_sites_file	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_module_directory	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules	type=list elements=dict required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.feature	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.name	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.objects	type=list elements=str required
-blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.plugin	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_proxy_connect_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_proxy_read_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolver_timeout	type=str required

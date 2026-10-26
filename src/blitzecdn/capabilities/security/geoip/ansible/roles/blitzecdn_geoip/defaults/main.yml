@@ -1,20 +1,17 @@
 ---
-# Everything the GeoIP capability needs on an edge, owned by the distribution
-# that provides the capability.
+# Everything the GeoIP capability needs on an edge, owned by the capability.
 #
-# None of this is in the control plane's checkout. The role ships inside the
-# `blitzecdn-geoip` wheel, the control plane finds it through the plugin's
-# Ansible contribution, and detaching the distribution takes the whole of it —
-# these defaults, the updater, the timer and the Nginx snippet — off every
-# subsequent deploy with no line of core edited.
+# None of this is in core's Ansible. The role lives beside the geoip feature,
+# and the control plane finds it through the feature's Ansible contribution, so
+# these defaults, the updater, the timer and the Nginx snippet are named by no
+# line of core.
 
 # Whether this fleet resolves visitor addresses to countries.
 #
 # Fleet Ansible policy, so it is set with `blitzecdn config set
 # blitzecdn_geoip_enabled true` and published to every edge by the inventory
-# plugin. Installing the distribution makes the capability *available*; this
-# turns it on, and the two are deliberately separate — a controller may carry
-# the package for one fleet and not use it on another.
+# plugin. Every controller ships the capability; this turns it on for the
+# fleet, so a controller may use it on one fleet and not on another.
 #
 # Off by default. A site that asks for a country rule or the BZ-IPCountry
 # header while this is false fails the assertion below rather than converging a
@@ -23,14 +20,14 @@ blitzecdn_geoip_enabled: false
 
 # MaxMind credentials, read from the controller's environment.
 #
-# The control plane forwards these keys because this package explicitly claims
+# The control plane forwards these keys because this feature explicitly claims
 # them in its Ansible contribution, so putting these two in the controller's
 # 0600 `.env` is all that is required:
 #
 #   BLITZE_MAXMIND_ACCOUNT_ID=123456
 #   BLITZE_MAXMIND_LICENSE_KEY=your-key
 #
-# Read here rather than written here: this file ships in a wheel and is world
+# Read here rather than written here: this file ships in the image and is world
 # readable, `.env` is not. The key is written to a root-owned 0600 env file on
 # the edge and supplied only to the updater container, and every task that
 # touches it sets no_log.
@@ -74,9 +71,8 @@ blitzecdn_geoip_updater_image: >-
 
 # A Compose project of this capability's own, separate from the edge stack.
 #
-# The updater used to be a `maintenance` profile inside the edge's Compose
-# file, which meant core's Compose template carried a service that exists only
-# because this package is installed. It is a one-shot that talks to MaxMind and
+# Not a profile inside the edge's Compose file, which would make core's
+# template carry a service that exists only for this capability. It is a one-shot that talks to MaxMind and
 # nothing local; it shares no network, no lifecycle and no restart policy with
 # the process serving traffic, so a project of its own costs one small file and
 # removes a capability's name from core's template entirely.

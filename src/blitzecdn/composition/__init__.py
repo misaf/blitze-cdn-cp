@@ -21,7 +21,6 @@ from blitzecdn.composition.processes import (
     api_container,
     cli_container,
     handoff_container,
-    refuse_missing_capabilities,
     worker_container,
 )
 from blitzecdn.composition.repository import Repository
@@ -51,6 +50,5 @@ __all__ = [
     "handoff_container",
     "load_registry",
     "migrate_database",
-    "refuse_missing_capabilities",
     "worker_container",
 ]

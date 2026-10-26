@@ -27,6 +27,6 @@ argument_specs:
         required: true
         description: >-
           Role names for the slot this invocation stands in, composed by the
-          control plane from every installed plugin's Ansible contribution and
-          ordered by plugin name. Empty on an installation with no capability
-          that converges an edge in this slot.
+          control plane from every feature's Ansible contribution and ordered
+          by feature name. Empty when no capability converges an edge in this
+          slot.

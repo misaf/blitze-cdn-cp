@@ -4,10 +4,10 @@ argument_specs:
     short_description: Provision visitor IP-to-country lookup on an edge.
     description:
       - >-
-        The `geoip` capability's whole edge implementation, shipped inside the
-        blitzecdn-geoip wheel. It provisions the MaxMind GeoLite2 database and
+        The `geoip` capability's whole edge implementation, contributed by the
+        geoip feature. It provisions the MaxMind GeoLite2 database and
         its refresh schedule, and writes the conf.d snippet that defines
-        $blitzecdn_country for this package's Nginx contribution to expose.
+        $blitzecdn_country for this feature's Nginx contribution to expose.
       - >-
         Run from the edge play's capability slot, which the control plane fills
         from its features.
@@ -27,9 +27,8 @@ argument_specs:
         type: bool
         required: true
         description: >-
-          Whether this fleet resolves visitor addresses to countries. Separate
-          from whether the distribution is installed: installing provides the
-          capability, this switches it on.
+          Whether this fleet resolves visitor addresses to countries. Every
+          controller ships the capability; this switches it on.
       blitzecdn_geoip_account_id: {type: str, required: true}
       blitzecdn_geoip_license_key:
         type: str

@@ -76,7 +76,9 @@ class EdgeRenderer:
         resources = context.value("blitzecdn_nginx_resources")
         for resource in resources.get("http", ()):
             write(
-                paths["nginx"] + "/conf.d/blitzecdn-plugin-" + _plain(resource["name"]),
+                paths["nginx"]
+                + "/conf.d/blitzecdn-feature-"
+                + _plain(resource["name"]),
                 context.render(Path(resource["template"])),
             )
         for resource in resources.get("module", ()):

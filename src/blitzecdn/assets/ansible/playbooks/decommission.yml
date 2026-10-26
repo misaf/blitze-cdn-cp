@@ -28,9 +28,8 @@
     #
     # Core removes what core wrote, plus the shared trees and every systemd
     # unit matching the managed prefix. What it cannot remove is a file at a
-    # path only a wheel knows — a resolver drop-in, an SSH policy fragment —
-    # because naming one would put a capability's path in a role that is
-    # installed whether or not the capability is.
+    # path only a capability knows — a resolver drop-in, an SSH policy
+    # fragment — because core's roles name no capability's paths.
     - role: blitzecdn_capabilities
       vars:
         blitzecdn_capabilities_roles: >-

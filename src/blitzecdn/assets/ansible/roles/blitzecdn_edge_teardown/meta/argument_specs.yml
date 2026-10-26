@@ -18,9 +18,9 @@ argument_specs:
         capability's role added. It does not alter unrelated administrator
         configuration.
       - >-
-        What it does not withdraw is a file at a path only a wheel knows — the
-        resolver drop-in blitzecdn-resolver writes, and the SSH policy and
-        Fail2Ban jail blitzecdn-hardening writes. Those are removed by that
+        What it does not withdraw is a file at a path only a capability knows —
+        the resolver drop-in the resolver capability writes, and the SSH policy
+        and Fail2Ban jail the hardening capability writes. Those are removed by that
         capability's own role, in the decommission play's capability slot, which
         runs before this one.
       - >-

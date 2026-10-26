@@ -61,7 +61,6 @@ from blitzecdn.composition import (
     Worker,
     WorkerProvider,
     load_registry,
-    refuse_missing_capabilities,
 )
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
@@ -848,16 +847,14 @@ def build_application(
     ``providers`` decorate services the graph built.
     """
     return ControlPlane(
-        refuse_missing_capabilities(
-            make_container(
-                InfrastructureProvider(),
-                ServiceProvider(),
-                ApiProvider(),
-                WorkerProvider(),
-                FastapiProvider(),
-                *providers,
-                context={Settings: settings, Adapters: Adapters(**adapters)},
-            )
+        make_container(
+            InfrastructureProvider(),
+            ServiceProvider(),
+            ApiProvider(),
+            WorkerProvider(),
+            FastapiProvider(),
+            *providers,
+            context={Settings: settings, Adapters: Adapters(**adapters)},
         )
     )
 

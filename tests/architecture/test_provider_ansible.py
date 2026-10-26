@@ -200,7 +200,7 @@ def test_the_decommission_play_names_no_capability_and_fills_its_slot():
 
     for role in contributed:
         assert role not in play, (
-            f"the decommission play names {role}, which ships in a wheel"
+            f"the decommission play names {role}, which is a capability's role"
         )
     assert "blitzecdn_edge_teardown_capability_roles" in play
     assert play.index("blitzecdn_edge_teardown_capability_roles") < play.index(
@@ -226,7 +226,7 @@ def test_core_s_teardown_removes_no_path_that_belongs_to_a_capability():
             for path in contributed_paths:
                 assert path not in line, (
                     f"{source.relative_to(CORE_ANSIBLE)} names {path}, which "
-                    "belongs to a wheel core cannot depend on being installed"
+                    "belongs to a capability, not to core"
                 )
 
 
@@ -246,7 +246,9 @@ def test_the_edge_play_names_no_capability_and_fills_both_slots():
     }
 
     for role in contributed:
-        assert role not in play, f"the edge play names {role}, which ships in a wheel"
+        assert role not in play, (
+            f"the edge play names {role}, which is a capability's role"
+        )
     assert "blitzecdn_capability_roles" in play
     assert "blitzecdn_host_capability_roles" in play
 

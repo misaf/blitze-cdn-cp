@@ -56,17 +56,12 @@ blitzecdn_firewall_enabled: false
 # effect. Use `blitzecdn edge update` instead.
 blitzecdn_nginx_sites: []
 
-# The SSH keys that were here are not any more. Host access hardening ships as
-# `blitzecdn-hardening`, so `blitzecdn_hardening_sshd_enabled`, its root-login policy and
-# its user list live in that package's own role defaults — where an operator
-# who has detached the distribution does not find a file in the control plane's
-# checkout still describing a role no edge will run. Their values are unchanged
-# and they are overridden the same way: `blitzecdn config set`.
+# Host access hardening is the hardening capability's, so
+# `blitzecdn_hardening_sshd_enabled`, its root-login policy and its user list
+# live in that capability's own role defaults. They are overridden the same
+# way: `blitzecdn config set`.
 
-# An optional capability's fleet settings are NOT here either. They ship with
-# the capability, in that package's own role defaults, and are overridden the
-# same way everything else is — `blitzecdn config set` for non-secret policy,
-# `.env` on the controller for a credential the role reads with
-# `lookup('env', ...)`. Nothing about `blitzecdn-geoip` or `blitzecdn-security`
-# belongs in a file that ships with the control plane and is read by every edge
-# whether or not those packages are installed.
+# Every other capability's fleet settings are NOT here either. They live in
+# that capability's own role defaults, and are overridden the same way
+# everything else is — `blitzecdn config set` for non-secret policy, `.env` on
+# the controller for a credential the role reads with `lookup('env', ...)`.

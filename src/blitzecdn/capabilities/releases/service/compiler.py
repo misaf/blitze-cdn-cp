@@ -119,8 +119,8 @@ def _capability_findings(
             message=(
                 f"capability {token!r} is not installed, and this site's "
                 f"{settings} {'requests' if len(requested[token]) == 1 else 'request'}"
-                " it; install a distribution that provides it or disable the "
-                "setting that requests it"
+                " it; no feature on this controller provides it, so disable "
+                "the setting that requests it"
             ),
         )
     for target in targets:

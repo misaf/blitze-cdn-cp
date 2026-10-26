@@ -15,9 +15,8 @@
 #
 # The control plane refuses these sites earlier still, by name, in
 # SitePolicy.capability_requirements. Both controls stay: that one tells an
-# operator at `blitzecdn validate` that the *distribution* is missing, while
-# this one catches the fleet where the distribution is installed and the
-# capability was never switched on.
+# operator at `blitzecdn validate` that the capability is missing, while
+# this one catches the fleet where the capability was never switched on.
 - name: Refuse country-dependent settings on an edge without GeoIP
   ansible.builtin.assert:
     that:
