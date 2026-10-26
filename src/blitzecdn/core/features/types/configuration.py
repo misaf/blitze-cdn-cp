@@ -8,13 +8,87 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Self, cast
+
+from pydantic import BaseModel, ConfigDict, SecretStr
+
+if TYPE_CHECKING:
+    from blitzecdn.core.features.resolution.configuration import CapabilityConfig
 
 __all__ = [
     "CapabilitySetting",
     "ConfigurationContribution",
+    "ConfigurationModel",
     "EnvironmentKey",
     "SettingValue",
 ]
+
+
+class ConfigurationModel(BaseModel):
+    """A capability's typed settings, also the source of its public declarations.
+
+    Fields use their existing ``BLITZE_*`` name as an alias. Pydantic owns
+    defaults, validation and normalization; declarations remain available to
+    introspection, backup portability checks and older extensions.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        validate_default=True,
+        hide_input_in_errors=True,
+    )
+
+    @classmethod
+    def configuration(cls, feature: str) -> ConfigurationContribution:
+        defaults = cls()
+        secrets: list[EnvironmentKey] = []
+        settings: list[CapabilitySetting] = []
+        for name, field in cls.model_fields.items():
+            alias = field.alias
+            if not alias or not alias.startswith("BLITZE_"):
+                raise ValueError(f"{cls.__name__}.{name} needs a BLITZE_* alias")
+            value = getattr(defaults, name)
+            metadata = field.json_schema_extra or {}
+            if not isinstance(metadata, dict):
+                raise ValueError(f"{cls.__name__}.{name} needs dictionary metadata")
+            if isinstance(value, SecretStr):
+                secrets.append(
+                    EnvironmentKey(
+                        name=alias,
+                        summary=field.description or "",
+                        minimum_bytes=int(cast(int, metadata.get("minimum_bytes", 0))),
+                    )
+                )
+            else:
+                bounds = {
+                    key: getattr(item, key)
+                    for item in field.metadata
+                    for key in ("ge", "le")
+                    if getattr(item, key, None) is not None
+                }
+                settings.append(
+                    CapabilitySetting(
+                        name=alias,
+                        default="" if value is None else value,
+                        summary=field.description or "",
+                        minimum=bounds.get("ge"),
+                        maximum=bounds.get("le"),
+                        portable=metadata.get("portable", True) is not False,
+                    )
+                )
+        return ConfigurationContribution(
+            feature=feature,
+            environment_keys=tuple(secrets),
+            settings=tuple(settings),
+            model=cls,
+        )
+
+    @classmethod
+    def from_capability_config(cls, config: CapabilityConfig) -> Self:
+        """Compatibility for callers already holding a scoped configuration."""
+        return config.as_model(cls)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,3 +179,6 @@ class ConfigurationContribution:
     #: Non-secrets. Resolved to the declared type and handed back through
     #: :class:`~blitzecdn.core.features.resolution.CapabilityConfig`.
     settings: tuple[CapabilitySetting, ...] = ()
+    #: Built-ins validate once through their owning Pydantic model. Extensions
+    #: may continue declaring individual settings and environment keys.
+    model: type[ConfigurationModel] | None = None

@@ -79,9 +79,7 @@ class RosterEntry:
 
 def _security_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
     return security_rendering(
-        config=SecurityConfig.from_capability_config(
-            inputs.capability_config.for_feature("security")
-        )
+        config=inputs.capability_config.for_feature("security").as_model(SecurityConfig)
     )
 
 

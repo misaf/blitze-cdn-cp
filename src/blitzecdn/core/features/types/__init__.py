@@ -10,6 +10,7 @@ from blitzecdn.core.features.types.ansible import AnsibleContribution, EdgeModul
 from blitzecdn.core.features.types.configuration import (
     CapabilitySetting,
     ConfigurationContribution,
+    ConfigurationModel,
     EnvironmentKey,
     SettingValue,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "CapabilitySetting",
     "CliCommandGroup",
     "ConfigurationContribution",
+    "ConfigurationModel",
     "EdgeModule",
     "EnvironmentKey",
     "Feature",

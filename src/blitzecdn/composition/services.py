@@ -288,9 +288,7 @@ class ServiceProvider(Provider):
     def certificate_config(
         self, capability_config: ResolvedCapabilityEnvironment
     ) -> CertificateConfig:
-        return CertificateConfig.from_capability_config(
-            capability_config.for_feature("certificates")
-        )
+        return capability_config.for_feature("certificates").as_model(CertificateConfig)
 
     @provide
     def certificates(

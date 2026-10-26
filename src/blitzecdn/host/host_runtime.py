@@ -3,8 +3,8 @@
 The wrapper runs it in a root container from the control-plane image, with the
 Docker socket, the configuration, state and staging directories mounted at the
 paths they have on the host: the daemon resolves every bind mount it asks for
-against the host, and a restore publishes into the host's own files. It does
-not import the application. It accepts only the Compose subset our role emits,
+against the host, and a restore publishes into the host's own files. It loads
+no application settings or services. It accepts the Compose subset our role emits,
 refusing anything else before stopping anything; Compose still owns
 installation.
 """
@@ -30,7 +30,9 @@ import docker
 import yaml
 from docker.errors import DockerException
 from docker.models.containers import Container
-from dotenv import dotenv_values
+
+from blitzecdn.core.domain.environment import parse_environment
+from blitzecdn.core.exceptions import ConfigurationError
 
 PROJECT_LABEL = "com.docker.compose.project"
 SERVICE_LABEL = "com.docker.compose.service"
@@ -78,9 +80,14 @@ class ServiceDefinitions:
         environment = {}
         for filename in service.get("env_file", []):
             path = self.path.parent / filename
-            if not path.is_file():
+            if path.is_symlink() or not path.is_file():
                 raise HostRuntimeError(f"Missing environment file: {path}")
-            environment.update(dotenv_values(path, interpolate=False))
+            try:
+                environment.update(
+                    parse_environment(path.read_text(), source=str(path))
+                )
+            except ConfigurationError as exc:
+                raise HostRuntimeError(str(exc)) from exc
         environment.update(service.get("environment", {}))
         volumes = {}
         for mount in service.get("volumes", []):

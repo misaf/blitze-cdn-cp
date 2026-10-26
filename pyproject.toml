@@ -10,7 +10,6 @@ requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
   "docker>=7.1,<8",
-  "python-dotenv>=1.1,<2",
   "cryptography>=45,<51",
   # CAA lookups for certificate preflight. The stdlib resolver only answers
   # A/AAAA, and a CAA record that forbids our CA is otherwise invisible until
