@@ -236,6 +236,14 @@ def test_the_harness_release_renders_and_is_content_addressed(tmp_path):
     assert all(target.startswith(candidate) for target in bundle.links.values())
     assert "njs/under-attack.js" in bundle.files
 
+    origin = re.search(r"python -m http\.server (\d+)", _commands())
+    assert origin, "the harness has no HTTP origin"
+    for site in released["blitzecdn_nginx_sites"]:
+        rendered = bundle.files[f"nginx/sites-available/{site['name']}.conf"].decode()
+        assert f"http://{site['origin_host']}:{origin[1]};" in rendered, (
+            "the rendered upstream does not reach the harness origin's port"
+        )
+
 
 def test_the_harness_certificates_live_where_the_runtime_can_read_them():
     """A path the edge container has no mount for is a file nginx cannot open.
