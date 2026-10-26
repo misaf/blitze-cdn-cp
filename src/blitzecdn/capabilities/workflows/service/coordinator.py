@@ -6,6 +6,7 @@ finished ones are kept, and what a restart does with unfinished ones.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -22,6 +23,8 @@ from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["WorkflowCoordinator", "WorkflowProgress"]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WorkflowProgress:
@@ -120,4 +123,16 @@ class WorkflowCoordinator:
                 for workflow in self.journal.unfinished()
                 if resource_id is None or workflow.resource_id == resource_id
             ]
+        for workflow in recovered:
+            _LOGGER.warning(
+                "interrupted workflow requires recovery review",
+                extra={
+                    "workflow_id": workflow.id,
+                    "workflow_kind": workflow.kind,
+                    "resource_id": workflow.resource_id,
+                    "last_checkpoint": workflow.steps[-1].name
+                    if workflow.steps
+                    else None,
+                },
+            )
         return recovered

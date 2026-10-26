@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from blitzecdn.core.config import Settings
+from blitzecdn.core.runtime.logging import configure_logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def run_worker(settings: Settings | None = None) -> None:
             _LOGGER.info(
                 "worker ready: %d scheduled job(s) registered",
                 len(worker.scheduler.schedules.list_schedules()),
+                extra={"worker_id": worker.runner.queue.worker_id},
             )
             worker.runner.install_signal_handlers()
             worker.runner.run_forever()
@@ -38,7 +40,7 @@ def run_worker(settings: Settings | None = None) -> None:
 
 
 def main() -> None:  # pragma: no cover - the process entry point
-    logging.basicConfig(level=logging.INFO)
+    configure_logging(json_output=True)
     run_worker()
 
 
