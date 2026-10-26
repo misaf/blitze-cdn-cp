@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shlex
-from pathlib import Path
 from typing import Any
 
 import jinja2
@@ -44,9 +43,6 @@ def _compose() -> dict[str, Any]:
         blitzecdn_controlplane_config_dir="/etc/blitzecdn",
         blitzecdn_controlplane_state_dir="/var/lib/blitzecdn",
         blitzecdn_controlplane_backup_dir="/var/backups/blitzecdn",
-        blitzecdn_controlplane_dockerfile=_role_defaults()[
-            "blitzecdn_controlplane_dockerfile"
-        ],
     )
     return yaml.safe_load(rendered)
 
@@ -119,7 +115,7 @@ def test_control_plane_mounts_only_the_required_writable_state():
     services = _compose()["services"]
     shared = {
         "/var/lib/blitzecdn:/opt/blitzecdn/.state",
-        "/opt/blitzecdn/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro",
+        "/etc/blitzecdn/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro",
     }
     for name in ("blitzecdn-api", "blitzecdn-worker"):
         assert set(services[name]["volumes"]) == shared
@@ -129,27 +125,55 @@ def test_control_plane_mounts_only_the_required_writable_state():
     }
 
 
-def test_host_wrapper_delegates_to_the_installed_sdk_runner():
+def _wrapper() -> str:
     environment = jinja2.Environment(undefined=jinja2.StrictUndefined)  # noqa: S701
     environment.filters["quote"] = shlex.quote
-    rendered = environment.from_string(
-        (ROLE / "templates/blitzecdn-cli.j2").read_text()
+    return environment.from_string(
+        (ROLE / "templates/blitzecdn-cli.j2").read_text(encoding="utf-8")
     ).render(**_role_defaults())
-    assert "/opt/blitzecdn/.venv/bin/python" in rendered
-    assert "/etc/blitzecdn/host_runtime.py" in rendered
+
+
+def test_host_wrapper_runs_the_sdk_runner_in_the_installed_image():
+    """The host needs Docker and nothing else, the CLI included."""
+    rendered = _wrapper()
+    image = _role_defaults()["blitzecdn_controlplane_image"]
+    assert f"--entrypoint python \\\n  {image} \\\n" in rendered
+    assert "-m blitzecdn.host.host_runtime" in rendered
     assert '--services /etc/blitzecdn/control-plane.compose.yml -- "$@"' in rendered
     assert "sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES" in rendered
+    assert ".venv" not in rendered
     assert "docker compose" not in rendered
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
-    install = next(
-        task
-        for task in tasks
-        if task.get("name") == "Install the host Docker SDK runner"
-    )
-    source = install["ansible.builtin.copy"]["src"].replace(
-        "{{ role_path }}", str(ROLE)
-    )
-    assert Path(source).resolve() == REPO_ROOT / "src/blitzecdn/host/host_runtime.py"
+    tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")
+    assert "host_runtime.py" not in tasks
+
+
+def test_host_wrapper_mounts_every_host_path_the_runner_names_at_that_path():
+    """The runner asks the daemon for bind mounts by host path and publishes
+    restored files in place, so a path seen differently inside its container
+    would mount or overwrite the wrong thing.
+    """
+    rendered = _wrapper()
+    for path in ("/etc/blitzecdn", "/var/lib/blitzecdn", "/run/blitzecdn"):
+        assert f"--volume {path}:{path} " in rendered
+    assert "--volume /var/run/docker.sock:/var/run/docker.sock " in rendered
+    # Restore staging must land where the daemon can see it.
+    assert "--env TMPDIR=/run/blitzecdn " in rendered
+    assert "install -d -m 0700 /run/blitzecdn" in rendered
+    # Root for the socket and the restored files' ownership; nothing else.
+    assert "--user 0:0" in rendered
+    assert "--network none" in rendered
+    # Every file the runner publishes lives under the mounted configuration
+    # directory, so an atomic replace stays on one filesystem.
+    compose = _compose()["services"]["blitzecdn-cli"]
+    sources = [mount.split(":")[0] for mount in compose["volumes"]]
+    assert "/etc/blitzecdn/blitzecdn.toml" in sources
+    assert compose["env_file"] == ["/etc/blitzecdn/blitzecdn.env"]
+
+
+def test_host_wrapper_passes_the_empty_sites_override_only_when_set():
+    rendered = _wrapper()
+    assert "${BLITZE_ALLOW_EMPTY_SITES+set}" in rendered
+    assert "environment=(--env BLITZE_ALLOW_EMPTY_SITES)" in rendered
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
@@ -269,16 +293,13 @@ def test_host_permissions_match_container_write_requirements():
     assert environment["mode"] == "0600"
 
 
-def test_the_image_is_built_from_the_dockerfile_the_package_publishes():
-    """One path, named by `blitzecdn.assets.docker` and pointed at by the role.
-
-    Relative, because Docker resolves it against the build context, the
-    installation directory.
-    """
-    build = _compose()["services"]["blitzecdn-api"]["build"]
-    default = _role_defaults()["blitzecdn_controlplane_dockerfile"]
-
-    assert build["context"] == "/opt/blitzecdn"
-    assert build["dockerfile"] == default
-    assert not Path(default).is_absolute()
-    assert default == str(CONTROL_PLANE_DOCKERFILE.relative_to(REPO_ROOT))
+def test_the_services_run_the_image_the_installer_obtained():
+    """Compose never builds or pulls: install.sh did, before the play that runs
+    inside that image."""
+    for service in _compose()["services"].values():
+        assert service["image"] == "blitzecdn-control-plane:test"
+        assert service["pull_policy"] == "never"
+        assert "build" not in service
+    tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")
+    for local_build in ("- build", "docker build", "--pull"):
+        assert local_build not in tasks

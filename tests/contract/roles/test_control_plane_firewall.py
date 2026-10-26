@@ -18,8 +18,7 @@ from support.role_contracts import (
 def test_the_control_plane_admits_the_port_its_api_actually_listens_on():
     """A rule on a dead port and a listener behind a closed one are both silent.
 
-    The role's default is held to the constant the listener uses, the way the
-    Dockerfile path is held to `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`.
+    The role's default is held to the constant the listener uses.
     """
     from blitzecdn.entrypoints.api.__main__ import API_PORT
 

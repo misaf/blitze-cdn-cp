@@ -1,9 +1,9 @@
 ---
 # The control-plane host is a Debian/Ubuntu host like any edge, so its state is
 # converged the same way an edge's is. What the installer keeps is only what has
-# to exist before Ansible can run at all: the packages Python needs, the
-# host tooling virtualenv and pinned collections. Application processes run
-# only in the Compose project.
+# to exist before Ansible can run at all: Docker Engine and this image, which
+# carries Ansible and its collections. Application processes run only in the
+# Compose project.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
 blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
@@ -16,21 +16,21 @@ blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
 blitzecdn_controlplane_compose_project: blitzecdn-control-plane
-blitzecdn_controlplane_image: blitzecdn-control-plane:local
-# Where the control plane's own Dockerfile sits, relative to the installation
-# directory that is the build context. It ships inside the wheel, beside the
-# Ansible this role is part of, and `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`
-# is the authority on the location — a contract test fails if this default and
-# that constant disagree, which is the whole reason the path is a variable
-# rather than a literal in the template.
-#
-# Relative because it is resolved against the context by Docker, not by
-# Ansible. The context is a source checkout, which is why this is the last
-# place the controller still needs one.
-blitzecdn_controlplane_dockerfile: src/blitzecdn/assets/docker/control-plane/Dockerfile
+# The published image this release runs: API, worker, CLI, and the Ansible
+# that converges this host. Pinned to the release's own version, moved with it
+# by `just release-version`, and read from here by install.sh, which pulls it
+# and passes the reference it resolved back in as this variable — by digest
+# when the registry gave one, so the services and the CLI wrapper run exactly
+# the bytes that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1)
+# passes its local tag instead.
+blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.0.0
+# Where the CLI wrapper stages a restore's configuration. On the host's tmpfs,
+# and mounted at the same path into the container that runs the wrapper,
+# because the Docker daemon resolves the staging bind mount against the host.
+blitzecdn_controlplane_runtime_dir: /run/blitzecdn
 
-# python3 and python3-venv are absent here on purpose: the installer has already
-# had to install them to build the virtualenv this play is running from.
+# python3 is absent here on purpose: the installer has already had to install
+# it, because the play's modules run under the host's own interpreter.
 blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo]
 
 # Set on a first installation only. An existing environment file keeps its

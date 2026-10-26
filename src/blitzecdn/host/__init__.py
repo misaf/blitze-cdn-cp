@@ -1,6 +1,8 @@
-"""Scripts the host's own interpreter runs, outside the application image.
+"""Scripts that run beside the application rather than as part of it.
 
-Neither imports :mod:`blitzecdn`: `install_release` runs from the checkout an
-update is leaving, and `host_runtime` is copied into /etc/blitzecdn and run by
-the bootstrap interpreter. They live in the package only so they ship with it.
+None imports the rest of :mod:`blitzecdn`: `install_release` and
+`install_inputs` run under the host's own interpreter from the checkout an
+update is leaving, and `host_runtime` runs in the control-plane image as root,
+beside the application rather than inside it. They live in the package only so
+they ship with it.
 """

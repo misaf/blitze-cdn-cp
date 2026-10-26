@@ -3,7 +3,9 @@
 # stdlib helpers under src/blitzecdn/host/ can do the rest.
 #
 #   (no arguments)  build the virtualenv and install the pinned collections
-#   standalone      provision this whole server as control plane and edge
+#   standalone      provision this whole server as control plane and edge, from
+#                   the published control-plane image: no Python package is
+#                   installed on the host, and nothing is fetched from PyPI
 #   update/upgrade  move an installed host onto a newer release
 #   --uninstall     remove every BlitzeCDN artifact
 #   --fresh         uninstall, then reinstall the running release
@@ -13,6 +15,15 @@ readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
+# Relative to the checkout. The role default is the one place the release pins
+# its image, and is read at run time so an update pulls the release it has just
+# checked out rather than the one this script came from.
+readonly CONTROL_PLANE_IMAGE_PIN=src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml
+# `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`, for a source build.
+readonly CONTROL_PLANE_DOCKERFILE=src/blitzecdn/assets/docker/control-plane/Dockerfile
+readonly CONTROL_PLANE_SOURCE_TAG=blitzecdn-control-plane:local
+# Where the image carries the checkout it was built from, playbooks included.
+readonly IMAGE_ANSIBLE_DIR=/opt/blitzecdn/src/blitzecdn/assets/ansible
 # Captured before dispatch, so the removal paths can re-exec a private copy.
 original_args=("$@")
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -46,6 +57,24 @@ Environment for the no-argument form:
 
 The no-argument form installs a `blitzecdn` command that pins this checkout as
 the project directory, so it can be run from any working directory.
+
+Environment for standalone, update and upgrade:
+EOF
+  usage_image_environment
+}
+
+# Shared by every help that provisions from the control-plane image.
+usage_image_environment() {
+  cat <<'EOF'
+  BLITZECDN_CONTROL_PLANE_IMAGE
+                       Run this image instead of the one the release pins, for
+                       example the pin with @sha256:DIGEST added, or a mirror
+  BLITZECDN_CONTROL_PLANE_ARCHIVE
+                       Load the image from this `docker save` archive instead
+                       of pulling it, for a host without registry access
+  BLITZECDN_CONTROL_PLANE_BUILD=1
+                       Build the image from this checkout instead of pulling
+                       it; the build itself needs Docker Hub and PyPI
 EOF
 }
 
@@ -331,21 +360,23 @@ run_install_handoff() {
     blitzecdn-cli -m blitzecdn.entrypoints.install_handoff "$@"
 }
 
-# Run one playbook against this host.
+# Run one of the image's own playbooks against this host.
 #
-# Ansible's temporary files go to a registered scratch directory, never .state,
-# where a root-owned leftover would break the next container run. The
-# collections path is exported here, absolute, because ansible.cfg cannot name
-# one and teardown never runs the bootstrap.
+# Ansible, its collections and the playbook are the image's, so the host needs
+# no Python packages. The plays reach the host through the nsenter connection,
+# which is why the container is privileged and shares the host's PID
+# namespace; the network is the host's so a task that fetches something sees
+# what the host sees. Nothing is mounted: every file a task touches is written
+# on the host through that connection.
 run_playbook() {
-  local playbook=$1
-  shift
-  local ansible_tmp
-  ansible_tmp=$(temp_path -d)
-  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/assets/ansible/ansible.cfg" \
-    ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections" \
-    ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
-    "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
+  local image=$1 playbook=$2
+  shift 2
+  docker run --rm --privileged --pid=host --network=host --user 0:0 \
+    --env HOME=/root \
+    --env ANSIBLE_CONFIG="${IMAGE_ANSIBLE_DIR}/ansible.cfg" \
+    --env ANSIBLE_LOCAL_TEMP=/tmp/ansible-local \
+    --entrypoint ansible-playbook "${image}" \
+    -i localhost, "${IMAGE_ANSIBLE_DIR}/playbooks/${playbook}" "$@"
 }
 
 # Whether this host can be the edge half of a standalone installation.
@@ -385,26 +416,47 @@ allowed_ips_value() {
   printf '%s' "${joined}"
 }
 
+# Converge with the image the caller obtained; the role renders it into the
+# Compose project and the CLI wrapper.
 converge_control_plane() {
-  run_playbook \
-    "${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/control-plane.yml" "$@"
+  local image=$1
+  shift
+  run_playbook "${image}" control-plane.yml \
+    --extra-vars "blitzecdn_controlplane_image=${image}" "$@"
 }
 
-# Ansible performs all system teardown, and must succeed before the installer
-# removes the checkout containing it.
+# The image the installed services run, read back from the Compose project the
+# role rendered. That line is the template's `image:`, written with `to_json`.
+installed_control_plane_image() {
+  [[ -f ${CONTROL_PLANE_COMPOSE_FILE} ]] || return 1
+  local image
+  image=$(sed -n 's/^  image: "\(.*\)"$/\1/p' "${CONTROL_PLANE_COMPOSE_FILE}" | head -n 1)
+  [[ -n ${image} ]] || return 1
+  printf '%s\n' "${image}"
+}
+
+# Ansible performs all system teardown, from the installed image, and must
+# succeed before the installer removes the image and the checkout. The image
+# goes afterwards because the play runs in a container of it.
 converge_uninstall() {
-  local playbook="${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/uninstall.yml"
-  local executable="${INSTALL_DIR}/.venv/bin/ansible-playbook"
-  [[ -x ${executable} ]] || die 1 \
-    "error: cannot uninstall: Ansible is missing at ${executable}" \
+  local image
+  image=$(installed_control_plane_image) || die 1 \
+    "error: cannot uninstall: no control-plane image is recorded in ${CONTROL_PLANE_COMPOSE_FILE}" \
     "Repair the installation first, then rerun --uninstall."
-  [[ -f ${playbook} ]] || die 1 \
-    "error: cannot uninstall: playbook is missing at ${playbook}" \
+  docker image inspect "${image}" >/dev/null 2>&1 || die 1 \
+    "error: cannot uninstall: the control-plane image ${image} is missing" \
     "Repair the installation first, then rerun --uninstall."
+
+  # By ID: a reference with both a tag and a digest is not one `rm` takes.
+  local image_id
+  image_id=$(docker image inspect --format '{{.Id}}' "${image}")
 
   # Returned rather than aborting under `set -e`: both callers test it.
   local status=0
-  run_playbook "${playbook}" || status=$?
+  run_playbook "${image}" uninstall.yml || status=$?
+  if [[ ${status} -eq 0 ]]; then
+    docker image rm --force "${image_id}" >/dev/null 2>&1 || true
+  fi
   return "${status}"
 }
 
@@ -436,18 +488,183 @@ handoff_user_wrapper() {
 }
 
 # ---------------------------------------------------------------------------
+# Docker and the control-plane image — what a server needs before Ansible
+# ---------------------------------------------------------------------------
+
+# The Docker repository and daemon configuration, byte for byte what the
+# blitzecdn_docker role renders from docker.sources.j2 and daemon.json.j2 with
+# its defaults. They have to agree: the play runs inside a container on this
+# engine, so a converge that rewrote either would restart the daemon under the
+# Ansible doing it. A test renders the templates and compares.
+docker_sources() {
+  local id=$1 codename=$2 architecture=$3
+  printf '%s\n' \
+    '# Managed by BlitzeCDN. Local edits are overwritten.' \
+    'Types: deb' \
+    "URIs: https://download.docker.com/linux/${id}" \
+    "Suites: ${codename}" \
+    'Components: stable' \
+    "Architectures: ${architecture}" \
+    'Signed-By: /etc/apt/keyrings/docker.asc'
+}
+
+docker_daemon_json() {
+  cat <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "32m",
+    "max-file": "3"
+  },
+  "live-restore": true
+}
+EOF
+}
+
+# Write one root-owned 0644 file from stdin, reporting through the status
+# whether its content changed. Mode and owner are converged too: the role's
+# template task would otherwise report a change, and for daemon.json a change
+# notifies a daemon restart.
+converge_host_file() {
+  local path=$1 staged
+  staged=$(mktemp)
+  cleanup_paths+=("${staged}")
+  cat >"${staged}"
+  if [[ -f ${path} ]] && cmp -s "${staged}" "${path}"; then
+    chown root:root "${path}"
+    chmod 0644 "${path}"
+    return 1
+  fi
+  install -o root -g root -m 0644 "${staged}" "${path}"
+}
+
+# Install Docker Engine and Compose from Docker's own repository, exactly as
+# blitzecdn_docker does, which then finds nothing to change. The engine has to
+# exist before the image this installer runs everything else from.
+# shellcheck disable=SC1091 # /etc/os-release is the host's, not this repository's
+ensure_docker() {
+  local id codename architecture
+  id=$(. /etc/os-release && printf %s "${ID:-}")
+  codename=$(. /etc/os-release && printf %s "${VERSION_CODENAME:-}")
+  architecture=$(dpkg --print-architecture)
+
+  install -d -o root -g root -m 0755 /etc/apt/keyrings /etc/docker
+  if [[ ! -s /etc/apt/keyrings/docker.asc ]]; then
+    local key
+    key=$(mktemp)
+    cleanup_paths+=("${key}")
+    curl -fsSL --proto '=https' --tlsv1.2 \
+      --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
+      -o "${key}" "https://download.docker.com/linux/${id}/gpg" ||
+      die 1 "error: could not download Docker's apt signing key"
+    install -o root -g root -m 0644 "${key}" /etc/apt/keyrings/docker.asc
+  fi
+  # Redirected rather than piped, so the helper runs in this shell and its
+  # scratch file is cleaned up with the rest.
+  converge_host_file /etc/apt/sources.list.d/docker.sources \
+    < <(docker_sources "${id}" "${codename}" "${architecture}") || true
+  local daemon_changed=0
+  if converge_host_file /etc/docker/daemon.json < <(docker_daemon_json); then
+    daemon_changed=1
+  fi
+
+  apt-get update
+  apt-get install -y docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin
+  if [[ ${daemon_changed} -eq 1 ]]; then
+    systemctl restart docker
+  fi
+  systemctl enable --now docker
+  docker info >/dev/null || die 1 "error: Docker Engine is installed but does not answer"
+}
+
+# The reference this checkout's release pins.
+pinned_control_plane_image() {
+  local pin="${script_dir}/${CONTROL_PLANE_IMAGE_PIN}" image
+  image=$(sed -n 's/^blitzecdn_controlplane_image: *//p' "${pin}" | head -n 1)
+  [[ -n ${image} ]] || die 1 "error: no control-plane image is pinned in ${pin}"
+  printf '%s\n' "${image}"
+}
+
+# Pull an image, retrying the way the uv download does: a registry that drops
+# one connection should not fail an installation.
+pull_image() {
+  local image=$1 attempt
+  for attempt in 1 2 3; do
+    docker pull "${image}" >&2 && return 0
+    [[ ${attempt} -eq 3 ]] || sleep 5
+  done
+  return 1
+}
+
+# Pin a reference to the digest the registry served it under, keeping the tag
+# for whoever reads it. A local build or a loaded archive has no registry
+# digest and is printed as given.
+resolve_image_digest() {
+  local image=$1 repository digest
+  if [[ ${image} == *@* ]]; then
+    printf '%s\n' "${image}"
+    return 0
+  fi
+  repository=${image}
+  case ${image##*/} in
+    *:*) repository=${image%:*} ;;
+  esac
+  # shellcheck disable=SC2016 # a Go template, not a shell expansion
+  digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image}" |
+    awk -v prefix="${repository}@" 'index($0, prefix) == 1 { print substr($0, length(prefix)); exit }')
+  printf '%s\n' "${image}${digest}"
+}
+
+# Make the control-plane image this release runs available to the local engine
+# and print the reference to run it by. Progress goes to stderr: stdout is the
+# return value.
+#
+# Pulled from the registry by default. BLITZECDN_CONTROL_PLANE_ARCHIVE loads it
+# from a `docker save` archive instead, and BLITZECDN_CONTROL_PLANE_BUILD=1
+# builds it from this checkout — the fallback when no published image can be
+# reached, at the price of needing Docker Hub and PyPI for the build.
+obtain_control_plane_image() {
+  local image
+  if [[ ${BLITZECDN_CONTROL_PLANE_BUILD:-0} == 1 ]]; then
+    image=${CONTROL_PLANE_SOURCE_TAG}
+    echo "Building ${image} from ${script_dir}..." >&2
+    docker build --pull --file "${script_dir}/${CONTROL_PLANE_DOCKERFILE}" \
+      --tag "${image}" "${script_dir}" >&2 ||
+      die 1 "error: could not build the control-plane image from ${script_dir}"
+    printf '%s\n' "${image}"
+    return 0
+  fi
+
+  image=${BLITZECDN_CONTROL_PLANE_IMAGE:-}
+  if [[ -z ${image} ]]; then
+    image=$(pinned_control_plane_image) || exit 1
+  fi
+  if [[ -n ${BLITZECDN_CONTROL_PLANE_ARCHIVE:-} ]]; then
+    echo "Loading the control-plane image from ${BLITZECDN_CONTROL_PLANE_ARCHIVE}..." >&2
+    docker load --input "${BLITZECDN_CONTROL_PLANE_ARCHIVE}" >&2 ||
+      die 1 "error: could not load ${BLITZECDN_CONTROL_PLANE_ARCHIVE}"
+    docker image inspect "${image}" >/dev/null 2>&1 ||
+      die 1 "error: ${BLITZECDN_CONTROL_PLANE_ARCHIVE} does not contain ${image}" \
+        "Set BLITZECDN_CONTROL_PLANE_IMAGE to the reference the archive holds."
+  elif ! docker image inspect "${image}" >/dev/null 2>&1; then
+    echo "Pulling ${image}..." >&2
+    pull_image "${image}" || die 1 \
+      "error: could not pull the control-plane image ${image}" \
+      "Retry, load it with BLITZECDN_CONTROL_PLANE_ARCHIVE, or build it from this" \
+      "checkout with BLITZECDN_CONTROL_PLANE_BUILD=1."
+  fi
+  resolve_image_digest "${image}"
+}
+
+# ---------------------------------------------------------------------------
 # (no arguments) — virtualenv and collections
 # ---------------------------------------------------------------------------
 
-# Build the runtime every later step needs. `ansible-only` installs Ansible
-# and its dependencies without the BlitzeCDN project, for servers whose
-# application runs in the image.
+# Build the virtualenv a controller checkout runs the CLI from. A server never
+# runs this: everything there runs from the control-plane image.
 bootstrap_runtime() {
   cd -- "${script_dir}"
-
-  local mode="${1:-application}"
-  [[ ${mode} == application || ${mode} == ansible-only ]] ||
-    die 2 "error: unknown bootstrap runtime mode: ${mode}"
 
   local python_command="${BLITZECDN_PYTHON:-python3}"
   command -v "${python_command}" >/dev/null 2>&1 ||
@@ -474,17 +691,14 @@ if sys.version_info[:2] < (3, 12):
   local -a sync_flags=(--frozen --python "${python_command}")
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
     "${uv}" sync "${sync_flags[@]}"
-  elif [[ ${mode} == ansible-only ]]; then
-    "${uv}" sync "${sync_flags[@]}" --no-dev --no-install-project
   else
     "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
   fi
 
   [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
     die 1 "error: uv created an incomplete .venv; rerun with --fresh"
-  if [[ ${mode} == application && ! -x .venv/bin/blitzecdn ]]; then
+  [[ -x .venv/bin/blitzecdn ]] ||
     die 1 "error: uv did not install the local BlitzeCDN CLI"
-  fi
 
   # Third-party collections, inside the checkout. Exported because ansible.cfg
   # cannot name a path outside the package; deploys set the same variable.
@@ -527,8 +741,15 @@ Options:
                       loopback and is reached through an SSH tunnel.
   -h, --help         Show this help
 
-The checkout must be /opt/blitzecdn because it is the immutable image build
-context. Re-running the installer preserves the API key, inventory, and state.
+Environment:
+EOF
+  usage_image_environment
+  cat <<'EOF'
+
+Everything runs from the release's published control-plane image, which this
+pulls from ghcr.io; the host gets Docker Engine and no Python packages. The
+checkout must be /opt/blitzecdn, where `update` moves it between releases.
+Re-running the installer preserves the API key, inventory, and state.
 EOF
 }
 
@@ -541,9 +762,10 @@ cmd_standalone() {
     die 1 "error: clone or copy this release to ${INSTALL_DIR}, then run the installer there"
   cd -- "${script_dir}"
 
-  # The least this host needs before Ansible can run: an interpreter, curl and
-  # CA certificates to fetch uv, and git for the release checkout. Everything
-  # else belongs to the control-plane role.
+  # The least this host needs before Ansible can run: an interpreter for the
+  # input checks and for the play's modules, curl and CA certificates to fetch
+  # Docker's signing key, and git for the release checkout. Everything else
+  # belongs to the control-plane role.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y ca-certificates curl git python3
@@ -553,12 +775,15 @@ cmd_standalone() {
   local allowed_ips
   allowed_ips=$(allowed_ips_value)
 
-  # Ansible and its Docker SDK only; the application runs in the role's image.
-  bootstrap_runtime ansible-only
+  # The engine, then the image: Ansible, its collections and the application
+  # all come from the image, so nothing is installed from PyPI.
+  ensure_docker
+  local image
+  image=$(obtain_control_plane_image) || exit 1
 
   # The access list lands in the environment file the API and the firewall
   # convergence both read, so they agree from the first boot.
-  converge_control_plane \
+  converge_control_plane "${image}" \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
@@ -595,8 +820,8 @@ usage_update() {
 Usage: sudo ./install.sh update [OPTIONS]
 
 Move this installation onto the newest release of its own major line and leave
-its state intact: fetch the code, rebuild the bootstrap tooling and application
-image, migrate state, and recreate the Compose services on the new release.
+its state intact: fetch the code, pull the release's control-plane image,
+migrate state, and recreate the Compose services on the new release.
 
 There is nothing to choose. The release line comes from the installed version,
 the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
@@ -614,6 +839,11 @@ Options:
                Repoint the API access list while updating; comma-separated or
                repeated. Omitted, this update does not touch it.
   -h, --help   Show this help
+
+Environment:
+EOF
+  usage_image_environment
+  cat <<'EOF'
 
 The checkout must be /opt/blitzecdn, must have the upstream origin, and must
 have no local modifications. The persistent containers are stopped while the
@@ -641,7 +871,10 @@ Options:
   --allowed-ips LIST
                Repoint the API access list while upgrading; comma-separated or
                repeated. Omitted, this upgrade does not touch it.
+
+Environment:
 EOF
+  usage_image_environment
 }
 
 # Check the checkout, fetch, and choose the target with `install_release.py`.
@@ -708,8 +941,8 @@ EOF
 }
 
 # The shared body of `update` and `upgrade`. Every refusal happens before the
-# backup; the services keep running until the role stops them, after the image
-# is built.
+# backup; the services keep running until the role stops them, after the
+# target's image is in place.
 move_release() {
   local mode=$1
   [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
@@ -761,10 +994,16 @@ move_release() {
     die 1 "error: could not check out ${target}; the services were not stopped —" \
       "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
-  # The same two steps as standalone. The role builds the image, stops the
-  # services, migrates, recreates them and waits until both are healthy.
-  bootstrap_runtime ansible-only
-  converge_control_plane \
+  # The same steps as standalone, with the target's own pin: the checkout now
+  # names the image to pull. The play runs inside that image, and the role
+  # stops the services, migrates, recreates them on it and waits until both
+  # are healthy.
+  ensure_docker
+  local image
+  image=$(obtain_control_plane_image) || die 1 \
+    "error: the services were not stopped and still run ${current};" \
+    "fix the cause and rerun, or restore with 'git -C ${INSTALL_DIR} checkout ${current}'"
+  converge_control_plane "${image}" \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
@@ -793,7 +1032,7 @@ removal_manifest() {
   cat <<'EOF'
   - the installation directory /opt/blitzecdn and everything in it: source,
     .venv, .env, and .state (database, certificates, collections, locks, logs)
-  - the control-plane Compose project and BlitzeCDN host timers
+  - the control-plane Compose project, its image, and BlitzeCDN host timers
   - /etc/blitzecdn and the API credentials it holds
   - the /usr/local/bin/blitzecdn command
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy
@@ -819,9 +1058,10 @@ EOF
   removal_manifest
   cat <<'EOF'
 
-Nothing outside those paths is changed and no packages are removed. Ansible
-must still be available in the installation: it performs all system teardown.
-The installer then removes its own checkout from a private copy.
+Nothing outside those paths is changed and no packages are removed. The
+installed control-plane image must still be present: the Ansible in it
+performs all system teardown. The installer then removes the image and its own
+checkout from a private copy.
 EOF
 }
 

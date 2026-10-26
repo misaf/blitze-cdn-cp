@@ -1,11 +1,14 @@
 ---
-# Runs before install.sh removes /opt/blitzecdn and therefore before it removes
-# the Ansible executable running this play. Edge cleanup is delegated by the
-# uninstall role to blitzecdn_edge_teardown, the same role normal decommission uses.
+# Runs before install.sh removes /opt/blitzecdn and the control-plane image,
+# from a container of that image, reaching the host through nsenter exactly as
+# control-plane.yml does. Edge cleanup is delegated by the uninstall role to
+# blitzecdn_edge_teardown, the same role normal decommission uses.
 - name: Remove BlitzeCDN-managed state from a standalone host
   hosts: localhost
-  connection: local
-  become: true
+  connection: community.docker.nsenter
+  # nsenter already runs every task as root on the host. Escalating again
+  # would only ask for a sudo that a fresh server does not have.
+  become: false
   gather_facts: false
   any_errors_fatal: true
   roles:

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 from support.install import (
+    FAKE_IMAGE,
     _fake_installation,
     _fake_unrelated,
     _function,
@@ -202,22 +203,41 @@ def test_uninstall_asks_for_confirmation_and_can_be_cancelled(tmp_path):
     assert all(path.exists() for path in owned)
 
 
-def test_uninstall_requires_the_ansible_runtime(tmp_path):
+def test_uninstall_requires_the_installed_image(tmp_path):
+    """The teardown is the image's Ansible; without it nothing is touched."""
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
     _stub_bin(sandbox, root)
-    _fake_installation(root)
+    owned = _fake_installation(root)
 
-    shutil.rmtree(root / "opt/blitzecdn/.venv")
+    result = _run_sandboxed(
+        script, "--uninstall", "--yes", env_extra={"DOCKER_IMAGE_MISSING": "1"}
+    )
+
+    assert result.returncode == 1
+    assert f"the control-plane image {FAKE_IMAGE} is missing" in result.stderr
+    assert all(path.exists() for path in owned)
+
+
+def test_uninstall_requires_the_record_of_which_image_is_installed(tmp_path):
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    owned = _fake_installation(root)
+
+    (root / "etc/blitzecdn/control-plane.compose.yml").unlink()
     result = _run_sandboxed(script, "--uninstall", "--yes")
 
     assert result.returncode == 1
-    assert "Ansible is missing" in result.stderr
+    assert "no control-plane image is recorded" in result.stderr
+    assert (root / "opt/blitzecdn/install.sh").exists()
+    assert any(path.exists() for path in owned)
 
 
-def test_uninstall_refuses_when_the_installation_directory_is_already_deleted(
+def test_uninstall_finishes_from_the_image_when_the_checkout_is_already_gone(
     tmp_path: Path,
 ):
+    """The play ships in the image, so a deleted checkout no longer strands a host."""
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
     _stub_bin(sandbox, root)
@@ -227,11 +247,33 @@ def test_uninstall_refuses_when_the_installation_directory_is_already_deleted(
 
     result = _run_sandboxed(script, "--uninstall", "--yes")
 
-    assert result.returncode == 1
-    assert "Ansible is missing" in result.stderr
-    assert any(
-        path.exists() for path in owned if root / "opt/blitzecdn" not in path.parents
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(path.exists() for path in owned)
+
+
+def test_uninstall_removes_the_image_only_after_the_play_that_runs_in_it(
+    tmp_path: Path,
+):
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    _fake_installation(root)
+    log = tmp_path / "docker.log"
+
+    result = _run_sandboxed(
+        script, "--uninstall", "--yes", env_extra={"DOCKER_LOG": str(log)}
     )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = log.read_text(encoding="utf-8").splitlines()
+    play = next(i for i, call in enumerate(calls) if "uninstall.yml" in call)
+    assert FAKE_IMAGE in calls[play]
+    removal = next(
+        i for i, call in enumerate(calls) if call.startswith("docker image rm")
+    )
+    assert play < removal
+    # By ID: the stub answers every inspection with this one.
+    assert calls[removal] == "docker image rm --force sha256:0123"
 
 
 def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(

@@ -10,9 +10,8 @@ name: {{ blitzecdn_controlplane_compose_project | to_json }}
 
 x-blitzecdn-runtime: &blitzecdn-runtime
   image: {{ blitzecdn_controlplane_image | to_json }}
-  build:
-    context: {{ blitzecdn_controlplane_install_dir | to_json }}
-    dockerfile: {{ blitzecdn_controlplane_dockerfile | to_json }}
+  # Never pulled by Compose: install.sh obtains the image before converging.
+  pull_policy: never
   env_file:
     - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.env') | to_json }}
   environment:
@@ -21,7 +20,7 @@ x-blitzecdn-runtime: &blitzecdn-runtime
   network_mode: host
   volumes:
     - {{ (blitzecdn_controlplane_state_dir ~ ':/opt/blitzecdn/.state') | to_json }}
-    - {{ (blitzecdn_controlplane_install_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
+    - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
   security_opt:
     - no-new-privileges:true
 
@@ -59,6 +58,6 @@ services:
     restart: "no"
     volumes:
       - {{ (blitzecdn_controlplane_state_dir ~ ':/opt/blitzecdn/.state') | to_json }}
-      - {{ (blitzecdn_controlplane_install_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
+      - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
       - {{ (blitzecdn_controlplane_backup_dir ~ ':/var/backups/blitzecdn') | to_json }}
     entrypoint: ["blitzecdn"]

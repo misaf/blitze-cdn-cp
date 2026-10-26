@@ -7,6 +7,7 @@ be exercised instead.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -199,20 +200,37 @@ def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
 
 def test_installer_installs_only_third_party_collections():
     """The BlitzeCDN roles ship inside the package; nothing pins or builds them."""
-    script = _script()
+    bootstrap = _function("bootstrap_runtime")
     assert (
         '-r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"'
-        in script
+        in bootstrap
     )
-    assert "--force" not in script
-    assert "collection build" not in script
+    assert "--force" not in bootstrap
+    assert "collection build" not in _script()
 
 
-def test_production_bootstrap_does_not_install_the_application_on_the_host():
-    script = _script()
-    assert "bootstrap_runtime ansible-only" in _section("standalone")
-    assert "bootstrap_runtime ansible-only" in _function("move_release")
-    assert "--no-dev --no-install-project" in script
+@pytest.mark.parametrize("body", ["standalone", "move_release"])
+def test_a_server_installs_no_python_packages_and_asks_no_package_index(body: str):
+    """The point of the image: a host that cannot reach PyPI can still install.
+
+    Ansible, its collections and the application all come from the image, so
+    a server never builds a virtualenv, never runs uv, and never asks Galaxy.
+    """
+    code = _section(body) if body == "standalone" else _function(body)
+    for host_tooling in ("bootstrap_runtime", "uv", "ansible-galaxy", "pip"):
+        assert not re.search(rf"\b{re.escape(host_tooling)}\b", code), host_tooling
+    assert "ensure_docker" in code
+    assert "obtain_control_plane_image" in code
+
+
+def test_only_a_source_build_needs_the_package_index():
+    """The fallback is documented, opt-in, and the only path that builds."""
+    image = _function("obtain_control_plane_image")
+    assert "BLITZECDN_CONTROL_PLANE_BUILD" in image
+    assert image.count("docker build") == 1
+    assert image.index("BLITZECDN_CONTROL_PLANE_BUILD") < image.index("docker build")
+    for help_form in ("standalone", "update", "upgrade"):
+        assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in _query(f"usage_{help_form}")
 
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():

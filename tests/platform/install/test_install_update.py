@@ -44,7 +44,7 @@ def test_update_takes_a_backup_before_it_changes_anything():
     # migration, is a backup of the thing it was supposed to protect against.
     marker = "backup create --only database"
     assert update.index(marker) < update.index('repo_git checkout --quiet "${target}"')
-    assert update.index(marker) < update.index("bootstrap_runtime")
+    assert update.index(marker) < update.index("ensure_docker")
 
 
 @pytest.mark.parametrize("subcommand", ["update", "upgrade"])
@@ -56,8 +56,25 @@ def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str
     """
     assert f"move_release {subcommand}" in _section(subcommand)
     section = _function("move_release")
-    assert "docker" not in section
-    assert section.index("bootstrap_runtime") < section.index("converge_control_plane")
+    for direct in ("docker compose", "docker stop", "docker run"):
+        assert direct not in section
+    assert section.index("ensure_docker") < section.index("converge_control_plane")
+
+
+def test_a_release_move_runs_the_image_its_target_pins():
+    """The image is chosen after the checkout, from the checkout.
+
+    Read before it, the pin would be the release being left, and the update
+    would recreate the services on the image they already run.
+    """
+    section = _function("move_release")
+    checkout = section.index('repo_git checkout --quiet "${target}"')
+    assert checkout < section.index("obtain_control_plane_image")
+    assert section.index("obtain_control_plane_image") < section.index(
+        'converge_control_plane "${image}"'
+    )
+    pin = _function("pinned_control_plane_image")
+    assert '"${script_dir}/${CONTROL_PLANE_IMAGE_PIN}"' in pin
 
 
 def test_update_only_ever_moves_forward_onto_a_release_tag():

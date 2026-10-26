@@ -1,16 +1,24 @@
 ---
 # Converges the host the control plane itself runs on. `install.sh standalone`
-# runs this once the virtualenv and the collections exist, and `install.sh
-# update` runs it again after checking out a release, so the image and Compose
-# project move together without a second runtime mechanism.
+# runs this once Docker and the control-plane image are in place, and
+# `install.sh update` runs it again after checking out a release and pulling
+# its image, so the image and Compose project move together without a second
+# runtime mechanism.
+#
+# It runs inside that image: the Ansible, the collections and this file are the
+# release's own, and the host needs no Python packages of its own. The nsenter
+# connection executes every task in the host's namespaces, under the host's
+# python3, from a privileged container in the host's PID namespace.
 #
 # The role lives in this repository rather than the edge collection: it
 # configures the operator's own host, it is versioned with the control plane it
 # serves, and changing it must not require an edge release and a re-pin.
 - name: Converge the BlitzeCDN control-plane host
   hosts: localhost
-  connection: local
-  become: true
+  connection: community.docker.nsenter
+  # nsenter already runs every task as root on the host. Escalating again
+  # would only ask for a sudo that a fresh server does not have.
+  become: false
   gather_facts: true
   any_errors_fatal: true
   roles:

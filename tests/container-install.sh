@@ -8,6 +8,14 @@
 # the narrower edge platform; CI runs Ubuntu only.
 #
 # Requires Docker and about five minutes per image.
+#
+# Both images are built here from the working tree unless an archive of each
+# is given, for a machine that should not build them itself, such as one that
+# cannot reach PyPI:
+#
+#   CONTROL_PLANE_IMAGE_ARCHIVE  `docker save` of the pinned control-plane tag
+#   EDGE_IMAGE_ARCHIVE           `docker save` of blitzecdn-edge:standalone,
+#                                built with `blitzecdn edge image spec`
 set -Eeuo pipefail
 
 readonly IMAGE=${1:?usage: container-install.sh IMAGE}
@@ -23,19 +31,31 @@ readonly CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
 # The ACME hostname: the record label joined to the zone, so issuance asks for
 # exactly the name the deploy serves. The derived virtual host is the zone with
 # dots turned into hyphens.
-readonly ACME_SITE=example-test
-readonly ACME_DOMAIN=cdn.example.test
+#
+# example.com rather than example.test: the deploy refuses an ACME certificate
+# for a reserved suffix (.test, .example, ...), since no public CA issues for
+# one. example.com is reserved for documentation but not refused, and every
+# lookup here goes to the challenge DNS server, never to the real zone.
+readonly ACME_SITE=example-com
+readonly ACME_DOMAIN=cdn.example.com
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
 archive=$(mktemp -t blitzecdn-source-XXXXXX).tgz
+image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
 
 cleanup() {
-  # `-v`: the host's anonymous volumes go with it. They hold a whole container
-  # engine's images, and a runner that keeps them keeps gigabytes.
-  docker rm -f -v "${container}" >/dev/null 2>&1 || true
-  rm -f -- "${archive}" "${pebble_config}"
+  # KEEP_CONTAINER=1 leaves the host up to inspect a failure; remove it with
+  # `docker rm -f -v` afterwards.
+  if [[ ${KEEP_CONTAINER:-0} == 1 ]]; then
+    printf 'Kept %s\n' "${container}" >&2
+  else
+    # `-v`: the host's anonymous volumes go with it. They hold a whole
+    # container engine's images, and a runner that keeps them keeps gigabytes.
+    docker rm -f -v "${container}" >/dev/null 2>&1 || true
+  fi
+  rm -f -- "${archive}" "${image_archive}" "${pebble_config}"
 }
 trap cleanup EXIT
 
@@ -95,19 +115,52 @@ in_container 'mkdir -p /opt/blitzecdn'
 docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
 in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
 
+say "Building the control-plane image this host will install"
+# From the working tree, under the reference the release pins, and handed to
+# the installer as an archive: the commit under review is what gets installed,
+# and the installer's own pull is the one step this harness does not exercise.
+pinned_image=$(sed -n 's/^blitzecdn_controlplane_image: *//p' \
+  "${project_dir}/src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml")
+[[ -n ${pinned_image} ]] || fail "no control-plane image is pinned"
+if [[ -n ${CONTROL_PLANE_IMAGE_ARCHIVE:-} ]]; then
+  docker load --input "${CONTROL_PLANE_IMAGE_ARCHIVE}" >/dev/null ||
+    fail "could not load ${CONTROL_PLANE_IMAGE_ARCHIVE}"
+  docker image inspect "${pinned_image}" >/dev/null 2>&1 ||
+    fail "${CONTROL_PLANE_IMAGE_ARCHIVE} does not hold ${pinned_image}"
+else
+  docker build --quiet \
+    --file "${project_dir}/src/blitzecdn/assets/docker/control-plane/Dockerfile" \
+    --tag "${pinned_image}" "${project_dir}" >/dev/null ||
+    fail "could not build the control-plane image"
+fi
+docker save --output "${image_archive}" "${pinned_image}" ||
+  fail "could not export the control-plane image"
+docker cp "${image_archive}" "${container}:/root/control-plane.tar" >/dev/null
+
+# An installation must not need PyPI: the network this exists for drops it.
+# Both names resolve nowhere, so any uv or pip that ran would fail the install.
+in_container 'printf "0.0.0.0 pypi.org files.pythonhosted.org\n:: pypi.org files.pythonhosted.org\n" >> /etc/hosts' ||
+  fail "could not cut this host off from PyPI"
+
 say "Installing"
-if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
+if ! in_container "cd /opt/blitzecdn && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
   # Preserve the evidence before the EXIT trap removes the disposable host.
   # This catches corrupt source/package copies that otherwise surface only as
   # an opaque import error several layers inside the installer.
   # The expansions belong to the container shell.
   # shellcheck disable=SC2016
-  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
-  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py' || true
+  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
+  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py' || true
   fail "install failed on ${IMAGE}"
 fi
 
 say "Checking what the installation produced"
+# Everything came from the image: no virtualenv, no uv, no Galaxy collections.
+in_container 'test ! -e /opt/blitzecdn/.venv && test ! -e /opt/blitzecdn/.state' ||
+  fail "the installer built host tooling in the checkout"
+in_container '! command -v uv >/dev/null' || fail "the installer put uv on this host"
+in_container "docker inspect -f '{{.Config.Image}}' blitzecdn-api | grep -qF '${pinned_image}'" ||
+  fail "the API does not run the image the installer was given"
 in_container '! getent passwd blitzecdn >/dev/null' || fail "unexpected blitzecdn host account"
 in_container '! getent group blitzecdn >/dev/null' || fail "unexpected blitzecdn host group"
 in_container 'getent passwd deploy >/dev/null' || fail "no deploy account"
@@ -132,7 +185,7 @@ in_container 'stat -c %u:%g:%a /var/backups/blitzecdn | grep -qx 65534:65534:700
   fail "backup ownership does not match the container identity"
 in_container 'stat -c %U:%G:%a /etc/blitzecdn/blitzecdn.env | grep -qx root:root:600' ||
   fail "service secrets are not restricted to host root"
-in_container 'stat -c %U:%G:%a /opt/blitzecdn/blitzecdn.toml | grep -qx root:root:644' ||
+in_container 'stat -c %U:%G:%a /etc/blitzecdn/blitzecdn.toml | grep -qx root:root:644' ||
   fail "non-secret configuration is not host-managed"
 in_container 'docker exec blitzecdn-api python -c "import sqlite3; p=\"/opt/blitzecdn/.state/permission-test.db\"; c=sqlite3.connect(p); assert c.execute(\"PRAGMA journal_mode=WAL\").fetchone()[0] == \"wal\"; c.execute(\"CREATE TABLE writable (id INTEGER)\"); c.commit(); c.close()"' ||
   fail "SQLite could not create and write WAL state as the application identity"
@@ -165,7 +218,28 @@ say "Seeding the edge runtime image this host will run"
 # the disposable host's engine. That needs the engine first, so its repository
 # is seeded exactly as blitzecdn_docker seeds it (same deb822 file), and the
 # converge still reports no change on its second run.
-docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzecdn/assets/docker/edge" >/dev/null
+#
+# The module set is the installed release's own `blitzecdn edge image spec`,
+# as the publishing workflow builds it. Without it the image carries no
+# capability module and the deploy's module check refuses it.
+if [[ -n ${EDGE_IMAGE_ARCHIVE:-} ]]; then
+  docker load --input "${EDGE_IMAGE_ARCHIVE}" >/dev/null ||
+    fail "could not load ${EDGE_IMAGE_ARCHIVE}"
+  docker image inspect blitzecdn-edge:standalone >/dev/null 2>&1 ||
+    fail "${EDGE_IMAGE_ARCHIVE} does not hold blitzecdn-edge:standalone"
+else
+  module_args=()
+  while IFS= read -r argument; do
+    if [[ -n ${argument} ]]; then
+      module_args+=(--build-arg "${argument}")
+    fi
+  done < <(in_container 'cd / && blitzecdn edge image spec')
+  [[ ${#module_args[@]} -gt 0 ]] ||
+    fail "blitzecdn edge image spec named no build arguments"
+  docker build --quiet "${module_args[@]}" --tag blitzecdn-edge:standalone \
+    "${project_dir}/src/blitzecdn/assets/docker/edge" >/dev/null ||
+    fail "could not build the edge runtime image"
+fi
 
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
   fail "could not install the Docker repository prerequisites"
@@ -220,6 +294,19 @@ say "Converging this host as an edge"
 # adding a second row for the same machine.
 in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-local"'"'"'' ||
   fail "the installer did not register the local edge"
+# Apply, or show why not: the deployment record and every failed task. The
+# JSON is the evidence, so it is kept rather than sent to /dev/null.
+deploy_or_fail() {
+  local environment=$1 message=$2 output
+  if ! output=$(in_container "cd / && ${environment} blitzecdn deploy --yes --json"); then
+    printf '%s\n' "${output}" | tail -80
+    # shellcheck disable=SC2016
+    in_container 'latest=$(ls -t /var/lib/blitzecdn/logs/*.log 2>/dev/null | head -1)
+      [ -n "$latest" ] && grep -B 2 -A 20 "^fatal: \|^failed: " "$latest"' || true
+    fail "${message}"
+  fi
+}
+
 # Fleet policy, set the way an operator sets it: the edge image is a database
 # setting the inventory plugin publishes.
 in_container 'cd / && blitzecdn config set blitzecdn_edge_image blitzecdn-edge:standalone' ||
@@ -228,10 +315,10 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false
   fail "could not disable the registry pull"
 
 # The zone carries the policy; the proxied record carries the origin. The
-# virtual host is named after the zone (`example-test`), hence `${ACME_SITE}`.
-in_container 'cd / && blitzecdn domain add example.test' ||
+# virtual host is named after the zone (`example-com`), hence `${ACME_SITE}`.
+in_container 'cd / && blitzecdn domain add example.com' ||
   fail "could not add a zone"
-in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1' ||
+in_container 'cd / && blitzecdn record add example.com cdn --value 127.0.0.1' ||
   fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged.
@@ -241,12 +328,12 @@ in_container 'cd / && blitzecdn plan --json >/dev/null' || {
   fail "check-mode run failed"
 }
 
-in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "deploy failed"
-in_container "test -f /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
+deploy_or_fail "" "deploy failed"
+in_container "test -f /etc/blitzecdn/releases/current/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the deploy did not enable the managed site"
 in_container 'docker exec blitzecdn-edge nginx -t' ||
   fail "the converged nginx configuration does not load"
-in_container "grep -q '^${ACME_SITE}\$' /etc/nginx/blitzecdn-managed-sites" ||
+in_container "grep -q '^${ACME_SITE}\$' /etc/blitzecdn/releases/current/nginx/blitzecdn-managed-sites" ||
   fail "the managed-site registry was not written"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy' ||
   fail "the edge container is not healthy"
@@ -255,7 +342,7 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep
 in_container '! command -v nginx' || fail "nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
-in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
+deploy_or_fail "" "second deploy failed"
 in_container 'cd / && blitzecdn drift --json' || {
   # shellcheck disable=SC2016
   dump_ansible_log
@@ -273,11 +360,11 @@ say "Issuing a certificate from a real ACME server"
 # The control plane's half of ACME: certbot, the manual hooks, the playbook they
 # drive, and the chain the store validates and installs, against Pebble, a
 # throwaway CA that validates HTTP-01 for real. Serving a challenge alone is the
-# HTTP/3 harness's job. Preflight is skipped by the request (example.test is not
+# HTTP/3 harness's job. Preflight is skipped by the request (this edge is not
 # public) and runs during renewal below.
 
 # Asserted, so a hostname mismatch fails here rather than as an ACME timeout.
-in_container "grep -q 'server_name ${ACME_DOMAIN};' /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
+in_container "grep -q 'server_name ${ACME_DOMAIN};' /etc/blitzecdn/releases/current/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the deployed site does not serve ${ACME_DOMAIN}"
 
 # Pulled here and streamed in, like the edge image: the host needs no registry
@@ -348,15 +435,15 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || 
 # `certbot` is this capability's setting naming an executable, so a wrapper
 # reaches a different CA. The wrapper is in the image, built from the checkout.
 in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
-  >> /opt/blitzecdn/blitzecdn.toml' ||
+  >> /etc/blitzecdn/blitzecdn.toml' ||
   fail "could not point the control plane at the test certbot"
-# Preflight asks public DNS, which knows nothing of example.test, and renewal
+# Preflight asks public DNS, which knows nothing of this edge, and renewal
 # has no override, so preflight is pointed at the CA's DNS server. Replaced
 # rather than appended: a duplicate TOML key is a parse error.
 in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"127.0.0.1\"]|" \
-  /opt/blitzecdn/blitzecdn.toml' ||
+  /etc/blitzecdn/blitzecdn.toml' ||
   fail "could not point preflight at the challenge DNS server"
-in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /opt/blitzecdn/blitzecdn.toml' ||
+in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the preflight resolver was not rewritten"
 # Configuration is read at start, and nothing in the Compose file changed, so
 # `--force-recreate` is needed; plain `up` would leave the old processes on the
@@ -400,12 +487,11 @@ printf '%s' "${issued}" | grep -q "${ACME_DOMAIN}" ||
 
 # `ssl_mode` defaults to off and needs an active certificate, so it is set now,
 # in the operator's real order. Flexible because the origin speaks plain HTTP.
-in_container "cd / && blitzecdn domain ssl example.test --mode flexible --json >/dev/null" ||
+in_container "cd / && blitzecdn domain ssl example.com --mode flexible --json >/dev/null" ||
   fail "could not turn on TLS for the site that now has a certificate"
 
 # A deploy puts the certificate on the edge; until then the site is HTTP only.
-in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' ||
-  fail "the deploy that installs the certificate failed"
+deploy_or_fail "" "the deploy that installs the certificate failed"
 
 in_container 'curl -sSk --max-time 5 https://127.0.0.1:15000/roots/0 -o /root/pebble/root.pem' ||
   fail "could not fetch the ACME root"
@@ -420,7 +506,7 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
   # Whether anything is listening at all, and with which files. An empty
   # certificate above is either no HTTPS server block for this name or no
   # handshake, and these two say which.
-  in_container "grep -E 'listen|ssl_certificate' /etc/nginx/sites-enabled/${ACME_SITE}.conf" || true
+  in_container "grep -E 'listen|ssl_certificate' /etc/blitzecdn/releases/current/nginx/sites-enabled/${ACME_SITE}.conf" || true
   in_container 'cd / && blitzecdn cert list --json' || true
   in_container 'docker logs --tail 40 pebble' || true
   fail "the edge is not serving a certificate that validates against the ACME root"
@@ -477,11 +563,10 @@ served_certificate -issuer -ext subjectAltName -enddate ||
   fail "could not read back the renewed certificate"
 
 # Removing the record must withdraw the vhost, which is the registry's job.
-in_container 'cd / && blitzecdn record remove example.test cdn --yes' ||
+in_container 'cd / && blitzecdn record remove example.com cdn --yes' ||
   fail "could not remove the record"
-in_container 'cd / && BLITZE_ALLOW_EMPTY_SITES=true blitzecdn deploy --yes --json >/dev/null' ||
-  fail "withdrawing the last site failed"
-in_container "test ! -e /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
+deploy_or_fail BLITZE_ALLOW_EMPTY_SITES=true "withdrawing the last site failed"
+in_container "test ! -e /etc/blitzecdn/releases/current/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the stale site was left enabled"
 in_container 'docker exec blitzecdn-edge nginx -t' ||
   fail "nginx does not load after the site was withdrawn"
@@ -516,7 +601,7 @@ in_container 'blitzecdn backup create -o /var/backups/blitzecdn/full-restore.tar
   fail "the full backup failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | grep -q BLITZE_API_KEYS=' ||
   fail "the full backup omitted the API credentials"
-in_container 'sed -i "s/allow_empty_sites = false/allow_empty_sites = true/" /opt/blitzecdn/blitzecdn.toml' ||
+in_container 'sed -i "s/allow_empty_sites = false/allow_empty_sites = true/" /etc/blitzecdn/blitzecdn.toml' ||
   fail "could not change the configuration before restore"
 # shellcheck disable=SC2016
 in_container 'printf "BLITZE_API_KEYS=operator:%s\n" "$(openssl rand -hex 32)" > /etc/blitzecdn/blitzecdn.env' ||
@@ -525,7 +610,7 @@ in_container 'blitzecdn backup restore /var/backups/blitzecdn/full-restore.tar.g
   fail "the full restore failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | cmp -s - /etc/blitzecdn/blitzecdn.env' ||
   fail "the full restore did not recover the archived credentials"
-in_container 'grep -q "allow_empty_sites = false" /opt/blitzecdn/blitzecdn.toml' ||
+in_container 'grep -q "allow_empty_sites = false" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the full restore did not replace the host configuration"
 in_container 'docker exec blitzecdn-api python -c "import tomllib; assert not tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\"))[\"blitzecdn\"][\"allow_empty_sites\"]"' ||
   fail "the API still sees the old configuration mount"
