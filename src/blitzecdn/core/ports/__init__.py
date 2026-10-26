@@ -12,7 +12,10 @@ from typing import Any, Protocol
 
 
 class UnitOfWork(Protocol):
-    """One atomic boundary shared by every store used by a use case."""
+    """Atomic database changes; nested scopes join without savepoints.
+
+    Let failures escape the outer scope. Keep remote work outside it.
+    """
 
     def transaction(self) -> AbstractContextManager[Any]: ...
 

@@ -47,12 +47,12 @@ class HostService:
     # -- The virtual hosts, derived ------------------------------------
 
     def list_sites(self) -> list[CdnSite]:
-        """Derive all virtual hosts from current zones, rules, and records."""
-        return derive_hosts(
-            self.zones.list_domains(),
-            self.rules.list_rules(),
-            self.zones.list_records(),
-        )
+        """Derive virtual hosts from one snapshot of zones, rules, and records."""
+        with self.uow.transaction():
+            domains = self.zones.list_domains()
+            rules = self.rules.list_rules()
+            records = self.zones.list_records()
+        return derive_hosts(domains, rules, records)
 
     def get_site(self, name: str) -> CdnSite:
         """One virtual host by its derived name, by scanning the derivation."""

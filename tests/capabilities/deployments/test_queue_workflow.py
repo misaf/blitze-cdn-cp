@@ -34,6 +34,33 @@ from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
 
 
+def test_remote_rollout_runs_after_admission_commits(settings):
+    repository = Repository(settings.database_path)
+    observed = []
+
+    class Runner(FakeRunner):
+        def run(self, **kwargs):
+            assert repository.database.current_session() is None
+            other = Repository(settings.database_path)
+            try:
+                observed.extend(other.deployments.list_deployments())
+            finally:
+                other.close()
+            return super().run(**kwargs)
+
+    control = build_application(
+        settings=settings, repository=repository, runner=Runner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    result = control.deployments.deploy("alice")
+
+    assert result.status is DeploymentStatus.SUCCEEDED
+    assert observed
+    assert all(item.id == result.id for item in observed)
+    assert all(item.status is DeploymentStatus.RUNNING for item in observed)
+
+
 def test_submit_deployment_queues_and_converges_on_a_worker(settings):
     repository = Repository(settings.database_path)
 

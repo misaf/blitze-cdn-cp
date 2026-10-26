@@ -100,7 +100,7 @@ class Database:
 
     @contextmanager
     def session(self) -> Iterator[Session]:
-        """The ambient session inside a Unit of Work, else a single-statement one."""
+        """Join the Unit of Work, else commit or roll back this store call."""
         ambient = self._session.get()
         if ambient is not None:
             yield ambient
@@ -110,7 +110,10 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        """Open the Unit of Work this database's stores share; nested calls join it."""
+        """Reserve the writer; nested calls share the outer transaction.
+
+        No savepoints: failures must escape the outer scope to roll back.
+        """
         if self._session.get() is not None:
             yield
             return

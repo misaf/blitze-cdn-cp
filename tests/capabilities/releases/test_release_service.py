@@ -60,6 +60,38 @@ def test_preparing_the_same_state_twice_records_one_release(control):
     assert [item.id for item in plane.releases.list_releases()] == [first.id]
 
 
+def test_rendering_failure_keeps_admission_durable_and_retryable(
+    control, settings, monkeypatch
+):
+    plane, repository = control
+    seed_site(plane)
+    renderer = plane.releases.renderer
+    seen = []
+
+    class InterruptedRenderer:
+        def render(self, document):
+            assert repository.database.current_session() is None
+            # A separate database session sees admission already committed.
+            other = Repository(settings.database_path)
+            try:
+                seen.extend(other.releases.list_releases())
+            finally:
+                other.close()
+            raise RuntimeError("render interrupted")
+
+    monkeypatch.setattr(plane.releases, "renderer", InterruptedRenderer())
+    with pytest.raises(RuntimeError, match="render interrupted"):
+        plane.releases.prepare()
+    assert len(seen) == 1
+    with pytest.raises(NotFoundError):
+        plane.releases.configuration(seen[0].id)
+
+    monkeypatch.setattr(plane.releases, "renderer", renderer)
+    retried = plane.releases.prepare()
+    assert retried.id == seen[0].id
+    assert plane.releases.configuration(retried.id)
+
+
 def test_admission_keeps_resource_resolution_and_retention_in_one_write_boundary(
     control, monkeypatch
 ):

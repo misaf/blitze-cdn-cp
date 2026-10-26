@@ -34,6 +34,7 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
+from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
 
@@ -45,6 +46,49 @@ def _two_acme_sites(control, certificate_pair):
         certificate, key = certificate_pair((site.server_names[0],), days=80)
         control.certificates.upload_certificate(site.name, certificate, key, "alice")
         control.certificates.request_certificate(site.name, "alice", "ops@example.com")
+
+
+def test_issuance_is_outside_activation_transaction_and_failure_keeps_evidence(
+    settings, certificate_pair, monkeypatch
+):
+    class Issuer:
+        def issue(self, site, email):
+            assert control.transactions.database.current_session() is None
+            other = Repository(settings.database_path)
+            try:
+                (workflow,) = other.workflows.list_workflows()
+                assert workflow.status is WorkflowStatus.RUNNING
+            finally:
+                other.close()
+            return certificate_pair()
+
+    control = certificate_control_plane(
+        settings, runner=FakeRunner(), issuer=Issuer(), preflight=FakePreflight()
+    )
+    _seed_proxied_record(control)
+    original = control.releases.inputs().digest
+    record = control.certificates.events.record
+
+    def refuse_activation_event(event):
+        if event.action == "certificate.requested":
+            raise RuntimeError("audit unavailable")
+        return record(event)
+
+    monkeypatch.setattr(control.certificates.events, "record", refuse_activation_event)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        control.certificates.request_certificate(
+            "example-com", "alice", "owner@example.com"
+        )
+
+    assert control.releases.inputs().digest == original
+    assert not control.transactions.deployment_requirements.pending(
+        DeploymentRequirementKind.CERTIFICATES
+    )
+    # Files and the CA effect cannot be rolled back with canonical activation.
+    assert control.certificates.certificate("example-com").source == "acme"
+    (workflow,) = control.transactions.workflows.list_workflows()
+    assert workflow.status is WorkflowStatus.FAILED
+    assert [step.name for step in workflow.steps] == ["issued", "stored"]
 
 
 def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_pair):
