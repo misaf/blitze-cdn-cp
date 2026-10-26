@@ -57,7 +57,8 @@ def test_a_tree_is_never_written_over_another(shipped, monkeypatch, tmp_path):
     result = runner.invoke(cli.app, ["release", "render", "--output", str(output)])
 
     assert result.exit_code != 0
-    assert "is not empty" in result.output
+    # Rich wraps the error box to the terminal, so the message may span lines.
+    assert "is not empty" in " ".join(result.output.replace("│", " ").split())
     assert sorted(path.name for path in output.iterdir()) == ["keep.txt"]
 
 
