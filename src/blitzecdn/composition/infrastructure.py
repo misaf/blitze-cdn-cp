@@ -1,16 +1,16 @@
 """The concrete adapters one control-plane process runs on.
 
-Services are built from these and never construct an adapter. The keyword
-arguments of :meth:`~blitzecdn.composition.Infrastructure.build` are the one
-test seam: replace an adapter, keep the production graph.
+Services are built from these and never construct an adapter. :class:`Adapters`
+is the one test seam: replace an adapter, keep the production graph.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Protocol
 
+from dishka import Provider, Scope, from_context, provide
 from sqlalchemy.exc import SQLAlchemyError
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
@@ -30,6 +30,7 @@ from blitzecdn.capabilities.jobs.wiring import (
     build_job_scheduler,
 )
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.workflows.ports import WorkflowHistory
 from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import load_registry
 from blitzecdn.core.ansible import AnsibleRunner
@@ -47,9 +48,9 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.core.ports.clock import Clock, system_clock
-from blitzecdn.core.ports.operations import PlaybookRunner
+from blitzecdn.core.ports.operations import AuditTrail, FleetSettings, PlaybookRunner
 
-__all__ = ["FleetRunner", "Infrastructure"]
+__all__ = ["Adapters", "FleetRunner", "InfrastructureProvider", "QueueReadiness"]
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -57,114 +58,189 @@ class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class Infrastructure:
-    """The adapters, and the resolved contributions they were built from."""
+class Adapters:
+    """Adapters a caller supplies in place of the real ones; ``None`` builds it.
 
-    settings: Settings
+    A supplied adapter stays its caller's: the container never closes it, so
+    two containers may share a store.
+    """
+
+    repository: Repository | None = None
+    features: FeatureRegistry | None = None
+    runner: FleetRunner | None = None
+    origin_probe: OriginProbePort | None = None
+    serving_probe: ServingVerifier | None = None
+    edges: EdgeStorePort | None = None
+    background: QueueBackgroundRunner | None = None
     #: The one clock every service and store in this process reads.
-    clock: Clock
-    repository: Repository
-    features: FeatureRegistry
-    capability_config: ResolvedCapabilityEnvironment
-    edge_contributions: EdgeContributions
-    edges: EdgeStorePort
-    runner: FleetRunner
-    origin_probe: OriginProbePort
-    serving_probe: ServingVerifier
-    certificate_store: CertificateStore
-    job_queue: JobQueue
-    job_scheduler: JobScheduler
-    background: QueueBackgroundRunner
-    queue_ready: Callable[[], bool]
-    #: The repository this object opened, and therefore closes. An injected
-    #: one stays its caller's, so two service graphs may share a store.
-    _owned: list[Repository] = field(default_factory=list, repr=False)
+    clock: Clock = system_clock
+    pool_connections: bool = False
 
-    @classmethod
-    def build(
-        cls,
-        settings: Settings,
-        *,
-        repository: Repository | None = None,
-        features: FeatureRegistry | None = None,
-        runner: FleetRunner | None = None,
-        origin_probe: OriginProbePort | None = None,
-        serving_probe: ServingVerifier | None = None,
-        edges: EdgeStorePort | None = None,
-        background: QueueBackgroundRunner | None = None,
-        queue_ready: Callable[[], bool] | None = None,
-        clock: Clock = system_clock,
-        pool_connections: bool = False,
-    ) -> Infrastructure:
-        """The real adapters, with any of them replaced by the caller's."""
-        store = repository or Repository(
+
+@dataclass(frozen=True, slots=True)
+class QueueReadiness:
+    """Whether the job table answers; an unmigrated database has no ``jobs``."""
+
+    queue: JobQueue
+
+    def __call__(self) -> bool:
+        # A `TypeError` is a bug and is not swallowed.
+        try:
+            self.queue.list_jobs(limit=1)
+        except (SQLAlchemyError, OSError):
+            return False
+        return True
+
+
+class InfrastructureProvider(Provider):
+    """The adapters, and the feature contributions resolved once for them."""
+
+    scope = Scope.APP
+
+    settings = from_context(provides=Settings)
+    adapters = from_context(provides=Adapters)
+
+    @provide
+    def repository(
+        self, settings: Settings, adapters: Adapters
+    ) -> Iterator[Repository]:
+        if adapters.repository is not None:
+            yield adapters.repository
+            return
+        store = Repository(
             settings.database_path,
-            pool_connections=pool_connections,
+            pool_connections=adapters.pool_connections,
             audit_retention=settings.audit_retention,
-            clock=clock,
+            clock=adapters.clock,
         )
         try:
-            registry = features if features is not None else load_registry()
-            # Refuse missing required capabilities before building anything
-            # that would use them.
-            registry.require(
-                settings.required_capabilities,
-                subject="this installation's `required_capabilities`",
-            )
-            fleet = edges or store.edges
-            contributions = registry.ansible_contributions()
-            capability_config = resolve_capability_environment(
-                registry.configuration_contributions(),
-                settings.capability_environment,
-                settings.capability_config_file,
-                settings.state_dir,
-            )
-            # What the features add to a run, resolved once.
-            edge_contributions = EdgeContributions.of(
-                roles_path=resolve_role_search_path(
-                    settings.ansible_dir / "roles", contributions
-                ),
-                edge_roles=resolve_edge_capability_roles(contributions),
-                host_roles=resolve_host_capability_roles(contributions),
-                teardown_roles=resolve_teardown_capability_roles(contributions),
-                nginx_resources=resolve_nginx_resources(registry.nginx_contributions()),
-                edge_modules=resolve_edge_modules(contributions),
-                environment=capability_config.environment,
-            )
-            job_queue = build_job_queue(
-                jobs=store.jobs, retention=settings.history_retention, clock=clock
-            )
-            return cls(
-                settings=settings,
-                clock=clock,
-                repository=store,
-                features=registry,
-                capability_config=capability_config,
-                edge_contributions=edge_contributions,
-                edges=fleet,
-                # The fleet as core reads it, so `core.ansible` imports no capability.
-                runner=runner
-                or AnsibleRunner(settings, EdgeRoster(fleet), edge_contributions),
-                origin_probe=origin_probe or OriginProbe(settings),
-                serving_probe=serving_probe or ServingProbe(),
-                certificate_store=CertificateStore(settings, clock=clock),
-                job_queue=job_queue,
-                job_scheduler=build_job_scheduler(
-                    schedules=store.schedules, queue=job_queue, uow=store, clock=clock
-                ),
-                background=background or _QueuePublisher(job_queue),
-                queue_ready=queue_ready or (lambda: _queue_reachable(job_queue)),
-                _owned=[store] if repository is None else [],
-            )
-        except BaseException:
-            if repository is None:
-                store.close()
-            raise
+            yield store
+        finally:
+            store.close()
 
-    def close(self) -> None:
-        """Release what :meth:`build` opened; injected adapters stay open."""
-        while self._owned:
-            self._owned.pop().close()
+    @provide
+    def features(self, settings: Settings, adapters: Adapters) -> FeatureRegistry:
+        registry = (
+            adapters.features if adapters.features is not None else load_registry()
+        )
+        # Refuse missing required capabilities before building anything that
+        # would use them.
+        registry.require(
+            settings.required_capabilities,
+            subject="this installation's `required_capabilities`",
+        )
+        return registry
+
+    @provide
+    def capability_config(
+        self, settings: Settings, features: FeatureRegistry
+    ) -> ResolvedCapabilityEnvironment:
+        return resolve_capability_environment(
+            features.configuration_contributions(),
+            settings.capability_environment,
+            settings.capability_config_file,
+            settings.state_dir,
+        )
+
+    @provide
+    def edge_contributions(
+        self,
+        settings: Settings,
+        features: FeatureRegistry,
+        capability_config: ResolvedCapabilityEnvironment,
+    ) -> EdgeContributions:
+        """What the features add to a run, resolved once."""
+        contributions = features.ansible_contributions()
+        return EdgeContributions.of(
+            roles_path=resolve_role_search_path(
+                settings.ansible_dir / "roles", contributions
+            ),
+            edge_roles=resolve_edge_capability_roles(contributions),
+            host_roles=resolve_host_capability_roles(contributions),
+            teardown_roles=resolve_teardown_capability_roles(contributions),
+            nginx_resources=resolve_nginx_resources(features.nginx_contributions()),
+            edge_modules=resolve_edge_modules(contributions),
+            environment=capability_config.environment,
+        )
+
+    @provide
+    def edges(self, repository: Repository, adapters: Adapters) -> EdgeStorePort:
+        return adapters.edges or repository.edges
+
+    @provide
+    def runner(
+        self,
+        settings: Settings,
+        adapters: Adapters,
+        edges: EdgeStorePort,
+        edge_contributions: EdgeContributions,
+    ) -> FleetRunner:
+        # The fleet as core reads it, so `core.ansible` imports no capability.
+        return adapters.runner or AnsibleRunner(
+            settings, EdgeRoster(edges), edge_contributions
+        )
+
+    @provide
+    def playbooks(self, runner: FleetRunner) -> PlaybookRunner:
+        return runner
+
+    @provide
+    def origin_probe(self, settings: Settings, adapters: Adapters) -> OriginProbePort:
+        return adapters.origin_probe or OriginProbe(settings)
+
+    @provide
+    def serving_probe(self, adapters: Adapters) -> ServingVerifier:
+        return adapters.serving_probe or ServingProbe()
+
+    @provide
+    def certificate_store(
+        self, settings: Settings, adapters: Adapters
+    ) -> CertificateStore:
+        return CertificateStore(settings, clock=adapters.clock)
+
+    @provide
+    def job_queue(
+        self, settings: Settings, adapters: Adapters, repository: Repository
+    ) -> JobQueue:
+        return build_job_queue(
+            jobs=repository.jobs,
+            retention=settings.history_retention,
+            clock=adapters.clock,
+        )
+
+    @provide
+    def job_scheduler(
+        self, adapters: Adapters, repository: Repository, queue: JobQueue
+    ) -> JobScheduler:
+        return build_job_scheduler(
+            schedules=repository.schedules,
+            queue=queue,
+            uow=repository,
+            clock=adapters.clock,
+        )
+
+    @provide
+    def background(self, adapters: Adapters, queue: JobQueue) -> QueueBackgroundRunner:
+        return adapters.background or _QueuePublisher(queue)
+
+    @provide
+    def queue_readiness(self, queue: JobQueue) -> QueueReadiness:
+        return QueueReadiness(queue)
+
+    # -- stores entry layers read directly -------------------------------
+
+    @provide
+    def audit(self, repository: Repository) -> AuditTrail:
+        """The read side of the audit trail, so no entry layer can record."""
+        return repository.audit_log
+
+    @provide
+    def fleet_settings(self, repository: Repository) -> FleetSettings:
+        return repository.ansible_settings
+
+    @provide
+    def workflow_history(self, repository: Repository) -> WorkflowHistory:
+        return repository.workflows
 
 
 class _QueuePublisher:
@@ -175,12 +251,3 @@ class _QueuePublisher:
 
     def enqueue(self, deployment_id: str) -> None:
         self._queue.enqueue_deployment(deployment_id)
-
-
-def _queue_reachable(queue: JobQueue) -> bool:
-    """Whether the job table answers; a ``TypeError`` is a bug and is not swallowed."""
-    try:
-        queue.list_jobs(limit=1)
-    except (SQLAlchemyError, OSError):
-        return False
-    return True

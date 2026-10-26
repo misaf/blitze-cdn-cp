@@ -122,7 +122,7 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     _seed_proxied_record(control)
 
     # Two runs, so the fake runner needs a result for each.
-    control.infrastructure.runner.results.append(ansible_run(host_run("edge-a")))
+    control.runner.results.append(ansible_run(host_run("edge-a")))
 
     control.deployments.deploy("alice", check=True)
     assert control.deployments.site_is_deployed("example-com") is False

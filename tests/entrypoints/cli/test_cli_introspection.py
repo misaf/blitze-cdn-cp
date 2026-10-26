@@ -39,7 +39,7 @@ def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_pa
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
     _seed_site(control, "cdn", "198.51.100.10")

@@ -1,38 +1,43 @@
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, status
 
+from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
 from blitzecdn.capabilities.edges.service.operations import (
     REMOVE_OPERATION,
     remove_dedupe_key,
     remove_payload,
 )
+from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
-    ServicesDependency,
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import Operation, as_queued
 
-router = APIRouter(dependencies=[Depends(require_operator)])
+router = APIRouter(
+    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+)
 
 
 @router.get("/v1/edges", response_model=list[Edge])
-def list_edges(control: ServicesDependency) -> list[Edge]:
+def list_edges(edges: FromDishka[EdgeOperationsService]) -> list[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
-    return [Edge.from_domain(item) for item in control.edges.list_edges()]
+    return [Edge.from_domain(item) for item in edges.list_edges()]
 
 
 @router.get("/v1/edges/{name}", response_model=Edge)
-def get_edge(name: str, control: ServicesDependency) -> Edge:
-    return Edge.from_domain(control.edges.get_edge(name))
+def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
+    return Edge.from_domain(edges.get_edge(name))
 
 
 @router.post("/v1/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
 def add_edge(
-    edge: Edge, operator: OperatorDependency, control: ServicesDependency
+    edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    return Edge.from_domain(control.edges.add_edge(edge.to_domain(), operator))
+    return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
 
 
 @router.patch("/v1/edges/{name}", response_model=Edge)
@@ -40,11 +45,9 @@ def update_edge(
     name: str,
     patch: EdgePatch,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
-    return Edge.from_domain(
-        control.edges.update_edge(name, patch.to_domain(), operator)
-    )
+    return Edge.from_domain(edges.update_edge(name, patch.to_domain(), operator))
 
 
 @router.delete(
@@ -55,7 +58,8 @@ def update_edge(
 def remove_edge(
     name: str,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    edges: FromDishka[EdgeOperationsService],
+    queued_operations: FromDishka[OperationService],
     decommission: bool = Query(
         True,
         description=(
@@ -77,9 +81,9 @@ def remove_edge(
     The result is ``{name, decommissioned, hosts}``. A failed teardown fails the
     operation and keeps the edge registered unless ``force`` was given.
     """
-    control.edges.get_edge(name)
+    edges.get_edge(name)
     return as_queued(
-        control.queued_operations.submit(
+        queued_operations.submit(
             REMOVE_OPERATION,
             remove_payload(operator, name=name, decommission=decommission, force=force),
             dedupe_key=remove_dedupe_key(name),

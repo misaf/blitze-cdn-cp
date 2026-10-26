@@ -16,25 +16,25 @@ __all__ = ["main", "run_worker"]
 
 
 def run_worker(settings: Settings | None = None) -> None:
-    """Run the worker until asked to stop; startup is ``WorkerServices.start``'s."""
-    from blitzecdn.composition import Infrastructure, build_services, build_worker
+    """Run the worker until asked to stop; startup is ``Worker.start``'s."""
+    from blitzecdn.composition import Worker, worker_container
 
     resolved = settings or Settings.from_environment()
-    worker = build_worker(build_services(Infrastructure.build(resolved)))
+    container = worker_container(resolved)
     try:
-        worker.start()
-        _LOGGER.info(
-            "worker ready: %d scheduled job(s) registered",
-            len(worker.job_scheduler.schedules.list_schedules()),
-        )
-        runner = worker.job_runner
-        runner.install_signal_handlers()
-        runner.run_forever()
-    finally:
+        worker = container.get(Worker)
         try:
-            worker.stop()
+            worker.start()
+            _LOGGER.info(
+                "worker ready: %d scheduled job(s) registered",
+                len(worker.scheduler.schedules.list_schedules()),
+            )
+            worker.runner.install_signal_handlers()
+            worker.runner.run_forever()
         finally:
-            worker.close()
+            worker.stop()
+    finally:
+        container.close()
 
 
 def main() -> None:  # pragma: no cover - the process entry point

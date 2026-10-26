@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
 from blitzecdn.core.features.resolution import resolve_edge_modules
 from blitzecdn.entrypoints.cli import common
@@ -23,7 +24,9 @@ def edge_list(json_output: common.JsonOutput = False) -> None:
 
         ansible-inventory -i ansible/inventory/blitzecdn.yml --list
     """
-    common.emit(common.services().edges.list_edges(), json_output=json_output)
+    common.emit(
+        common.service(EdgeOperationsService).list_edges(), json_output=json_output
+    )
 
 
 @edge_app.command("add")
@@ -93,7 +96,7 @@ def edge_add(
         raise typer.BadParameter(
             "at least one --ssh-source management CIDR is required"
         )
-    edge = common.services().edges.add_edge(
+    edge = common.service(EdgeOperationsService).add_edge(
         Edge(
             name=name,
             host=host,
@@ -174,7 +177,7 @@ def edge_update(
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter("give at least one field to change")
-    edge = common.services().edges.update_edge(
+    edge = common.service(EdgeOperationsService).update_edge(
         name, EdgePatch.model_validate(named), "cli"
     )
     common.emit(
@@ -220,11 +223,12 @@ def edge_remove(
     )
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
-    control = common.services()
     if decommission:
-        control.edges.decommission_edge(name, "cli", force=force)
+        common.service(EdgeOperationsService).decommission_edge(
+            name, "cli", force=force
+        )
     else:
-        control.edges.remove_edge(name, "cli")
+        common.service(EdgeOperationsService).remove_edge(name, "cli")
     typer.echo(f"Removed {name}")
 
 

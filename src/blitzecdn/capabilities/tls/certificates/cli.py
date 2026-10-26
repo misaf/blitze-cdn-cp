@@ -9,9 +9,12 @@ from typing import Annotated, Any, NoReturn
 
 import typer
 
+from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
+from blitzecdn.capabilities.tls.certificates.service import CertificateService
+from blitzecdn.core.ports.operations import PlaybookRunner
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
@@ -55,11 +58,11 @@ def cert_list(
     Exits 4 if any listed certificate has already expired, so a scheduled
     check notices without anyone reading the output.
     """
-    control = common.services()
+    certificates = common.service(CertificateService)
     statuses = (
-        control.certificates.expiring_certificates(expiring_in)
+        certificates.expiring_certificates(expiring_in)
         if expiring_in is not None
-        else control.certificates.certificate_statuses()
+        else certificates.certificate_statuses()
     )
     common.emit(statuses, json_output=json_output)
     if not json_output and not statuses:
@@ -83,7 +86,7 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = common.services().certificates.certificate_preflight(name)
+    report = common.service(CertificateService).certificate_preflight(name)
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -137,8 +140,7 @@ def cert_renew(
     Use --site to retry a single failure without sending every other
     subscription back to the CA, which is rate limited.
     """
-    control = common.services()
-    result = control.certificates.renew_certificates(
+    result = common.service(CertificateService).renew_certificates(
         "cli",
         within_days=expiring_in,
         force=force,
@@ -147,7 +149,7 @@ def cert_renew(
     )
     deployment = None
     if deploy_after and result.renewed and not result.failed:
-        deployment = control.deployments.deploy("cli")
+        deployment = common.service(DeploymentService).deploy("cli")
     output: dict[str, Any] = result.model_dump(mode="json")
     if deploy_after:
         output["deployment"] = (
@@ -181,7 +183,7 @@ def cert_reconcile(
     preflights never contact the CA, and a deployment is queued only after at
     least one new certificate was issued. The worker converges it.
     """
-    result = common.services().certificates.reconcile_certificates("cli")
+    result = common.service(CertificateService).reconcile_certificates("cli")
     deployment = result.deployment
     common.emit(
         result,
@@ -228,7 +230,7 @@ def cert_upload(
     """
     certificate_pem = _read_material(certificate_file, PEM_CERTIFICATE_LIMIT)
     private_key_pem = _read_material(private_key_file, PEM_PRIVATE_KEY_LIMIT)
-    info = common.services().certificates.upload_certificate(
+    info = common.service(CertificateService).upload_certificate(
         name, certificate_pem, private_key_pem, "cli"
     )
     common.emit(info, json_output=json_output)
@@ -273,7 +275,7 @@ def cert_request(
     the case preflight cannot see, such as a resolver that answers differently
     from where the edge sits.
     """
-    info = common.services().certificates.request_certificate(
+    info = common.service(CertificateService).request_certificate(
         name, "cli", email, skip_preflight=skip_preflight
     )
     common.emit(info, json_output=json_output)
@@ -287,7 +289,7 @@ def cert_request(
 @cert_app.command("collect")
 def cert_collect(json_output: common.JsonOutput = False) -> None:
     """Remove controller material unreferenced by policy or retained releases."""
-    removed = common.services().certificates.collect_material("cli")
+    removed = common.service(CertificateService).collect_material("cli")
     common.emit({"removed": list(removed)}, json_output=json_output)
 
 
@@ -316,7 +318,7 @@ def cert_acme_hook(
         _acme_fail("invalid ACME challenge environment", ExitCode.INVALID_INPUT)
     if action == "present" and not _ACME_VALIDATION.fullmatch(validation):
         _acme_fail("invalid ACME validation value", ExitCode.INVALID_INPUT)
-    run = common.services().fleet.run_playbook(
+    run = common.service(PlaybookRunner).run_playbook(
         name="acme-challenge",
         playbook=ansible.ACME_CHALLENGE_PLAYBOOK,
         variables={

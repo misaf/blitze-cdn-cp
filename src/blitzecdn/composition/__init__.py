@@ -1,22 +1,28 @@
 """Where the application is put together, and the only place that decides.
 
-``roster`` lists the features and what each binds; ``infrastructure`` builds
+``roster`` lists the features and what each binds; ``infrastructure`` provides
 the concrete adapters; ``services`` the service graph; ``processes`` one
-container per process; ``installation`` database maintenance; ``repository``
-which stores share the database. Import only the names re-exported here.
+dishka container per process; ``installation`` database maintenance;
+``repository`` which stores share the database. Import only the names
+re-exported here.
 """
 
-from blitzecdn.composition.infrastructure import FleetRunner, Infrastructure
+from blitzecdn.composition.infrastructure import (
+    Adapters,
+    FleetRunner,
+    InfrastructureProvider,
+)
 from blitzecdn.composition.installation import migrate_database
 from blitzecdn.composition.processes import (
-    ApiServices,
-    CliServices,
-    HandoffServices,
-    WorkerServices,
-    build_api,
-    build_cli,
-    build_install_handoff,
-    build_worker,
+    ApiNode,
+    ApiProvider,
+    Worker,
+    WorkerProvider,
+    api_container,
+    cli_container,
+    handoff_container,
+    refuse_missing_capabilities,
+    worker_container,
 )
 from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import (
@@ -25,25 +31,26 @@ from blitzecdn.composition.roster import (
     RosterEntry,
     load_registry,
 )
-from blitzecdn.composition.services import ApplicationServices, build_services
+from blitzecdn.composition.services import ServiceProvider
 
 __all__ = [
     "BUILTIN_FEATURES",
     "ROSTER",
-    "ApiServices",
-    "ApplicationServices",
-    "CliServices",
+    "Adapters",
+    "ApiNode",
+    "ApiProvider",
     "FleetRunner",
-    "HandoffServices",
-    "Infrastructure",
+    "InfrastructureProvider",
     "Repository",
     "RosterEntry",
-    "WorkerServices",
-    "build_api",
-    "build_cli",
-    "build_install_handoff",
-    "build_services",
-    "build_worker",
+    "ServiceProvider",
+    "Worker",
+    "WorkerProvider",
+    "api_container",
+    "cli_container",
+    "handoff_container",
     "load_registry",
     "migrate_database",
+    "refuse_missing_capabilities",
+    "worker_container",
 ]

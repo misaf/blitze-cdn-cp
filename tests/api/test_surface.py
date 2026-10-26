@@ -1,6 +1,7 @@
 import json
 import re
 
+from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from support.control_plane import control_plane_app
@@ -12,10 +13,10 @@ from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
 from blitzecdn.capabilities.dns.api import routes as site_routes
 from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
-from blitzecdn.entrypoints.api.dependencies import get_services
+from blitzecdn.composition import load_registry
 
 
-def test_routes_are_domain_modules_and_services_are_a_dependency():
+def test_routes_are_domain_modules():
     """Every router the control plane itself ships, and where its endpoints live.
 
     Capability routers are asserted in their own suites.
@@ -47,18 +48,20 @@ def test_routes_are_domain_modules_and_services_are_a_dependency():
         "blitzecdn.capabilities.dns.api.routes",
     }
 
-    def dependency_calls(route: APIRoute) -> set[object]:
-        pending = list(route.dependant.dependencies)
-        calls: set[object] = set()
-        while pending:
-            dependency = pending.pop()
-            calls.add(dependency.call)
-            pending.extend(dependency.dependencies)
-        return calls
 
-    for route in routes:
-        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/"):
-            assert get_services in dependency_calls(route), route.path
+def test_every_route_resolves_its_services_from_the_container():
+    """A router without dishka's route class would read ``FromDishka[...]``
+    as a request body, and publish it."""
+    routes = [
+        route
+        for router in load_registry().api_routers()
+        for route in router.routes
+        if isinstance(route, APIRoute)
+    ]
+    assert routes
+    assert [
+        route.path for route in routes if not isinstance(route, DishkaSyncRoute)
+    ] == []
 
 
 def test_openapi_documents_core_control_workflows(settings):

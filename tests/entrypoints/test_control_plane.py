@@ -5,7 +5,9 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+from dishka.exceptions import NoFactoryError
 from support.control_plane import (
+    ControlPlane,
     FakeRunner,
     RecordingBackgroundQueue,
     advance,
@@ -26,9 +28,21 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
     Rule,
 )
+from blitzecdn.capabilities.jobs import (
+    DEPLOYMENT_JOB,
+    SCHEDULED_JOB,
+    JobQueue,
+)
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import ApplicationServices, Repository
+from blitzecdn.composition import (
+    Repository,
+    Worker,
+    api_container,
+    cli_container,
+    handoff_container,
+    worker_container,
+)
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
     ConflictError,
@@ -36,7 +50,7 @@ from blitzecdn.core.exceptions import (
 )
 
 
-def _seed_proxied_record(control: ApplicationServices) -> CdnSite:
+def _seed_proxied_record(control: ControlPlane) -> CdnSite:
     """The zone, site and record most tests need: `example-com`."""
     return seed_site(control)
 
@@ -92,6 +106,7 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
     )
 
     owned = build_application(settings=settings)
+    assert owned.repository is not None
     owned.close()
     owned.close()
 
@@ -100,6 +115,26 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
     injected.close()
 
     assert len(closed) == 1
+
+
+def test_only_the_worker_container_installs_the_queue_handlers(settings):
+    """Every process shares the queue; only the worker consumes it."""
+    for build in (api_container, cli_container, handoff_container):
+        container = build(settings)
+        try:
+            assert container.get(JobQueue).handlers == {}
+            with pytest.raises(NoFactoryError):
+                container.get(Worker)
+        finally:
+            container.close()
+
+    container = worker_container(settings)
+    try:
+        worker = container.get(Worker)
+        assert worker.runner.queue is container.get(JobQueue)
+        assert {DEPLOYMENT_JOB, SCHEDULED_JOB} <= set(worker.runner.queue.handlers)
+    finally:
+        container.close()
 
 
 def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatch):
@@ -707,7 +742,7 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
 
 
 @pytest.mark.parametrize("injected", [False, True])
-def test_failed_composition_closes_only_owned_persistence(
+def test_a_missing_required_capability_is_refused_before_persistence_opens(
     settings, monkeypatch, injected
 ):
     closed = []
@@ -726,7 +761,7 @@ def test_failed_composition_closes_only_owned_persistence(
 
     with pytest.raises(FeatureError, match="absent-provider"):
         build_application(settings=invalid, repository=repository)
-    assert len(closed) == (0 if injected else 1)
+    assert closed == []
     if repository is not None:
         assert repository.zones.list_domains() == []
         repository.close()
@@ -756,7 +791,7 @@ def test_the_composition_root_s_clock_stamps_what_services_write(settings):
     frozen = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
     control = build_application(settings=settings, clock=lambda: frozen)
     try:
-        assert control.infrastructure.repository.database.now() == frozen
+        assert control.repository.database.now() == frozen
         assert control.deployments.clock() == frozen
         assert control.job_queue.clock() == frozen
         job = control.job_queue.enqueue_deployment("deployment-1")

@@ -9,6 +9,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.app import dns_app, record_app
 from blitzecdn.capabilities.dns.domain import DnsRecord, RecordType
 from blitzecdn.entrypoints.cli import common
@@ -55,7 +56,7 @@ def record_add(
         proxied=proxied,
     )
     common.emit(
-        common.services().dns.create_record(record, "cli"),
+        common.service(DnsService).create_record(record, "cli"),
         json_output=json_output,
     )
 
@@ -72,7 +73,9 @@ def record_list(
     handed out by the DNS system. The policy behind any hostname is
     'blitzecdn domain show', and any exception to that is 'blitzecdn rule list'.
     """
-    common.emit(common.services().dns.list_records(domain), json_output=json_output)
+    common.emit(
+        common.service(DnsService).list_records(domain), json_output=json_output
+    )
 
 
 @record_app.command("proxy")
@@ -89,7 +92,7 @@ def record_proxy(
     address is left alone — from now on it is where the edge fetches from, not
     what clients resolve to.
     """
-    record = common.services().dns.proxy(domain, name, type_, "cli")
+    record = common.service(DnsService).proxy(domain, name, type_, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -125,7 +128,7 @@ def record_unproxy(
     The zone's policy is left as it is. If nothing else in the zone is proxied,
     it simply stops being served.
     """
-    record = common.services().dns.unproxy(domain, name, type_, value, "cli")
+    record = common.service(DnsService).unproxy(domain, name, type_, value, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -154,7 +157,7 @@ def record_remove(
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
         raise typer.Abort()
-    common.services().dns.delete_record(domain, name, type_, "cli")
+    common.service(DnsService).delete_record(domain, name, type_, "cli")
     typer.echo(f"Deleted {label}")
 
 
@@ -175,4 +178,4 @@ def dns_export(json_output: common.JsonOutput = False) -> None:
     leaves this side. The record's own value is emitted only when it is
     unproxied, which is the case where the value *is* the public answer.
     """
-    common.emit(common.services().dns.dns_export(), json_output=json_output)
+    common.emit(common.service(DnsService).dns_export(), json_output=json_output)

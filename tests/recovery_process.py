@@ -18,11 +18,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from support.control_plane import FakeRunner, build_application
+from support.control_plane import ControlPlane, FakeRunner, build_application
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.composition import ApplicationServices, build_worker
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
@@ -93,7 +92,7 @@ class LocalRunner:
         return self.delegate.run_decommission(host_limit=host_limit)
 
 
-def snapshot(control: ApplicationServices, runner: LocalRunner) -> dict[str, Any]:
+def snapshot(control: ControlPlane, runner: LocalRunner) -> dict[str, Any]:
     release = control.releases.compile()
     return {
         "pid": os.getpid(),
@@ -151,7 +150,7 @@ def main() -> None:
         runner=runner,
         serving_probe=LoopbackProbe(args.port),
     )
-    process = build_worker(control) if worker else None
+    process = control.worker if worker else None
     try:
         if process is not None:
             process.start()

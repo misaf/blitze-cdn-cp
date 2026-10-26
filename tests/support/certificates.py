@@ -1,8 +1,8 @@
 """Building this capability's services the way the composition root does.
 
 ``control.certificates`` is the service the composition root built. The seams a
-test needs (the store, the issuer, the preflight) are substituted by rebuilding
-the dataclasses around it. `just types` checks the doubles against their ports.
+test needs (the store, the issuer, the preflight) are substituted by a provider
+that decorates it. `just types` checks the doubles against their ports.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
+from dishka import Provider, Scope, decorate
 
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
@@ -27,12 +28,12 @@ from blitzecdn.capabilities.tls.certificates.ports import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
-from blitzecdn.composition import ApplicationServices, FleetRunner, Repository
+from blitzecdn.composition import FleetRunner, Repository
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.entrypoints.cli import common as cli_common
 from support.control_plane import (
+    ControlPlane,
     FakeRunner,
     build_application,
     cli_control_plane,
@@ -81,11 +82,31 @@ def _with_seams(
     )
 
 
-def _attach(
-    control: ApplicationServices, service: CertificateService
-) -> ApplicationServices:
-    """The same graph, with the certificate service's seams replaced."""
-    return replace(control, certificates=service)
+class _Seams(Provider):
+    """The composition root's certificate service, with the named seams replaced."""
+
+    scope = Scope.APP
+
+    def __init__(
+        self,
+        *,
+        certificate_store: CertificateStore | None = None,
+        issuer: Issuer | None = None,
+        preflight: Preflight | None = None,
+    ) -> None:
+        super().__init__()
+        self._certificate_store = certificate_store
+        self._issuer = issuer
+        self._preflight = preflight
+
+    @decorate
+    def certificates(self, service: CertificateService) -> CertificateService:
+        return _with_seams(
+            service,
+            certificate_store=self._certificate_store,
+            issuer=self._issuer,
+            preflight=self._preflight,
+        )
 
 
 def certificate_control_plane(
@@ -95,27 +116,23 @@ def certificate_control_plane(
     certificate_store: CertificateStore | None = None,
     issuer: Issuer | None = None,
     preflight: Preflight | None = None,
-) -> ApplicationServices:
+) -> ControlPlane:
     """A control plane with this capability's services built onto it.
 
     ``control.certificates`` and ``control.automatic_ssl`` are the composition
     root's, with only the named seams replaced.
     """
-    repository = Repository(settings.database_path)
-    control = build_application(
+    return build_application(
         settings=settings,
-        repository=repository,
+        repository=Repository(settings.database_path),
         runner=runner if runner is not None else FakeRunner(),
-    )
-
-    return _attach(
-        control,
-        _with_seams(
-            control.certificates,
-            certificate_store=certificate_store,
-            issuer=issuer,
-            preflight=preflight,
-        ),
+        providers=[
+            _Seams(
+                certificate_store=certificate_store,
+                issuer=issuer,
+                preflight=preflight,
+            )
+        ],
     )
 
 
@@ -124,16 +141,15 @@ def certificate_cli_control_plane(
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
     preflight: Preflight | None = None,
-) -> ApplicationServices:
+) -> ControlPlane:
     """`cli_control_plane`, with this capability's services built onto it.
 
     `cert list`, `cert renew` and `cert preflight` all read
     `control.certificates`.
     """
-    built = cli_control_plane(settings, monkeypatch, runner_double)
-    control = _attach(built, _with_seams(built.certificates, preflight=preflight))
-    monkeypatch.setattr(cli_common, "services", lambda: control)
-    return control
+    return cli_control_plane(
+        settings, monkeypatch, runner_double, providers=[_Seams(preflight=preflight)]
+    )
 
 
 class FakePreflight:
@@ -202,7 +218,7 @@ def _automatic_origin_report(
 
 
 def _seed_automatic_ssl_record(
-    control: ApplicationServices,
+    control: ControlPlane,
     *,
     mode: SslMode = SslMode.OFF,
     automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
@@ -235,7 +251,7 @@ class _RecordingIssuer:
 
 
 def _proxied_site_with_certificate(
-    control: ApplicationServices,
+    control: ControlPlane,
     repository: Repository,
     certificate_pair: CertificatePair,
     *,

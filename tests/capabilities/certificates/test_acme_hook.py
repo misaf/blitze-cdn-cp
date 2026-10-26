@@ -26,8 +26,8 @@ def _fleet(monkeypatch, settings, run):
             calls.append(values)
             return run
 
-    control = SimpleNamespace(settings=settings, fleet=Fleet(), close=lambda: None)
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    container = SimpleNamespace(get=lambda _kind: Fleet())
+    monkeypatch.setattr(cli.common, "container", lambda: container)
     return calls
 
 

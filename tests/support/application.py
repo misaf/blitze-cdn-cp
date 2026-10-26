@@ -9,11 +9,11 @@ import time
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import ApplicationServices, Repository
-from support.control_plane import seed_site
+from blitzecdn.composition import Repository
+from support.control_plane import ControlPlane, seed_site
 
 
-def _seed_proxied_record(control: ApplicationServices) -> CdnSite:
+def _seed_proxied_record(control: ControlPlane) -> CdnSite:
     """The site and routed record most tests need: `example-com`."""
     return seed_site(control)
 

@@ -1,7 +1,10 @@
 from typing import Annotated, Any
 
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, status
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.api.models import (
     CdnSite,
     DnsRecord,
@@ -15,31 +18,34 @@ from blitzecdn.capabilities.dns.api.models import (
     RulePatch,
 )
 from blitzecdn.capabilities.dns.domain import PatchPolicy
+from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
-    ServicesDependency,
     require_operator,
 )
 
-router = APIRouter(dependencies=[Depends(require_operator)])
+router = APIRouter(
+    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+)
 
 
 @router.get("/v1/domains", response_model=list[Domain])
-def list_domains(control: ServicesDependency) -> list[Domain]:
-    return [Domain.from_domain(item) for item in control.dns.list_domains()]
+def list_domains(dns: FromDishka[DnsService]) -> list[Domain]:
+    return [Domain.from_domain(item) for item in dns.list_domains()]
 
 
 @router.post("/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
 def create_domain(
-    domain: Domain, operator: OperatorDependency, control: ServicesDependency
+    domain: Domain, operator: OperatorDependency, dns: FromDishka[DnsService]
 ) -> Domain:
-    return Domain.from_domain(control.dns.create_domain(domain.to_domain(), operator))
+    return Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
 
 
 @router.get("/v1/domains/{domain}", response_model=Domain)
-def get_domain(domain: str, control: ServicesDependency) -> Domain:
-    return Domain.from_domain(control.dns.get_domain(domain))
+def get_domain(domain: str, dns: FromDishka[DnsService]) -> Domain:
+    return Domain.from_domain(dns.get_domain(domain))
 
 
 @router.patch("/v1/domains/{domain}", response_model=Domain)
@@ -47,40 +53,38 @@ def update_domain(
     domain: str,
     patch: DomainPatch,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    dns: FromDishka[DnsService],
 ) -> Domain:
     return Domain.from_domain(
-        control.dns.update_domain(
-            domain, PatchPolicy.from_patch(patch.to_domain()), operator
-        )
+        dns.update_domain(domain, PatchPolicy.from_patch(patch.to_domain()), operator)
     )
 
 
 @router.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_domain(
-    domain: str, operator: OperatorDependency, control: ServicesDependency
+    domain: str, operator: OperatorDependency, dns: FromDishka[DnsService]
 ) -> None:
-    control.dns.delete_domain(domain, operator)
+    dns.delete_domain(domain, operator)
 
 
 @router.get("/v1/hosts", response_model=list[CdnSite])
-def list_hosts(control: ServicesDependency) -> list[CdnSite]:
+def list_hosts(sites: FromDishka[SiteReader]) -> list[CdnSite]:
     """The virtual hosts the zones and their rules resolve to; read-only.
 
     Its own collection, because a host belongs to a zone and to whichever rule
     claimed its hostnames. Change it through those.
     """
-    return [CdnSite.from_domain(host) for host in control.sites.list_sites()]
+    return [CdnSite.from_domain(host) for host in sites.list_sites()]
 
 
 @router.get("/v1/hosts/{name}", response_model=CdnSite)
-def get_host(name: str, control: ServicesDependency) -> CdnSite:
-    return CdnSite.from_domain(control.sites.get_site(name))
+def get_host(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
+    return CdnSite.from_domain(sites.get_site(name))
 
 
 @router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
-def list_records(domain: str, control: ServicesDependency) -> list[DnsRecord]:
-    return [DnsRecord.from_domain(item) for item in control.dns.list_records(domain)]
+def list_records(domain: str, dns: FromDishka[DnsService]) -> list[DnsRecord]:
+    return [DnsRecord.from_domain(item) for item in dns.list_records(domain)]
 
 
 @router.post(
@@ -92,16 +96,14 @@ def create_record(
     domain: str,
     record: DnsRecord,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    dns: FromDishka[DnsService],
 ) -> DnsRecord:
     if record.domain != domain:
         raise ConflictError(
             f"record domain {record.domain!r} does not match the path "
             f"segment {domain!r}"
         )
-    return DnsRecord.from_domain(
-        control.dns.create_record(record.to_domain(), operator)
-    )
+    return DnsRecord.from_domain(dns.create_record(record.to_domain(), operator))
 
 
 @router.patch("/v1/domains/{domain}/records/{name}", response_model=DnsRecord)
@@ -110,13 +112,11 @@ def update_record(
     name: str,
     patch: RecordPatch,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    dns: FromDishka[DnsService],
     type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> DnsRecord:
     return DnsRecord.from_domain(
-        control.dns.update_record(
-            domain, name, type_.to_domain(), patch.to_domain(), operator
-        )
+        dns.update_record(domain, name, type_.to_domain(), patch.to_domain(), operator)
     )
 
 
@@ -127,24 +127,24 @@ def delete_record(
     domain: str,
     name: str,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    dns: FromDishka[DnsService],
     type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> None:
-    control.dns.delete_record(domain, name, type_.to_domain(), operator)
+    dns.delete_record(domain, name, type_.to_domain(), operator)
 
 
 @router.get("/v1/dns/export")
-def dns_export(control: ServicesDependency) -> dict[str, Any]:
+def dns_export(dns: FromDishka[DnsService]) -> dict[str, Any]:
     """Desired DNS state for whatever is authoritative for these zones.
 
     An envelope, so ``publication`` makes plain that nothing here publishes it.
     """
-    return control.dns.dns_export()
+    return dns.dns_export()
 
 
 @router.get("/v1/domains/{domain}/rules", response_model=list[Rule])
-def list_rules(domain: str, control: ServicesDependency) -> list[Rule]:
-    return [Rule.from_domain(item) for item in control.rules.list_rules(domain)]
+def list_rules(domain: str, rules: FromDishka[RuleService]) -> list[Rule]:
+    return [Rule.from_domain(item) for item in rules.list_rules(domain)]
 
 
 @router.post(
@@ -156,14 +156,14 @@ def create_rule(
     domain: str,
     rule: RuleCreate,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    rules: FromDishka[RuleService],
 ) -> Rule:
-    return Rule.from_domain(control.rules.create_rule(rule.to_domain(domain), operator))
+    return Rule.from_domain(rules.create_rule(rule.to_domain(domain), operator))
 
 
 @router.get("/v1/domains/{domain}/rules/{name}", response_model=Rule)
-def get_rule(domain: str, name: str, control: ServicesDependency) -> Rule:
-    return Rule.from_domain(control.rules.get_rule(domain, name))
+def get_rule(domain: str, name: str, rules: FromDishka[RuleService]) -> Rule:
+    return Rule.from_domain(rules.get_rule(domain, name))
 
 
 @router.patch("/v1/domains/{domain}/rules/{name}", response_model=Rule)
@@ -172,10 +172,10 @@ def update_rule(
     name: str,
     patch: RulePatch,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    rules: FromDishka[RuleService],
 ) -> Rule:
     return Rule.from_domain(
-        control.rules.update_rule(domain, name, patch.to_domain(), operator)
+        rules.update_rule(domain, name, patch.to_domain(), operator)
     )
 
 
@@ -186,9 +186,9 @@ def delete_rule(
     domain: str,
     name: str,
     operator: OperatorDependency,
-    control: ServicesDependency,
+    rules: FromDishka[RuleService],
 ) -> None:
-    control.rules.delete_rule(domain, name, operator)
+    rules.delete_rule(domain, name, operator)
 
 
 @router.get("/v1/domains/{domain}/resolve", response_model=ResolvedPolicy)
@@ -197,7 +197,7 @@ def resolve_hostname(
     hostname: Annotated[
         str, Query(description="The hostname to resolve, e.g. api.example.com.")
     ],
-    control: ServicesDependency,
+    rules: FromDishka[RuleService],
 ) -> ResolvedPolicy:
     """How a hostname is served, and which rule decided it, in one response."""
-    return ResolvedPolicy.from_domain(control.rules.resolve(domain, hostname))
+    return ResolvedPolicy.from_domain(rules.resolve(domain, hostname))

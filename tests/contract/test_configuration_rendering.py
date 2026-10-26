@@ -11,19 +11,20 @@ from pathlib import Path
 
 from support.certificates import certificate_control_plane
 from support.control_plane import (
+    ControlPlane,
     build_application,
     seed_site,
     with_capability_settings,
 )
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
-from blitzecdn.composition import ApplicationServices, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 _SECRET = "parity-test-signing-key-" + "x" * 32
 
 
-def _assert_parity(control: ApplicationServices, tmp_path: Path) -> ConfigurationBundle:
+def _assert_parity(control: ControlPlane, tmp_path: Path) -> ConfigurationBundle:
     """Prepare a release; its stored configuration is its rendering."""
     release = control.releases.prepare()
     assert release.servable, release.findings

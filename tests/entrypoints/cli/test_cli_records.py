@@ -30,7 +30,7 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     added = runner.invoke(
         cli.app,
@@ -75,7 +75,7 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
     exported = json.loads(runner.invoke(cli.app, ["dns", "export", "--json"]).stdout)

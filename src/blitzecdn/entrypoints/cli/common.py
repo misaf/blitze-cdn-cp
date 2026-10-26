@@ -1,4 +1,4 @@
-"""Helpers every command group shares; patch ``common.services`` in one place."""
+"""Helpers every command group shares; patch ``common.container`` in one place."""
 
 from __future__ import annotations
 
@@ -6,18 +6,13 @@ import json
 from collections.abc import Sequence
 from contextvars import ContextVar
 from enum import IntEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, overload
 
 import typer
 import yaml
+from dishka import Container
 
-from blitzecdn.composition import (
-    CliServices,
-    Infrastructure,
-    build_cli,
-    build_services,
-    load_registry,
-)
+from blitzecdn.composition import cli_container, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.features import FeatureRegistry
@@ -41,16 +36,16 @@ def settings() -> Settings:
     return Settings.from_environment()
 
 
-#: The services the current invocation has built, once it has asked for them.
+#: The container the current invocation has built, once it has asked for it.
 #: ``None`` outside an invocation scope.
-_invocation: ContextVar[list[CliServices] | None] = ContextVar(
-    "blitzecdn_cli_services", default=None
+_invocation: ContextVar[list[Container] | None] = ContextVar(
+    "blitzecdn_cli_container", default=None
 )
 
 
 def scope_services(context: typer.Context) -> None:
-    """Hold one invocation's services until the command line exits, then close them."""
-    held: list[CliServices] = []
+    """Hold one invocation's container until the command line exits, then close it."""
+    held: list[Container] = []
     _invocation.set(held)
 
     def release() -> None:
@@ -61,14 +56,26 @@ def scope_services(context: typer.Context) -> None:
     context.call_on_close(release)
 
 
-def services() -> CliServices:
-    """What a command calls: built once per invocation, or afresh outside one."""
+def container() -> Container:
+    """What commands resolve from: built once per invocation, or afresh outside one."""
     held = _invocation.get()
     if held is None:
-        return build_cli(build_services(Infrastructure.build(settings())))
+        return cli_container(settings())
     if not held:
-        held.append(build_cli(build_services(Infrastructure.build(settings()))))
+        held.append(cli_container(settings()))
     return held[0]
+
+
+@overload
+def service[T](kind: type[T]) -> T: ...
+@overload
+def service(kind: Any) -> Any: ...
+def service(kind: Any) -> Any:
+    """One service from this invocation's container.
+
+    Typed as dishka's ``Container.get``: a Protocol resolves, untyped.
+    """
+    return container().get(kind)
 
 
 def installed_features() -> FeatureRegistry:

@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
 from blitzecdn.capabilities.security.contract import SiteFirewall
@@ -101,7 +102,6 @@ def domain_firewall(
     blitzecdn_geoip_enabled with a country database on the edge. A deploy will
     refuse rather than silently serve the traffic they were meant to block.
     """
-    control = common.services()
     supplied = {
         "allow_sources": allow_source,
         "deny_sources": deny_source,
@@ -117,7 +117,7 @@ def domain_firewall(
         raise typer.BadParameter(
             "give at least one rule option, or --clear to remove every rule"
         )
-    zone = control.dns.update_domain(
+    zone = common.service(DnsService).update_domain(
         name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
     )
     rules = sum(

@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.jobs.domain import JobStatus, Schedule
+from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
 from blitzecdn.entrypoints.cli import common
 
 job_app = typer.Typer(help="Durable background work: what is queued and what ran.")
@@ -15,7 +16,7 @@ job_app = typer.Typer(help="Durable background work: what is queued and what ran
 
 def _schedules() -> Sequence[Schedule]:
     """Every registered schedule, newest information first."""
-    return common.services().job_scheduler.schedules.list_schedules()
+    return common.service(JobScheduler).schedules.list_schedules()
 
 
 def _row(job: object) -> dict[str, object]:
@@ -55,7 +56,7 @@ def job_list(
     common.emit(
         [
             _row(job)
-            for job in common.services().job_queue.list_jobs(status=status, limit=limit)
+            for job in common.service(JobQueue).list_jobs(status=status, limit=limit)
         ],
         json_output=json_output,
     )
@@ -79,7 +80,7 @@ def job_show(
     Expiry permits a claim; it does not guarantee immediate or successful work.
     Do not edit queue rows or submit duplicate work to bypass the wait.
     """
-    job = common.services().job_queue.get(job_id)
+    job = common.service(JobQueue).get(job_id)
     common.emit({**_row(job), "result": job.result}, json_output=json_output)
 
 

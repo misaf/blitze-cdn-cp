@@ -13,7 +13,7 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
         built.append(True)
         raise AssertionError("construction must happen in lifespan")
 
-    monkeypatch.setattr("blitzecdn.entrypoints.api.app.Infrastructure.build", build)
+    monkeypatch.setattr("blitzecdn.entrypoints.api.app.api_container", build)
     control_plane_app(settings)
     assert built == []
 
@@ -38,7 +38,8 @@ def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
     deployments it can never run.
     """
     monkeypatch.setattr(
-        "blitzecdn.composition.infrastructure._queue_reachable", lambda _queue: False
+        "blitzecdn.composition.infrastructure.QueueReadiness.__call__",
+        lambda _readiness: False,
     )
     with TestClient(control_plane_app(settings)) as client:
         response = client.get("/health")
@@ -138,10 +139,11 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         if name == failure:
             raise RuntimeError(f"failed {name}")
 
-    control = SimpleNamespace(
-        start=lambda: operation("start"),
-        stop=lambda: operation("stop"),
-        close=lambda: operation("close"),
+    node = SimpleNamespace(
+        start=lambda: operation("start"), stop=lambda: operation("stop")
+    )
+    container = SimpleNamespace(
+        get=lambda _kind: node, close=lambda: operation("close")
     )
 
     def pool(**kwargs):
@@ -149,13 +151,7 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
 
     monkeypatch.setattr(
-        "blitzecdn.entrypoints.api.app.Infrastructure.build", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        "blitzecdn.entrypoints.api.app.build_services", lambda _infra: None
-    )
-    monkeypatch.setattr(
-        "blitzecdn.entrypoints.api.app.build_api", lambda _services: control
+        "blitzecdn.entrypoints.api.app.api_container", lambda *a, **k: container
     )
     monkeypatch.setattr("blitzecdn.entrypoints.api.app.ThreadPoolExecutor", pool)
     with (

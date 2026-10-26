@@ -4,17 +4,13 @@ from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, asynccontextmanager
 
+from dishka.integrations.starlette import SyncContainerMiddleware
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from blitzecdn import __version__
-from blitzecdn.composition import (
-    Infrastructure,
-    build_api,
-    build_services,
-    load_registry,
-)
+from blitzecdn.composition import Adapters, ApiNode, api_container, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
@@ -31,25 +27,22 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         with ExitStack() as resources:
-            services = build_api(
-                build_services(
-                    Infrastructure.build(
-                        resolved, pool_connections=True, features=registry
-                    )
-                )
+            container = api_container(
+                resolved, Adapters(features=registry, pool_connections=True)
             )
-            resources.callback(services.close)
+            resources.callback(container.close)
+            node = container.get(ApiNode)
             worker_pool = ThreadPoolExecutor(
                 max_workers=resolved.api_worker_threads,
                 thread_name_prefix="blitzecdn-worker",
             )
             # Drain in-flight work first; every resource is released even if a step
             # raises.
-            resources.callback(services.stop)
+            resources.callback(node.stop)
             resources.callback(worker_pool.shutdown, wait=True)
-            application.state.services = services
+            application.state.dishka_container = container
             application.state.worker_pool = worker_pool
-            services.start()
+            node.start()
             yield
 
     application = FastAPI(
@@ -68,6 +61,9 @@ def create_app(
         separate_input_output_schemas=False,
     )
     application.state.settings = resolved
+    # A scope per request over the container the lifespan builds; routes take
+    # services as ``FromDishka[...]``. Added first, so the IP check wraps it.
+    application.add_middleware(SyncContainerMiddleware)
     if resolved.allowed_ips:
         application.add_middleware(
             AllowedIPsMiddleware, allowed_ips=resolved.allowed_ips

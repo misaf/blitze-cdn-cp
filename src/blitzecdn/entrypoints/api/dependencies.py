@@ -1,4 +1,7 @@
-"""FastAPI dependencies shared by the HTTP route modules."""
+"""FastAPI dependencies shared by the HTTP route modules.
+
+Services are not among them: a route takes each one as ``FromDishka[...]``.
+"""
 
 import hmac
 from concurrent.futures import ThreadPoolExecutor
@@ -7,12 +10,7 @@ from typing import Annotated, cast
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 
-from blitzecdn.composition import ApiServices
 from blitzecdn.core.config import Settings
-
-
-def get_services(request: Request) -> ApiServices:
-    return cast(ApiServices, request.app.state.services)
 
 
 def get_settings(request: Request) -> Settings:
@@ -57,6 +55,5 @@ def require_operator(
     )
 
 
-ServicesDependency = Annotated[ApiServices, Depends(get_services)]
 OperatorDependency = Annotated[str, Depends(require_operator)]
 WorkerPoolDependency = Annotated[ThreadPoolExecutor, Depends(get_worker_pool)]

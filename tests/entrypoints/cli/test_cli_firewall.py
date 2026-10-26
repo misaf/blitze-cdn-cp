@@ -25,7 +25,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
 
@@ -71,7 +71,7 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app,
@@ -96,7 +96,7 @@ def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "services", lambda: control)
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app, ["record", "add", "example.com", "api", "--value", "198.51.100.20"]

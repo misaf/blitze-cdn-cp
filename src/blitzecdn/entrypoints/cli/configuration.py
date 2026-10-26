@@ -6,6 +6,7 @@ import typer
 import yaml
 
 from blitzecdn.core.domain.validation import validate_setting_name
+from blitzecdn.core.ports.operations import FleetSettings
 from blitzecdn.entrypoints.cli import common
 
 config_app = typer.Typer(no_args_is_help=True, help="Manage global edge policy.")
@@ -25,7 +26,7 @@ def list_settings(
 ) -> None:
     """List database-backed global edge settings."""
     common.emit(
-        common.services().ansible_settings.list_settings(),
+        common.service(FleetSettings).list_settings(),
         json_output=json_output,
     )
 
@@ -36,12 +37,12 @@ def set_setting(name: str, value: str) -> None:
     parsed = yaml.safe_load(value)
     if parsed is None:
         raise typer.BadParameter("value must not be null")
-    common.services().ansible_settings.set_setting(_name(name), parsed)
+    common.service(FleetSettings).set_setting(_name(name), parsed)
     typer.echo(f"Set {name}; it reaches the edges with the next deployment.")
 
 
 @config_app.command("unset")
 def unset_setting(name: str) -> None:
     """Remove an override and fall back to the shipped default."""
-    common.services().ansible_settings.delete_setting(_name(name))
+    common.service(FleetSettings).delete_setting(_name(name))
     typer.echo(f"Unset {name}; it reaches the edges with the next deployment.")

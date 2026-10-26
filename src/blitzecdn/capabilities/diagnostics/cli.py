@@ -13,14 +13,18 @@ import typer
 import uvicorn
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.core.features import (
     CapabilitySetting,
     EnvironmentKey,
+    FeatureRegistry,
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.ports.operations import AuditTrail
 from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
@@ -83,8 +87,8 @@ def features(
     is provisioned" has no command to ask: the names live in a README, and
     whether they arrived is visible only in a failed play.
     """
-    control = common.services()
-    registry = control.features
+    registry = common.service(FeatureRegistry)
+    configured = common.service(ResolvedCapabilityEnvironment)
     secrets: dict[str, list[EnvironmentKey]] = {}
     settings: dict[str, list[CapabilitySetting]] = {}
     for contribution in registry.configuration_contributions():
@@ -108,9 +112,7 @@ def features(
                         "minimum_bytes": key.minimum_bytes,
                         # Whether a value arrived, never the value: this prints
                         # to a terminal and into whatever captures its JSON.
-                        "set": control.capability_config.for_feature(
-                            feature.name
-                        ).is_set(key.name),
+                        "set": configured.for_feature(feature.name).is_set(key.name),
                         "summary": key.summary,
                     }
                     for key in sorted(
@@ -123,9 +125,7 @@ def features(
                         "kind": "setting",
                         # A setting may show its value; a secret may not.
                         "value": str(
-                            control.capability_config.for_feature(
-                                feature.name
-                            ).settings[setting.name]
+                            configured.for_feature(feature.name).settings[setting.name]
                         ),
                         "summary": setting.summary,
                     }
@@ -188,7 +188,7 @@ def audit(
 ) -> None:
     """Show immutable operator audit events."""
     common.emit(
-        common.services().audit.list_audit_events(limit),
+        common.service(AuditTrail).list_audit_events(limit),
         json_output=json_output,
     )
 
@@ -223,7 +223,9 @@ def doctor(
         "configuration_errors": settings.validate_runtime(),
         # Stated outright: nothing publishes DNS, so a ready fleet still serves nobody
         # until something answers for its hostnames.
-        "dns_publication": common.services().dns.publication().model_dump(mode="json"),
+        "dns_publication": common.service(DnsService)
+        .publication()
+        .model_dump(mode="json"),
     }
     resolver_report = check_resolver(settings) if resolver_check else None
     if resolver_report is not None:
