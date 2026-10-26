@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
 
 from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
+from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.core.features import Operations
@@ -46,6 +48,7 @@ def metrics(
     deployments: FromDishka[DeploymentService],
     edges: FromDishka[EdgeOperationsService],
     sites: FromDishka[SiteReader],
+    diagnostics: FromDishka[DiagnosticsService],
 ) -> str:
     """Prometheus gauges derived from persisted control-plane state."""
     recent = deployments.list_deployments(_METRICS_WINDOW)
@@ -68,4 +71,4 @@ def metrics(
         f'blitzecdn_deployments{{status="{state}"}} {by_status[state]}'
         for state in sorted(by_status)
     )
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + operational_metrics(diagnostics.status())

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, delete, select
+from sqlalchemy import CursorResult, delete, func, select
 from sqlmodel import col
 
 from blitzecdn.capabilities.workflows.adapters.tables import WorkflowRow
@@ -17,6 +17,7 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
 )
+from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
@@ -26,6 +27,44 @@ class WorkflowStore:
 
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def statistics(self) -> WorkflowStatistics:
+        with self._db.session() as session:
+            counts = {
+                WorkflowStatus(status): count
+                for status, count in session.execute(
+                    select(col(WorkflowRow.status), func.count()).group_by(
+                        col(WorkflowRow.status)
+                    )
+                )
+            }
+            count, duration = session.execute(
+                select(
+                    func.count(),
+                    func.sum(
+                        func.max(
+                            0,
+                            (
+                                func.julianday(WorkflowRow.updated_at)
+                                - func.julianday(WorkflowRow.created_at)
+                            )
+                            * 86400,
+                        )
+                    ),
+                ).where(
+                    col(WorkflowRow.status).in_(
+                        [
+                            WorkflowStatus.SUCCEEDED.value,
+                            WorkflowStatus.FAILED.value,
+                        ]
+                    )
+                )
+            ).one()
+        return WorkflowStatistics(
+            counts=counts,
+            completed_count=count,
+            duration_seconds_sum=duration or 0,
+        )
 
     def create(
         self,
