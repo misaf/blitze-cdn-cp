@@ -84,9 +84,10 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
 #: (mode, serves_tls, origin scheme on an HTTP listener, on the canonical HTTPS
 #: listener :443, on an alternate HTTPS listener).
 #:
-#: The origin port is always the listener's own. The scheme follows the visitor
-#: (Full and Full (strict) mirror it), and for Flexible also the port: Flexible on
-#: 443, Full-like on 2053/2083/2087/2096/8443.
+#: The origin port is the listener's own, except Flexible on 443, which reaches
+#: the HTTP origin on 80. The scheme follows the visitor (Full and Full (strict)
+#: mirror it), and for Flexible also the port: Flexible on 443, Full-like on
+#: 2053/2083/2087/2096/8443.
 _MODE_SCHEMES = [
     (SslMode.OFF, False, "http", None, None),
     (SslMode.FLEXIBLE, True, "http", "http", "https"),
@@ -111,7 +112,8 @@ def _expected_upstreams(
     if serves_tls:
         for port in runtime["listeners"]["https"]:
             scheme = canonical_origin if port == 443 else alternate_origin
-            expected.add(f"{scheme}://{host}:{port}")
+            origin_port = 80 if port == 443 and scheme == "http" else port
+            expected.add(f"{scheme}://{host}:{origin_port}")
     return expected
 
 
@@ -122,7 +124,7 @@ def _expected_upstreams(
 def test_every_ssl_mode_renders_its_transport(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """Every listener proxies to its own port, over the mode's scheme for it."""
+    """Every listener proxies over the mode's scheme for it."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
@@ -147,7 +149,7 @@ def test_every_ssl_mode_renders_its_transport(
 def test_the_visitor_port_is_preserved_toward_the_origin(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """The whole capability, stated once: origin port == listener port."""
+    """Origin port == listener port, except Flexible's 443, which uses 80."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
@@ -155,6 +157,8 @@ def test_the_visitor_port_is_preserved_toward_the_origin(
     listeners = set(runtime["listeners"]["http"])
     if serves_tls:
         listeners |= set(runtime["listeners"]["https"])
+    if mode is SslMode.FLEXIBLE:
+        listeners -= {443}
     assert ports == listeners
 
 
@@ -165,8 +169,9 @@ _PORT_UPSTREAMS = [
     (SslMode.OFF, False, 8080, "http://origin.example.com:8080"),
     (SslMode.OFF, False, 2052, "http://origin.example.com:2052"),
     (SslMode.FLEXIBLE, True, 8080, "http://origin.example.com:8080"),
-    # Flexible is Flexible on 443 and Full-like on every other HTTPS port.
-    (SslMode.FLEXIBLE, True, 443, "http://origin.example.com:443"),
+    # Flexible is Flexible on 443 (HTTP to the origin's 80) and Full-like on
+    # every other HTTPS port.
+    (SslMode.FLEXIBLE, True, 443, "http://origin.example.com:80"),
     (SslMode.FLEXIBLE, True, 2053, "https://origin.example.com:2053"),
     (SslMode.FLEXIBLE, True, 2083, "https://origin.example.com:2083"),
     (SslMode.FLEXIBLE, True, 2087, "https://origin.example.com:2087"),
@@ -194,7 +199,8 @@ def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
     """Flexible applies on 443 only; the other HTTPS proxy ports fall back to Full."""
     upstreams = _upstreams(_render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))))
 
-    assert "http://origin.example.com:443" in upstreams
+    assert "http://origin.example.com:80" in upstreams
+    assert "http://origin.example.com:443" not in upstreams
     assert "https://origin.example.com:443" not in upstreams
     assert "https://origin.example.com:8443" in upstreams
     assert "http://origin.example.com:8443" not in upstreams
@@ -274,7 +280,7 @@ def test_the_template_agrees_with_the_domains_scheme_rule(
         ]
     assert _upstreams(rendered) == {
         f"{mode.origin_scheme_for(visitor_scheme, port).value}"
-        f"://origin.example.com:{port}"
+        f"://origin.example.com:{mode.origin_port_for(visitor_scheme, port)}"
         for visitor_scheme, port in listeners
     }
 

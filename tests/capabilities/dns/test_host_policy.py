@@ -743,3 +743,19 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
     assert set(DomainPatch.model_fields) >= _SET_ELSEWHERE, (
         "_SET_ELSEWHERE names a field that no longer exists"
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "visitor", "port", "origin_port"),
+    [
+        (SslMode.FLEXIBLE, HttpScheme.HTTPS, 443, 80),
+        (SslMode.FLEXIBLE, HttpScheme.HTTPS, 8443, 8443),
+        (SslMode.FLEXIBLE, HttpScheme.HTTP, 80, 80),
+        (SslMode.FULL, HttpScheme.HTTPS, 443, 443),
+        (SslMode.FULL_STRICT, HttpScheme.HTTPS, 443, 443),
+        (SslMode.OFF, HttpScheme.HTTP, 8080, 8080),
+    ],
+)
+def test_only_flexible_443_changes_the_origin_port(mode, visitor, port, origin_port):
+    """Flexible HTTPS/443 terminates at the edge and reaches the origin's HTTP 80."""
+    assert mode.origin_port_for(visitor, port) == origin_port
