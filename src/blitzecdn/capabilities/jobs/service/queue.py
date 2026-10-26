@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from time import monotonic
 
 from blitzecdn.capabilities.jobs.domain import (
     DEFAULT_LEASE_SECONDS,
@@ -124,12 +125,26 @@ class JobQueue:
                 permanent=True,
             )
             return
+        context = {
+            "job_id": job.id,
+            "job_kind": job.kind,
+            "worker_id": self.worker_id,
+            "attempt": job.attempts,
+            "fence": claim.fence,
+        }
+        started = monotonic()
+        _LOGGER.info("job handler started", extra=context)
         try:
             outcome = handler(job.payload)
         except Exception as exc:
-            _LOGGER.exception("job %s (%s) failed", job.id, job.kind)
+            _LOGGER.exception("job %s (%s) failed", job.id, job.kind, extra=context)
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)
             return
+        finally:
+            _LOGGER.info(
+                "job handler finished",
+                extra={**context, "duration_seconds": max(0, monotonic() - started)},
+            )
         match outcome:
             case Done(result=result):
                 pass
