@@ -149,13 +149,11 @@ required_capabilities = []
 # | Optional Capability Configuration
 # |--------------------------------------------------------------------------
 #
-# Everything above is core's. A key below belongs to an optional distribution
-# and is only valid while that distribution is attached: the control plane
-# refuses to start on a key no installed capability claims, which is what makes
-# a typo, or a setting left behind by a package that was detached, loud rather
-# than silently ignored. Comment a block out when you detach its capability.
+# Everything above is core's. A key below belongs to one capability: the
+# control plane refuses to start on a key no capability claims, which makes a
+# typo loud rather than silently ignored.
 #
-# `blitzecdn plugins` lists every name the installed capabilities claim,
+# `blitzecdn features` lists every name the capabilities claim,
 # alongside what each one is for and what this controller resolved it to.
 #
 # Secrets are not here and cannot be: they are environment-only, so a

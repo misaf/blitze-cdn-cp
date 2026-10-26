@@ -46,6 +46,7 @@ blitzecdn	command	blitzecdn edge image spec	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge list	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge remove	<name> type=str required --yes/-y type=boolean default=False --decommission/--no-decommission type=boolean default=True --force type=boolean default=False
 blitzecdn	command	blitzecdn edge update	<name> type=str required --host type=str --user type=str --port type=int range --private-key-file type=str --public-address type=str --ssh-source type=str --capability type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn features	--json type=boolean default=False
 blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
@@ -53,7 +54,6 @@ blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=bool
 blitzecdn	command	blitzecdn migrate
 blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
-blitzecdn	command	blitzecdn plugins	--json type=boolean default=False
 blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str required --proxy/--no-proxy type=boolean default=True --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
 blitzecdn	command	blitzecdn record list	<domain> type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn record proxy	<domain> type=str required <name> type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False

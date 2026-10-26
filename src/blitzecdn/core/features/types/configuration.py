@@ -24,7 +24,7 @@ class EnvironmentKey:
     Core never reads the value; presence and length are checked at composition,
     before any adapter exists. `required` is for a key whose absence makes the
     feature wrong rather than idle. `summary` is shown when the key is missing
-    and by ``blitzecdn plugins``: say where to get the value.
+    and by ``blitzecdn features``: say where to get the value.
     """
 
     name: str
@@ -51,7 +51,7 @@ class CapabilitySetting:
 
     `default` carries the type as well as the value. A relative `Path` default
     resolves against the controller's state directory. `minimum` and `maximum`
-    apply to an ``int`` only. `summary` is shown by ``blitzecdn plugins``: say
+    apply to an ``int`` only. `summary` is shown by ``blitzecdn features``: say
     what changing the value does.
     """
 

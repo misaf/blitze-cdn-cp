@@ -87,7 +87,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         None,
         "the pinned edge image and its digest, read out of this checkout's own "
         "version pins. It describes the installed control plane rather than "
-        "any state it holds, which is the same reason `plugins` is here.",
+        "any state it holds, which is the same reason `features` is here.",
     ),
     # -- Durable work ------------------------------------------------------
     (
@@ -208,9 +208,9 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     (
         "blitzecdn",
-        "plugins",
+        "features",
         None,
-        "which capability wheels this install has. Describes the control plane "
+        "which features this controller ships. Describes the control plane "
         "itself; see `edge image spec`.",
     ),
     (

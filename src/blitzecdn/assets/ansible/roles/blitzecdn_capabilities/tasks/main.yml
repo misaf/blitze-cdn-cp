@@ -3,10 +3,9 @@
 # core's plays.
 #
 # This role names no capability and holds no knowledge of any. The control
-# plane composes the slot's list from the plugins that are installed and passes
-# it as an extra-var on every run, so attaching or detaching a distribution
-# changes what converges here with no line of this collection edited. An
-# installation with no such capability runs nothing.
+# plane composes the slot's list from its features and passes it as an
+# extra-var on every run, so adding a capability changes what converges here
+# with no line of this collection edited.
 #
 # It is a role rather than a block of pre-tasks so that it sits in the play's
 # `roles:` list, which is what puts it in the right place twice over:

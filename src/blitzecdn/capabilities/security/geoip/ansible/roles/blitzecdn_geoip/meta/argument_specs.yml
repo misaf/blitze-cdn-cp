@@ -10,9 +10,7 @@ argument_specs:
         $blitzecdn_country for this package's Nginx contribution to expose.
       - >-
         Run from the edge play's capability slot, which the control plane fills
-        from the installed plugins. Detaching the distribution removes this role
-        from Ansible's search path and from the play, with no line of the
-        control plane edited.
+        from its features.
       - >-
         It reads the shared edge runtime contract for one thing only — the
         capability data directory its database lives under, and the nginx

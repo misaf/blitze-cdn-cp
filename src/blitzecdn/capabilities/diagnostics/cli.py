@@ -1,4 +1,4 @@
-"""Read-only controller reporting: doctor, audit, plugins and the API server."""
+"""Read-only controller reporting: doctor, audit, features and the API server."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def check_resolver(settings: Any) -> ResolverCheck:
 
 
 @diagnostics_app.command()
-def plugins(
+def features(
     json_output: common.JsonOutput = False,
 ) -> None:
     """List the features this controller ships and the configuration they claim.
@@ -93,7 +93,7 @@ def plugins(
         )
         settings.setdefault(contribution.feature, []).extend(contribution.settings)
     document: dict[str, Any] = {
-        "plugins": [
+        "features": [
             {
                 "name": feature.name,
                 "version": feature.version,
