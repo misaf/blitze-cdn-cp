@@ -28,6 +28,7 @@ blitzecdn	route	GET /v1/releases
 blitzecdn	route	GET /v1/releases/current
 blitzecdn	route	GET /v1/releases/{release_id}
 blitzecdn	route	GET /v1/releases/{release_id}/artifacts/{name}
+blitzecdn	route	GET /v1/status
 blitzecdn	route	GET /v1/workflows
 blitzecdn	route	GET /v1/workflows/{workflow_id}
 blitzecdn	route	PATCH /v1/domains/{domain}
@@ -104,6 +105,11 @@ blitzecdn	schema	CertificateInfo.site	string required
 blitzecdn	schema	CertificateInfo.source	CertificateSource required
 blitzecdn	schema	CertificateRequest.email	string|null optional
 blitzecdn	schema	CertificateRequest.skip_preflight	boolean optional
+blitzecdn	schema	CertificateStatistics.expired	integer required
+blitzecdn	schema	CertificateStatistics.expiring	integer required
+blitzecdn	schema	CertificateStatistics.managed	integer required
+blitzecdn	schema	CertificateStatistics.next_expiry_at	string|null required
+blitzecdn	schema	CertificateStatistics.renewal_due	integer required
 blitzecdn	schema	CertificateStatus.days_remaining	integer required
 blitzecdn	schema	CertificateStatus.domains	array[string] required
 blitzecdn	schema	CertificateStatus.expired	boolean required
@@ -227,6 +233,13 @@ blitzecdn	schema	Operation.id	string required
 blitzecdn	schema	Operation.kind	string required
 blitzecdn	schema	Operation.result	object|null optional
 blitzecdn	schema	Operation.status	enum[pending,running,succeeded,failed] required
+blitzecdn	schema	OperationalStatus.certificates	CertificateStatistics required
+blitzecdn	schema	OperationalStatus.observed_at	string required
+blitzecdn	schema	OperationalStatus.queue	QueueStatistics required
+blitzecdn	schema	OperationalStatus.unreadable_worker_records	integer required
+blitzecdn	schema	OperationalStatus.worker_stale_after_seconds	integer optional
+blitzecdn	schema	OperationalStatus.workers	array[WorkerStatus] required
+blitzecdn	schema	OperationalStatus.workflows	WorkflowStatistics required
 blitzecdn	schema	OriginCheckRequest.host_limit	string|null optional
 blitzecdn	schema	PreflightCheck.detail	string required
 blitzecdn	schema	PreflightCheck.name	string required
@@ -240,6 +253,10 @@ blitzecdn	schema	PurgeEntry.uri	string required
 blitzecdn	schema	PurgeRequest.entries	array[PurgeEntry] optional
 blitzecdn	schema	PurgeRequest.host_limit	string|null optional
 blitzecdn	schema	PurgeRequest.purge_all	boolean optional
+blitzecdn	schema	QueueStatistics.counts	object optional
+blitzecdn	schema	QueueStatistics.expired_leases	integer optional
+blitzecdn	schema	QueueStatistics.oldest_ready_age_seconds	number optional
+blitzecdn	schema	QueueStatistics.ready	integer optional
 blitzecdn	schema	ReconciliationResult.deployment	Deployment|null optional
 blitzecdn	schema	ReconciliationResult.failed	object optional
 blitzecdn	schema	ReconciliationResult.issued	array[string] optional
@@ -312,6 +329,16 @@ blitzecdn	schema	ValidationError.input	any optional
 blitzecdn	schema	ValidationError.loc	array[string|integer] required
 blitzecdn	schema	ValidationError.msg	string required
 blitzecdn	schema	ValidationError.type	string required
+blitzecdn	schema	WorkerStatus.current_job_age_seconds	number|null optional
+blitzecdn	schema	WorkerStatus.current_job_id	string|null optional
+blitzecdn	schema	WorkerStatus.current_kind	string|null optional
+blitzecdn	schema	WorkerStatus.heartbeat_age_seconds	number required
+blitzecdn	schema	WorkerStatus.heartbeat_at	string required
+blitzecdn	schema	WorkerStatus.job_started_at	string|null optional
+blitzecdn	schema	WorkerStatus.last_duration_seconds	number|null optional
+blitzecdn	schema	WorkerStatus.last_finished_at	string|null optional
+blitzecdn	schema	WorkerStatus.state	enum[idle,busy,stale] required
+blitzecdn	schema	WorkerStatus.worker_id	string required
 blitzecdn	schema	Workflow.created_at	string required
 blitzecdn	schema	Workflow.error	string|null optional
 blitzecdn	schema	Workflow.id	string required
@@ -321,6 +348,9 @@ blitzecdn	schema	Workflow.resource_id	string|null optional
 blitzecdn	schema	Workflow.status	WorkflowStatus required
 blitzecdn	schema	Workflow.steps	array[WorkflowStep] optional
 blitzecdn	schema	Workflow.updated_at	string required
+blitzecdn	schema	WorkflowStatistics.completed_count	integer optional
+blitzecdn	schema	WorkflowStatistics.counts	object optional
+blitzecdn	schema	WorkflowStatistics.duration_seconds_sum	number optional
 blitzecdn	schema	WorkflowStep.completed_at	string required
 blitzecdn	schema	WorkflowStep.details	object optional
 blitzecdn	schema	WorkflowStep.name	string required

@@ -13,8 +13,12 @@ from blitzecdn.capabilities.jobs.domain import (
     JobStatus,
     Schedule,
 )
+from blitzecdn.capabilities.jobs.domain.observability import (
+    QueueStatistics,
+    WorkerObservations,
+)
 
-__all__ = ["JobHandler", "JobStore", "ScheduleStore"]
+__all__ = ["JobHandler", "JobStore", "ScheduleStore", "WorkerHistory", "WorkerProgress"]
 
 
 class JobStore(Protocol):
@@ -73,6 +77,20 @@ class JobStore(Protocol):
 
     def prune(self, keep: int) -> int:
         """Drop finished jobs beyond the newest ``keep``."""
+
+    def statistics(self, *, now: datetime) -> QueueStatistics:
+        """Aggregate the entire retained queue without loading payloads."""
+
+
+class WorkerHistory(Protocol):
+    def read(self) -> WorkerObservations: ...
+
+
+class WorkerProgress(Protocol):
+    def start(self, worker_id: str) -> None: ...
+    def busy(self, claim: JobClaim) -> None: ...
+    def idle(self) -> None: ...
+    def stop(self) -> None: ...
 
 
 class ScheduleStore(Protocol):

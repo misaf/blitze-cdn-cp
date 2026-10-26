@@ -10,6 +10,7 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
 )
+from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
 
 __all__ = ["WorkflowHistory", "WorkflowJournal"]
 
@@ -43,3 +44,5 @@ class WorkflowHistory(Protocol):
     def get(self, workflow_id: str) -> Workflow: ...
 
     def list_workflows(self, limit: int = 100) -> list[Workflow]: ...
+
+    def statistics(self) -> WorkflowStatistics: ...

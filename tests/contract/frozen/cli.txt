@@ -53,6 +53,7 @@ blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
 blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn migrate
 blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn overview	--json type=boolean default=False
 blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str required --proxy/--no-proxy type=boolean default=True --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
 blitzecdn	command	blitzecdn record list	<domain> type=str --json type=boolean default=False

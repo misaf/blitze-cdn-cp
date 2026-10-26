@@ -24,6 +24,8 @@ from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
+from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
+from blitzecdn.capabilities.jobs.ports import WorkerHistory, WorkerProgress
 from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
 from blitzecdn.capabilities.jobs.wiring import (
     build_job_queue,
@@ -198,6 +200,24 @@ class InfrastructureProvider(Provider):
             retention=settings.history_retention,
             clock=adapters.clock,
         )
+
+    @provide
+    def worker_monitor(
+        self, settings: Settings, adapters: Adapters
+    ) -> Iterator[WorkerMonitor]:
+        monitor = WorkerMonitor(settings.state_dir / "workers", clock=adapters.clock)
+        try:
+            yield monitor
+        finally:
+            monitor.stop()
+
+    @provide
+    def worker_history(self, monitor: WorkerMonitor) -> WorkerHistory:
+        return monitor
+
+    @provide
+    def worker_progress(self, monitor: WorkerMonitor) -> WorkerProgress:
+        return monitor
 
     @provide
     def job_scheduler(

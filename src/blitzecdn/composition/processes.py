@@ -81,9 +81,13 @@ class Worker:
     def start(self) -> None:
         """Publish the schedules. Recovery is the API's startup, not this."""
         self.scheduler.register(schedule_specs(self.operations.scheduled_jobs))
+        self.runner.start_reporting()
 
     def stop(self) -> None:
-        self.operations.shutdown()
+        try:
+            self.runner.stop_reporting()
+        finally:
+            self.operations.shutdown()
 
 
 class ApiProvider(Provider):

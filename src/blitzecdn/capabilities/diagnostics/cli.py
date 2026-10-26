@@ -13,6 +13,7 @@ import typer
 import uvicorn
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.core.features import (
     CapabilitySetting,
@@ -39,6 +40,12 @@ ansible_app = typer.Typer(
     no_args_is_help=True,
     help="The Ansible inputs composed from the installed capabilities.",
 )
+
+
+@diagnostics_app.command()
+def overview(json_output: common.JsonOutput = False) -> None:
+    """Show queue backlog, worker progress, recovery review and certificate expiry."""
+    common.emit(common.service(DiagnosticsService).status(), json_output=json_output)
 
 
 @dataclass(frozen=True, slots=True)

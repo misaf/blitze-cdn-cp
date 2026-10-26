@@ -22,6 +22,7 @@ from blitzecdn.capabilities.deployments.ports import (
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.deployments.wiring import build_deployment_service
+from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import HostService, RuleService
@@ -35,6 +36,7 @@ from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.edges.service import operations as edge_operations
 from blitzecdn.capabilities.edges.wiring import build_edge_operations_service
+from blitzecdn.capabilities.jobs.ports import WorkerHistory, WorkerProgress
 from blitzecdn.capabilities.jobs.service import (
     JobQueue,
     JobRunner,
@@ -95,6 +97,22 @@ class ServiceProvider(Provider):
     scope = Scope.APP
 
     sites = alias(source=HostService, provides=SiteReader)
+
+    @provide
+    def diagnostics(
+        self,
+        repository: Repository,
+        certificates: CertificateService,
+        workers: WorkerHistory,
+        adapters: Adapters,
+    ) -> DiagnosticsService:
+        return DiagnosticsService(
+            queue=repository.jobs,
+            workflows=repository.workflows,
+            certificates=certificates,
+            workers=workers,
+            clock=adapters.clock,
+        )
 
     @provide
     def workflows(
@@ -389,10 +407,12 @@ class ServiceProvider(Provider):
         adapters: Adapters,
         queue: JobQueue,
         scheduler: JobScheduler,
+        progress: WorkerProgress,
     ) -> JobRunner:
         return JobRunner(
             queue=queue,
             scheduler=scheduler,
             poll_seconds=settings.worker_poll_seconds,
             clock=adapters.clock,
+            progress=progress,
         )

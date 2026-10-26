@@ -123,7 +123,9 @@ def test_metrics_are_authenticated_and_readable(settings):
     body = response.text
     assert "blitzecdn_edges 0" in body
     assert "blitzecdn_sites 0" in body
-    assert "blitzecdn_certificates_expiring" not in body
+    assert "blitzecdn_certificates_expiring 0" in body
+    assert 'blitzecdn_jobs{status="pending"} 0' in body
+    assert 'blitzecdn_workers{state="busy"} 0' in body
 
 
 @pytest.mark.parametrize("failure", ["start", "stop", "pool", "drain"])

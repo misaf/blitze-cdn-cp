@@ -12,6 +12,7 @@ from collections.abc import Callable
 from types import FrameType
 
 from blitzecdn.capabilities.jobs.domain import JobClaim
+from blitzecdn.capabilities.jobs.ports import WorkerProgress
 from blitzecdn.capabilities.jobs.service.queue import SCHEDULED_JOB, JobQueue
 from blitzecdn.capabilities.jobs.service.scheduling import JobScheduler
 from blitzecdn.core.ports.clock import Clock, system_clock
@@ -31,12 +32,22 @@ class JobRunner:
         scheduler: JobScheduler,
         poll_seconds: float = 1.0,
         clock: Clock = system_clock,
+        progress: WorkerProgress | None = None,
     ) -> None:
         self.queue = queue
         self.scheduler = scheduler
         self.poll_seconds = poll_seconds
         self.clock = clock
+        self.progress = progress
         self._stop = threading.Event()
+
+    def start_reporting(self) -> None:
+        if self.progress is not None:
+            self.progress.start(self.queue.worker_id)
+
+    def stop_reporting(self) -> None:
+        if self.progress is not None:
+            self.progress.stop()
 
     def stop(self) -> None:
         """Ask the loop to finish the job in hand and then return."""
@@ -59,7 +70,13 @@ class JobRunner:
         if claim is None:
             return bool(fired)
         self._hold_for_declared_lease(claim)
-        self.queue.run(claim)
+        if self.progress is not None:
+            self.progress.busy(claim)
+        try:
+            self.queue.run(claim)
+        finally:
+            if self.progress is not None:
+                self.progress.idle()
         # Pruned while processing work; pending and running jobs are never pruned.
         self.queue.prune()
         return True

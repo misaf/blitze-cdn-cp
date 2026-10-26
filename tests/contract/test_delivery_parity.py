@@ -182,6 +182,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "answer by not calling POST /v1/deployments.",
     ),
     # -- Diagnostics: about this install, not about the fleet --------------
+    ("blitzecdn", "overview", "GET /v1/status", ""),
     (
         "blitzecdn",
         None,

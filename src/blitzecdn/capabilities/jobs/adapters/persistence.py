@@ -11,12 +11,13 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import CursorResult, Result, delete, or_, select, update
+from sqlalchemy import CursorResult, Result, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col
 
 from blitzecdn.capabilities.jobs.adapters.tables import JobRow, ScheduleRow
 from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedule
+from blitzecdn.capabilities.jobs.domain.observability import QueueStatistics
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
@@ -30,6 +31,39 @@ def _rows_affected(result: Result[Any]) -> int:
 class JobStore:
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def statistics(self, *, now: datetime) -> QueueStatistics:
+        ready = (col(JobRow.status) == JobStatus.PENDING.value) & (
+            col(JobRow.available_at) <= now
+        )
+        with self._db.session() as session:
+            counts = {
+                JobStatus(status): count
+                for status, count in session.execute(
+                    select(col(JobRow.status), func.count()).group_by(
+                        col(JobRow.status)
+                    )
+                )
+            }
+            count, oldest = session.execute(
+                select(func.count(), func.min(JobRow.available_at)).where(ready)
+            ).one()
+            expired = session.scalar(
+                select(func.count())
+                .select_from(JobRow)
+                .where(
+                    col(JobRow.status) == JobStatus.RUNNING.value,
+                    col(JobRow.leased_until) <= now,
+                )
+            )
+        return QueueStatistics(
+            counts=counts,
+            ready=count,
+            expired_leases=expired or 0,
+            oldest_ready_age_seconds=(
+                max(0, (now - oldest).total_seconds()) if oldest is not None else 0
+            ),
+        )
 
     def enqueue(
         self,
