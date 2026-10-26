@@ -78,8 +78,9 @@ uv-pin version:
     rm -f install.sh.bak
     echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
 
-# Move the application version and both edge image pins together.
-# Publishing the corresponding image remains an explicit release action.
+# Move the application version, both edge image pins and the control-plane
+# image pin together. Publishing the corresponding images remains an explicit
+# release action: the tag does it.
 release-version version:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -111,16 +112,20 @@ release-version version:
             r'(?m)^blitzecdn_edge_image_tag: ".*"$',
             'blitzecdn_edge_image_tag: "%s"' % version,
         ),
+        "src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml": (
+            r"(?m)^(blitzecdn_controlplane_image: .*blitzecdn-control-plane):\S+$",
+            r"\1:%s" % version,
+        ),
     }
     for name, (pattern, replacement) in pins.items():
         path = pathlib.Path(name)
         text, count = re.subn(pattern, replacement, path.read_text())
         if count != 1:
-            sys.exit("error: %s: expected one edge image pin, rewrote %d" % (name, count))
+            sys.exit("error: %s: expected one image pin, rewrote %d" % (name, count))
         path.write_text(text)
     PY
     uv lock
-    echo "Moved to {{version}}. Commit, then tag v{{version}} to publish the edge image."
+    echo "Moved to {{version}}. Commit, then tag v{{version}} to publish both images."
 
 # --- the gates, in CI order ---------------------------------------------
 
@@ -151,6 +156,11 @@ shell-lint:
 # and digest recorded in the fleet settings, never a locally built one.
 edge-image tag="blitzecdn-edge:dev":
     docker build --tag {{tag}} src/blitzecdn/assets/docker/edge
+
+# Build the control-plane image from this checkout, the way the publishing
+# workflow does and `BLITZECDN_CONTROL_PLANE_BUILD=1` makes install.sh do.
+control-plane-image tag="blitzecdn-control-plane:dev":
+    docker build --file src/blitzecdn/assets/docker/control-plane/Dockerfile --tag {{tag}} .
 
 # Slow, privileged proof of a clean Ubuntu edge running the containerised
 # runtime: real HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli and Under Attack Mode,

@@ -8,7 +8,9 @@ argument_specs:
         deployment account, explicit container-state ownership, the sudo rule,
         loopback SSH trust, CLI wrapper, configuration, and Docker Compose
         project.
-      - Runs against localhost from the standalone installer.
+      - >-
+        Runs from the standalone installer, inside the control-plane image,
+        against the host through the community.docker.nsenter connection.
     options:
       blitzecdn_controlplane_install_dir: {type: path, required: true}
       blitzecdn_controlplane_config_dir: {type: path, required: true}
@@ -19,8 +21,14 @@ argument_specs:
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}
       blitzecdn_controlplane_compose_file: {type: path, required: true}
       blitzecdn_controlplane_compose_project: {type: str, required: true}
-      blitzecdn_controlplane_image: {type: str, required: true}
-      blitzecdn_controlplane_dockerfile: {type: str, required: true}
+      blitzecdn_controlplane_image:
+        type: str
+        required: true
+        description: >-
+          The control-plane image the services and the CLI wrapper run. Must
+          already be present in the local engine: install.sh pulls or builds
+          it before this play, which itself runs inside that image.
+      blitzecdn_controlplane_runtime_dir: {type: path, required: true}
       blitzecdn_controlplane_packages: {type: list, elements: str, required: true}
       blitzecdn_controlplane_acme_email:
         type: str

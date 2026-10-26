@@ -23,6 +23,8 @@ from support.install import (
 )
 from support.paths import CORE_ANSIBLE
 
+from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
+
 # --- the control-plane role --------------------------------------------------
 #
 # What the role does is covered by running it on a real host; these pin the
@@ -78,9 +80,15 @@ def test_controlplane_fails_the_play_unless_both_services_become_healthy():
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
     standalone = _section("standalone")
-    # uv creates the virtualenv itself, so python3-venv left the list; curl and
-    # ca-certificates joined it because the pinned uv is fetched over HTTPS.
+    # python3 runs the input checks and, under nsenter, the play's modules;
+    # curl and ca-certificates fetch Docker's signing key.
     assert "apt-get install -y ca-certificates curl git python3" in standalone
+    assert standalone.index("ensure_docker") < standalone.index(
+        "obtain_control_plane_image"
+    )
+    assert standalone.index("obtain_control_plane_image") < standalone.index(
+        "converge_control_plane"
+    )
     assert "converge_control_plane" in standalone
     # Accounts, sudo, SSH trust and units must not be done twice.
     for moved in ("useradd", "visudo", "ssh-keygen", "ssh-keyscan", "openssl rand"):
@@ -102,16 +110,21 @@ def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
 def test_every_installer_playbook_can_resolve_the_collections_it_needs():
     """The teardown plays need third-party collections as much as the setup ones.
 
-    `ansible.cfg` names no collections path, so the exported, absolute
-    ANSIBLE_COLLECTIONS_PATH is the whole of it, and every playbook invocation
-    must export it. Without it teardown stops at the first `community.docker`
-    task, leaving the edge running.
+    `ansible.cfg` names no collections path. Every play runs in the image, whose
+    environment names the directory its build installed `requirements.yml`
+    into, so the image is the whole of it. Without it teardown stops at the
+    first `community.docker` task, leaving the edge running.
     """
     body = _function("run_playbook")
-    assert 'ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections"' in body, (
-        "the shared playbook helper does not point Ansible at the collections, "
-        "so any play the bootstrap did not precede resolves none of them"
+    assert '--entrypoint ansible-playbook "${image}"' in body
+    assert "ANSIBLE_COLLECTIONS_PATH" not in body, (
+        "the image already names its collections; a second answer here can only "
+        "disagree with it"
     )
+    dockerfile = CONTROL_PLANE_DOCKERFILE.read_text(encoding="utf-8")
+    assert "ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections" in dockerfile
+    assert "--collections-path /usr/share/ansible/collections" in dockerfile
+    assert "src/blitzecdn/assets/ansible/requirements.yml" in dockerfile
 
     # Teardown needs a collection ansible-core does not carry, read from the roles.
     teardown = ""

@@ -1,9 +1,28 @@
 #!/usr/bin/env bash
 # Managed by BlitzeCDN. Application commands run in disposable containers.
+#
+# The runner that starts them runs in a container too, from the same image,
+# so the host needs Docker and nothing else. It talks to this host's daemon and
+# publishes restored configuration into the host's own files, so every path it
+# touches is mounted at the path it has on the host.
 set -Eeuo pipefail
 if [[ ${EUID} -ne 0 ]]; then
   exec sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES -- "$0" "$@"
 fi
-exec {{ (blitzecdn_controlplane_install_dir ~ '/.venv/bin/python') | quote }} \
-  {{ (blitzecdn_controlplane_config_dir ~ '/host_runtime.py') | quote }} \
+install -d -m 0700 {{ blitzecdn_controlplane_runtime_dir | quote }}
+environment=()
+if [[ -n ${BLITZE_ALLOW_EMPTY_SITES+set} ]]; then
+  environment=(--env BLITZE_ALLOW_EMPTY_SITES)
+fi
+exec docker run --rm --interactive --network none --user 0:0 \
+  --security-opt no-new-privileges:true \
+  --env TMPDIR={{ blitzecdn_controlplane_runtime_dir | quote }} \
+  ${environment[@]+"${environment[@]}"} \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --volume {{ (blitzecdn_controlplane_config_dir ~ ':' ~ blitzecdn_controlplane_config_dir) | quote }} \
+  --volume {{ (blitzecdn_controlplane_state_dir ~ ':' ~ blitzecdn_controlplane_state_dir) | quote }} \
+  --volume {{ (blitzecdn_controlplane_runtime_dir ~ ':' ~ blitzecdn_controlplane_runtime_dir) | quote }} \
+  --entrypoint python \
+  {{ blitzecdn_controlplane_image | quote }} \
+  -m blitzecdn.host.host_runtime \
   --services {{ blitzecdn_controlplane_compose_file | quote }} -- "$@"

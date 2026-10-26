@@ -182,22 +182,14 @@
     path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
   register: blitzecdn_controlplane_environment
 
-- name: Install the host Docker SDK runner
-  ansible.builtin.copy:
-    src: "{{ role_path }}/../../../../host/host_runtime.py"
-    dest: "{{ blitzecdn_controlplane_config_dir }}/host_runtime.py"
-    owner: root
-    group: root
-    mode: "0600"
-
 - name: Inspect the service configuration
   ansible.builtin.stat:
-    path: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
   register: blitzecdn_controlplane_configuration
 
 - name: Read the existing service configuration
   ansible.builtin.slurp:
-    path: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
   register: blitzecdn_controlplane_existing_configuration
   when: blitzecdn_controlplane_configuration.stat.exists
 
@@ -230,7 +222,7 @@
 - name: Write the non-secret service configuration
   ansible.builtin.template:
     src: blitzecdn.toml.j2
-    dest: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+    dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
     owner: root
     group: root
     mode: "0644"
@@ -293,16 +285,19 @@
     mode: "0600"
     validate: docker compose --file %s config --quiet
 
-- name: Build the immutable control-plane runtime image
+# Never pulled or built here: install.sh obtained the image before this play,
+# which runs inside it. Asserted rather than assumed, so a role run with some
+# other reference fails before a service is stopped, not at `up`.
+- name: Require the control-plane runtime image
   ansible.builtin.command:
     argv:
       - docker
-      - compose
-      - --file
-      - "{{ blitzecdn_controlplane_compose_file }}"
-      - build
-      - --pull
-  changed_when: true
+      - image
+      - inspect
+      - --format
+      - "{{ '{{' }}.Id{{ '}}' }}"
+      - "{{ blitzecdn_controlplane_image }}"
+  changed_when: false
 
 # Prove the exact identity and mounts used by API/worker/CLI can use the
 # controller key. No host service account participates in this trust chain.
@@ -330,7 +325,7 @@
   changed_when: false
 
 # The one place the services are stopped, for a first install, an update, an
-# upgrade, or a repair run of this role alike: after the image is built, so
+# upgrade, or a repair run of this role alike: after the image is in place, so
 # downtime is only the migration and the restart. install.sh takes its backup
 # before calling this play.
 - name: Stop application services before schema migration

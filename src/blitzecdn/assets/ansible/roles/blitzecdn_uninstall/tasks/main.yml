@@ -1,7 +1,8 @@
 ---
-# This role deliberately leaves the checkout in place. It contains the
-# ansible-playbook process executing these tasks; install.sh removes it after
-# the play exits. Packages are shared host state and are not removed either.
+# This role deliberately leaves the checkout and the control-plane image in
+# place. The ansible-playbook process executing these tasks runs in a container
+# from that image; install.sh removes both after the play exits. Packages are
+# shared host state and are not removed either.
 
 - name: Inspect the control-plane Compose project
   ansible.builtin.stat:
@@ -23,13 +24,6 @@
       - --remove-orphans
   when: blitzecdn_uninstall_compose.stat.exists
   changed_when: true
-
-- name: Remove the local control-plane runtime image
-  ansible.builtin.command:
-    argv: [docker, image, rm, "{{ blitzecdn_uninstall_image }}"]
-  register: blitzecdn_uninstall_image_removal
-  changed_when: blitzecdn_uninstall_image_removal.rc == 0
-  failed_when: false
 
 - name: Remove edge-managed Linux state through its canonical role
   ansible.builtin.include_role:

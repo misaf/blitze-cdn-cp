@@ -1,8 +1,12 @@
-"""Host-side Docker SDK runner, copied by Ansible into /etc/blitzecdn.
+"""Docker SDK runner behind the host's ``blitzecdn`` command.
 
-Runs under the bootstrap interpreter without the application. It accepts only
-the Compose subset our role emits, refusing anything else before stopping
-anything; Compose still owns installation and builds.
+The wrapper runs it in a root container from the control-plane image, with the
+Docker socket, the configuration, state and staging directories mounted at the
+paths they have on the host: the daemon resolves every bind mount it asks for
+against the host, and a restore publishes into the host's own files. It does
+not import the application. It accepts only the Compose subset our role emits,
+refusing anything else before stopping anything; Compose still owns
+installation.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ class ServiceDefinitions:
         service = self.services[name]
         supported = {
             "image",
-            "build",
+            "pull_policy",
             "env_file",
             "environment",
             "network_mode",

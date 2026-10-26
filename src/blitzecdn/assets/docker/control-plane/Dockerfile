@@ -24,6 +24,11 @@ RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python \
 # python:slim is root by default but already supplies Debian's unprivileged
 # nobody:nogroup account (65534:65534). The application tree is immutable and
 # Ansible gives only the state and backup bind mounts to this identity.
+#
+# Its passwd home is pointed at the state mount, the same place as HOME below:
+# Ansible expands `~nobody` from passwd for a task delegated to the controller,
+# and Debian's /nonexistent leaves it nowhere to put its temporary files.
+RUN usermod --home /opt/blitzecdn/.state nobody
 USER nobody:nogroup
 ENV HOME=/opt/blitzecdn/.state \
     BLITZE_PROJECT_DIR=/opt/blitzecdn \

@@ -1,0 +1,108 @@
+# Build and publish the BlitzeCDN control-plane image: the API, the worker,
+# the CLI, and the Ansible that converges the host they run on.
+#
+# The image is how a server is installed. `install.sh standalone` pulls the
+# reference pinned in the blitzecdn_controlplane role defaults instead of
+# resolving Python packages on the host, so a host that cannot reach PyPI can
+# still be installed and updated. A release tag is therefore the only trigger
+# that publishes: the pin names a version, and a version names a tag.
+#
+# On a pull request that touches the image the build runs without pushing, so
+# a Dockerfile that cannot build is found before the tag that needs it.
+name: Control-plane image
+
+"on":
+  pull_request:
+    paths:
+      - src/blitzecdn/assets/docker/control-plane/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/control-plane-image.yml
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      # Only what pushing to GitHub's own registry needs.
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The tag is the version the installer's pin names. Publishing v6.0.1
+      # from a tree that says 6.0.0 would leave every 6.0.1 install pulling
+      # nothing, so the mismatch fails here rather than on a server.
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          version = project["project"]["version"]
+          if tag != f"v{version}":
+              raise SystemExit(f"release tag {tag!r} must equal v{version}")
+          PY
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Sign in to the registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Name the image
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/blitzecdn-control-plane
+          # No `latest`, for the same reason as the edge image: a host pinned to
+          # a floating tag cannot say which release it is running.
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long,prefix=
+      - name: Build and publish the control-plane runtime
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          # The whole checkout is the context, as it is for a source build:
+          # the image carries the playbooks the installer runs from it.
+          context: .
+          file: src/blitzecdn/assets/docker/control-plane/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      # The tag is what the role pins; the digest is what an operator who wants
+      # the exact bytes passes instead. Both belong in the run's own output.
+      - name: Report the published digest
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo '## Control-plane image'
+            echo
+            echo '```'
+            echo "digest: ${{ steps.build.outputs.digest }}"
+            echo '```'
+            echo
+            echo 'Install or update pinned to exactly this build with:'
+            echo
+            echo '```'
+            image="ghcr.io/${{ github.repository_owner }}/blitzecdn-control-plane"
+            echo "sudo BLITZECDN_CONTROL_PLANE_IMAGE=${image}@${{ steps.build.outputs.digest }} \\"
+            echo "  ./install.sh standalone ..."
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

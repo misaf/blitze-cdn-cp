@@ -6,7 +6,8 @@ parsing, and the validators the script runs through Python.
 
 The second group builds a sandbox for the lifecycle paths: the script copied
 with every path redirected under a temp directory, the root check neutralised,
-and privileged commands (systemctl, userdel, nginx, git) stubbed on ``PATH``.
+and privileged commands (systemctl, userdel, nginx, git, docker) stubbed on
+``PATH``.
 """
 
 import os
@@ -135,10 +136,30 @@ def _instrument(sandbox: Path) -> tuple[Path, Path]:
     return script, root
 
 
+#: The image a fake installation records in its Compose project.
+FAKE_IMAGE = "ghcr.io/misaf/blitzecdn-control-plane:test"
+
+
 def _stub_bin(sandbox: Path, root: Path) -> None:
     """Provide stand-ins for every privileged command the destructive paths run."""
     bindir = sandbox / "bin"
     bindir.mkdir(exist_ok=True)
+    # The engine. DOCKER_IMAGE_MISSING makes every image lookup fail; a play run
+    # in the image is the fake installation's stand-in for the uninstall play,
+    # and every `docker` call is recorded for the tests that order them.
+    (bindir / "docker").write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "docker $*" >> "${DOCKER_LOG:-/dev/null}"\n'
+        'case "$*" in\n'
+        '  "image inspect"*)\n'
+        '    [[ -z "${DOCKER_IMAGE_MISSING:-}" ]] || exit 1\n'
+        "    echo sha256:0123; exit 0 ;;\n"
+        "  run*ansible-playbook*uninstall.yml*)\n"
+        f'    exec "{sandbox / "uninstall-play"}" ;;\n'
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
     (bindir / "systemctl").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     (bindir / "nginx").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     process_marker = sandbox / "processes-terminated"
@@ -228,8 +249,6 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         / "edge/MANIFEST.json",
         root / "opt/blitzecdn/.state/letsencrypt/config",
         root / "opt/blitzecdn/.state/ansible-local",
-        root / "opt/blitzecdn/.venv/bin/python",
-        root / "opt/blitzecdn/.venv/bin/ansible-playbook",
         root / "opt/blitzecdn/src/blitzecdn/assets/ansible/playbooks/uninstall.yml",
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
@@ -263,10 +282,20 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
             "# Managed by BlitzeCDN. Local edits are overwritten.\nx\n",
             encoding="utf-8",
         )
+    # Where the installer reads back which image the services run, written as
+    # the role's template writes it.
+    (root / "etc/blitzecdn/control-plane.compose.yml").write_text(
+        "# Managed by BlitzeCDN.\n"
+        'name: "blitzecdn-control-plane"\n'
+        "x-blitzecdn-runtime: &blitzecdn-runtime\n"
+        f'  image: "{FAKE_IMAGE}"\n',
+        encoding="utf-8",
+    )
     # The installer owns only invocation and final checkout removal. This
-    # stand-in models a successful uninstall play by removing the system paths
-    # from the fixture; it deliberately leaves /opt/blitzecdn for Bash.
-    ansible = root / "opt/blitzecdn/.venv/bin/ansible-playbook"
+    # stand-in for the play the docker stub runs in the image models a
+    # successful uninstall by removing the system paths from the fixture; it
+    # deliberately leaves /opt/blitzecdn for Bash.
+    ansible = root.parent / "uninstall-play"
     system_paths = [
         path for path in owned if root / "opt/blitzecdn" not in path.parents
     ]
