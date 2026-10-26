@@ -17,10 +17,13 @@ name: Edge image
   pull_request:
     paths:
       - src/blitzecdn/assets/docker/edge/**
-      # A capability declares the dynamic modules it needs in its plugin
-      # module, and the image is built from that declaration — so a package
-      # that adds one changes this image without touching the build context.
-      - src/blitzecdn/**/provider.py
+      # Include declarations and the code that resolves their image spec.
+      - src/blitzecdn/capabilities/**
+      - src/blitzecdn/core/features/**
+      - src/blitzecdn/composition/**
+      - src/blitzecdn/entrypoints/cli/**
+      - pyproject.toml
+      - uv.lock
       - .github/workflows/edge-image.yml
   push:
     # Every release line still under development. A line missing from here
@@ -31,7 +34,12 @@ name: Edge image
     branches: [3.x, 4.x, 5.x, 6.x]
     paths:
       - src/blitzecdn/assets/docker/edge/**
-      - src/blitzecdn/**/provider.py
+      - src/blitzecdn/capabilities/**
+      - src/blitzecdn/core/features/**
+      - src/blitzecdn/composition/**
+      - src/blitzecdn/entrypoints/cli/**
+      - pyproject.toml
+      - uv.lock
       - .github/workflows/edge-image.yml
     tags: ['v*.*.*']
   workflow_dispatch:

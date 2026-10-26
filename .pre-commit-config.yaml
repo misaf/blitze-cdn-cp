@@ -1,11 +1,19 @@
 ---
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.5
+  # Use the lockfile's Ruff for hooks, just recipes, and CI alike.
+  - repo: local
     hooks:
       - id: ruff-check
+        name: Ruff check (locked)
+        entry: uv run --frozen ruff check
+        language: system
+        types_or: [python, pyi]
         args: [--fix]
       - id: ruff-format
+        name: Ruff format (locked)
+        entry: uv run --frozen ruff format
+        language: system
+        types_or: [python, pyi]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:
