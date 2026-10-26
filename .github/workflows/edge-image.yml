@@ -28,7 +28,7 @@ name: Edge image
     # blitzecdn_edge/defaults and the fleet group_vars now name the release
     # they ship with — so a new major must be added here in the same change
     # that opens its branch, not on the first deploy that cannot pull.
-    branches: [3.x, 4.x, 5.x]
+    branches: [3.x, 4.x, 5.x, 6.x]
     paths:
       - src/blitzecdn/assets/docker/edge/**
       - src/blitzecdn/**/provider.py
