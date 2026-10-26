@@ -85,6 +85,11 @@ layout, dependency declarations, and other structural constraints.
 See [transaction boundaries](docs/transactions.md) for atomic updates, nested
 service calls, and coordination with external work.
 
+Ansible template API compatibility lives in `core/ansible/templating.py`.
+For upgrades, run the templating tests in `tests/platform/test_ansible_templating.py`,
+rendering contracts in `tests/contract/test_configuration_rendering.py`, and
+release-render tests in `tests/capabilities/releases/test_release_render.py`.
+
 ## How work runs
 
 **Desired state:** DNS records, per-hostname policy, edge registrations, and

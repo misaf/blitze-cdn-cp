@@ -15,11 +15,11 @@ play.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.templating import AnsibleTemplates, load_variables
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import ConfigurationError
 
@@ -56,13 +56,14 @@ class EdgeRenderer:
         ``document`` is a release's execution document: its desired-state
         artifact plus `blitzecdn_release_digest`.
         """
-        context = _Context(self._variables(document))
+        context = AnsibleTemplates(self._variables(document))
+        candidate = PurePosixPath(context.value("blitzecdn_config_release_candidate"))
         nginx = self._role(_RENDERING_ROLE) / "templates"
         files: dict[str, bytes] = {}
         links: dict[str, str] = {}
 
         def write(destination: str, content: str) -> None:
-            files[context.relative(destination)] = content.encode("utf-8")
+            files[_relative(destination, candidate)] = content.encode("utf-8")
 
         paths = context.value("blitzecdn_edge_runtime")["paths"]
         write(
@@ -98,11 +99,13 @@ class EdgeRenderer:
             available = paths["nginx"] + f"/sites-available/{site['name']}.conf"
             write(available, context.render(nginx / "site.conf.j2", item=site))
             if site.get("enabled", True):
-                links[context.relative(enabled + f"{site['name']}.conf")] = available
+                links[_relative(enabled + f"{site['name']}.conf", candidate)] = (
+                    available
+                )
         if context.flag("blitzecdn_nginx_default_server"):
             default = context.value("blitzecdn_nginx_default_site_file")
             write(default, context.render(nginx / "default.conf.j2"))
-            links[context.relative(enabled + PurePosixPath(default).name)] = default
+            links[_relative(enabled + PurePosixPath(default).name, candidate)] = default
         names = sorted(str(site["name"]) for site in sites)
         write(
             context.value("blitzecdn_nginx_managed_sites_file"), "\n".join(names) + "\n"
@@ -110,29 +113,26 @@ class EdgeRenderer:
         return ConfigurationBundle(files=files, links=links)
 
     def _variables(self, document: Mapping[str, Any]) -> dict[str, Any]:
-        from ansible.parsing.dataloader import DataLoader
-
-        loader = DataLoader()
-        variables: dict[str, Any] = {}
+        paths: list[Path] = []
         roles = (*_LEADING_ROLES, *self._contributions.edge_roles, _RENDERING_ROLE)
         for name in roles:
             defaults = self._role(name) / "defaults" / "main.yml"
             if defaults.is_file():
-                variables.update(_load(loader, defaults))
+                paths.append(defaults)
         group = self._ansible_dir / "inventory" / "group_vars" / _EDGE_GROUP
-        for path in sorted(group.glob("*.yml")):
-            variables.update(_load(loader, path))
+        paths.extend(sorted(group.glob("*.yml")))
+        variables = load_variables(paths)
         extra = {**dict(document), **self._contributions.variables()}
         if "blitzecdn_release_digest" not in extra:
             raise ConfigurationError("a release document names no release digest")
         variables.update(extra)
-        context = _Context(variables)
+        context = AnsibleTemplates(variables)
         root = context.value("blitzecdn_config_release_root")
         variables["blitzecdn_config_release_candidate"] = (
             f"{root}/{extra['blitzecdn_release_digest']}"
         )
         variables["blitzecdn_config_release_enabled"] = True
-        variables["blitzecdn_edge_runtime"] = _Context(variables).expression(
+        variables["blitzecdn_edge_runtime"] = AnsibleTemplates(variables).expression(
             _CANDIDATE_RUNTIME
         )
         # Facts lose to extra-vars, as they do in the play.
@@ -146,82 +146,11 @@ class EdgeRenderer:
         raise ConfigurationError(f"role {name!r} is not on the role search path")
 
 
-class _Context:
-    """One set of variables, rendered with Ansible's templar."""
-
-    def __init__(self, variables: dict[str, Any]) -> None:
-        from ansible.parsing.dataloader import DataLoader
-        from ansible.template import Templar
-
-        _plugin_loader()
-        self._variables = variables
-        self._loader = DataLoader()
-        self._templar = Templar(loader=self._loader, variables=variables)
-
-    def expression(self, template: str) -> Any:
-        from ansible.template import trust_as_template
-
-        return self._templar.template(trust_as_template(template))
-
-    def value(self, name: str) -> Any:
-        return self.expression("{{ " + name + " }}")
-
-    def flag(self, name: str) -> bool:
-        return bool(self.expression("{{ " + name + " | bool }}"))
-
-    def relative(self, destination: str) -> str:
-        candidate = PurePosixPath(self.value("blitzecdn_config_release_candidate"))
-        path = PurePosixPath(destination)
-        if not path.is_relative_to(candidate):
-            raise ConfigurationError(f"{destination} is outside the candidate tree")
-        return str(path.relative_to(candidate))
-
-    def render(self, source: Path, **local: Any) -> str:
-        """Render one template file as the `template` action does."""
-        from ansible._internal._templating import _template_vars
-        from ansible.template import trust_as_template
-
-        variables = {**self._variables, **local}
-        variables.update(
-            _template_vars.generate_ansible_template_vars(
-                path=str(source),
-                fullpath=str(source),
-                dest_path=None,
-                include_ansible_managed="ansible_managed" not in variables,
-            )
-        )
-        searchpath = [str(source.parent), str(source.parent.parent)]
-        templar = self._templar.copy_with_new_env(
-            searchpath=[
-                *(str(Path(path) / "templates") for path in searchpath),
-                *searchpath,
-            ],
-            available_variables=variables,
-        )
-        rendered: str | None = templar.template(
-            trust_as_template(source.read_text(encoding="utf-8")),
-            escape_backslashes=False,
-            overrides={
-                "trim_blocks": True,
-                "lstrip_blocks": False,
-                "newline_sequence": "\n",
-            },
-        )
-        # As the action does: a template that renders nothing writes an empty file.
-        return rendered if rendered is not None else ""
-
-
-@cache
-def _plugin_loader() -> None:
-    """Configure Ansible's plugin and collection loaders, once per process."""
-    from ansible.plugins.loader import init_plugin_loader
-
-    init_plugin_loader()
-
-
-def _load(loader: Any, path: Path) -> Mapping[str, Any]:
-    data = loader.load_from_file(str(path), trusted_as_template=True)
-    return data or {}
+def _relative(destination: str, candidate: PurePosixPath) -> str:
+    path = PurePosixPath(destination)
+    if not path.is_relative_to(candidate):
+        raise ConfigurationError(f"{destination} is outside the candidate tree")
+    return str(path.relative_to(candidate))
 
 
 def _plain(name: str) -> str:

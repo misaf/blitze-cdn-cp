@@ -262,3 +262,12 @@ forbidden_modules =
     httpx
     requests
 allow_indirect_imports = True
+
+[importlinter:contract:rendering-uses-templating-adapter]
+name = Release rendering reaches Ansible only through the templating adapter
+type = forbidden
+source_modules =
+    blitzecdn.core.ansible.rendering
+forbidden_modules =
+    ansible
+allow_indirect_imports = True
