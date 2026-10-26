@@ -71,6 +71,16 @@
         - {path: "{{ blitzecdn_edge_runtime.paths.empty }}", mode: "0755"}
       loop_control:
         label: "{{ item.path }}"
+      # Except a release's own tree. Once blitzecdn_config_release has bound the
+      # configuration paths to a candidate, that tree belongs to the release
+      # helper: staging replaces whatever is there, and sealing fixes it. This
+      # loop ran first and created the candidate's directories with its own
+      # modes, then on every later run set them back over the sealed tree's —
+      # so a check-mode drift probe of an edge serving its release always
+      # reported a change, and a real run rewrote a sealed release.
+      when: >-
+        not (blitzecdn_config_release_enabled | default(false) | bool)
+        or not item.path.startswith(blitzecdn_config_release_candidate ~ '/')
 
     - name: Resolve the edge runtime image
       ansible.builtin.import_tasks: image.yml

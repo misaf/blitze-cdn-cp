@@ -1,0 +1,29 @@
+---
+# What the harness's controller supplies on every run beside the release: host
+# policy, credentials and the capability slot. None of it is rendered into the
+# configuration tree, so none of it is in the release digest.
+
+# The images are loaded into the edge host's engine by the script; the play
+# must not reach for a registry.
+blitzecdn_edge_stack_image_pull: false
+blitzecdn_firewall_enabled: true
+blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
+# The runner has no MaxMind credentials, and the test installs a MaxMind sample
+# database by hand. Without these the role would try to fetch one.
+blitzecdn_geoip_account_id: ''
+blitzecdn_geoip_license_key: ''
+# A credential, so it reaches the edge as a runner variable and never as part
+# of the release. The script generates it on the edge host.
+blitzecdn_security_under_attack_secret: >-
+  {{ lookup('file', '/run/blitzecdn-under-attack-secret') }}
+# The edge capability slot, named the way the control plane names it: a list
+# the shipped play's `blitzecdn_capabilities` slot loops over. A subset of what
+# is installed — not `blitzecdn_resolver`, which would take over the DNS of a
+# host whose resolver is Docker's. tests/http3_release.py renders with the
+# defaults of exactly these roles.
+blitzecdn_capability_roles:
+  - blitzecdn_cache_config
+  - blitzecdn_compression
+  - blitzecdn_geoip
+  - blitzecdn_http3
+  - blitzecdn_security

@@ -15,14 +15,21 @@ import os
 import re
 import shlex
 
+import http3_release
 import pytest
 import yaml
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
+from blitzecdn.core.domain.configuration import ConfigurationBundle
+
 PROJECT_DIR = REPO_ROOT
 HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"
 INSTALL_HARNESS = PROJECT_DIR / "tests/container-install.sh"
-HTTP3_PLAYBOOK = PROJECT_DIR / "tests/integration/http3-edge.yml"
+# The desired state the harness renders a release from, and what its controller
+# passes beside the release. The edge itself is converged by the shipped play.
+HTTP3_STATE = PROJECT_DIR / "tests/integration/http3-edge/release.yml"
+HTTP3_RUNNER = PROJECT_DIR / "tests/integration/http3-edge/runner.yml"
+EDGE_PLAYBOOK = "src/blitzecdn/assets/ansible/playbooks/edge.yml"
 # Both harnesses start a privileged systemd host and install a container engine
 # inside it, so both meet the nested-overlay limit below in the same way.
 NESTED_ENGINE_HARNESSES = (HTTP3_HARNESS, INSTALL_HARNESS)
@@ -40,7 +47,7 @@ def _commands(harness=HTTP3_HARNESS) -> str:
 def test_every_saved_edge_image_reaches_the_edge_hosts_engine():
     """Saving an image is not giving it to the host that has to run it.
 
-    The edge host runs its own engine and `http3-edge.yml` disables pulls, so a
+    The edge host runs its own engine and the harness's runner disables pulls, so a
     saved but unloaded image fails at `Require the requested image to be present`.
     """
     commands = _commands()
@@ -153,27 +160,81 @@ def test_the_edge_image_is_built_with_the_modules_the_capabilities_declare():
     )
 
 
-def test_the_harness_gives_the_capability_slot_the_roles_it_requires():
-    """Two variables, one letter apart, and only one of them is the role's.
+def test_the_harness_converges_the_shipped_edge_play_from_a_release():
+    """A test play is a copy, and a copy drifts.
 
-    `blitzecdn_capability_roles` is the composed extra-var;
-    `blitzecdn_capabilities_roles` is the `blitzecdn_capabilities` role's own
-    per-slot parameter, which `ansible/playbooks/edge.yml` sets from the first. A
-    play setting only the first fails the role's argument spec mid-converge.
+    The harness once ran its own play, which predated content-addressed
+    releases: it never selected a candidate tree, so the stack mounted
+    configuration paths nothing wrote any more, and the job was red on every
+    commit. The edge is now converged by `edge.yml` itself, from a release
+    the control plane's renderer produced, and committed only after the edge
+    answers with that release — the rollout's own order.
     """
-    playbook = HTTP3_PLAYBOOK.read_text(encoding="utf-8")
-    invocations = re.findall(
-        r"- role: blitzecdn_capabilities\n(.*?)(?=\n    - role: |\Z)",
-        playbook,
-        re.DOTALL,
+    commands = _commands()
+    assert (REPO_ROOT / EDGE_PLAYBOOK).is_file(), "the edge play moved"
+    assert EDGE_PLAYBOOK in commands, "the harness does not run the shipped edge play"
+    assert not list((REPO_ROOT / "tests/integration").glob("http3-edge.yml")), (
+        "a harness-only edge play is back beside the shipped one"
     )
-    assert invocations, "the harness no longer runs the capability slot"
-    for body in invocations:
-        assert "blitzecdn_capabilities_roles:" in body, (
-            "the harness stands up blitzecdn_capabilities without the roles "
-            "parameter it requires; setting blitzecdn_capability_roles as a "
-            "play variable is not the same thing"
-        )
+    assert "tests/http3_release.py" in commands, (
+        "the harness no longer renders the release it deploys"
+    )
+
+    deploy = re.search(r"^deploy\(\) \{\n(.*?)\n\}", commands, re.MULTILINE | re.DOTALL)
+    assert deploy, "the harness has no rollout helper"
+    body = deploy.group(1)
+    verify = body.index("/.blitzecdn/release")
+    commit = body.index("--tags commit")
+    assert body.index("converge") < verify < commit, (
+        "the harness commits a release without first checking the edge serves it"
+    )
+
+
+def test_the_harness_capability_slot_is_the_one_the_renderer_loads():
+    """The renderer loads the defaults of the roles the play will run.
+
+    So the runner names the slot once, as `blitzecdn_capability_roles` — the
+    extra-var `edge.yml` translates into the role's own parameter — and the
+    release helper reads the list from there rather than from a second copy.
+    """
+    runner = yaml.safe_load(HTTP3_RUNNER.read_text(encoding="utf-8"))
+    roles = runner["blitzecdn_capability_roles"]
+    assert roles, "the harness converges no capability"
+    assert "blitzecdn_capabilities_roles" not in runner, (
+        "the runner sets the role's own parameter, which edge.yml derives"
+    )
+
+
+def test_the_harness_release_renders_and_is_content_addressed(tmp_path):
+    """What the harness stages is a real bundle, and new state is a new release.
+
+    The image upgrade and the rollback are each a new digest: a sealed
+    candidate reuses the image it was validated under.
+    """
+    arguments = [str(HTTP3_STATE), str(HTTP3_RUNNER)]
+    edge = "/harness/release"
+    first = tmp_path / "first"
+    assert http3_release.main([*arguments, str(first), edge]) == 0
+    second = tmp_path / "second"
+    upgrade = "blitzecdn_edge_image=blitzecdn-edge:integration-next"
+    assert http3_release.main([*arguments, str(second), edge, upgrade]) == 0
+
+    released = yaml.safe_load((first / http3_release.EXECUTION_DOCUMENT).read_text())
+    upgraded = yaml.safe_load((second / http3_release.EXECUTION_DOCUMENT).read_text())
+    assert released["blitzecdn_release_digest"] != upgraded["blitzecdn_release_digest"]
+    assert released["blitzecdn_config_release_bundle"] == (
+        f"{edge}/{http3_release.BUNDLE}"
+    )
+
+    bundle = ConfigurationBundle.decode((first / http3_release.BUNDLE).read_text())
+    candidate = f"/etc/blitzecdn/releases/{released['blitzecdn_release_digest']}"
+    assert set(bundle.links) == {
+        "nginx/sites-enabled/blitzecdn-default.conf",
+        "nginx/sites-enabled/site-one-test.conf",
+        "nginx/sites-enabled/site-two-test.conf",
+    }
+    assert all(target.startswith(candidate) for target in bundle.links.values())
+    assert "njs/under-attack.js" in bundle.files
 
 
 def test_the_harness_certificates_live_where_the_runtime_can_read_them():
@@ -181,14 +242,14 @@ def test_the_harness_certificates_live_where_the_runtime_can_read_them():
 
     validate.yml does not check `certificate_mode: existing` paths, so only nginx
     would refuse them, after everything has run. The readable directory is the
-    runtime contract's `paths.tls`; this checks the play against the script.
+    runtime contract's `paths.tls`; this checks the desired state against the script.
     """
-    playbook = HTTP3_PLAYBOOK.read_text(encoding="utf-8")
+    playbook = HTTP3_STATE.read_text(encoding="utf-8")
     written = set(re.findall(r"(/etc/blitzecdn/tls/[\w.-]+)", _commands(HTTP3_HARNESS)))
     assert written, "the harness no longer generates a certificate to serve"
 
     declared = re.findall(r"certificate(?:_key)?_path: (\S+)", playbook)
-    assert declared, "the harness play no longer names a certificate"
+    assert declared, "the harness's desired state no longer names a certificate"
     for path in declared:
         assert path in written, (
             f"the play serves {path}, which the harness never creates and the "

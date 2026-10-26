@@ -1,0 +1,99 @@
+---
+# The desired state the HTTP/3 harness's edge is asked to serve: what a control
+# plane would compile from its zones and rules, written down because the harness
+# has no database. tests/http3_release.py renders it into a release with the
+# control plane's own renderer, and the shipped edge play stages that release.
+# Everything here is in the release digest, so changing any of it is a new
+# candidate tree on the edge. The runner's variables beside it are not.
+#
+# The image is here although a control plane does not put it in a release.
+# A sealed candidate records the image it was validated under and reuses it, so
+# the image upgrade and the broken-image rollback the harness drives are each a
+# new release, as they are in production when a new version ships a new image.
+# Built from src/blitzecdn/assets/docker/edge/ by the integration script and
+# loaded into the edge host's engine, so the test proves the image this
+# repository produces rather than whatever the registry currently publishes.
+blitzecdn_edge_image: blitzecdn-edge:integration
+blitzecdn_nginx_allow_empty_sites: false
+# One switch for the QUIC listener, the UDP/443 firewall rule and the deploy's
+# own listener check.
+blitzecdn_edge_http3_enabled: true
+blitzecdn_nginx_http3_listener_owner: site-one-test
+blitzecdn_geoip_enabled: true
+blitzecdn_geoip_update_enabled: false
+blitzecdn_geoip_edition: GeoIP2-Country-Test
+blitzecdn_security_under_attack_enabled: true
+# The config-test container has no network, so keep origin lookup deferred
+# until request time. The running edge shares this host's network namespace,
+# where Docker's embedded DNS resolves the sibling origin container.
+blitzecdn_nginx_resolvers: [127.0.0.11]
+# Both sites present the one certificate the harness generates, and its
+# path is not free. Nginx reads it from inside the edge container, and the
+# only host directory that reaches in there is the runtime contract's
+# `paths.tls` — /etc/blitzecdn/tls, mounted read-only at the same path by
+# compose.yml.j2. A certificate anywhere else on the host is a file the
+# process that needs it cannot see. `certificate_mode: existing` is also
+# the one mode validate.yml does not check the shape of, so a path that
+# cannot work is not refused until nginx tries to open it.
+blitzecdn_nginx_sites:
+  - name: site-one-test
+    server_names: [site-one.test]
+    origin_host: blitzecdn-http3-origin
+    origin_request_host: site-one.test
+    origin_sni: site-one.test
+    ssl_mode: flexible
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
+    http3_enabled: true
+    max_upload_size: 200m
+    always_use_https: false
+    enabled: true
+    certificate_mode: existing
+    certificate_path: /etc/blitzecdn/tls/integration.pem
+    certificate_key_path: /etc/blitzecdn/tls/integration.key
+    cache_enabled: false
+    cache_query_string_mode: include
+    cache_valid_success: 10m
+    cache_valid_not_found: 1m
+    compression: brotli
+    firewall:
+      allow_sources: []
+      deny_sources: []
+      allowed_countries: []
+      denied_countries: []
+      denied_methods: []
+      denied_paths: []
+    visitor_headers:
+      connecting_ip: true
+      ip_country: true
+  - name: site-two-test
+    server_names: [site-two.test]
+    origin_host: blitzecdn-http3-origin
+    origin_request_host: site-two.test
+    origin_sni: site-two.test
+    ssl_mode: flexible
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
+    http3_enabled: true
+    max_upload_size: 200m
+    always_use_https: false
+    under_attack_mode: true
+    enabled: true
+    certificate_mode: existing
+    certificate_path: /etc/blitzecdn/tls/integration.pem
+    certificate_key_path: /etc/blitzecdn/tls/integration.key
+    cache_enabled: false
+    cache_query_string_mode: include
+    cache_valid_success: 10m
+    cache_valid_not_found: 1m
+    compression: brotli
+    firewall:
+      allow_sources: []
+      deny_sources: []
+      allowed_countries: []
+      denied_countries: []
+      denied_methods: []
+      denied_paths: []
+    visitor_headers:
+      connecting_ip: true
+      ip_country: true
