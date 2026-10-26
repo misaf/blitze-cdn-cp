@@ -51,14 +51,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Which modules this image carries is not written in the build context:
       # each capability declares its own, and the control plane composes them.
       # The workspace is synced with every package installed, deliberately —
       # the published image is the superset an edge mounts its own narrower
       # `load_module` list over, so it has to be built by a controller that has
       # every published capability attached.
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.12.3"
           enable-cache: true
@@ -77,7 +77,7 @@ jobs:
       # A pull request builds and probes without credentials; nothing is pushed.
       - name: Sign in to the registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -94,7 +94,7 @@ jobs:
             type=sha,format=long,prefix=
       - name: Build and publish the edge runtime
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: src/blitzecdn/assets/docker/edge
           # amd64 and arm64, because an edge fleet is rarely one architecture
