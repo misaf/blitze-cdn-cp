@@ -6,7 +6,8 @@
 # origin_port is the site's *canonical* origin endpoint — 80 for Off and
 # Flexible, 443 for Full and Full (strict) — and not the port any particular
 # visitor request reaches. The edge preserves the visitor's destination port
-# toward the origin, so a request on 8443 is proxied to the origin's 8443. This
+# toward the origin, so a request on 8443 is proxied to the origin's 8443 —
+# except Flexible on 443, which reaches the origin over HTTP on 80. This
 # check deliberately does not walk all thirteen public proxy ports: an origin
 # serving only 80 and 443 is ordinary, and failing it for ports nobody uses
 # would make it undeployable. See OriginProbe in the control plane.

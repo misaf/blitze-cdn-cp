@@ -87,6 +87,18 @@ class SslMode(StrEnum):
             )
         return HttpScheme.HTTPS
 
+    def origin_port_for(self, visitor_scheme: HttpScheme, visitor_port: int) -> int:
+        """The origin port for one visitor request: the visitor's own, except
+        Flexible HTTPS/443, which reaches the HTTP origin on 80."""
+        https = DEFAULT_PORTS[HttpScheme.HTTPS]
+        if (
+            self is SslMode.FLEXIBLE
+            and visitor_scheme is HttpScheme.HTTPS
+            and visitor_port == https
+        ):
+            return DEFAULT_PORTS[HttpScheme.HTTP]
+        return visitor_port
+
     @property
     def verifies_origin(self) -> bool:
         return self is SslMode.FULL_STRICT
