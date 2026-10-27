@@ -23,7 +23,7 @@ blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 # when the registry gave one, so the services and the CLI wrapper run exactly
 # the bytes that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1)
 # passes its local tag instead.
-blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.0.1
+blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.1.0
 # Where the CLI wrapper stages a restore's configuration. On the host's tmpfs,
 # and mounted at the same path into the container that runs the wrapper,
 # because the Docker daemon resolves the staging bind mount against the host.
