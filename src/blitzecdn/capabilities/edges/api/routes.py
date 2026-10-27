@@ -1,6 +1,6 @@
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
@@ -15,6 +15,10 @@ from blitzecdn.entrypoints.api.dependencies import (
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import Operation, as_queued
+from blitzecdn.entrypoints.api.responses import (
+    ACCEPTED_RESPONSE,
+    polling_headers,
+)
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
@@ -54,8 +58,10 @@ def update_edge(
     "/v3/edges/{name}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
 )
 def remove_edge(
+    response: Response,
     name: str,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
@@ -82,10 +88,12 @@ def remove_edge(
     operation and keeps the edge registered unless ``force`` was given.
     """
     edges.get_edge(name)
-    return as_queued(
+    queued = as_queued(
         queued_operations.submit(
             REMOVE_OPERATION,
             remove_payload(operator, name=name, decommission=decommission, force=force),
             dedupe_key=remove_dedupe_key(name),
         )
     )
+    polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
+    return queued
