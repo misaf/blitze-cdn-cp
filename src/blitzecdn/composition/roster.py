@@ -26,6 +26,9 @@ from blitzecdn.capabilities.tls.wiring import (
     certificates_operations,
     certificates_rendering,
 )
+from blitzecdn.capabilities.traffic.service.collection import TrafficService
+from blitzecdn.capabilities.traffic.settings import TrafficConfig
+from blitzecdn.capabilities.traffic.wiring import traffic_operations
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureOperations,
@@ -66,6 +69,9 @@ class OperationInputs:
     certificate_config: CertificateConfig
     read_database: Callable[[], object]
     queue_ready: Callable[[], bool]
+    traffic: TrafficService
+    traffic_config: TrafficConfig
+    has_edges: Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +115,15 @@ def _certificates_operations(inputs: OperationInputs) -> FeatureOperations:
     )
 
 
+def _traffic_operations(inputs: OperationInputs) -> FeatureOperations:
+    return traffic_operations(
+        traffic=inputs.traffic,
+        config=inputs.traffic_config,
+        has_edges=inputs.has_edges,
+        deployment_timeout_seconds=inputs.settings.deployment_timeout_seconds,
+    )
+
+
 #: Stable registration and presentation order. Desired-state merging is
 #: order-independent, so reordering rows changes no edge.
 ROSTER: tuple[RosterEntry, ...] = (
@@ -142,7 +157,9 @@ ROSTER: tuple[RosterEntry, ...] = (
     ),
     RosterEntry("blitzecdn.capabilities.backup.feature"),
     RosterEntry("blitzecdn.capabilities.cache.feature"),
-    RosterEntry("blitzecdn.capabilities.traffic.feature"),
+    RosterEntry(
+        "blitzecdn.capabilities.traffic.feature", operations=_traffic_operations
+    ),
     RosterEntry("blitzecdn.capabilities.compression.feature"),
     RosterEntry(
         "blitzecdn.capabilities.security.feature",

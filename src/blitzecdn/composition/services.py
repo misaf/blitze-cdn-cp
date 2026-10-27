@@ -64,6 +64,7 @@ from blitzecdn.capabilities.tls.wiring import (
     build_certificate_service,
 )
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
+from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.capabilities.traffic.wiring import build_traffic_service
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.infrastructure import (
@@ -250,6 +251,12 @@ class ServiceProvider(Provider):
         )
 
     @provide
+    def traffic_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> TrafficConfig:
+        return capability_config.for_feature("traffic").as_model(TrafficConfig)
+
+    @provide
     def traffic(self, repository: Repository, runner: FleetRunner) -> TrafficService:
         return build_traffic_service(
             store=repository.traffic,
@@ -386,6 +393,8 @@ class ServiceProvider(Provider):
         automatic_ssl: AutomaticSslService,
         certificate_config: CertificateConfig,
         queue_ready: QueueReadiness,
+        traffic: TrafficService,
+        traffic_config: TrafficConfig,
     ) -> Operations:
         """Contributed jobs close over services, so they bind once every
         service exists."""
@@ -399,6 +408,9 @@ class ServiceProvider(Provider):
                     certificate_config=certificate_config,
                     read_database=lambda: repository.workflows.list_workflows(1),
                     queue_ready=queue_ready,
+                    traffic=traffic,
+                    traffic_config=traffic_config,
+                    has_edges=lambda: bool(repository.edges.list_edges()),
                 )
             )
         )
