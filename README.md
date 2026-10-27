@@ -46,6 +46,8 @@ unversioned. See [request defaults](docs/api-defaults.md) for creation values,
 PATCH semantics, inheritance, and operation scope.
 See [queued API work](docs/queued-operations.md) for submission responses,
 polling headers, and result handling.
+Existing clients should follow the [v2 to v3 migration guide](docs/migration-v2-v3.md)
+before changing their API prefix.
 
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
