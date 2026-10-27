@@ -257,12 +257,21 @@ class ServiceProvider(Provider):
         return capability_config.for_feature("traffic").as_model(TrafficConfig)
 
     @provide
-    def traffic(self, repository: Repository, runner: FleetRunner) -> TrafficService:
+    def traffic(
+        self,
+        repository: Repository,
+        runner: FleetRunner,
+        traffic_config: TrafficConfig,
+        adapters: Adapters,
+    ) -> TrafficService:
         return build_traffic_service(
             store=repository.traffic,
             fleet=runner,
             events=repository.audit_log,
             uow=repository,
+            config=traffic_config,
+            edge_names=lambda: [edge.name for edge in repository.edges.list_edges()],
+            clock=adapters.clock,
         )
 
     @provide

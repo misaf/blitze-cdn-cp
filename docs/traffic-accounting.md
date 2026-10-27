@@ -133,7 +133,8 @@ No totals across rows or edges are implied by the page envelope.
 
 Empty hours are omitted. An empty page does not prove zero traffic: collection
 may be delayed, disabled, or failing, and access logging may be disabled.
-Use `job schedules`, worker logs and queue status to investigate freshness.
+Use the collection status below, plus `job schedules`, worker logs and queue
+status, to investigate freshness.
 These are Nginx bytes sent to visitors: `bytes_sent` includes HTTP headers,
 while `body_bytes_sent` excludes them. They do not measure origin traffic or
 provider billing. Requests are assigned to their completion hour.
@@ -180,6 +181,70 @@ from the same stream are still collected.
 Retention changes controller data only; edge logrotate keeps its existing policy.
 It does not prune queue or audit history. Deleted SQLite pages become reusable;
 this job does not run blocking `VACUUM` or promise an immediate file-size decrease.
-Back up `traffic_hours`, `traffic_cursors`, and `traffic_retention` together. As
+Back up `traffic_hours`, `traffic_cursors`, `traffic_retention`, and
+`traffic_collections` together. As
 with any older database restore, traffic lost between the backup and available
 edge logs cannot be reconstructed automatically.
+
+
+## Collection freshness
+
+Authenticated `GET /v3/traffic/status/{edge}` and
+`blitzecdn traffic status EDGE --json` inspect persisted collection observations.
+Reading status never contacts an edge, starts work, changes counters or adds audit
+history. HTTP responses use `Cache-Control: no-store`. Registered edges without an
+attempt return `never_collected`. Removed edges with history remain queryable and
+show `registered=false`; unknown edges without history return 404.
+
+Both interfaces return the same fields:
+
+- `registered`, `collection_enabled`, `interval_seconds`: current configuration;
+  collection is enabled for an edge when it is registered and the interval is nonzero.
+- `checked_at`, `stale_after_seconds`, `stale`: the current check time and the age
+  test. The threshold is twice the configured interval, with a minimum of 60 seconds.
+  `stale` is true when no caught-up observation exists or its age reaches that threshold.
+- `last_attempt_started_at`, `last_attempt_finished_at`: the latest attempt, recorded
+  before remote work begins and when its result is committed. A missing finish time
+  means no completion was recorded; it does not prove a worker is still alive.
+- `last_success_at`: completion time of the latest error-free scan, including scans
+  with backlog. Successful scans with no new requests also update this timestamp.
+- `last_caught_up_at`: start time of the latest error-free scan reporting no backlog.
+  Using its start avoids overstating freshness after a long-running scan.
+- `pending`: whether the latest completed, error-free scan reported remaining data.
+  It is null before completion or on failure, because backlog is then unknown.
+- `last_error`: a generic diagnostic on failure. Raw log lines, remote output and
+  exception details are not published here; inspect worker logs and job status.
+
+`state` is one of:
+
+| State | Meaning |
+| --- | --- |
+| `disabled` | Scheduling is disabled or the edge is no longer registered. |
+| `never_collected` | No attempt has been recorded for this registered edge. |
+| `collecting` | A recent attempt has started without a recorded finish. |
+| `failed` | The latest completed attempt failed or returned partial errors. |
+| `backlogged` | An error-free scan still reports remaining records. |
+| `stale` | The latest caught-up scan is too old, or an unfinished attempt has aged past the threshold. |
+| `current` | A recent, completed, error-free scan reported no backlog. |
+
+These states take precedence in that order, except unfinished attempts are
+`collecting` or `stale` according to their own age. `stale` remains an independent
+age flag: a recent caught-up scan may still be within the threshold while a newer
+attempt is collecting, failed, or backlogged. Previous success and caught-up times
+are preserved during subsequent failures. A recovery clears `last_error`.
+
+Each attempt has an internal identifier. Finishing an older overlapping attempt
+cannot replace a newer observation. Successful status updates commit in the same
+transaction as traffic increments, cursors and their audit event. An audit failure
+rolls those changes back and records failure separately. Starting an attempt is
+persisted before network work, so a stopped worker leaves an unfinished attempt
+that becomes stale instead of appearing successful. Fleet failures mark the
+selected edges; unreported targets are failures too. Status is one row per observed
+edge and survives service restarts and configuration removal.
+
+`current` describes collection of the logs available to that scan. It does not
+prove zero traffic, enable disabled access logs, detect logs already deleted before
+collection, prove complete historical coverage, or measure worker liveness. Status
+is per edge, not per hostname: use it alongside the edge fields in usage rows. The
+usage API and its pagination contract are unchanged. Deployment and live validation
+of these interfaces remain a separate step.

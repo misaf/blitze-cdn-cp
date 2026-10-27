@@ -48,3 +48,17 @@ def usage(
         },
         json_output=json_output,
     )
+
+
+@traffic_app.command("status")
+def collection_status(
+    edge: Annotated[
+        str,
+        typer.Argument(
+            help="Exact edge name, including retired edges with collection history."
+        ),
+    ],
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Last observed collection state, attempt times, backlog and safe error."""
+    common.emit(common.service(TrafficService).status(edge), json_output=json_output)

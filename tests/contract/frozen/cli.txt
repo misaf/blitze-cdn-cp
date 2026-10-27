@@ -76,5 +76,6 @@ blitzecdn	command	blitzecdn setup
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
 blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
+blitzecdn	command	blitzecdn traffic status	<edge> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn traffic usage	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn validate	--json type=boolean default=False

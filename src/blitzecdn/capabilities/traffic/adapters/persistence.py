@@ -1,17 +1,20 @@
 """Commit increments and compare-and-swap log progress in one transaction."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select, tuple_
 from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.traffic.adapters.tables import (
+    TrafficCollectionRow,
     TrafficCursorRow,
     TrafficHourRow,
     TrafficRetentionRow,
 )
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
+    CollectionRecord,
     EdgeCollection,
     HourlyUsage,
     LogCursor,
@@ -28,6 +31,57 @@ from blitzecdn.core.persistence.pagination import read_page
 class TrafficStore:
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def collection_status(self, edge: str) -> CollectionRecord | None:
+        with self._db.session() as session:
+            row = session.get(TrafficCollectionRow, edge)
+            if row is None:
+                return None
+            return CollectionRecord(
+                edge=row.edge,
+                started_at=row.started_at,
+                finished_at=row.finished_at,
+                last_success_at=row.last_success_at,
+                last_caught_up_at=row.last_caught_up_at,
+                pending=row.pending,
+                last_error=row.last_error,
+            )
+
+    def start_collection(
+        self, edges: Sequence[str], attempt_id: str, started_at: datetime
+    ) -> None:
+        with self._db.transaction(), self._db.session() as session:
+            for edge in edges:
+                row = session.get(TrafficCollectionRow, edge)
+                if row is None:
+                    session.add(
+                        TrafficCollectionRow(
+                            edge=edge, attempt_id=attempt_id, started_at=started_at
+                        )
+                    )
+                elif row.started_at <= started_at:
+                    row.attempt_id = attempt_id
+                    row.started_at = started_at
+                    row.finished_at = None
+                    row.pending = None
+                    row.last_error = None
+
+    def finish_collection(self, result: EdgeCollection, attempt_id: str) -> None:
+        with self._db.transaction(), self._db.session() as session:
+            row = session.get(TrafficCollectionRow, result.edge)
+            if row is None or row.attempt_id != attempt_id:
+                return
+            row.finished_at = self._db.now()
+            row.pending = None if result.errors else result.more
+            row.last_error = (
+                "Collection failed; inspect worker logs and job status."
+                if result.errors
+                else None
+            )
+            if not result.errors:
+                row.last_success_at = row.finished_at
+                if not result.more:
+                    row.last_caught_up_at = row.started_at
 
     def prune(self, retention_days: int) -> RetentionResult:
         if not 1 <= retention_days <= 3650:
