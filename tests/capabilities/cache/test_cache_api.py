@@ -17,11 +17,11 @@ from blitzecdn.entrypoints.api import create_app
 _HEADERS = {"X-API-Key": "x" * 32}
 
 
-def _proxied_site(client, domain_payload, record_payload):
+def _proxied_site(client, domain_payload, record_create_payload):
     client.post("/v3/domains", json=domain_payload, headers=_HEADERS)
     client.post(
         "/v3/domains/example.com/records",
-        json={**record_payload, "proxied": True},
+        json={**record_create_payload, "proxied": True},
         headers=_HEADERS,
     )
     return client.get("/v3/hosts", headers=_HEADERS).json()[0]["server_names"][0]

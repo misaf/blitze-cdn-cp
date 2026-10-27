@@ -10,6 +10,7 @@ from blitzecdn.capabilities.dns.api.models import (
     DnsRecord,
     Domain,
     DomainPatch,
+    RecordCreate,
     RecordPatch,
     RecordType,
     ResolvedPolicy,
@@ -20,7 +21,6 @@ from blitzecdn.capabilities.dns.api.models import (
 from blitzecdn.capabilities.dns.domain import PatchPolicy
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
-from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
@@ -94,16 +94,11 @@ def list_records(domain: str, dns: FromDishka[DnsService]) -> list[DnsRecord]:
 )
 def create_record(
     domain: str,
-    record: DnsRecord,
+    record: RecordCreate,
     operator: OperatorDependency,
     dns: FromDishka[DnsService],
 ) -> DnsRecord:
-    if record.domain != domain:
-        raise ConflictError(
-            f"record domain {record.domain!r} does not match the path "
-            f"segment {domain!r}"
-        )
-    return DnsRecord.from_domain(dns.create_record(record.to_domain(), operator))
+    return DnsRecord.from_domain(dns.create_record(record.to_domain(domain), operator))
 
 
 @router.patch("/v3/domains/{domain}/records/{name}", response_model=DnsRecord)

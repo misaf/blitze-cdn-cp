@@ -87,7 +87,7 @@ def test_invalid_patch_nulls_return_field_errors_without_mutating_resources(sett
         assert (
             client.post(
                 "/v3/domains/example.com/records",
-                json={"domain": "example.com", "name": "www", "value": "192.0.2.10"},
+                json={"name": "www", "value": "192.0.2.10"},
                 headers=API_HEADERS,
             ).status_code
             == 201
