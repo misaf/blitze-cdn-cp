@@ -104,6 +104,9 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # The generic access log records a contributed X-Cache-Status response header
 # when present; without the cache capability that field is simply empty. The
 # status endpoint exposes connection and request totals independently.
+# Each configured hostname also writes domains/<hostname>.access.log and
+# domains/<hostname>.error.log under the runtime log root. Wildcards use
+# _wildcard in place of *. Hostname archives rotate independently.
 blitzecdn_nginx_access_log_enabled: true
 blitzecdn_nginx_access_log_path: >-
   {{ blitzecdn_edge_runtime.paths.logs }}/blitzecdn-access.log
