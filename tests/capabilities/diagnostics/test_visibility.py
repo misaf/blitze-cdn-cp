@@ -95,8 +95,8 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
 
 def test_status_api_requires_authentication_and_reports_an_empty_controller(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/status").status_code == 401
-        response = client.get("/v1/status", headers={"X-API-Key": "x" * 32})
+        assert client.get("/v3/status").status_code == 401
+        response = client.get("/v3/status", headers={"X-API-Key": "x" * 32})
         assert response.status_code == 200
         document = response.json()
         assert document["queue"]["ready"] == 0

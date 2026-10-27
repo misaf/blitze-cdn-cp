@@ -18,7 +18,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/v1/ssl/automatic/reconcile",
+    "/v3/ssl/automatic/reconcile",
     response_model=SslAutomaticReconciliation,
 )
 def reconcile_automatic_ssl(

@@ -1,55 +1,55 @@
-blitzecdn	route	DELETE /v1/domains/{domain}
-blitzecdn	route	DELETE /v1/domains/{domain}/records/{name}
-blitzecdn	route	DELETE /v1/domains/{domain}/rules/{name}
-blitzecdn	route	DELETE /v1/edges/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}
+blitzecdn	route	DELETE /v3/domains/{domain}/records/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
+blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
-blitzecdn	route	GET /v1/audit-events
-blitzecdn	route	GET /v1/certificates
-blitzecdn	route	GET /v1/deployments
-blitzecdn	route	GET /v1/deployments/{deployment_id}
-blitzecdn	route	GET /v1/deployments/{deployment_id}/drift
-blitzecdn	route	GET /v1/deployments/{deployment_id}/targets
-blitzecdn	route	GET /v1/dns/export
-blitzecdn	route	GET /v1/domains
-blitzecdn	route	GET /v1/domains/{domain}
-blitzecdn	route	GET /v1/domains/{domain}/records
-blitzecdn	route	GET /v1/domains/{domain}/resolve
-blitzecdn	route	GET /v1/domains/{domain}/rules
-blitzecdn	route	GET /v1/domains/{domain}/rules/{name}
-blitzecdn	route	GET /v1/edges
-blitzecdn	route	GET /v1/edges/{name}
-blitzecdn	route	GET /v1/hosts
-blitzecdn	route	GET /v1/hosts/{name}
-blitzecdn	route	GET /v1/hosts/{name}/certificate
-blitzecdn	route	GET /v1/hosts/{name}/certificate/preflight
-blitzecdn	route	GET /v1/operations/{operation_id}
-blitzecdn	route	GET /v1/releases
-blitzecdn	route	GET /v1/releases/current
-blitzecdn	route	GET /v1/releases/{release_id}
-blitzecdn	route	GET /v1/releases/{release_id}/artifacts/{name}
-blitzecdn	route	GET /v1/status
-blitzecdn	route	GET /v1/workflows
-blitzecdn	route	GET /v1/workflows/{workflow_id}
-blitzecdn	route	PATCH /v1/domains/{domain}
-blitzecdn	route	PATCH /v1/domains/{domain}/records/{name}
-blitzecdn	route	PATCH /v1/domains/{domain}/rules/{name}
-blitzecdn	route	PATCH /v1/edges/{name}
-blitzecdn	route	POST /v1/cache/purge
-blitzecdn	route	POST /v1/cache/stats
-blitzecdn	route	POST /v1/certificates/reconcile
-blitzecdn	route	POST /v1/certificates/renew
-blitzecdn	route	POST /v1/deployments
-blitzecdn	route	POST /v1/domains
-blitzecdn	route	POST /v1/domains/{domain}/records
-blitzecdn	route	POST /v1/domains/{domain}/rules
-blitzecdn	route	POST /v1/drift
-blitzecdn	route	POST /v1/edges
-blitzecdn	route	POST /v1/hosts/{name}/certificate/request
-blitzecdn	route	POST /v1/hosts/{name}/certificate/upload
-blitzecdn	route	POST /v1/origins/check
-blitzecdn	route	POST /v1/rollbacks
-blitzecdn	route	POST /v1/ssl/automatic/reconcile
+blitzecdn	route	GET /v3/audit-events
+blitzecdn	route	GET /v3/certificates
+blitzecdn	route	GET /v3/deployments
+blitzecdn	route	GET /v3/deployments/{deployment_id}
+blitzecdn	route	GET /v3/deployments/{deployment_id}/drift
+blitzecdn	route	GET /v3/deployments/{deployment_id}/targets
+blitzecdn	route	GET /v3/dns/export
+blitzecdn	route	GET /v3/domains
+blitzecdn	route	GET /v3/domains/{domain}
+blitzecdn	route	GET /v3/domains/{domain}/records
+blitzecdn	route	GET /v3/domains/{domain}/resolve
+blitzecdn	route	GET /v3/domains/{domain}/rules
+blitzecdn	route	GET /v3/domains/{domain}/rules/{name}
+blitzecdn	route	GET /v3/edges
+blitzecdn	route	GET /v3/edges/{name}
+blitzecdn	route	GET /v3/hosts
+blitzecdn	route	GET /v3/hosts/{name}
+blitzecdn	route	GET /v3/hosts/{name}/certificate
+blitzecdn	route	GET /v3/hosts/{name}/certificate/preflight
+blitzecdn	route	GET /v3/operations/{operation_id}
+blitzecdn	route	GET /v3/releases
+blitzecdn	route	GET /v3/releases/current
+blitzecdn	route	GET /v3/releases/{release_id}
+blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
+blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/workflows
+blitzecdn	route	GET /v3/workflows/{workflow_id}
+blitzecdn	route	PATCH /v3/domains/{domain}
+blitzecdn	route	PATCH /v3/domains/{domain}/records/{name}
+blitzecdn	route	PATCH /v3/domains/{domain}/rules/{name}
+blitzecdn	route	PATCH /v3/edges/{name}
+blitzecdn	route	POST /v3/cache/purge
+blitzecdn	route	POST /v3/cache/stats
+blitzecdn	route	POST /v3/certificates/reconcile
+blitzecdn	route	POST /v3/certificates/renew
+blitzecdn	route	POST /v3/deployments
+blitzecdn	route	POST /v3/domains
+blitzecdn	route	POST /v3/domains/{domain}/records
+blitzecdn	route	POST /v3/domains/{domain}/rules
+blitzecdn	route	POST /v3/drift
+blitzecdn	route	POST /v3/edges
+blitzecdn	route	POST /v3/hosts/{name}/certificate/request
+blitzecdn	route	POST /v3/hosts/{name}/certificate/upload
+blitzecdn	route	POST /v3/origins/check
+blitzecdn	route	POST /v3/rollbacks
+blitzecdn	route	POST /v3/ssl/automatic/reconcile
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
@@ -69,8 +69,8 @@ blitzecdn	schema	AuditEvent.id	integer required
 blitzecdn	schema	AuditEvent.operator	string required
 blitzecdn	schema	AuditEvent.resource_id	string|null optional
 blitzecdn	schema	AuditEvent.resource_type	string required
-blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.certificate	string required
-blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
+blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional

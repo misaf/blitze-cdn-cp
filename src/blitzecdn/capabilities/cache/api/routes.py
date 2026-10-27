@@ -23,7 +23,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/v1/cache/purge",
+    "/v3/cache/purge",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
 )
@@ -57,7 +57,7 @@ def purge_cache(
 
 
 @router.post(
-    "/v1/cache/stats",
+    "/v3/cache/stats",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
 )

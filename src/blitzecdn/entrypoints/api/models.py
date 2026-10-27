@@ -68,7 +68,7 @@ class AuditEvent(Model):
 
 
 class Operation(Model):
-    """Work queued for the worker; poll ``GET /v1/operations/{id}`` for it.
+    """Work queued for the worker; poll ``GET /v3/operations/{id}`` for it.
 
     ``succeeded`` means the operation ran; ``result`` is the report the
     synchronous command prints, per edge, and may itself record a partial

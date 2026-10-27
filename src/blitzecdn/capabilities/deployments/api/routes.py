@@ -23,7 +23,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/v1/deployments",
+    "/v3/deployments",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
 )
@@ -32,7 +32,7 @@ def deploy(
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
 ) -> Deployment:
-    """Queue a convergence; poll GET /v1/deployments/{id} for the outcome."""
+    """Queue a convergence; poll GET /v3/deployments/{id} for the outcome."""
     return as_operation(
         deployments.submit_deployment(
             operator, check=request.check, host_limit=request.host_limit
@@ -41,7 +41,7 @@ def deploy(
     )
 
 
-@router.get("/v1/deployments", response_model=list[Deployment])
+@router.get("/v3/deployments", response_model=list[Deployment])
 def deployments(
     deployments: FromDishka[DeploymentService],
     limit: int = Query(20, ge=1, le=100),
@@ -51,7 +51,7 @@ def deployments(
     ]
 
 
-@router.get("/v1/deployments/{deployment_id}", response_model=Deployment)
+@router.get("/v3/deployments/{deployment_id}", response_model=Deployment)
 def deployment(
     deployment_id: str,
     deployments: FromDishka[DeploymentService],
@@ -60,7 +60,7 @@ def deployment(
 
 
 @router.get(
-    "/v1/deployments/{deployment_id}/targets",
+    "/v3/deployments/{deployment_id}/targets",
     response_model=list[DeploymentTarget],
 )
 def deployment_targets(
@@ -75,7 +75,7 @@ def deployment_targets(
 
 
 @router.post(
-    "/v1/drift", response_model=Deployment, status_code=status.HTTP_202_ACCEPTED
+    "/v3/drift", response_model=Deployment, status_code=status.HTTP_202_ACCEPTED
 )
 def check_drift(
     request: DriftRequest,
@@ -90,7 +90,7 @@ def check_drift(
     )
 
 
-@router.get("/v1/deployments/{deployment_id}/drift", response_model=DriftReport)
+@router.get("/v3/deployments/{deployment_id}/drift", response_model=DriftReport)
 def drift_report(
     deployment_id: str,
     deployments: FromDishka[DeploymentService],
@@ -99,7 +99,7 @@ def drift_report(
 
 
 @router.post(
-    "/v1/rollbacks",
+    "/v3/rollbacks",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
 )

@@ -21,18 +21,18 @@ router = APIRouter(
 )
 
 
-@router.get("/v1/edges", response_model=list[Edge])
+@router.get("/v3/edges", response_model=list[Edge])
 def list_edges(edges: FromDishka[EdgeOperationsService]) -> list[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
     return [Edge.from_domain(item) for item in edges.list_edges()]
 
 
-@router.get("/v1/edges/{name}", response_model=Edge)
+@router.get("/v3/edges/{name}", response_model=Edge)
 def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
     return Edge.from_domain(edges.get_edge(name))
 
 
-@router.post("/v1/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
+@router.post("/v3/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
 def add_edge(
     edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
 ) -> Edge:
@@ -40,7 +40,7 @@ def add_edge(
     return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
 
 
-@router.patch("/v1/edges/{name}", response_model=Edge)
+@router.patch("/v3/edges/{name}", response_model=Edge)
 def update_edge(
     name: str,
     patch: EdgePatch,
@@ -51,7 +51,7 @@ def update_edge(
 
 
 @router.delete(
-    "/v1/edges/{name}",
+    "/v3/edges/{name}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
 )

@@ -23,7 +23,7 @@ class Deployment(Model):
     status: DeploymentStatus
     operator: str
     check_mode: bool
-    #: The converged release; follow ``GET /v1/releases/{id}`` for its artifacts.
+    #: The converged release; follow ``GET /v3/releases/{id}`` for its artifacts.
     release_id: str
     host_limit: str | None = None
     rollback_of: str | None = None
