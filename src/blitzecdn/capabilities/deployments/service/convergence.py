@@ -48,6 +48,7 @@ from blitzecdn.capabilities.deployments.service.validation import DeploymentVali
 from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import (
     ConfigurationError,
@@ -345,9 +346,24 @@ class DeploymentService:
         """One deployment, for an operator or a client polling a queued run."""
         return self.persistence.deployments.get_deployment(deployment_id)
 
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]:
+        return self.persistence.deployments.paginate_deployments(
+            limit=limit, offset=offset
+        )
+
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         """Recent deployments, newest first."""
         return self.persistence.deployments.list_deployments(limit)
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]:
+        self.get_deployment(deployment_id)
+        return self.persistence.targets.paginate_targets(
+            deployment_id, limit=limit, offset=offset
+        )
 
     def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]:
         """How far each edge got in this deployment."""

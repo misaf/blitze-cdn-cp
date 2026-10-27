@@ -73,7 +73,7 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
         )
 
     assert response.status_code == 200
-    assert response.json()[0]["status"] == "needs_review"
+    assert response.json()["items"][0]["status"] == "needs_review"
     assert detail.json()["error"].startswith("the controller restarted")
 
 
@@ -115,7 +115,7 @@ def test_domain_and_record_crud_and_errors(
         assert mismatched.status_code == 422
 
         # A proxied record is what puts a hostname on a virtual host.
-        sites = client.get("/v3/hosts", headers=headers).json()
+        sites = client.get("/v3/hosts", headers=headers).json()["items"]
         assert len(sites) == 1
         assert sites[0]["server_names"] == ["cdn.example.com"]
         assert sites[0]["always_use_https"] is False
@@ -130,7 +130,9 @@ def test_domain_and_record_crud_and_errors(
         assert redirect.status_code == 200
         assert redirect.json()["always_use_https"] is True
         assert (
-            client.get("/v3/hosts", headers=headers).json()[0]["always_use_https"]
+            client.get("/v3/hosts", headers=headers).json()["items"][0][
+                "always_use_https"
+            ]
             is True
         )
 
@@ -155,7 +157,7 @@ def test_domain_and_record_crud_and_errors(
         assert unproxied.json()["proxied"] is False
         assert unproxied.json()["value"] == "203.0.113.7"
         # With nothing proxied the zone derives no virtual host at all.
-        assert client.get("/v3/hosts", headers=headers).json() == []
+        assert client.get("/v3/hosts", headers=headers).json()["items"] == []
         assert (
             client.delete(
                 "/v3/domains/example.com/records/cdn", headers=headers
@@ -177,9 +179,9 @@ def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
-        assert client.get("/v3/hosts", headers=headers).json()[0]["server_names"] == [
-            "cdn.example.com"
-        ]
+        assert client.get("/v3/hosts", headers=headers).json()["items"][0][
+            "server_names"
+        ] == ["cdn.example.com"]
         for method in (client.post, client.put):
             assert (
                 method(
@@ -262,7 +264,7 @@ def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
                 headers=API_HEADERS,
             )
             assert response.status_code == 422, pattern
-        assert client.get("/v3/deployments", headers=API_HEADERS).json() == []
+        assert client.get("/v3/deployments", headers=API_HEADERS).json()["items"] == []
 
 
 def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
@@ -298,7 +300,7 @@ def test_an_applied_deployment_is_not_readable_as_drift(settings):
 def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, API_HEADERS)
-        name = client.get("/v3/hosts", headers=API_HEADERS).json()[0]["name"]
+        name = client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0]["name"]
 
         response = client.get(f"/v3/hosts/{name}", headers=API_HEADERS)
 
@@ -447,7 +449,7 @@ _EDGE = {
 
 def test_edge_crud_over_http(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v3/edges", headers=API_HEADERS).json() == []
+        assert client.get("/v3/edges", headers=API_HEADERS).json()["items"] == []
 
         created = client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
         assert created.status_code == 201
@@ -459,7 +461,7 @@ def test_edge_crud_over_http(settings):
         assert (
             client.post("/v3/edges", json=_EDGE, headers=API_HEADERS).status_code == 409
         )
-        assert len(client.get("/v3/edges", headers=API_HEADERS).json()) == 1
+        assert len(client.get("/v3/edges", headers=API_HEADERS).json()["items"]) == 1
         assert (
             client.get("/v3/edges/edge-01", headers=API_HEADERS).json()["host"]
             == "192.0.2.10"
@@ -510,7 +512,7 @@ def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
         )
 
         assert response.status_code == 422
-        assert client.get("/v3/edges", headers=API_HEADERS).json() == []
+        assert client.get("/v3/edges", headers=API_HEADERS).json()["items"] == []
 
 
 def _queued_removal(settings, monkeypatch, path):
@@ -530,7 +532,8 @@ def _queued_removal(settings, monkeypatch, path):
             f"/v3/operations/{queued.json()['id']}", headers=API_HEADERS
         ).json()
         edges = [
-            edge["name"] for edge in client.get("/v3/edges", headers=API_HEADERS).json()
+            edge["name"]
+            for edge in client.get("/v3/edges", headers=API_HEADERS).json()["items"]
         ]
     return operation, edges
 
@@ -587,7 +590,7 @@ def test_registering_an_edge_is_audited(settings):
         client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
         client.patch("/v3/edges/edge-01", json={"port": 7845}, headers=API_HEADERS)
 
-        events = client.get("/v3/audit-events", headers=API_HEADERS).json()
+        events = client.get("/v3/audit-events", headers=API_HEADERS).json()["items"]
 
         actions = [event["action"] for event in events]
         assert "edge.added" in actions
@@ -646,7 +649,9 @@ def test_http3_create_read_patch_and_validation(settings):
         assert created.status_code == 201
         assert created.json()["http3_enabled"] is True
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()[0]["http3_enabled"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "http3_enabled"
+            ]
             is True
         )
 
@@ -674,7 +679,7 @@ def test_http3_create_read_patch_and_validation(settings):
         assert rejected.status_code == 422
         assert "requires ssl_mode" in rejected.text
 
-        events = client.get("/v3/audit-events", headers=API_HEADERS).json()
+        events = client.get("/v3/audit-events", headers=API_HEADERS).json()["items"]
         updates = [event for event in events if event["action"] == "domain.updated"]
         assert any("http3_enabled" in event["details"]["fields"] for event in updates)
 
@@ -699,7 +704,9 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         assert patched.status_code == 200
         assert patched.json()["under_attack_mode"] is True
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()[0]["under_attack_mode"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "under_attack_mode"
+            ]
             is True
         )
 
@@ -740,7 +747,9 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()[0]["max_upload_size"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "max_upload_size"
+            ]
             == "200m"
         )
 
@@ -773,7 +782,9 @@ def test_compression_is_reported_patchable_and_validated(settings):
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()[0]["compression"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "compression"
+            ]
             == "off"
         )
 

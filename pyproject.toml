@@ -16,6 +16,7 @@ dependencies = [
   # the CA refuses the order.
   "dnspython>=2.7,<3",
   "fastapi[opentelemetry]>=0.162,<1",
+  "fastapi-pagination>=0.16,<0.17",
   "pydantic>=2.13.4,<3",
   "PyYAML>=6.0.2,<7",
   "python-multipart>=0.0.20,<1",

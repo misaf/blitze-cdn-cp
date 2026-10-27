@@ -20,8 +20,10 @@ from blitzecdn.capabilities.releases.adapters.tables import (
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.releases.ports import ReleaseReferences
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 __all__ = ["ReleaseStore"]
 
@@ -129,6 +131,18 @@ class ReleaseStore:
                     f"release {release_id!r} inputs failed integrity verification"
                 )
             return decoded
+
+    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(ReleaseRow).order_by(
+                    ReleaseRow.created_at.desc(), ReleaseRow.id.desc()
+                ),
+                self._release,
+                limit=limit,
+                offset=offset,
+            )
 
     def list_releases(self, limit: int | None = 20) -> list[Release]:
         with self._db.session() as session:

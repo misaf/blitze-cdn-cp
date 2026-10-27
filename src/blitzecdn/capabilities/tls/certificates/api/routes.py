@@ -21,6 +21,7 @@ from blitzecdn.entrypoints.api.dependencies import (
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import as_operation
+from blitzecdn.entrypoints.api.pagination import Page, paginate
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
@@ -34,17 +35,17 @@ def certificate(
     return as_operation(certificates.certificate(name), CertificateInfo)
 
 
-@router.get("/v3/certificates", response_model=list[CertificateStatus])
+@router.get("/v3/certificates", response_model=Page[CertificateStatus])
 def list_certificates(
     certificates: FromDishka[CertificateService],
     expiring_in: Annotated[int | None, Query(ge=0, le=3650)] = None,
-) -> list[CertificateStatus]:
+) -> Page[CertificateStatus]:
     """Managed certificates against the clock, soonest expiry first."""
     if expiring_in is None:
         statuses = certificates.certificate_statuses()
     else:
         statuses = certificates.expiring_certificates(expiring_in)
-    return [as_operation(item, CertificateStatus) for item in statuses]
+    return paginate(statuses, lambda item: as_operation(item, CertificateStatus))
 
 
 @router.post("/v3/certificates/renew", response_model=RenewalResult)

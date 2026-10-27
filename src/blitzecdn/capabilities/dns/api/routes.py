@@ -25,15 +25,16 @@ from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.entrypoints.api.pagination import Page, paginate
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
 )
 
 
-@router.get("/v3/domains", response_model=list[Domain])
-def list_domains(dns: FromDishka[DnsService]) -> list[Domain]:
-    return [Domain.from_domain(item) for item in dns.list_domains()]
+@router.get("/v3/domains", response_model=Page[Domain])
+def list_domains(dns: FromDishka[DnsService]) -> Page[Domain]:
+    return paginate(dns.list_domains(), Domain.from_domain)
 
 
 @router.post("/v3/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
@@ -67,14 +68,14 @@ def delete_domain(
     dns.delete_domain(domain, operator)
 
 
-@router.get("/v3/hosts", response_model=list[CdnSite])
-def list_hosts(sites: FromDishka[SiteReader]) -> list[CdnSite]:
+@router.get("/v3/hosts", response_model=Page[CdnSite])
+def list_hosts(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     """The virtual hosts the zones and their rules resolve to; read-only.
 
     Its own collection, because a host belongs to a zone and to whichever rule
     claimed its hostnames. Change it through those.
     """
-    return [CdnSite.from_domain(host) for host in sites.list_sites()]
+    return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
 @router.get("/v3/hosts/{name}", response_model=CdnSite)
@@ -82,9 +83,9 @@ def get_host(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
     return CdnSite.from_domain(sites.get_site(name))
 
 
-@router.get("/v3/domains/{domain}/records", response_model=list[DnsRecord])
-def list_records(domain: str, dns: FromDishka[DnsService]) -> list[DnsRecord]:
-    return [DnsRecord.from_domain(item) for item in dns.list_records(domain)]
+@router.get("/v3/domains/{domain}/records", response_model=Page[DnsRecord])
+def list_records(domain: str, dns: FromDishka[DnsService]) -> Page[DnsRecord]:
+    return paginate(dns.list_records(domain), DnsRecord.from_domain)
 
 
 @router.post(
@@ -137,9 +138,9 @@ def dns_export(dns: FromDishka[DnsService]) -> dict[str, Any]:
     return dns.dns_export()
 
 
-@router.get("/v3/domains/{domain}/rules", response_model=list[Rule])
-def list_rules(domain: str, rules: FromDishka[RuleService]) -> list[Rule]:
-    return [Rule.from_domain(item) for item in rules.list_rules(domain)]
+@router.get("/v3/domains/{domain}/rules", response_model=Page[Rule])
+def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
+    return paginate(rules.list_rules(domain), Rule.from_domain)
 
 
 @router.post(

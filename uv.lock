@@ -260,6 +260,7 @@ dependencies = [
     { name = "dnspython" },
     { name = "docker" },
     { name = "fastapi", extra = ["opentelemetry"] },
+    { name = "fastapi-pagination" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -300,6 +301,7 @@ requires-dist = [
     { name = "dnspython", specifier = ">=2.7,<3" },
     { name = "docker", specifier = ">=7.1,<8" },
     { name = "fastapi", extras = ["opentelemetry"], specifier = ">=0.162,<1" },
+    { name = "fastapi-pagination", specifier = ">=0.16,<0.17" },
     { name = "pydantic", specifier = ">=2.13.4,<3" },
     { name = "pydantic-settings", specifier = ">=2.12,<3" },
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
@@ -875,6 +877,20 @@ wheels = [
 opentelemetry = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
+]
+
+[[package]]
+name = "fastapi-pagination"
+version = "0.16.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/39/75/f1040bac6fa6125b95ce5f399c32342674ac91b59c00eb157ba73b74d26d/fastapi_pagination-0.16.1.tar.gz", hash = "sha256:c43a4286f7dd4c25501da7f5ae84a89172d3c5f3c4a93b4bc8c6639ed754d11d", size = 618177, upload-time = "2026-10-08T18:39:32.741Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/9c/5a6dec42593fd408e564960340ef930bbe0fcae3ce7b11641f2bcb6278c3/fastapi_pagination-0.16.1-py3-none-any.whl", hash = "sha256:a91f030f764a5077b6cea41bc1df8c4cf738ac5bad2dc29977f3f0482e6202d2", size = 52562, upload-time = "2026-10-08T18:39:31.191Z" },
 ]
 
 [[package]]

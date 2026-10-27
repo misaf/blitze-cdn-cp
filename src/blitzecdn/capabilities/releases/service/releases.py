@@ -28,6 +28,7 @@ from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.ports import UnitOfWork
 
@@ -129,6 +130,9 @@ class ReleaseService:
     def inputs_for(self, release_id: str) -> ReleaseInputs:
         """The canonical state a stored release was compiled from."""
         return self.releases.inputs_for(release_id)
+
+    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
+        return self.releases.paginate_releases(limit=limit, offset=offset)
 
     def list_releases(self, limit: int | None = 20) -> Sequence[Release]:
         return self.releases.list_releases(limit)
