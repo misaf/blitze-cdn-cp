@@ -154,15 +154,32 @@ class RecordType(StrEnum):
         return DomainRecordType(self.value)
 
 
-class DnsRecord(Model):
-    """A record: the address DNS answers with, or the origin the edge serves from."""
+class RecordBody(Model):
+    """Record fields shared by creation requests and responses."""
 
-    domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
     value: str
     ttl: int = Field(default=300, ge=1, le=604800)
     proxied: bool = True
+
+
+class RecordCreate(RecordBody):
+    """Create a record in the URL's domain; the body must not repeat the domain."""
+
+    @model_validator(mode="after")
+    def valid_record(self) -> Self:
+        self.to_domain("example.invalid")
+        return self
+
+    def to_domain(self, domain: str) -> DomainDnsRecord:
+        return DomainDnsRecord.model_validate({"domain": domain, **self.model_dump()})
+
+
+class DnsRecord(RecordBody):
+    """A record response, including the domain that owns it."""
+
+    domain: str
 
     @model_validator(mode="after")
     def valid_record(self) -> Self:
@@ -286,6 +303,7 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "RecordCreate",
     "RecordPatch",
     "RecordType",
     "ResolvedPolicy",

@@ -38,7 +38,6 @@ def _zone(client, **policy):
     client.post(
         "/v3/domains/example.com/records",
         json={
-            "domain": "example.com",
             "name": "cdn",
             "value": "198.51.100.10",
             "proxied": True,
@@ -78,7 +77,9 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
     assert detail.json()["error"].startswith("the controller restarted")
 
 
-def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payload):
+def test_domain_and_record_crud_and_errors(
+    settings, domain_payload, record_create_payload
+):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         assert (
@@ -92,24 +93,26 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         # A record cannot exist without its zone.
         orphan = client.post(
             "/v3/domains/absent.example/records",
-            json={**record_payload, "domain": "absent.example"},
+            json=record_create_payload,
             headers=headers,
         )
         assert orphan.status_code == 404
 
         created = client.post(
-            "/v3/domains/example.com/records", json=record_payload, headers=headers
+            "/v3/domains/example.com/records",
+            json=record_create_payload,
+            headers=headers,
         )
         assert created.status_code == 201
         assert created.json()["proxied"] is True
 
-        # The body's domain must agree with the path.
+        # The domain belongs in the URL, never the body.
         mismatched = client.post(
             "/v3/domains/example.com/records",
-            json={**record_payload, "domain": "other.example", "name": "x"},
+            json={**record_create_payload, "domain": "other.example", "name": "x"},
             headers=headers,
         )
-        assert mismatched.status_code == 409
+        assert mismatched.status_code == 422
 
         # A proxied record is what puts a hostname on a virtual host.
         sites = client.get("/v3/hosts", headers=headers).json()
@@ -195,7 +198,7 @@ def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
 
 
 def test_dns_export_omits_addresses_for_proxied_records(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     """A routed name must resolve to an edge, and edge IPs are not ours."""
     headers = {"X-API-Key": "x" * 32}
@@ -204,7 +207,6 @@ def test_dns_export_omits_addresses_for_proxied_records(
         client.post(
             "/v3/domains/example.com/records",
             json={
-                "domain": "example.com",
                 "name": "db",
                 "proxied": False,
                 "value": "198.51.100.10",
@@ -309,26 +311,26 @@ def test_a_single_site_is_readable_by_name(settings):
 
 
 def test_removed_origin_scheme_is_rejected_on_create(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
             "/v3/domains/example.com/records",
-            json={**record_payload, "origin_scheme": "https"},
+            json={**record_create_payload, "origin_scheme": "https"},
             headers=API_HEADERS,
         )
         assert response.status_code == 422
 
 
 def test_removed_origin_scheme_is_rejected_on_patch(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
             "/v3/domains/example.com/records",
-            json=record_payload,
+            json=record_create_payload,
             headers=API_HEADERS,
         )
         response = client.patch(
@@ -341,26 +343,26 @@ def test_removed_origin_scheme_is_rejected_on_patch(
 
 
 def test_removed_origin_port_is_rejected_on_create(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
             "/v3/domains/example.com/records",
-            json={**record_payload, "origin_port": 8080},
+            json={**record_create_payload, "origin_port": 8080},
             headers=API_HEADERS,
         )
         assert response.status_code == 422
 
 
 def test_removed_origin_port_is_rejected_on_patch(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
         client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
             "/v3/domains/example.com/records",
-            json=record_payload,
+            json=record_create_payload,
             headers=API_HEADERS,
         )
         response = client.patch(

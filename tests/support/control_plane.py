@@ -648,6 +648,12 @@ def record_payload() -> dict[str, object]:
 
 
 @pytest.fixture
+def record_create_payload(record_payload: dict[str, object]) -> dict[str, object]:
+    """HTTP record creation takes the domain from the URL."""
+    return {name: value for name, value in record_payload.items() if name != "domain"}
+
+
+@pytest.fixture
 def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
     """A control plane holding one site with one hostname routed to it.
 
@@ -954,7 +960,6 @@ def seed_site_over_http(
     proxied = client.post(
         "/v3/domains/example.com/records",
         json={
-            "domain": "example.com",
             "name": label,
             "value": "198.51.100.10",
             "proxied": True,

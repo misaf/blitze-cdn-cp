@@ -261,6 +261,11 @@ blitzecdn	schema	ReconciliationResult.deployment	Deployment|null optional
 blitzecdn	schema	ReconciliationResult.failed	object optional
 blitzecdn	schema	ReconciliationResult.issued	array[string] optional
 blitzecdn	schema	ReconciliationResult.skipped	object optional
+blitzecdn	schema	RecordCreate.name	string required
+blitzecdn	schema	RecordCreate.proxied	boolean optional
+blitzecdn	schema	RecordCreate.ttl	integer optional
+blitzecdn	schema	RecordCreate.type	enum[A,AAAA] optional
+blitzecdn	schema	RecordCreate.value	string required
 blitzecdn	schema	RecordPatch.proxied	boolean optional
 blitzecdn	schema	RecordPatch.ttl	integer optional
 blitzecdn	schema	RecordPatch.value	string optional

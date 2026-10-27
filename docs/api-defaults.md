@@ -71,11 +71,19 @@ it. A rule PATCH also replaces its entire `overrides` object when supplied.
 
 | Resource | Required fields | Defaults |
 | --- | --- | --- |
-| DNS record | `domain`, `name`, `value` | `type: A`, `ttl: 300`, `proxied: true` |
+| DNS record | `name`, `value` | `type: A`, `ttl: 300`, `proxied: true` |
 | Edge | `name`, `host` | `user: deploy`, `port: 22`, `private_key_file: null`, `public_addresses: []`, `ssh_sources: []`, `capabilities: null` |
 
-The record body's `domain` must match the URL. `proxied: true` treats `value`
-as the origin; `false` publishes it as the DNS answer. Record PATCH fields do
+Create records with `POST /v3/domains/{domain}/records`. The URL supplies the
+domain; including `domain` in the body is rejected with `422`. Responses retain
+`domain`, and the zone must already exist. A minimal creation body is:
+
+```json
+{"name": "www", "value": "192.0.2.10"}
+```
+
+`proxied: true` treats `value` as the origin; `false` publishes it as the DNS
+answer. Record PATCH fields do
 not accept explicit `null`. Record update/delete queries default `type` to `A`;
 specify `AAAA` when addressing an IPv6 record.
 
