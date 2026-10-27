@@ -1,4 +1,8 @@
-"""Hostname log isolation across listeners, releases and shared site policy."""
+"""Hostname log isolation and the request records used for usage collection."""
+
+import json
+import re
+from string import Template
 
 import pytest
 import yaml
@@ -30,7 +34,7 @@ def test_each_hostname_has_its_own_logs_on_every_listener(mode):
         assert len(matching) == len(ports)
         path = "/var/log/nginx/domains/" + hostname.replace("*", "_wildcard")
         for block in matching:
-            assert f"access_log {path}.access.log blitzecdn;" in block
+            assert f"access_log {path}.access.log blitzecdn_json;" in block
             assert f"error_log {path}.error.log warn;" in block
             assert block.count("/domains/") == 2
             assert "access_log /var/log/nginx/blitzecdn-access.log blitzecdn;" in block
@@ -49,6 +53,72 @@ def test_disabling_access_logs_keeps_hostname_error_logs():
         assert (
             "error_log /var/log/nginx/domains/mode.example.com.error.log warn;" in block
         )
+
+
+@pytest.mark.parametrize("bytes_sent", [0, 1234, 2**53 + 1])
+def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_sent):
+    rendered = AnsibleTemplates(_role_defaults()).render(
+        ROLE_DIR / "templates/http.conf.j2"
+    )
+    declaration = rendered.split("log_format blitzecdn_json escape=json", 1)[1]
+    record = "".join(re.findall(r"'([^']*)'", declaration))
+    # Substitute JSON-escaped variable values into the shipped format to check
+    # its JSON structure and types. Native Nginx escaping is checked in Docker.
+    variables = {
+        "time_iso8601": "2026-10-27T12:30:00+00:00",
+        "host": "api.example.com",
+        "server_name": "*.example.com",
+        "bytes_sent": bytes_sent,
+        "body_bytes_sent": max(bytes_sent - 100, 0),
+        "status": 200,
+        "request_time": 0.125,
+        "remote_addr": "2001:db8::1",
+        "request": 'GET /path?q="quoted" HTTP/2.0',
+        "sent_http_x_cache_status": "",
+        "upstream_addr": "-",
+        "upstream_response_time": "-",
+        "http_referer": "",
+        "http_user_agent": 'client "quoted" \\ newline\nnext',
+    }
+    encoded = {
+        key: json.dumps(value)[1:-1] if isinstance(value, str) else str(value)
+        for key, value in variables.items()
+    }
+    line = Template(record).substitute(encoded)
+    result = json.loads(line)
+    assert "\n" not in line
+    assert result["schema_version"] == 1
+    assert result["hostname"] == "api.example.com"
+    assert result["server_name"] == "*.example.com"
+    assert result["timestamp"] == variables["time_iso8601"]
+    assert result["bytes_sent"] == bytes_sent
+    assert type(result["bytes_sent"]) is int
+    assert type(result["body_bytes_sent"]) is int
+    assert type(result["status"]) is int
+    assert result["request_time"] == 0.125
+    assert result["upstream_response_time"] == "-"
+    assert result["user_agent"] == variables["http_user_agent"]
+    assert result["request"] == variables["request"]
+
+
+def test_log_formats_follow_the_configured_name_and_access_logging_switch():
+    context = _role_defaults()
+    context["blitzecdn_nginx_log_format_name"] = "custom"
+    templates = AnsibleTemplates(context)
+    rendered = templates.render(ROLE_DIR / "templates/http.conf.j2")
+    assert "log_format custom escape=json" in rendered
+    assert "log_format custom_json escape=json" in rendered
+    site = _render(
+        site_to_ansible(_mode_site(SslMode.OFF, False)),
+        blitzecdn_nginx_log_format_name="custom",
+    )
+    assert ".access.log custom_json;" in site
+    assert "blitzecdn-access.log custom;" in site
+    assert "access_log /dev/stdout custom;" in site
+    context["blitzecdn_nginx_access_log_enabled"] = False
+    assert "log_format " not in AnsibleTemplates(context).render(
+        ROLE_DIR / "templates/http.conf.j2"
+    )
 
 
 def test_split_hostnames_claim_quic_reuseport_only_once():
