@@ -29,6 +29,7 @@ blitzecdn	route	GET /v3/releases/current
 blitzecdn	route	GET /v3/releases/{release_id}
 blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
 blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/traffic/usage
 blitzecdn	route	GET /v3/workflows
 blitzecdn	route	GET /v3/workflows/{workflow_id}
 blitzecdn	route	PATCH /v3/domains/{domain}
@@ -280,6 +281,10 @@ blitzecdn	schema	Page_Rule_.items	array[Rule] required
 blitzecdn	schema	Page_Rule_.limit	integer required
 blitzecdn	schema	Page_Rule_.offset	integer required
 blitzecdn	schema	Page_Rule_.total	integer required
+blitzecdn	schema	Page_TrafficUsage_.items	array[TrafficUsage] required
+blitzecdn	schema	Page_TrafficUsage_.limit	integer required
+blitzecdn	schema	Page_TrafficUsage_.offset	integer required
+blitzecdn	schema	Page_TrafficUsage_.total	integer required
 blitzecdn	schema	Page_Workflow_.items	array[Workflow] required
 blitzecdn	schema	Page_Workflow_.limit	integer required
 blitzecdn	schema	Page_Workflow_.offset	integer required
@@ -372,6 +377,12 @@ blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required
 blitzecdn	schema	TaskResult.role	string|null optional
 blitzecdn	schema	TaskResult.task	string required
+blitzecdn	schema	TrafficUsage.body_bytes_sent	integer required
+blitzecdn	schema	TrafficUsage.bytes_sent	integer required
+blitzecdn	schema	TrafficUsage.edge	string required
+blitzecdn	schema	TrafficUsage.hostname	string required
+blitzecdn	schema	TrafficUsage.hour	string required
+blitzecdn	schema	TrafficUsage.requests	integer required
 blitzecdn	schema	ValidationErrorResponse.detail	array[ValidationIssue] required
 blitzecdn	schema	ValidationIssue.loc	array[string|integer] required
 blitzecdn	schema	ValidationIssue.msg	string required

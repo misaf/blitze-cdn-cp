@@ -4,9 +4,15 @@ import logging
 
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.traffic.domain import CollectedUsage, EdgeCollection
+from blitzecdn.capabilities.traffic.domain import (
+    CollectedUsage,
+    EdgeCollection,
+    TrafficUsage,
+    UsageQuery,
+)
 from blitzecdn.capabilities.traffic.ports import TrafficRunner, TrafficStore
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import ConflictError, ExecutionError
@@ -29,6 +35,9 @@ class TrafficService:
         self.runner = runner
         self.events = events
         self.uow = uow
+
+    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
+        return self.store.usage(query)
 
     def collect(
         self, operator: str, *, host_limit: str | None = None

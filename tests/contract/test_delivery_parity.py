@@ -89,6 +89,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "version pins. It describes the installed control plane rather than "
         "any state it holds, which is the same reason `features` is here.",
     ),
+    # -- Traffic -----------------------------------------------------------
+    ("blitzecdn", "traffic usage", "GET /v3/traffic/usage", ""),
     # -- Durable work ------------------------------------------------------
     (
         "blitzecdn",
