@@ -1,0 +1,5 @@
+---
+# Must match the edge runtime's log root with /domains appended.
+blitzecdn_traffic_collect_log_directory: /var/log/nginx/domains
+blitzecdn_traffic_collect_max_bytes: 4194304
+blitzecdn_traffic_collect_checkpoints: {}

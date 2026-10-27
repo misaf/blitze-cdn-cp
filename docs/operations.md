@@ -154,8 +154,9 @@ collector. Explicit hostnames matching a wildcard use their own server blocks
 and log files.
 
 Hostname access files use JSON Lines: one object per logged request, with
-`schema_version: 1`, an ISO 8601 `timestamp` with timezone, the actual requested
-`hostname`, and the configured `server_name` (which may be a wildcard).
+`schema_version: 1`, a generated `request_id`, an ISO 8601 `timestamp` with
+timezone, the actual requested `hostname`, and the configured `server_name`
+(which may be a wildcard).
 `bytes_sent`, `body_bytes_sent` and `status` are JSON integers;
 `request_time` is a JSON number in seconds. Diagnostic fields include client IP,
 request line, cache status, upstream address and response time, referer and user
@@ -163,17 +164,18 @@ agent. String fields use Nginx JSON escaping; unavailable upstream values may be
 `"-"`, and an absent cache header may be empty. Error logs retain Nginx's native
 text format.
 
-The future visitor bandwidth counter will sum `bytes_sent`: bytes Nginx reports
+The visitor bandwidth counter sums `bytes_sent`: bytes Nginx reports
 sending to the client, including response headers. `body_bytes_sent` excludes
 response headers. These are application traffic measurements, not interface
-counters or a provider's billable transfer total. Request counts will count log
+counters or a provider's billable transfer total. Request counts count log
 records, including redirects and errors. A long-running response is recorded
-when its request finishes, so its traffic will be attributed to that completion
+when its request finishes, so its traffic is attributed to that completion
 time. See [Nginx's variable definitions](https://nginx.org/en/docs/http/ngx_http_core_module.html#variables).
 
-This establishes the input for usage collection; it does not yet collect or
-persist bandwidth totals. Disabling access logging means there are no records
-to collect. Identity probes suppressed by `access_log off` also remain excluded.
+The [traffic capability](traffic-accounting.md) collects these records and
+persists hourly totals. Scheduling and API/CLI access are separate steps.
+Disabling access logging means there are no records to collect. Identity probes
+suppressed by `access_log off` also remain excluded.
 The existing aggregate `blitzecdn-access.log` keeps its text format for cache
 diagnostics, and requests also reach Docker stdout. Hostname errors at `warn` and above go
 to their own file and Docker stderr; startup errors or errors before Nginx has

@@ -21,6 +21,7 @@ from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
 from blitzecdn.capabilities.jobs.adapters.persistence import JobStore, ScheduleStore
 from blitzecdn.capabilities.releases.adapters.persistence import ReleaseStore
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
+from blitzecdn.capabilities.traffic.adapters.persistence import TrafficStore
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
@@ -71,6 +72,7 @@ class Repository:
             else AuditLog(self.database)
         )
         self.workflows = WorkflowStore(self.database)
+        self.traffic = TrafficStore(self.database)
 
     def release_inputs(self) -> ReleaseInputs:
         """The canonical state a release is compiled from, read in one transaction.

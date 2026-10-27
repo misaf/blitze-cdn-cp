@@ -17,7 +17,7 @@ log_format {{ blitzecdn_nginx_log_format_name }} escape=json
 # Hostname files are JSON Lines for reliable usage collection. Keep the
 # aggregate format above for cache diagnostics and the Docker request stream.
 log_format {{ blitzecdn_nginx_log_format_name }}_json escape=json
-    '{"schema_version":1,"timestamp":"$time_iso8601",'
+    '{"schema_version":1,"request_id":"$request_id","timestamp":"$time_iso8601",'
     '"hostname":"$host","server_name":"$server_name",'
     '"bytes_sent":$bytes_sent,"body_bytes_sent":$body_bytes_sent,'
     '"status":$status,"request_time":$request_time,'

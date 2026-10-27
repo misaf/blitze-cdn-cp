@@ -22,6 +22,7 @@ blitzecdn	role	blitzecdn_origins
 blitzecdn	role	blitzecdn_resolver
 blitzecdn	role	blitzecdn_resolver_teardown
 blitzecdn	role	blitzecdn_security
+blitzecdn	role	blitzecdn_traffic_collect
 blitzecdn	role	blitzecdn_uninstall
 blitzecdn	variable	blitzecdn_base.blitzecdn_base_packages	type=list elements=str required
 blitzecdn	variable	blitzecdn_base.blitzecdn_base_timezone	type=str required
@@ -268,6 +269,9 @@ blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_js_file	ty
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_key_file	type=path required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_passage_seconds	type=int required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_secret	type=str required
+blitzecdn	variable	blitzecdn_traffic_collect.blitzecdn_traffic_collect_checkpoints	type=dict required
+blitzecdn	variable	blitzecdn_traffic_collect.blitzecdn_traffic_collect_log_directory	type=path required
+blitzecdn	variable	blitzecdn_traffic_collect.blitzecdn_traffic_collect_max_bytes	type=int required
 blitzecdn	variable	blitzecdn_uninstall.blitzecdn_uninstall_cli_wrapper	type=path
 blitzecdn	variable	blitzecdn_uninstall.blitzecdn_uninstall_compose_file	type=path
 blitzecdn	variable	blitzecdn_uninstall.blitzecdn_uninstall_deploy_home	type=path
