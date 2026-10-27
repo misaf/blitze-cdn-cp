@@ -44,6 +44,8 @@ Legacy `/v1` and `/v2` contracts are not served by this application. `/docs`
 and `/openapi.json` describe the current API; `/health` and `/metrics` remain
 unversioned. See [request defaults](docs/api-defaults.md) for creation values,
 PATCH semantics, inheritance, and operation scope.
+See [queued API work](docs/queued-operations.md) for submission responses,
+polling headers, and result handling.
 
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
