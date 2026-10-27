@@ -6,6 +6,13 @@ from blitzecdn.core.features import ConfigurationModel
 
 
 class TrafficConfig(ConfigurationModel):
+    retention_days: int = Field(
+        default=90,
+        ge=0,
+        le=3650,
+        alias="BLITZE_TRAFFIC_RETENTION_DAYS",
+        description="Days of hourly traffic history to retain. 0 disables expiry.",
+    )
     collection_interval_seconds: int = Field(
         default=60,
         ge=0,

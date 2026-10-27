@@ -18,6 +18,7 @@ blitzecdn	check	jobs.jobs_max_attempts_check	max_attempts >= 1
 blitzecdn	check	jobs.jobs_status_check	status IN ('pending', 'running', 'succeeded', 'failed')
 blitzecdn	check	traffic_cursors.traffic_cursors_offset_check	offset > 0
 blitzecdn	check	traffic_hours.traffic_hours_counters_check	requests > 0 AND bytes_sent >= 0 AND body_bytes_sent >= 0
+blitzecdn	check	traffic_retention.traffic_retention_singleton	id = 1
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
 blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
@@ -113,6 +114,7 @@ blitzecdn	column	releases.id	type=VARCHAR not-null
 blitzecdn	column	releases.inputs_digest	type=VARCHAR not-null fk=release_inputs.digest
 blitzecdn	column	traffic_cursors.anchor	type=VARCHAR not-null
 blitzecdn	column	traffic_cursors.edge	type=VARCHAR not-null pk
+blitzecdn	column	traffic_cursors.latest_hour	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	traffic_cursors.offset	type=INTEGER not-null
 blitzecdn	column	traffic_cursors.stream_id	type=VARCHAR not-null pk
 blitzecdn	column	traffic_hours.body_bytes_sent	type=INTEGER not-null
@@ -121,6 +123,8 @@ blitzecdn	column	traffic_hours.edge	type=VARCHAR not-null pk
 blitzecdn	column	traffic_hours.hostname	type=VARCHAR not-null pk
 blitzecdn	column	traffic_hours.hour	type=UtcDateTime(VARCHAR) not-null pk
 blitzecdn	column	traffic_hours.requests	type=INTEGER not-null
+blitzecdn	column	traffic_retention.cutoff	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	traffic_retention.id	type=INTEGER not-null pk
 blitzecdn	column	workflows.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	workflows.error	type=VARCHAR null
 blitzecdn	column	workflows.id	type=VARCHAR not-null pk

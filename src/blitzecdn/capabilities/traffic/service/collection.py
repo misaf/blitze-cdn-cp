@@ -36,6 +36,26 @@ class TrafficService:
         self.events = events
         self.uow = uow
 
+    def prune(self, operator: str, *, retention_days: int) -> None:
+        if retention_days == 0:
+            return
+        with self.uow.transaction():
+            result = self.store.prune(retention_days)
+            self.events.record(
+                domain_event(
+                    operator,
+                    "traffic.pruned",
+                    "traffic",
+                    "history",
+                    result.model_dump(mode="json"),
+                )
+            )
+        _LOGGER.info(
+            "traffic retention pass finished", extra=result.model_dump(mode="json")
+        )
+        if result.more:
+            _LOGGER.warning("expired traffic remains until the next retention pass")
+
     def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
         return self.store.usage(query)
 
