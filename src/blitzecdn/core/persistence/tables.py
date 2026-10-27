@@ -18,15 +18,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    TypeDecorator,
-)
+from sqlalchemy import String, TypeDecorator
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.engine.interfaces import Dialect
-from sqlmodel import Field, SQLModel
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class UtcDateTime(TypeDecorator[datetime]):
@@ -63,34 +58,29 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class Base(SQLModel):
+class Base(DeclarativeBase):
     """Declarative base for every table in the control-plane database."""
 
-    __abstract__ = True
 
-
-class AnsibleSettingRow(Base, table=True):
+class AnsibleSettingRow(Base):
     """Non-secret, fleet-wide Ansible policy; ``value`` is JSON, any Ansible type."""
 
     __tablename__ = "ansible_settings"
 
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    value: dict[str, Any] = Field(sa_type=JSON)
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    name: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 
-class AuditEventRow(Base, table=True):
+class AuditEventRow(Base):
     """The append-only record of who changed what."""
 
     __tablename__ = "audit_events"
 
-    id: int | None = Field(
-        default=None,
-        sa_column=Column(Integer, primary_key=True, autoincrement=True),
-    )
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
-    operator: str
-    action: str
-    resource_type: str
-    resource_id: str | None = None
-    details: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    operator: Mapped[str] = mapped_column()
+    action: Mapped[str] = mapped_column()
+    resource_type: Mapped[str] = mapped_column()
+    resource_id: Mapped[str | None] = mapped_column()
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

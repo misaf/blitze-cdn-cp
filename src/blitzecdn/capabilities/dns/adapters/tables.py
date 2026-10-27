@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, ForeignKey, String
+from sqlalchemy import CheckConstraint, ForeignKey
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
-class DomainRow(Base, table=True):
+class DomainRow(Base):
     """A delegated zone and its policy, kept whole as JSON; records are keyed below."""
 
     __tablename__ = "domains"
@@ -20,12 +20,12 @@ class DomainRow(Base, table=True):
         CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
     )
 
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    name: Mapped[str] = mapped_column(primary_key=True)
+    policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 
-class DnsRecordRow(Base, table=True):
+class DnsRecordRow(Base):
     """One record: an address, and whether the edge serves the hostname.
 
     ``value`` is the DNS answer when unproxied and the origin when proxied. The
@@ -45,20 +45,18 @@ class DnsRecordRow(Base, table=True):
     )
 
     # A record outliving its zone would keep deriving a virtual host for it.
-    domain: str = Field(
-        sa_column=Column(
-            String, ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
-        )
+    domain: Mapped[str] = mapped_column(
+        ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
     )
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    type: str = Field(sa_column=Column(String, primary_key=True))
-    value: str = Field(sa_column=Column(String, nullable=False))
-    ttl: int
-    proxied: bool = True
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    name: Mapped[str] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[str] = mapped_column()
+    ttl: Mapped[int] = mapped_column()
+    proxied: Mapped[bool] = mapped_column(default=True)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 
-class RuleRow(Base, table=True):
+class RuleRow(Base):
     """One override in a zone; ``match`` and ``priority`` are columns for ordering."""
 
     __tablename__ = "zone_rules"
@@ -72,14 +70,12 @@ class RuleRow(Base, table=True):
 
     # ON DELETE CASCADE for the same reason the records have it: a rule
     # outliving its zone would be an override for a domain we no longer serve.
-    domain: str = Field(
-        sa_column=Column(
-            String, ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
-        )
+    domain: Mapped[str] = mapped_column(
+        ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
     )
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    priority: int
-    match: str
-    overrides: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
-    enabled: bool = True
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    name: Mapped[str] = mapped_column(primary_key=True)
+    priority: Mapped[int] = mapped_column()
+    match: Mapped[str] = mapped_column()
+    overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

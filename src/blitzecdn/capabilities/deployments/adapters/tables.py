@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
-class DeploymentRow(Base, table=True):
+class DeploymentRow(Base):
     """Convergence history; ``result`` is one serialized ``AnsibleRun``.
 
     Raw output stays in the log file the result names, not in the database.
@@ -37,30 +37,30 @@ class DeploymentRow(Base, table=True):
         Index("ix_deployments_release_id", "release_id"),
     )
 
-    id: str = Field(sa_column=Column(String, primary_key=True))
-    status: str
-    operator: str
-    check_mode: bool
-    rollback_of: str | None = Field(default=None, foreign_key="deployments.id")
-    host_limit: str | None = None
-    created_at: datetime = Field(
-        default_factory=utcnow, sa_type=UtcDateTime, index=True
+    id: Mapped[str] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column()
+    operator: Mapped[str] = mapped_column()
+    check_mode: Mapped[bool] = mapped_column()
+    rollback_of: Mapped[str | None] = mapped_column(ForeignKey("deployments.id"))
+    host_limit: Mapped[str | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, index=True
     )
-    started_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
-    error: str | None = None
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column()
     #: The converged release, by short digest; immutable, so shared across runs.
-    release_id: str = Field(foreign_key="releases.id")
+    release_id: Mapped[str] = mapped_column(ForeignKey("releases.id"))
     #: For a rollback: the digest of canonical inputs when it was queued. Adoption
     #: refuses if state moved since, because restoring wholesale would silently
     #: delete records written meanwhile. ``NULL`` for an ordinary deployment.
-    canonical_digest: str | None = None
+    canonical_digest: Mapped[str | None] = mapped_column()
     #: Incremented on each takeover; target writes name it, fencing stale workers.
-    generation: int = Field(sa_column=Column(Integer, nullable=False, default=0))
+    generation: Mapped[int] = mapped_column(default=0)
 
 
-class DeploymentTargetRow(Base, table=True):
+class DeploymentTargetRow(Base):
     """One edge's progress through one deployment.
 
     Rows, not JSON, because each field is queried, and a blob would make resuming
@@ -82,25 +82,23 @@ class DeploymentTargetRow(Base, table=True):
         Index("ix_deployment_targets_deployment_id", "deployment_id"),
     )
 
-    deployment_id: str = Field(
-        sa_column=Column(
-            String, ForeignKey("deployments.id", ondelete="CASCADE"), primary_key=True
-        )
+    deployment_id: Mapped[str] = mapped_column(
+        ForeignKey("deployments.id", ondelete="CASCADE"), primary_key=True
     )
-    edge: str = Field(sa_column=Column(String, primary_key=True))
-    status: str
-    phase: str | None = None
-    attempts: int = Field(sa_column=Column(Integer, nullable=False, default=0))
-    fence: int = Field(sa_column=Column(Integer, nullable=False, default=0))
-    started_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    last_error: str | None = None
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column()
+    phase: Mapped[str | None] = mapped_column()
+    attempts: Mapped[int] = mapped_column(default=0)
+    fence: Mapped[int] = mapped_column(default=0)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_error: Mapped[str | None] = mapped_column()
 
 
-class DeploymentRequirementRow(Base, table=True):
+class DeploymentRequirementRow(Base):
     """Durable reasons the current desired state must reach the fleet."""
 
     __tablename__ = "deployment_requirements"
 
-    kind: str = Field(sa_column=Column(String, primary_key=True))
-    requested_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    kind: Mapped[str] = mapped_column(primary_key=True)
+    requested_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

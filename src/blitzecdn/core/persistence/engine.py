@@ -14,10 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import URL
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool, QueuePool
-from sqlmodel import Session, create_engine
 
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.clock import Clock, system_clock
@@ -90,7 +90,6 @@ class Database:
                 database=path.resolve().as_uri(),
                 query={"mode": "rw", "uri": "true"},
             ),
-            future=True,
             **pool_options,
         )
         _configure_sqlite(self.engine, self._immediate)

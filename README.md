@@ -5,7 +5,7 @@ state, compiles releases, and uses Ansible to provision and converge remote
 Linux hosts running the containerized edge runtime.
 
 The backend is a modular monolith: FastAPI and Typer expose the same application
-services, Dishka assembles dependencies, and SQLModel/SQLAlchemy with Alembic
+services, Dishka assembles dependencies, and SQLAlchemy with Alembic
 provide persistence. Background work uses a durable SQLite queue; no separate
 message broker is required.
 

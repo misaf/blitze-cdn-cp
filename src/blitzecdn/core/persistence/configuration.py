@@ -5,7 +5,6 @@ from typing import Any, cast
 
 from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import col
 
 from blitzecdn.core.domain.validation import validate_setting_name
 from blitzecdn.core.exceptions import NotFoundError
@@ -53,7 +52,7 @@ class AnsibleSettingStore:
         with self._db.session() as session:
             result = _rows_affected(
                 session.execute(
-                    delete(AnsibleSettingRow).where(col(AnsibleSettingRow.name) == name)
+                    delete(AnsibleSettingRow).where(AnsibleSettingRow.name == name)
                 )
             )
             if result == 0:

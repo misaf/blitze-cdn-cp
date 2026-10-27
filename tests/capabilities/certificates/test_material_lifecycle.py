@@ -163,7 +163,7 @@ def test_inactive_rule_override_remains_a_material_root(settings, certificate_pa
 def test_damaged_retained_inputs_abort_collection_before_any_deletion(
     settings, certificate_pair
 ):
-    from sqlmodel import select
+    from sqlalchemy import select
 
     from blitzecdn.capabilities.releases.adapters.tables import ReleaseInputsRow
 
@@ -175,7 +175,7 @@ def test_damaged_retained_inputs_abort_collection_before_any_deletion(
     orphan.parent.mkdir()
     orphan.write_bytes(b"orphan")
     with control.transactions.database.session() as session:
-        row = session.exec(select(ReleaseInputsRow)).one()
+        row = session.scalars(select(ReleaseInputsRow)).one()
         row.document = (
             control.releases.inputs().model_copy(update={"domains": ()}).encode()
         )
