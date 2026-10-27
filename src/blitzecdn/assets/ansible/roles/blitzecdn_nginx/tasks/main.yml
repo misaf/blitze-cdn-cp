@@ -6,6 +6,9 @@
 - name: Validate the desired state before changing anything
   ansible.builtin.import_tasks: validate.yml
 
+- name: Prepare persistent hostname logs
+  ansible.builtin.import_tasks: logging.yml
+
 - name: Verify pinned controller certificate material
   ansible.builtin.include_tasks: verify-material.yml
   loop: "{{ blitzecdn_nginx_sites }}"

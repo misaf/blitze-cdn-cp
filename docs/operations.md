@@ -126,3 +126,59 @@ These traces cover API request processing. Queued work executes in a separate
 worker and does not inherit the submitting request's trace context. Use the
 operation/deployment ID to follow its durable outcome and worker logs. The
 authenticated `/metrics` endpoint continues reporting operational state separately.
+
+## Hostname access and error logs
+
+Each edge stores separate persistent logs for every configured hostname:
+
+```text
+/var/log/nginx/domains/example.com.access.log
+/var/log/nginx/domains/example.com.error.log
+/var/log/nginx/domains/api.example.com.access.log
+/var/log/nginx/domains/api.example.com.error.log
+```
+
+HTTP and HTTPS requests on all supported ports use the same pair of files for
+that hostname. Hostnames sharing an origin or policy still have separate files.
+The release renderer emits one server block per hostname to isolate Nginx error
+logs as well as access logs. These files live in the edge's writable log mount,
+outside configuration releases, and survive reloads, rollbacks and container
+replacement. A custom `blitzecdn_edge_runtime.paths.logs` changes the root.
+
+Wildcard configurations have one pair for the configured pattern:
+`*.example.com` uses `_wildcard.example.com.access.log` and
+`_wildcard.example.com.error.log`. All hostnames matched by that wildcard share
+those files; the access records still contain the actual requested host.
+Individual error files for arbitrary wildcard matches require a separate log
+collector. Explicit hostnames matching a wildcard use their own server blocks
+and log files.
+
+Access records include an ISO 8601 timestamp, response body bytes and the cache
+outcome. They are operational logs, not durable bandwidth accounting. The
+existing aggregate `blitzecdn-access.log` remains available to cache diagnostics,
+and requests also reach Docker stdout. Hostname errors at `warn` and above go
+to their own file and Docker stderr; startup errors or errors before Nginx has
+selected a hostname can still appear in the global `error.log`.
+`blitzecdn_nginx_access_log_enabled=false` disables access logging for managed
+hostnames, while error logging remains enabled. Release identity probes continue
+to suppress access logging.
+
+The Nginx role installs `logrotate`, enables its host timer, and manages
+`/etc/logrotate.d/blitzecdn-domains`. Hostname logs rotate daily, or when larger
+than 100 MiB at a scheduled check, with up to 14 archives per file. Older archives
+are compressed; compression of the newest archive is delayed. Rotation renames
+the file and asks the running container's Nginx master to reopen logs, avoiding
+`copytruncate` and an Nginx restart. The size threshold is checked when logrotate
+runs, so it is not a hard disk quota. This policy covers hostname files; it does
+not change retention for aggregate logs or Docker streams.
+
+The hostname log directory is root-owned with group `adm` and mode `0751`, so
+Nginx workers can traverse it when reopening files. Log files use mode `0640`,
+owned by the runtime worker UID with group `adm`; other users cannot read them.
+Removing a hostname leaves its logs intact. Edge teardown also retains logs by
+default and removes the rotation policy; explicitly requesting
+`blitzecdn_edge_teardown_remove_logs=true` removes hostname logs and their
+archives as well. When overriding the runtime log root, set
+`blitzecdn_edge_teardown_domain_logs_path` to the same root with `/domains`
+appended before teardown. Logs remain local to each edge; this step adds no log
+retrieval API or cross-edge statistics.

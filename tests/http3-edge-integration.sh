@@ -281,6 +281,34 @@ brotli=$("${client[@]}" --http2 -H 'Accept-Encoding: br' -D - -o /dev/null https
 printf '%s' "${brotli}"
 grep -qi 'content-encoding: br' <<<"${brotli}"
 
+say "Hostname access/error isolation and log rotation"
+alias_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS)
+"${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+  -o /dev/null https://site-alias.test/hostname-access-probe
+# Flexible mode uses TLS to the origin on alternate HTTPS ports. The test
+# origin has no listener on 2053, so this deliberately produces an upstream
+# failure in the alias's server block without changing the running edge.
+alias_error=$("${alias_client[@]}" --resolve "site-alias.test:2053:${edge_ip}" \
+  -o /dev/null -w '%{http_code}' https://site-alias.test:2053/hostname-error-probe)
+[[ "${alias_error}" == 502 ]] || fail "the alias did not produce the expected upstream failure"
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge "! grep -q 'hostname-access-probe' /var/log/nginx/domains/site-one.test.access.log"
+in_edge "grep -q 'hostname-error-probe' /var/log/nginx/domains/site-alias.test.error.log"
+in_edge "! grep -q 'hostname-error-probe' /var/log/nginx/domains/site-one.test.error.log"
+in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-domains'
+# Reopening happens asynchronously in the workers after the master is signalled.
+for _attempt in {1..10}; do
+  "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+    -o /dev/null https://site-alias.test/hostname-after-rotation
+  if in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"; then
+    break
+  fi
+  sleep 1
+done
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log.1"
+in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.error.log.1'
+
 # --------------------------------------------------------------------------
 # HTTP-01
 # --------------------------------------------------------------------------
@@ -411,6 +439,10 @@ in_edge 'test -s /etc/blitzecdn/tls/integration.key' ||
   fail "a runtime teardown destroyed the TLS material"
 in_edge 'test -d /var/cache/nginx/blitzecdn' ||
   fail "a runtime teardown destroyed the cache"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.access.log.1' ||
+  fail "a runtime teardown destroyed retained hostname logs"
+in_edge '! test -e /etc/logrotate.d/blitzecdn-domains' ||
+  fail "a runtime teardown left the log rotation policy"
 
 say "Destroying the persistent state on request"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml"

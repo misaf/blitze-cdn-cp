@@ -60,3 +60,4 @@ blitzecdn_edge_teardown_remove_data: true
 # decommissioned host is often decommissioned because something went wrong on it.
 blitzecdn_edge_teardown_remove_logs: false
 blitzecdn_edge_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_edge_teardown_domain_logs_path: /var/log/nginx/domains

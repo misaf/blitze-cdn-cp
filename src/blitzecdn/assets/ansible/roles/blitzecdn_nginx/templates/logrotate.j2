@@ -1,0 +1,19 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+{{ blitzecdn_edge_runtime.paths.logs }}/domains/*.log {
+    daily
+    maxsize 100M
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    su root adm
+    create 0640 {{ blitzecdn_edge_runtime.worker_uid }} adm
+    sharedscripts
+    postrotate
+        if [ "$(/usr/bin/docker inspect --format '{{ '{{.State.Running}}' }}' {{ blitzecdn_edge_runtime.container | quote }} 2>/dev/null)" = true ]; then
+            # Signal the master directly, without parsing the image's default config.
+            /usr/bin/docker exec {{ blitzecdn_edge_runtime.container | quote }} sh -c 'kill -USR1 "$(cat /var/run/nginx.pid)"'
+        fi
+    endscript
+}

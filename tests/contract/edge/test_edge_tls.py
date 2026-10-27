@@ -45,7 +45,8 @@ def test_site_template_renders_from_real_model_output(desired_state):
     context = _role_defaults()
     for site in desired_state["blitzecdn_nginx_sites"]:
         rendered = environment.get_template("site.conf.j2").render(**context, item=site)
-        assert f"server_name {' '.join(site['server_names'])};" in rendered
+        for hostname in site["server_names"]:
+            assert f"server_name {hostname};" in rendered
         assert "proxy_pass" in rendered
         if site["certificate_mode"] == CertificateMode.DISABLED:
             assert "ssl_certificate" not in rendered
