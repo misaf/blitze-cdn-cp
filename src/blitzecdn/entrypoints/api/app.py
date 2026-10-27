@@ -55,6 +55,12 @@ def create_app(
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        telemetry={
+            "exclude": lambda scope: scope["path"] in {"/health", "/metrics"},
+            # Exception messages can contain infrastructure credentials. Keep
+            # exception logging local; export request spans and metrics only.
+            "logs": False,
+        },
         # One schema per model, set here as well as per model: with only the
         # per-model override, FastAPI still emitted both variants and pydantic's
         # remapping left dangling `$ref`s that validators and generators reject.

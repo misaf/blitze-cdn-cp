@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -53,7 +55,7 @@ def deploy(
 @router.get("/v3/deployments", response_model=list[Deployment])
 def deployments(
     deployments: FromDishka[DeploymentService],
-    limit: int = Query(20, ge=1, le=100),
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[Deployment]:
     return [
         as_operation(item, Deployment) for item in deployments.list_deployments(limit)

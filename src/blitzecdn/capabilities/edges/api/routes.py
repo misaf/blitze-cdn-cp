@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -66,21 +68,25 @@ def remove_edge(
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
     queued_operations: FromDishka[OperationService],
-    decommission: bool = Query(
-        True,
-        description=(
-            "Strip BlitzeCDN configuration and TLS private keys from the "
-            "host before deregistering it."
+    decommission: Annotated[
+        bool,
+        Query(
+            description=(
+                "Strip BlitzeCDN configuration and TLS private keys from the "
+                "host before deregistering it."
+            ),
         ),
-    ),
-    force: bool = Query(
-        False,
-        description=(
-            "Deregister even if the teardown failed. For a host that no "
-            "longer exists; on one that is merely unreachable this leaves "
-            "its configuration and private keys in place."
+    ] = True,
+    force: Annotated[
+        bool,
+        Query(
+            description=(
+                "Deregister even if the teardown failed. For a host that no "
+                "longer exists; on one that is merely unreachable this leaves "
+                "its configuration and private keys in place."
+            ),
         ),
-    ),
+    ] = False,
 ) -> Operation:
     """Queue tearing the host down, then deregistering it, in that order.
 

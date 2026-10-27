@@ -1,5 +1,7 @@
 """Reading the journal, for every kind of workflow."""
 
+from typing import Annotated
+
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query
@@ -17,7 +19,7 @@ router = APIRouter(
 @router.get("/v3/workflows", response_model=list[Workflow])
 def list_workflows(
     workflow_history: FromDishka[WorkflowHistory],
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> list[Workflow]:
     """Durable progress for operations that crossed external systems."""
     return [

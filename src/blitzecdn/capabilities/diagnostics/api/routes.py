@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +26,6 @@ def operational_status(
 @router.get("/v3/audit-events", response_model=list[AuditEvent])
 def audit_events(
     audit: FromDishka[AuditTrail],
-    limit: int = Query(100, ge=1, le=500),
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[AuditEvent]:
     return [as_operation(item, AuditEvent) for item in audit.list_audit_events(limit)]
