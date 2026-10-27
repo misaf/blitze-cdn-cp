@@ -38,7 +38,7 @@ def test_record_creation_uses_the_url_and_returns_the_domain(settings, body):
             **body,
         }
         records = client.get("/v3/domains/example.net/records", headers=API_HEADERS)
-        assert records.json() == [response.json()]
+        assert records.json()["items"] == [response.json()]
 
 
 @pytest.mark.parametrize(
@@ -66,7 +66,9 @@ def test_invalid_creation_is_rejected_without_storing_a_record(settings, extra):
         )
         assert response.status_code == 422
         assert (
-            client.get("/v3/domains/example.com/records", headers=API_HEADERS).json()
+            client.get("/v3/domains/example.com/records", headers=API_HEADERS).json()[
+                "items"
+            ]
             == []
         )
 

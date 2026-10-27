@@ -9,6 +9,8 @@ services, Dishka assembles dependencies, and SQLAlchemy with Alembic
 provide persistence. Background work uses a durable SQLite queue; no separate
 message broker is required.
 
+Collection endpoints share the [pagination contract](docs/api-pagination.md).
+
 ## Local development
 
 Use Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and

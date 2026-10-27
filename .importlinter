@@ -26,6 +26,7 @@ source_modules =
     blitzecdn.capabilities.**.contract
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -59,6 +60,7 @@ source_modules =
     blitzecdn.capabilities.**.service
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -133,6 +135,7 @@ source_modules =
     blitzecdn.core.exceptions
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -208,6 +211,7 @@ source_modules =
     blitzecdn.capabilities.**.wiring
 forbidden_modules =
     fastapi
+    fastapi_pagination
     typer
     blitzecdn.entrypoints.api
     blitzecdn.entrypoints.cli
@@ -239,6 +243,7 @@ source_modules =
     blitzecdn.capabilities.releases.service.compiler
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click

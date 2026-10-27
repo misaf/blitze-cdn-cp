@@ -97,7 +97,9 @@ def test_rules_are_written_listed_and_resolved(settings):
             headers=API_HEADERS,
         )
 
-        listed = client.get("/v3/domains/example.com/rules", headers=API_HEADERS).json()
+        listed = client.get(
+            "/v3/domains/example.com/rules", headers=API_HEADERS
+        ).json()["items"]
         assert [rule["name"] for rule in listed] == ["api", "wide"]
 
         resolved = client.get(

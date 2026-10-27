@@ -11,6 +11,7 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
+from blitzecdn.core.domain.pagination import PageResult
 
 __all__ = ["WorkflowHistory", "WorkflowJournal"]
 
@@ -42,6 +43,10 @@ class WorkflowHistory(Protocol):
     """The journal, read-only: the service writes through `WorkflowJournal`."""
 
     def get(self, workflow_id: str) -> Workflow: ...
+
+    def paginate_workflows(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Workflow]: ...
 
     def list_workflows(self, limit: int = 100) -> list[Workflow]: ...
 

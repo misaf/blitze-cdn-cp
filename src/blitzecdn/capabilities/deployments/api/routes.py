@@ -1,8 +1,6 @@
-from typing import Annotated
-
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from blitzecdn.capabilities.deployments.api.models import (
     Deployment,
@@ -18,6 +16,7 @@ from blitzecdn.entrypoints.api.dependencies import (
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import as_operation
+from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
 from blitzecdn.entrypoints.api.responses import (
     ACCEPTED_RESPONSE,
     POLL_RESPONSE,
@@ -52,14 +51,16 @@ def deploy(
     return queued
 
 
-@router.get("/v3/deployments", response_model=list[Deployment])
+@router.get("/v3/deployments", response_model=Page[Deployment])
 def deployments(
     deployments: FromDishka[DeploymentService],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> list[Deployment]:
-    return [
-        as_operation(item, Deployment) for item in deployments.list_deployments(limit)
-    ]
+    params: PaginationParams,
+) -> Page[Deployment]:
+    return stored_page(
+        deployments.paginate_deployments(limit=params.limit, offset=params.offset),
+        params,
+        lambda item: as_operation(item, Deployment),
+    )
 
 
 @router.get(
@@ -79,17 +80,23 @@ def deployment(
 
 @router.get(
     "/v3/deployments/{deployment_id}/targets",
-    response_model=list[DeploymentTarget],
+    response_model=Page[DeploymentTarget],
 )
 def deployment_targets(
     deployment_id: str,
     deployments: FromDishka[DeploymentService],
-) -> list[DeploymentTarget]:
-    """How far each edge got, for watching a rollout or reading a partial failure."""
-    return [
-        as_operation(target, DeploymentTarget)
-        for target in deployments.targets(deployment_id)
-    ]
+    params: PaginationParams,
+) -> Page[DeploymentTarget]:
+    """How far each edge got in a rollout."""
+    return stored_page(
+        deployments.paginate_targets(
+            deployment_id, limit=params.limit, offset=params.offset
+        ),
+        params,
+        lambda target: DeploymentTarget.model_validate(
+            target.model_dump(mode="json", exclude={"deployment_id", "fence"})
+        ),
+    )
 
 
 @router.post(

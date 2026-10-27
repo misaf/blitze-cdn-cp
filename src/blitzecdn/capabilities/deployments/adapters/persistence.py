@@ -23,8 +23,10 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetStatus,
     abandoned_run,
 )
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -108,6 +110,20 @@ class DeploymentStore:
             if row is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
             return row.release_id
+
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(DeploymentRow).order_by(
+                    DeploymentRow.created_at.desc(), DeploymentRow.id.desc()
+                ),
+                self._deployment,
+                limit=limit,
+                offset=offset,
+            )
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         with self._db.session() as session:
@@ -349,6 +365,20 @@ class DeploymentTargetStore:
                 update(DeploymentTargetRow)
                 .where(DeploymentTargetRow.deployment_id == deployment_id)
                 .values(fence=fence)
+            )
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(DeploymentTargetRow)
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
+                .order_by(DeploymentTargetRow.edge),
+                _target,
+                limit=limit,
+                offset=offset,
             )
 
     def targets(self, deployment_id: str) -> list[DeploymentTarget]:

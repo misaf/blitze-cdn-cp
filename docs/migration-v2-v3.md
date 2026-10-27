@@ -1,5 +1,8 @@
 # Migrating clients from API v2 to v3
 
+Collection GET responses use an `{items, total, limit, offset}` envelope.
+Read collection data from `items` and follow the [pagination contract](api-pagination.md).
+
 This guide compares the deployed BlitzeCDN **2.6.1 `/v2` contract**, inspected
 on 2026-10-27, with the **current `master` `/v3` contract**. It is not a promise
 that every historical API v2 implementation has the same behavior.

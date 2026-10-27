@@ -17,6 +17,7 @@ from blitzecdn.entrypoints.api.dependencies import (
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import Operation, as_queued
+from blitzecdn.entrypoints.api.pagination import Page, paginate
 from blitzecdn.entrypoints.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
@@ -27,10 +28,10 @@ router = APIRouter(
 )
 
 
-@router.get("/v3/edges", response_model=list[Edge])
-def list_edges(edges: FromDishka[EdgeOperationsService]) -> list[Edge]:
+@router.get("/v3/edges", response_model=Page[Edge])
+def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
-    return [Edge.from_domain(item) for item in edges.list_edges()]
+    return paginate(edges.list_edges(), Edge.from_domain)
 
 
 @router.get("/v3/edges/{name}", response_model=Edge)

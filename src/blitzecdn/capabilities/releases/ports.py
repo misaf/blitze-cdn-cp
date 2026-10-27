@@ -17,6 +17,7 @@ from blitzecdn.capabilities.releases.domain import (
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 
 __all__ = [
     "CanonicalState",
@@ -63,6 +64,8 @@ class ReleaseStore(Protocol):
     def get(self, release_id: str) -> Release: ...
 
     def inputs_for(self, release_id: str) -> ReleaseInputs: ...
+
+    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]: ...
 
     def list_releases(self, limit: int | None = 20) -> Sequence[Release]: ...
 

@@ -7,6 +7,7 @@ from contextlib import ExitStack, asynccontextmanager
 from dishka.integrations.starlette import SyncContainerMiddleware
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
+from fastapi_pagination import add_pagination
 from pydantic import ValidationError
 
 from blitzecdn import __version__
@@ -80,6 +81,7 @@ def create_app(
     # feature's contribution, in roster order.
     for router in registry.api_routers():
         application.include_router(router)
+    add_pagination(application)
     return application
 
 

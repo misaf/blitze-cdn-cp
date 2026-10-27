@@ -75,9 +75,11 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
 def test_certificates_are_readable(settings):
     # The origin check runs a playbook across the fleet, so it is a POST.
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v3/certificates", headers=API_HEADERS).json() == []
+        assert client.get("/v3/certificates", headers=API_HEADERS).json()["items"] == []
         assert (
-            client.get("/v3/certificates?expiring_in=30", headers=API_HEADERS).json()
+            client.get("/v3/certificates?expiring_in=30", headers=API_HEADERS).json()[
+                "items"
+            ]
             == []
         )
         assert (

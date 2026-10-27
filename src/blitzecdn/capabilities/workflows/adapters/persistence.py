@@ -14,8 +14,10 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 
 class WorkflowStore:
@@ -147,6 +149,18 @@ class WorkflowStore:
                 )
             )
             return cast("CursorResult[Any]", result).rowcount
+
+    def paginate_workflows(self, *, limit: int, offset: int) -> PageResult[Workflow]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(WorkflowRow).order_by(
+                    WorkflowRow.created_at.desc(), WorkflowRow.id.desc()
+                ),
+                self._workflow,
+                limit=limit,
+                offset=offset,
+            )
 
     def list_workflows(self, limit: int = 100) -> list[Workflow]:
         with self._db.session() as session:
