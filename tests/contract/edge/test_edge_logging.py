@@ -65,6 +65,7 @@ def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_
     # Substitute JSON-escaped variable values into the shipped format to check
     # its JSON structure and types. Native Nginx escaping is checked in Docker.
     variables = {
+        "request_id": "a" * 32,
         "time_iso8601": "2026-10-27T12:30:00+00:00",
         "host": "api.example.com",
         "server_name": "*.example.com",

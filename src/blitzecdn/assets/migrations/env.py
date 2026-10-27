@@ -18,6 +18,7 @@ from blitzecdn.capabilities.jobs.adapters import tables as _jobs  # noqa: F401
 from blitzecdn.capabilities.releases.adapters import (
     tables as _releases,  # noqa: F401
 )
+from blitzecdn.capabilities.traffic.adapters import tables as _traffic  # noqa: F401
 from blitzecdn.capabilities.workflows.adapters import (
     tables as _workflows,  # noqa: F401
 )

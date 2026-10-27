@@ -63,6 +63,8 @@ from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
 )
+from blitzecdn.capabilities.traffic.service.collection import TrafficService
+from blitzecdn.capabilities.traffic.wiring import build_traffic_service
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.infrastructure import (
     Adapters,
@@ -245,6 +247,15 @@ class ServiceProvider(Provider):
     ) -> EdgeOperationsService:
         return build_edge_operations_service(
             edges=edges, runner=runner, events=repository.audit_log, uow=repository
+        )
+
+    @provide
+    def traffic(self, repository: Repository, runner: FleetRunner) -> TrafficService:
+        return build_traffic_service(
+            store=repository.traffic,
+            fleet=runner,
+            events=repository.audit_log,
+            uow=repository,
         )
 
     @provide
