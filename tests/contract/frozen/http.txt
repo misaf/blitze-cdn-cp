@@ -208,7 +208,6 @@ blitzecdn	schema	EdgePatch.private_key_file	string|null optional
 blitzecdn	schema	EdgePatch.public_addresses	array[string] optional
 blitzecdn	schema	EdgePatch.ssh_sources	array[string] optional
 blitzecdn	schema	EdgePatch.user	string optional
-blitzecdn	schema	HTTPValidationError.detail	array[ValidationError] optional
 blitzecdn	schema	HostExplanation.host	string required
 blitzecdn	schema	HostExplanation.origin_host	string required
 blitzecdn	schema	HostExplanation.rule	string|null optional
@@ -373,11 +372,10 @@ blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required
 blitzecdn	schema	TaskResult.role	string|null optional
 blitzecdn	schema	TaskResult.task	string required
-blitzecdn	schema	ValidationError.ctx	object optional
-blitzecdn	schema	ValidationError.input	any optional
-blitzecdn	schema	ValidationError.loc	array[string|integer] required
-blitzecdn	schema	ValidationError.msg	string required
-blitzecdn	schema	ValidationError.type	string required
+blitzecdn	schema	ValidationErrorResponse.detail	array[ValidationIssue] required
+blitzecdn	schema	ValidationIssue.loc	array[string|integer] required
+blitzecdn	schema	ValidationIssue.msg	string required
+blitzecdn	schema	ValidationIssue.type	string required
 blitzecdn	schema	WorkerStatus.current_job_age_seconds	number|null optional
 blitzecdn	schema	WorkerStatus.current_job_id	string|null optional
 blitzecdn	schema	WorkerStatus.current_kind	string|null optional

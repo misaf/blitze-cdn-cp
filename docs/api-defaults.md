@@ -22,6 +22,34 @@ For example, `origin_sni: null` clears the override, whereas
 `cache_enabled: null` is invalid. Send `cache_enabled: true` to restore that
 setting's creation default. A rejected update leaves stored state intact.
 
+## Validation errors
+
+Request validation and validation after merging a PATCH both return HTTP 422
+with the same JSON structure:
+
+```json
+{
+  "detail": [
+    {
+      "type": "value_error",
+      "loc": ["body", "cache_enabled"],
+      "msg": "Value error, null is not allowed; omit the field to keep its value"
+    }
+  ]
+}
+```
+
+`detail` is always a list. Each issue contains only `type`, `loc`, and `msg`;
+raw input, exception context, and Pydantic documentation URLs are omitted.
+`loc` starts with the request location, such as `body` or `query`, followed by
+field names or array indexes. Cross-field errors can identify a whole model
+rather than a single field. For malformed JSON, the body location includes the
+parser position. Clients should use `type` and `loc` rather than parsing `msg`.
+
+OpenAPI publishes this response as `ValidationErrorResponse`. Authentication,
+missing-resource, conflict, and execution errors retain their own status codes
+and `{"detail": "message"}` format. Invalid server responses remain server errors.
+
 ## Domain policy
 
 Creating a domain requires `name`. Omitted policy fields use these values:
