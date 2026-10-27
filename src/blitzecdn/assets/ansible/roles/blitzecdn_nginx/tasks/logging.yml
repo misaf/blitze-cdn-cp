@@ -43,9 +43,13 @@
     owner: root
     group: root
     mode: "0644"
+  # The package's configuration directory may not exist on a fresh dry run.
+  when: not ansible_check_mode or not blitzecdn_nginx_logrotate_apt.changed
 
 - name: Enable scheduled log rotation
   ansible.builtin.systemd_service:
     name: logrotate.timer
     enabled: true
     state: started
+  # A dry run cannot enable the timer of a package it only predicted installing.
+  when: not ansible_check_mode or not blitzecdn_nginx_logrotate_apt.changed
