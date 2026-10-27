@@ -15,7 +15,13 @@ class RequestModel(BaseModel):
 
 class FleetRequest(RequestModel):
     host_limit: str | None = Field(
-        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+        default=None,
+        max_length=512,
+        pattern=EDGE_LIMIT.pattern,
+        description=(
+            "Omit or send null to target all registered edges; "
+            "otherwise limit by edge name or pattern."
+        ),
     )
 
 

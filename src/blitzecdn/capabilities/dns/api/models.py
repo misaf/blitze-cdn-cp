@@ -76,7 +76,11 @@ class ZonePolicy(Model):
 
 
 class Domain(ZonePolicy):
-    """A delegated zone and the policy every hostname in it is served by."""
+    """A delegated zone and its serving policy.
+
+    On creation, omitted policy fields use the documented defaults. Records
+    inherit this policy unless a matching rule overrides it.
+    """
 
     name: str
 
@@ -97,7 +101,12 @@ class Domain(ZonePolicy):
 
 
 class DomainPatch(Model):
-    """A partial update to a zone's policy; the name, its identity, is not patchable."""
+    """Omitted fields stay unchanged; null is not a request to restore a default.
+
+    Null clears nullable fields such as origin_sni; non-nullable policy fields
+    reject null when the merged policy is validated. Firewall and visitor_headers
+    replace their whole block, including defaults for omitted nested fields.
+    """
 
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
@@ -117,8 +126,20 @@ class DomainPatch(Model):
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
     compression: CompressionMode | None = None
-    firewall: ZoneFirewall | None = None
-    visitor_headers: ZoneVisitorHeaders | None = None
+    firewall: ZoneFirewall | None = Field(
+        default=None,
+        description=(
+            "Omit to preserve all rules. A supplied object replaces every list; "
+            "{} clears all rules. Null is invalid."
+        ),
+    )
+    visitor_headers: ZoneVisitorHeaders | None = Field(
+        default=None,
+        description=(
+            "Omit to preserve both switches. A supplied object replaces both; "
+            "{} restores their defaults. Null is invalid."
+        ),
+    )
 
     def to_domain(self) -> DomainDomainPatch:
         return DomainDomainPatch.model_validate(self.model_dump(exclude_unset=True))
@@ -159,7 +180,7 @@ class RecordPatch(Model):
     """A partial update to a record. ``proxied`` and ``value`` are independent.
 
     Flipping ``proxied`` never touches the address: off makes it public, on makes
-    it the origin.
+    it the origin. Omitted fields stay unchanged; explicit null is invalid.
     """
 
     value: str | None = None

@@ -56,7 +56,10 @@ class DriftReport(Model):
 
 
 class DeployRequest(FleetRequest):
-    check: bool = False
+    check: bool = Field(
+        default=False,
+        description="False applies changes; true uses Ansible check mode.",
+    )
 
 
 class DriftRequest(FleetRequest):
