@@ -92,7 +92,7 @@ server {
     error_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.error.log warn;
     error_log /dev/stderr warn;
 {% if blitzecdn_nginx_access_log_enabled | bool %}
-    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }};
+    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }}_json;
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% else %}
@@ -119,7 +119,7 @@ server {
     error_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.error.log warn;
     error_log /dev/stderr warn;
 {% if blitzecdn_nginx_access_log_enabled | bool %}
-    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }};
+    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }}_json;
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% else %}

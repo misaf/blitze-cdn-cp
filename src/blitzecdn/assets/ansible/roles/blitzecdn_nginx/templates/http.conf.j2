@@ -13,4 +13,16 @@ log_format {{ blitzecdn_nginx_log_format_name }} escape=json
     'rt=$request_time cache="$sent_http_x_cache_status" '
     'upstream="$upstream_addr" ut="$upstream_response_time" '
     'ref="$http_referer" ua="$http_user_agent" time="$time_iso8601"';
+
+# Hostname files are JSON Lines for reliable usage collection. Keep the
+# aggregate format above for cache diagnostics and the Docker request stream.
+log_format {{ blitzecdn_nginx_log_format_name }}_json escape=json
+    '{"schema_version":1,"timestamp":"$time_iso8601",'
+    '"hostname":"$host","server_name":"$server_name",'
+    '"bytes_sent":$bytes_sent,"body_bytes_sent":$body_bytes_sent,'
+    '"status":$status,"request_time":$request_time,'
+    '"client_ip":"$remote_addr","request":"$request",'
+    '"cache_status":"$sent_http_x_cache_status",'
+    '"upstream_address":"$upstream_addr","upstream_response_time":"$upstream_response_time",'
+    '"referer":"$http_referer","user_agent":"$http_user_agent"}';
 {% endif %}

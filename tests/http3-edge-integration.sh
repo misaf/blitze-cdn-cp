@@ -284,6 +284,7 @@ grep -qi 'content-encoding: br' <<<"${brotli}"
 say "Hostname access/error isolation and log rotation"
 alias_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS)
 "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+  -A 'quoted" backslash\ client' \
   -o /dev/null https://site-alias.test/hostname-access-probe
 # Flexible mode uses TLS to the origin on alternate HTTPS ports. The test
 # origin has no listener on 2053, so this deliberately produces an upstream
@@ -308,6 +309,33 @@ done
 in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log.1"
 in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"
 in_edge 'test -s /var/log/nginx/domains/site-alias.test.error.log.1'
+
+say "Structured hostname records contain numeric visitor byte counters"
+docker exec -i "${edge}" python3 - <<'PY'
+import json
+from datetime import datetime
+from pathlib import Path
+
+root = Path('/var/log/nginx/domains')
+for hostname in ('site-one.test', 'site-alias.test'):
+    records = [
+        json.loads(line)
+        for path in root.glob(hostname + '.access.log*')
+        for line in path.read_text().splitlines()
+    ]
+    assert records, hostname
+    for record in records:
+        assert record['schema_version'] == 1
+        assert record['hostname'] == hostname
+        assert datetime.fromisoformat(record['timestamp']).tzinfo is not None
+        for key in ('bytes_sent', 'body_bytes_sent'):
+            assert type(record[key]) is int and record[key] >= 0
+        assert type(record['status']) is int
+    assert sum(record['bytes_sent'] for record in records) > 0
+    if hostname == 'site-alias.test':
+        probe = next(r for r in records if '/hostname-access-probe ' in r['request'])
+        assert probe['user_agent'] == 'quoted" backslash\\ client'
+PY
 
 # --------------------------------------------------------------------------
 # HTTP-01
