@@ -3,7 +3,6 @@
 from typing import Any
 
 from sqlalchemy import delete, select
-from sqlmodel import col
 
 from blitzecdn.core.domain.audit import AuditEvent
 from blitzecdn.core.domain.events import DomainEvent
@@ -57,7 +56,7 @@ class AuditLog:
             event = self._audit_event(row)
             session.execute(
                 delete(AuditEventRow).where(
-                    col(AuditEventRow.id) <= event.id - self._retention
+                    AuditEventRow.id <= event.id - self._retention
                 )
             )
             return event
@@ -72,9 +71,7 @@ class AuditLog:
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]:
         with self._db.session() as session:
             rows = session.scalars(
-                select(AuditEventRow)
-                .order_by(col(AuditEventRow.id).desc())
-                .limit(limit)
+                select(AuditEventRow).order_by(AuditEventRow.id.desc()).limit(limit)
             ).all()
             return [self._audit_event(row) for row in rows]
 

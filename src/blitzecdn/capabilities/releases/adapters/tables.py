@@ -11,25 +11,25 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String
+from sqlalchemy import ForeignKey, Index
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
-class ReleaseInputsRow(Base, table=True):
+class ReleaseInputsRow(Base):
     """The canonical state releases were compiled from; what a rollback restores."""
 
     __tablename__ = "release_inputs"
 
-    digest: str = Field(sa_column=Column(String, primary_key=True))
+    digest: Mapped[str] = mapped_column(primary_key=True)
     #: Text, not JSON: the digest is over these exact bytes.
-    document: str
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    document: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 
-class ReleaseRow(Base, table=True):
+class ReleaseRow(Base):
     """One compilation: what it read, what it decided, and what it rendered."""
 
     __tablename__ = "releases"
@@ -40,16 +40,16 @@ class ReleaseRow(Base, table=True):
         Index("ix_releases_created_at", "created_at"),
     )
 
-    digest: str = Field(sa_column=Column(String, primary_key=True))
-    id: str
-    compiler_version: int = Field(sa_column=Column(Integer, nullable=False))
-    inputs_digest: str = Field(foreign_key="release_inputs.digest")
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    digest: Mapped[str] = mapped_column(primary_key=True)
+    id: Mapped[str] = mapped_column()
+    compiler_version: Mapped[int] = mapped_column()
+    inputs_digest: Mapped[str] = mapped_column(ForeignKey("release_inputs.digest"))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     #: The whole compiled release: sites, artifacts, explanations, findings.
-    document: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    document: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
-class ReleaseConfigurationRow(Base, table=True):
+class ReleaseConfigurationRow(Base):
     """The configuration tree one release rendered to, stored so rollbacks ship it.
 
     Verified against its manifest and ``digest`` on read; removed with its release.
@@ -57,11 +57,9 @@ class ReleaseConfigurationRow(Base, table=True):
 
     __tablename__ = "release_configurations"
 
-    release_digest: str = Field(
-        sa_column=Column(
-            String, ForeignKey("releases.digest", ondelete="CASCADE"), primary_key=True
-        )
+    release_digest: Mapped[str] = mapped_column(
+        ForeignKey("releases.digest", ondelete="CASCADE"), primary_key=True
     )
-    digest: str = Field(sa_column=Column(String, nullable=False))
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
-    document: str
+    digest: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    document: Mapped[str] = mapped_column()

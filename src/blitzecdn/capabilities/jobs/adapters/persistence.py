@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import CursorResult, Result, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, col
+from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.jobs.adapters.tables import JobRow, ScheduleRow
 from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedule
@@ -33,16 +33,14 @@ class JobStore:
         self._db = database
 
     def statistics(self, *, now: datetime) -> QueueStatistics:
-        ready = (col(JobRow.status) == JobStatus.PENDING.value) & (
-            col(JobRow.available_at) <= now
+        ready = (JobRow.status == JobStatus.PENDING.value) & (
+            JobRow.available_at <= now
         )
         with self._db.session() as session:
             counts = {
                 JobStatus(status): count
                 for status, count in session.execute(
-                    select(col(JobRow.status), func.count()).group_by(
-                        col(JobRow.status)
-                    )
+                    select(JobRow.status, func.count()).group_by(JobRow.status)
                 )
             }
             count, oldest = session.execute(
@@ -52,8 +50,8 @@ class JobStore:
                 select(func.count())
                 .select_from(JobRow)
                 .where(
-                    col(JobRow.status) == JobStatus.RUNNING.value,
-                    col(JobRow.leased_until) <= now,
+                    JobRow.status == JobStatus.RUNNING.value,
+                    JobRow.leased_until <= now,
                 )
             )
         return QueueStatistics(
@@ -110,16 +108,16 @@ class JobStore:
                     select(JobRow)
                     .where(
                         or_(
-                            (col(JobRow.status) == JobStatus.PENDING.value)
-                            & (col(JobRow.available_at) <= now),
+                            (JobRow.status == JobStatus.PENDING.value)
+                            & (JobRow.available_at <= now),
                             # Crash recovery: an expired lease means its worker stopped
                             # renewing.
-                            (col(JobRow.status) == JobStatus.RUNNING.value)
-                            & (col(JobRow.leased_until).is_not(None))
-                            & (col(JobRow.leased_until) <= now),
+                            (JobRow.status == JobStatus.RUNNING.value)
+                            & (JobRow.leased_until.is_not(None))
+                            & (JobRow.leased_until <= now),
                         )
                     )
-                    .order_by(col(JobRow.available_at), col(JobRow.created_at))
+                    .order_by(JobRow.available_at, JobRow.created_at)
                     .limit(1)
                 ).first()
                 if row is None:
@@ -139,10 +137,10 @@ class JobStore:
                 session.execute(
                     update(JobRow)
                     .where(
-                        col(JobRow.id) == row.id,
+                        JobRow.id == row.id,
                         # By the fence it was read at; a concurrent claimer matches
                         # nothing.
-                        col(JobRow.fence) == row.fence,
+                        JobRow.fence == row.fence,
                     )
                     .values(
                         status=JobStatus.RUNNING.value,
@@ -176,8 +174,8 @@ class JobStore:
         session.execute(
             update(JobRow)
             .where(
-                col(JobRow.id) == row.id,
-                col(JobRow.fence) == row.fence,
+                JobRow.id == row.id,
+                JobRow.fence == row.fence,
             )
             .values(
                 status=JobStatus.FAILED.value,
@@ -204,9 +202,9 @@ class JobStore:
                     session.execute(
                         update(JobRow)
                         .where(
-                            col(JobRow.id) == job_id,
-                            col(JobRow.fence) == fence,
-                            col(JobRow.status) == JobStatus.RUNNING.value,
+                            JobRow.id == job_id,
+                            JobRow.fence == fence,
+                            JobRow.status == JobStatus.RUNNING.value,
                         )
                         .values(
                             status=JobStatus.SUCCEEDED.value,
@@ -248,9 +246,9 @@ class JobStore:
                     session.execute(
                         update(JobRow)
                         .where(
-                            col(JobRow.id) == job_id,
-                            col(JobRow.fence) == fence,
-                            col(JobRow.status) == JobStatus.RUNNING.value,
+                            JobRow.id == job_id,
+                            JobRow.fence == fence,
+                            JobRow.status == JobStatus.RUNNING.value,
                         )
                         .values(**values)
                     )
@@ -266,14 +264,14 @@ class JobStore:
                     session.execute(
                         update(JobRow)
                         .where(
-                            col(JobRow.id) == job_id,
-                            col(JobRow.fence) == fence,
-                            col(JobRow.status) == JobStatus.RUNNING.value,
-                            col(JobRow.attempts) > 0,
+                            JobRow.id == job_id,
+                            JobRow.fence == fence,
+                            JobRow.status == JobStatus.RUNNING.value,
+                            JobRow.attempts > 0,
                         )
                         .values(
                             status=JobStatus.PENDING.value,
-                            attempts=col(JobRow.attempts) - 1,
+                            attempts=JobRow.attempts - 1,
                             fence=fence + 1,
                             available_at=retry_at,
                             leased_until=None,
@@ -292,9 +290,9 @@ class JobStore:
                     session.execute(
                         update(JobRow)
                         .where(
-                            col(JobRow.id) == job_id,
-                            col(JobRow.fence) == fence,
-                            col(JobRow.status) == JobStatus.RUNNING.value,
+                            JobRow.id == job_id,
+                            JobRow.fence == fence,
+                            JobRow.status == JobStatus.RUNNING.value,
                         )
                         .values(leased_until=until)
                     )
@@ -312,9 +310,9 @@ class JobStore:
         self, *, status: JobStatus | None = None, limit: int = 50
     ) -> list[Job]:
         with self._db.session() as session:
-            statement = select(JobRow).order_by(col(JobRow.created_at).desc())
+            statement = select(JobRow).order_by(JobRow.created_at.desc())
             if status is not None:
-                statement = statement.where(col(JobRow.status) == status.value)
+                statement = statement.where(JobRow.status == status.value)
             return [_job(row) for row in session.scalars(statement.limit(limit)).all()]
 
     def prune(self, keep: int) -> int:
@@ -322,17 +320,17 @@ class JobStore:
         finished = (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value)
         with self._db.session() as session:
             survivors = (
-                select(col(JobRow.id))
-                .where(col(JobRow.status).in_(finished))
-                .order_by(col(JobRow.created_at).desc())
+                select(JobRow.id)
+                .where(JobRow.status.in_(finished))
+                .order_by(JobRow.created_at.desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             return _rows_affected(
                 session.execute(
                     delete(JobRow).where(
-                        col(JobRow.status).in_(finished),
-                        col(JobRow.id).not_in(survivors),
+                        JobRow.status.in_(finished),
+                        JobRow.id.not_in(survivors),
                     )
                 )
             )
@@ -372,7 +370,7 @@ class ScheduleStore:
         with self._db.session() as session:
             return _rows_affected(
                 session.execute(
-                    delete(ScheduleRow).where(col(ScheduleRow.name).not_in(names))
+                    delete(ScheduleRow).where(ScheduleRow.name.not_in(names))
                 )
             )
 
@@ -380,8 +378,8 @@ class ScheduleStore:
         with self._db.session() as session:
             rows = session.scalars(
                 select(ScheduleRow)
-                .where(col(ScheduleRow.next_run_at) <= now)
-                .order_by(col(ScheduleRow.next_run_at))
+                .where(ScheduleRow.next_run_at <= now)
+                .order_by(ScheduleRow.next_run_at)
             ).all()
             return [_schedule(row) for row in rows]
 
@@ -399,10 +397,10 @@ class ScheduleStore:
                     session.execute(
                         update(ScheduleRow)
                         .where(
-                            col(ScheduleRow.name) == name,
+                            ScheduleRow.name == name,
                             # The compare-and-swap: of two controllers, exactly one
                             # enqueues.
-                            col(ScheduleRow.next_run_at) == expected,
+                            ScheduleRow.next_run_at == expected,
                         )
                         .values(next_run_at=next_run_at, last_run_at=ran_at)
                     )
@@ -411,9 +409,7 @@ class ScheduleStore:
 
     def list_schedules(self) -> list[Schedule]:
         with self._db.session() as session:
-            rows = session.scalars(
-                select(ScheduleRow).order_by(col(ScheduleRow.name))
-            ).all()
+            rows = session.scalars(select(ScheduleRow).order_by(ScheduleRow.name)).all()
             return [_schedule(row) for row in rows]
 
 

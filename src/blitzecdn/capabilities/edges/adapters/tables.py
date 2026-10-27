@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, String
+from sqlalchemy import CheckConstraint
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
-class EdgeRow(Base, table=True):
+class EdgeRow(Base):
     """The fleet, and the table the Ansible inventory plugin reads.
 
     A published contract: the plugin reads these columns directly, possibly under
@@ -28,16 +28,16 @@ class EdgeRow(Base, table=True):
         CheckConstraint("length(user) > 0", name="edges_user_nonempty_check"),
     )
 
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    host: str
-    user: str
-    port: int
-    private_key_file: str | None = None
+    name: Mapped[str] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column()
+    user: Mapped[str] = mapped_column()
+    port: Mapped[int] = mapped_column()
+    private_key_file: Mapped[str | None] = mapped_column()
     #: Lists rather than a child table: they are small, always read whole with
     #: the edge, and never joined or filtered on.
-    public_addresses: list[Any] = Field(default_factory=list, sa_type=JSON)
-    ssh_sources: list[Any] = Field(default_factory=list, sa_type=JSON)
+    public_addresses: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    ssh_sources: Mapped[list[Any]] = mapped_column(JSON, default=list)
     #: NULL means undeclared, assume the controller's set; an empty list means
     #: the edge's runtime provides none. The inventory plugin does not read this column.
-    capabilities: list[Any] | None = Field(default=None, sa_type=JSON)
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    capabilities: Mapped[list[Any] | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

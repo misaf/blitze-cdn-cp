@@ -1,6 +1,6 @@
 """The baseline schema and guards against a damaged database.
 
-The baseline and SQLModel metadata create the same schema, and a database
+The baseline and SQLAlchemy metadata create the same schema, and a database
 missing a column or table is refused. Alembic runs against a real file.
 """
 
