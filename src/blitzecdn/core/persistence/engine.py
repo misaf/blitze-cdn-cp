@@ -6,12 +6,14 @@ store joins.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, event
@@ -21,6 +23,28 @@ from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.clock import Clock, system_clock
+
+_SQLITE_BUSY_TIMEOUT_MS = 30_000
+
+
+def _enable_wal(cursor: Any) -> None:
+    """Retry startup lock contention within the normal database wait budget."""
+    deadline = monotonic() + _SQLITE_BUSY_TIMEOUT_MS / 1000
+    while True:
+        remaining = max(0, deadline - monotonic())
+        cursor.execute(f"PRAGMA busy_timeout = {int(remaining * 1000)}")
+        try:
+            cursor.execute("PRAGMA journal_mode = WAL").fetchall()
+            return
+        except sqlite3.OperationalError as exc:
+            # SQLite can skip its busy handler when promoting a journal lock.
+            # A fresh statement lets competing journal transitions finish.
+            if (
+                exc.sqlite_errorcode & 0xFF != sqlite3.SQLITE_BUSY
+                or monotonic() >= deadline
+            ):
+                raise
+            sleep(min(0.05, max(0, deadline - monotonic())))
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
@@ -36,13 +60,15 @@ def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
     @event.listens_for(engine, "connect")
     def _on_connect(dbapi_connection: Any, _record: Any) -> None:
         dbapi_connection.isolation_level = None
-        cursor = dbapi_connection.cursor()
         try:
-            cursor.execute("PRAGMA foreign_keys = ON")
-            cursor.execute("PRAGMA journal_mode = WAL")
-            cursor.execute("PRAGMA busy_timeout = 30000")
-        finally:
-            cursor.close()
+            with closing(dbapi_connection.cursor()) as cursor:
+                cursor.execute("PRAGMA foreign_keys = ON")
+                _enable_wal(cursor)
+                cursor.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+        except BaseException:
+            # SQLAlchemy has not adopted this connection until setup succeeds.
+            dbapi_connection.close()
+            raise
 
     @event.listens_for(engine, "begin")
     def _on_begin(connection: Any) -> None:
