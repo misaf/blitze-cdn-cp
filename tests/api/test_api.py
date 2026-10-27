@@ -683,7 +683,7 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         property_schema = schema["components"]["schemas"]["DomainPatch"]["properties"][
             "under_attack_mode"
         ]
-        assert property_schema["anyOf"][0]["type"] == "boolean"
+        assert property_schema["type"] == "boolean"
 
         created = _zone(client)
         assert created.status_code == 201

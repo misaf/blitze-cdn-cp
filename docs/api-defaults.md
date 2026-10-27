@@ -16,11 +16,11 @@ can change client behavior even when the field stays optional.
 | `null` for a non-nullable stored setting | Reject the update with `422` |
 | Unknown field | Reject the request with `422` |
 
-PATCH schemas use optional fields to represent partial updates. A field that
-accepts `null` while parsing a patch may still reject it when the resulting
-resource is validated. For example, `origin_sni: null` clears the override,
-whereas `cache_enabled: null` is invalid. Send `cache_enabled: true` to restore
-that setting's creation default. A rejected update leaves stored state intact.
+PATCH schemas distinguish an optional field from a nullable value. Non-nullable
+fields may be omitted, but reject explicit `null` during request validation.
+For example, `origin_sni: null` clears the override, whereas
+`cache_enabled: null` is invalid. Send `cache_enabled: true` to restore that
+setting's creation default. A rejected update leaves stored state intact.
 
 ## Domain policy
 
