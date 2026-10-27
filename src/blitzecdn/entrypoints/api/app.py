@@ -6,6 +6,7 @@ from contextlib import ExitStack, asynccontextmanager
 
 from dishka.integrations.starlette import SyncContainerMiddleware
 from fastapi import FastAPI, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi_pagination import add_pagination
 from pydantic import ValidationError
@@ -16,6 +17,11 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
 from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
+from blitzecdn.entrypoints.api.validation import (
+    VALIDATION_RESPONSE,
+    ValidationErrorResponse,
+    validation_response,
+)
 
 
 def create_app(
@@ -56,6 +62,12 @@ def create_app(
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        responses={
+            422: {
+                "model": ValidationErrorResponse,
+                **VALIDATION_RESPONSE,
+            }
+        },
         telemetry={
             "exclude": lambda scope: scope["path"] in {"/health", "/metrics"},
             # Exception messages can contain infrastructure credentials. Keep
@@ -104,13 +116,14 @@ _HTTP_STATUS: dict[FailureKind, int] = {
 
 
 def _register_exception_handlers(application: FastAPI) -> None:
+    @application.exception_handler(RequestValidationError)
     @application.exception_handler(ValidationError)
     async def validation_error_handler(
-        _request: object, exc: ValidationError
+        _request: object, exc: RequestValidationError | ValidationError
     ) -> JSONResponse:
         # Cross-field errors found while merging a PATCH are still client errors.
         # A pydantic `ValidationError` is outside core's taxonomy.
-        return _error_response(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        return validation_response(exc)
 
     # One handler for the hierarchy; Starlette resolves by MRO and
     # `_HTTP_STATUS` picks the code.
