@@ -14,14 +14,46 @@ from blitzecdn.capabilities.traffic.domain import (
     EdgeCollection,
     HourlyUsage,
     LogCursor,
+    TrafficUsage,
+    UsageQuery,
 )
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 
 class TrafficStore:
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
+        statement = select(TrafficHourRow).where(
+            TrafficHourRow.hour >= query.start,
+            TrafficHourRow.hour < query.end,
+        )
+        if query.hostname is not None:
+            statement = statement.where(TrafficHourRow.hostname == query.hostname)
+        if query.edge is not None:
+            statement = statement.where(TrafficHourRow.edge == query.edge)
+        statement = statement.order_by(
+            TrafficHourRow.hour, TrafficHourRow.hostname, TrafficHourRow.edge
+        )
+        with self._db.session() as session:
+            return read_page(
+                session,
+                statement,
+                lambda row: TrafficUsage(
+                    edge=row.edge,
+                    hostname=row.hostname,
+                    hour=row.hour,
+                    requests=row.requests,
+                    bytes_sent=row.bytes_sent,
+                    body_bytes_sent=row.body_bytes_sent,
+                ),
+                limit=query.limit,
+                offset=query.offset,
+            )
 
     def checkpoints(self) -> dict[str, tuple[LogCursor, ...]]:
         grouped: dict[str, list[LogCursor]] = {}

@@ -6,11 +6,16 @@ from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
     EdgeCollection,
     LogCursor,
+    TrafficUsage,
+    UsageQuery,
 )
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 
 
 class TrafficStore(Protocol):
+    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]: ...
+
     def checkpoints(self) -> dict[str, tuple[LogCursor, ...]]: ...
 
     def apply(self, edge: str, collection: CollectedUsage) -> EdgeCollection: ...

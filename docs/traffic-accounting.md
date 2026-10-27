@@ -102,4 +102,43 @@ Worker logs record per-edge counts, remaining-work flags and safe errors for
 each pass, with a warning when backlog remains. An edge error fails the job
 with the affected names. Healthy edges' committed totals remain intact.
 Recurring jobs get one attempt per firing; the next scheduled run retries from
-fresh database checkpoints. This stage adds no traffic API or CLI commands.
+fresh database checkpoints. Use the read-only interfaces below to inspect saved counters.
+
+
+## Reading usage
+
+Authenticated `GET /v3/traffic/usage` and `blitzecdn traffic usage` return saved
+hourly rows per served hostname and edge. They never contact edges or enqueue
+collection. Historical rows remain queryable after removing an edge or domain.
+
+Both require `start` (inclusive) and `end` (exclusive), in ISO 8601 with a timezone.
+Bounds must resolve to exact UTC hours, and end must follow start. For example,
+`2026-10-27T12:30:00+03:30` is the UTC hour `2026-10-27T09:00:00Z`.
+Optional `hostname` and `edge` filters match exact names; hostnames are normalized
+using the normal hostname validation. Hostname wildcards are not query filters.
+
+```sh
+blitzecdn traffic usage \
+  --start 2026-10-27T00:00:00Z --end 2026-10-28T00:00:00Z \
+  --hostname api.example.com --limit 100 --offset 0 --json
+```
+
+For HTTP, pass the same fields as query parameters to `/v3/traffic/usage`.
+Both interfaces return `{items, total, limit, offset}`. `total` counts matching
+hourly rows, not requests or bytes. Limit defaults to 100 (1–500); offset starts
+at zero. Rows are ordered by hour ascending, then hostname and edge, with a
+range index supporting the read. Each item contains `edge`, `hostname`, `hour`
+(UTC), `requests`, `bytes_sent` and `body_bytes_sent` as integer counters.
+No totals across rows or edges are implied by the page envelope.
+
+Empty hours are omitted. An empty page does not prove zero traffic: collection
+may be delayed, disabled, or failing, and access logging may be disabled.
+Use `job schedules`, worker logs and queue status to investigate freshness.
+These are Nginx bytes sent to visitors: `bytes_sent` includes HTTP headers,
+while `body_bytes_sent` excludes them. They do not measure origin traffic or
+provider billing. Requests are assigned to their completion hour.
+
+Pagination reads current saved data; collecting more traffic between requests
+can change rows and offsets. Query a completed range after collection catches
+up when exporting multiple pages. This interface does not provide a frozen
+export snapshot or billing reconciliation.

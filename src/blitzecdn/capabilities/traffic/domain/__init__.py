@@ -80,3 +80,32 @@ class EdgeCollection(TrafficValue):
     bytes_sent: Counter = 0
     errors: tuple[str, ...] = ()
     more: bool = False
+
+
+class TrafficUsage(HourlyUsage):
+    edge: str
+
+
+class UsageQuery(TrafficValue):
+    start: datetime
+    end: datetime
+    hostname: str | None = None
+    edge: Annotated[str | None, Field(min_length=1, max_length=253)] = None
+    limit: Annotated[int, Field(ge=1, le=500)] = 100
+    offset: Annotated[int, Field(ge=0, le=2**63 - 1)] = 0
+
+    @field_validator("start", "end")
+    @classmethod
+    def utc_hour(cls, value: datetime) -> datetime:
+        return HourlyUsage.utc_hour(value)
+
+    @field_validator("hostname")
+    @classmethod
+    def valid_hostname(cls, value: str | None) -> str | None:
+        return hostname(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def ordered_range(self) -> Self:
+        if self.end <= self.start:
+            raise ValueError("end must be after start")
+        return self

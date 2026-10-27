@@ -40,6 +40,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("edge", "hostname", "hour"),
     )
+    op.create_index(
+        "ix_traffic_hours_hour_hostname_edge",
+        "traffic_hours",
+        ["hour", "hostname", "edge"],
+        unique=False,
+    )
     op.create_table(
         "traffic_cursors",
         sa.Column("edge", sa.String(), nullable=False),
