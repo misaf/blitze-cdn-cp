@@ -154,7 +154,7 @@ def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
         "compress",
         "delaycompress",
         "su root adm",
-        "create 0640 :101 adm",
+        "create 0640",
         "sharedscripts",
     ):
         assert f"    {directive}\n" in rendered
