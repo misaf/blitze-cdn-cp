@@ -8,7 +8,8 @@
     compress
     delaycompress
     su root adm
-    create 0640 :{{ blitzecdn_edge_runtime.worker_uid }} adm
+    # Inherit numeric ownership from the existing file; the worker is container-only.
+    create 0640
     sharedscripts
     postrotate
         if [ "$(/usr/bin/docker inspect --format '{{ '{{.State.Running}}' }}' {{ blitzecdn_edge_runtime.container | quote }} 2>/dev/null)" = true ]; then

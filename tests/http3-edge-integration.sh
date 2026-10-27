@@ -296,7 +296,10 @@ in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.
 in_edge "! grep -q 'hostname-access-probe' /var/log/nginx/domains/site-one.test.access.log"
 in_edge "grep -q 'hostname-error-probe' /var/log/nginx/domains/site-alias.test.error.log"
 in_edge "! grep -q 'hostname-error-probe' /var/log/nginx/domains/site-one.test.error.log"
+log_identity=$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')
 in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-domains'
+[[ "$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')" == "${log_identity}" ]] ||
+  fail "rotation changed hostname log ownership or permissions"
 # Reopening happens asynchronously in the workers after the master is signalled.
 for _attempt in {1..10}; do
   "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
