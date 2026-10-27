@@ -944,15 +944,15 @@ def seed_site_over_http(
     **policy: object,
 ) -> Any:
     """Zone, policy, record: over HTTP, the way a client would."""
-    client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
+    client.post("/v3/domains", json={"name": "example.com"}, headers=headers)
     created = client.patch(
-        "/v1/domains/example.com",
+        "/v3/domains/example.com",
         json={**policy},
         headers=headers,
     )
     assert created.status_code == 200, created.text
     proxied = client.post(
-        "/v1/domains/example.com/records",
+        "/v3/domains/example.com/records",
         json={
             "domain": "example.com",
             "name": label,

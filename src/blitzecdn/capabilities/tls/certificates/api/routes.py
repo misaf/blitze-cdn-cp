@@ -27,14 +27,14 @@ router = APIRouter(
 )
 
 
-@router.get("/v1/hosts/{name}/certificate", response_model=CertificateInfo)
+@router.get("/v3/hosts/{name}/certificate", response_model=CertificateInfo)
 def certificate(
     name: str, certificates: FromDishka[CertificateService]
 ) -> CertificateInfo:
     return as_operation(certificates.certificate(name), CertificateInfo)
 
 
-@router.get("/v1/certificates", response_model=list[CertificateStatus])
+@router.get("/v3/certificates", response_model=list[CertificateStatus])
 def list_certificates(
     certificates: FromDishka[CertificateService],
     expiring_in: int | None = Query(None, ge=0, le=3650),
@@ -47,7 +47,7 @@ def list_certificates(
     return [as_operation(item, CertificateStatus) for item in statuses]
 
 
-@router.post("/v1/certificates/renew", response_model=RenewalResult)
+@router.post("/v3/certificates/renew", response_model=RenewalResult)
 def renew_certificates(
     request: RenewRequest,
     operator: OperatorDependency,
@@ -67,13 +67,13 @@ def renew_certificates(
     return as_operation(renewal.result(), RenewalResult)
 
 
-@router.post("/v1/certificates/reconcile", response_model=ReconciliationResult)
+@router.post("/v3/certificates/reconcile", response_model=ReconciliationResult)
 def reconcile_certificates(
     operator: OperatorDependency, certificates: FromDishka[CertificateService]
 ) -> ReconciliationResult:
     """Issue first certificates for ready sites and queue their deployment.
 
-    Poll GET /v1/deployments/{id} for the queued deployment's outcome.
+    Poll GET /v3/deployments/{id} for the queued deployment's outcome.
     """
     return as_operation(
         certificates.reconcile_certificates(operator),
@@ -81,7 +81,7 @@ def reconcile_certificates(
     )
 
 
-@router.post("/v1/hosts/{name}/certificate/upload", response_model=CertificateInfo)
+@router.post("/v3/hosts/{name}/certificate/upload", response_model=CertificateInfo)
 def upload_certificate(
     name: str,
     operator: OperatorDependency,
@@ -100,7 +100,7 @@ def upload_certificate(
     )
 
 
-@router.post("/v1/hosts/{name}/certificate/request", response_model=CertificateInfo)
+@router.post("/v3/hosts/{name}/certificate/request", response_model=CertificateInfo)
 def request_certificate(
     name: str,
     request: CertificateRequest,
@@ -118,7 +118,7 @@ def request_certificate(
     )
 
 
-@router.get("/v1/hosts/{name}/certificate/preflight", response_model=PreflightReport)
+@router.get("/v3/hosts/{name}/certificate/preflight", response_model=PreflightReport)
 def certificate_preflight(
     name: str, certificates: FromDishka[CertificateService]
 ) -> PreflightReport:

@@ -39,6 +39,11 @@ just serve                  # API on port 8000; OpenAPI UI at /docs
 uv run blitzecdn-worker      # Schedule and consume durable jobs
 ```
 
+Control endpoints use `/v3`, independently of the application release version.
+Legacy `/v1` and `/v2` contracts are not served by this application. `/docs`
+and `/openapi.json` describe the current API; `/health` and `/metrics` remain
+unversioned.
+
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
 `uv run blitzecdn overview`. See [operations](docs/operations.md) for status,

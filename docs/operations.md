@@ -1,5 +1,9 @@
 # Operational visibility
 
+The current API uses `/v3`. Legacy production APIs `/v1` and `/v2` are
+different contracts and are not served by this application. The API version
+is independent of the BlitzeCDN application version.
+
 Read local controller state with:
 
 ```sh
@@ -7,7 +11,7 @@ blitzecdn overview
 blitzecdn overview --json
 ```
 
-The authenticated `GET /v1/status` endpoint returns the same report. Supply the
+The authenticated `GET /v3/status` endpoint returns the same report. Supply the
 existing `X-API-Key` header. Both interfaces read local state; they run no remote
 probes and start no workers.
 
@@ -64,7 +68,7 @@ These metrics are **gauges**. History pruning can reduce job/workflow counts and
 change average duration; do not apply `rate()` as if they were lifetime counters.
 Labels contain only fixed statuses, never job IDs, hostnames, site names or
 payloads. Detailed worker identifiers are available through authenticated status
-reporting; certificate details remain at `GET /v1/certificates`.
+reporting; certificate details remain at `GET /v3/certificates`.
 
 Useful alert conditions include ready work with zero fresh workers, increasing
 oldest-ready age, expired leases, stale/unreadable worker records, workflows
@@ -82,5 +86,5 @@ itself claim that the job succeeded; inspect its durable outcome.
 
 Interrupted workflows moved to `needs_review` produce warnings with
 `workflow_id`, `workflow_kind`, `resource_id` and the last checkpoint name.
-Checkpoint details and credentials are omitted. Query `GET /v1/workflows` or the
+Checkpoint details and credentials are omitted. Query `GET /v3/workflows` or the
 workflow's existing detail endpoint to inspect its retained journal.

@@ -11,7 +11,7 @@ router = APIRouter(
 )
 
 
-@router.get("/v1/operations/{operation_id}", response_model=Operation)
+@router.get("/v3/operations/{operation_id}", response_model=Operation)
 def operation(
     operation_id: str, queued_operations: FromDishka[OperationService]
 ) -> Operation:

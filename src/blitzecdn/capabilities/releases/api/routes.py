@@ -1,7 +1,7 @@
 """Reading compiled releases over HTTP.
 
 Read-only by design: a different release comes from changing a zone, rule or
-record. ``GET /v1/releases/current`` compiles without recording, so polling it
+record. ``GET /v3/releases/current`` compiles without recording, so polling it
 leaves no history.
 """
 
@@ -37,7 +37,7 @@ def _summary(release: Any) -> dict[str, Any]:
     }
 
 
-@router.get("/v1/releases", response_model=list[Release])
+@router.get("/v3/releases", response_model=list[Release])
 def releases(
     releases: FromDishka[ReleaseService],
     limit: int = Query(20, ge=1, le=100),
@@ -48,7 +48,7 @@ def releases(
     ]
 
 
-@router.get("/v1/releases/current", response_model=ReleaseDetail)
+@router.get("/v3/releases/current", response_model=ReleaseDetail)
 def current_release(
     releases: FromDishka[ReleaseService],
     host_limit: str | None = Query(default=None, max_length=512),
@@ -62,14 +62,14 @@ def current_release(
     )
 
 
-@router.get("/v1/releases/{release_id}", response_model=ReleaseDetail)
+@router.get("/v3/releases/{release_id}", response_model=ReleaseDetail)
 def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDetail:
     """One recorded release, with the explanation of every host in it."""
     return as_operation(_summary(releases.get(release_id)), ReleaseDetail)
 
 
 @router.get(
-    "/v1/releases/{release_id}/artifacts/{name}",
+    "/v3/releases/{release_id}/artifacts/{name}",
     status_code=status.HTTP_200_OK,
 )
 def artifact(

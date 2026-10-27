@@ -13,7 +13,7 @@ router = APIRouter(
 )
 
 
-@router.get("/v1/status", response_model=OperationalStatus)
+@router.get("/v3/status", response_model=OperationalStatus)
 def operational_status(
     diagnostics: FromDishka[DiagnosticsService],
 ) -> OperationalStatus:
@@ -21,7 +21,7 @@ def operational_status(
     return diagnostics.status()
 
 
-@router.get("/v1/audit-events", response_model=list[AuditEvent])
+@router.get("/v3/audit-events", response_model=list[AuditEvent])
 def audit_events(
     audit: FromDishka[AuditTrail],
     limit: int = Query(100, ge=1, le=500),

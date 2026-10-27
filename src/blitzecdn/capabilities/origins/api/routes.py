@@ -20,7 +20,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/v1/origins/check",
+    "/v3/origins/check",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
 )

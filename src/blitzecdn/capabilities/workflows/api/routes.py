@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 
-@router.get("/v1/workflows", response_model=list[Workflow])
+@router.get("/v3/workflows", response_model=list[Workflow])
 def list_workflows(
     workflow_history: FromDishka[WorkflowHistory],
     limit: int = Query(default=100, ge=1, le=1000),
@@ -25,7 +25,7 @@ def list_workflows(
     ]
 
 
-@router.get("/v1/workflows/{workflow_id}", response_model=Workflow)
+@router.get("/v3/workflows/{workflow_id}", response_model=Workflow)
 def get_workflow(
     workflow_id: str,
     workflow_history: FromDishka[WorkflowHistory],
