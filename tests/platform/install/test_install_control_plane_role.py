@@ -12,14 +12,14 @@ import yaml
 from support.install import (
     PROJECT_DIR,
     ROLE,
-    _fake_installation,
-    _function,
-    _instrument,
-    _role_task,
-    _role_tasks,
-    _run_sandboxed,
-    _section,
-    _stub_bin,
+    fake_installation,
+    instrument,
+    role_task,
+    role_tasks,
+    run_sandboxed,
+    script_function,
+    script_section,
+    stub_bin,
 )
 from support.paths import CORE_ANSIBLE
 
@@ -33,9 +33,9 @@ from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
 
 def test_host_key_scan_is_stable_across_runs():
     """`ssh-keyscan -H` salts each run, so every converge would report a change."""
-    task = _role_task("Scan the loopback host keys")
+    task = role_task("Scan the loopback host keys")
     assert "-H" not in task["ansible.builtin.command"]["argv"]
-    written = _role_task("Record the loopback host keys")
+    written = role_task("Record the loopback host keys")
     assert "sort" in written["ansible.builtin.copy"]["content"]
 
 
@@ -47,11 +47,11 @@ def test_controlplane_role_has_no_legacy_host_application_unit_cleanup():
 
 
 def test_controlplane_initializes_schema_before_starting_services():
-    tasks = _role_tasks()
-    schema = _role_task("Initialize the application schema before starting services")
-    services = _role_task("Recreate and start the control-plane services")
+    tasks = role_tasks()
+    schema = role_task("Initialize the application schema before starting services")
+    services = role_task("Recreate and start the control-plane services")
 
-    stopped = _role_task("Stop application services before schema migration")
+    stopped = role_task("Stop application services before schema migration")
     assert tasks.index(stopped) < tasks.index(schema) < tasks.index(services)
     assert stopped["ansible.builtin.command"]["argv"][-3:] == [
         "stop",
@@ -67,9 +67,9 @@ def test_controlplane_fails_the_play_unless_both_services_become_healthy():
 
     This wait is the whole of "the update worked".
     """
-    tasks = _role_tasks()
-    services = _role_task("Recreate and start the control-plane services")
-    wait = _role_task("Wait for the API and worker containers to become healthy")
+    tasks = role_tasks()
+    services = role_task("Recreate and start the control-plane services")
+    wait = role_task("Wait for the API and worker containers to become healthy")
 
     assert tasks.index(services) < tasks.index(wait)
     assert wait["loop"] == ["blitzecdn-api", "blitzecdn-worker"]
@@ -79,7 +79,7 @@ def test_controlplane_fails_the_play_unless_both_services_become_healthy():
 
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
-    standalone = _section("standalone")
+    standalone = script_section("standalone")
     # python3 runs the input checks and, under nsenter, the play's modules;
     # curl and ca-certificates fetch Docker's signing key.
     assert "apt-get install -y ca-certificates curl git python3" in standalone
@@ -100,9 +100,9 @@ def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
 
     Both run through one function, so the inventory is stated once.
     """
-    assert "-i localhost," in _function("run_playbook")
+    assert "-i localhost," in script_function("run_playbook")
     for helper in ("converge_control_plane", "converge_uninstall"):
-        assert "run_playbook" in _function(helper), (
+        assert "run_playbook" in script_function(helper), (
             f"{helper} no longer runs through the shared playbook helper"
         )
 
@@ -115,7 +115,7 @@ def test_every_installer_playbook_can_resolve_the_collections_it_needs():
     into, so the image is the whole of it. Without it teardown stops at the
     first `community.docker` task, leaving the edge running.
     """
-    body = _function("run_playbook")
+    body = script_function("run_playbook")
     assert '--entrypoint ansible-playbook "${image}"' in body
     assert "ANSIBLE_COLLECTIONS_PATH" not in body, (
         "the image already names its collections; a second answer here can only "
@@ -139,11 +139,11 @@ def test_every_installer_playbook_can_resolve_the_collections_it_needs():
 
 def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
     sandbox = tmp_path / "sandbox"
-    script, root = _instrument(sandbox)
-    _stub_bin(sandbox, root)
-    _fake_installation(root)
+    script, root = instrument(sandbox)
+    stub_bin(sandbox, root)
+    fake_installation(root)
 
-    result = _run_sandboxed(script, "--uninstall", "--yes")
+    result = run_sandboxed(script, "--uninstall", "--yes")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "BlitzeCDN has been removed" in result.stdout

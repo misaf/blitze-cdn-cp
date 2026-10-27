@@ -6,8 +6,8 @@ from string import Template
 
 import pytest
 import yaml
-from support.contracts import _role_defaults
-from support.edge_render import ROLE_DIR, _mode_site, _render, _role
+from support.contracts import role_defaults
+from support.edge_render import ROLE_DIR, mode_site, render_site, role_path
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import SslMode
@@ -21,10 +21,10 @@ REQUIRES_CAPABILITIES = {
 @pytest.mark.parametrize("mode", [SslMode.OFF, SslMode.FLEXIBLE])
 def test_each_hostname_has_its_own_logs_on_every_listener(mode):
     names = ["example.com", "api.example.com", "*.example.com"]
-    site = site_to_ansible(_mode_site(mode, mode != SslMode.OFF, server_names=names))
-    rendered = _render(site)
+    site = site_to_ansible(mode_site(mode, mode != SslMode.OFF, server_names=names))
+    rendered = render_site(site)
     blocks = rendered.split("server {")[1:]
-    runtime = _role_defaults()["blitzecdn_edge_runtime"]
+    runtime = role_defaults()["blitzecdn_edge_runtime"]
     ports = runtime["listeners"]["http"] + (
         runtime["listeners"]["https"] if mode != SslMode.OFF else []
     )
@@ -44,8 +44,8 @@ def test_each_hostname_has_its_own_logs_on_every_listener(mode):
 
 
 def test_disabling_access_logs_keeps_hostname_error_logs():
-    site = site_to_ansible(_mode_site(SslMode.OFF, False))
-    rendered = _render(site, blitzecdn_nginx_access_log_enabled=False)
+    site = site_to_ansible(mode_site(SslMode.OFF, False))
+    rendered = render_site(site, blitzecdn_nginx_access_log_enabled=False)
     for block in rendered.split("server {")[1:]:
         assert "access_log off;" in block
         assert ".access.log" not in block
@@ -57,7 +57,7 @@ def test_disabling_access_logs_keeps_hostname_error_logs():
 
 @pytest.mark.parametrize("bytes_sent", [0, 1234, 2**53 + 1])
 def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_sent):
-    rendered = AnsibleTemplates(_role_defaults()).render(
+    rendered = AnsibleTemplates(role_defaults()).render(
         ROLE_DIR / "templates/http.conf.j2"
     )
     declaration = rendered.split("log_format blitzecdn_json escape=json", 1)[1]
@@ -103,14 +103,14 @@ def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_
 
 
 def test_log_formats_follow_the_configured_name_and_access_logging_switch():
-    context = _role_defaults()
+    context = role_defaults()
     context["blitzecdn_nginx_log_format_name"] = "custom"
     templates = AnsibleTemplates(context)
     rendered = templates.render(ROLE_DIR / "templates/http.conf.j2")
     assert "log_format custom escape=json" in rendered
     assert "log_format custom_json escape=json" in rendered
-    site = _render(
-        site_to_ansible(_mode_site(SslMode.OFF, False)),
+    site = render_site(
+        site_to_ansible(mode_site(SslMode.OFF, False)),
         blitzecdn_nginx_log_format_name="custom",
     )
     assert ".access.log custom_json;" in site
@@ -124,14 +124,14 @@ def test_log_formats_follow_the_configured_name_and_access_logging_switch():
 
 def test_split_hostnames_claim_quic_reuseport_only_once():
     site = site_to_ansible(
-        _mode_site(
+        mode_site(
             SslMode.FLEXIBLE,
             True,
             server_names=["example.com", "api.example.com"],
             http3_enabled=True,
         )
     )
-    rendered = _render(
+    rendered = render_site(
         site,
         blitzecdn_nginx_default_server=False,
         blitzecdn_nginx_http3_listener_owner=site["name"],
@@ -141,7 +141,7 @@ def test_split_hostnames_claim_quic_reuseport_only_once():
 
 
 def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
-    context = _role_defaults()
+    context = role_defaults()
     context["blitzecdn_edge_runtime"]["paths"]["logs"] = "/srv/edge-logs"
     rendered = AnsibleTemplates(context).render(ROLE_DIR / "templates/logrotate.j2")
     assert "/srv/edge-logs/domains/*.log {" in rendered
@@ -195,7 +195,7 @@ def test_log_files_are_private_and_workers_can_reopen_them():
     assert files["group"] == "adm"
     assert files["mode"] == "0640"
     assert files["access_time"] == files["modification_time"] == "preserve"
-    context = _role_defaults()
+    context = role_defaults()
     context["blitzecdn_nginx_sites"] = [
         {"server_names": ["example.com", "*.example.com"]},
         {"server_names": ["example.com", "api.example.com"]},
@@ -210,7 +210,7 @@ def test_log_files_are_private_and_workers_can_reopen_them():
 
 
 def test_teardown_retains_hostname_logs_unless_log_removal_is_requested():
-    role = _role("blitzecdn_edge_teardown")
+    role = role_path("blitzecdn_edge_teardown")
     defaults = yaml.safe_load((role / "defaults/main.yml").read_text())
     tasks = yaml.safe_load((role / "tasks/main.yml").read_text())
     assert defaults["blitzecdn_edge_teardown_remove_logs"] is False

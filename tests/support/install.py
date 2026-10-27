@@ -29,7 +29,7 @@ SCRIPT = PROJECT_DIR / "install.sh"
 BASH = "/bin/bash"
 
 
-def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
+def run_script(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed executable and repository script
         [BASH, str(SCRIPT), *arguments],
         check=False,
@@ -38,11 +38,11 @@ def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _script() -> str:
+def script_text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
 
 
-def _query(expression: str) -> str:
+def query(expression: str) -> str:
     """Source install.sh and evaluate one expression against its functions.
 
     Dispatch is guarded on ``BASH_SOURCE[0] == $0``, so sourcing defines
@@ -58,29 +58,29 @@ def _query(expression: str) -> str:
     return result.stdout.strip()
 
 
-def _section(name: str) -> str:
+def script_section(name: str) -> str:
     """Return one subcommand's body.
 
     Scoped so assertions about what one subcommand must never do do not trip on
     another's legitimate code.
     """
-    remainder = _script()[_script().index(f"cmd_{name}() {{") :]
+    remainder = script_text()[script_text().index(f"cmd_{name}() {{") :]
     banner = re.search(r"\n# -{10,}", remainder)
     return remainder if banner is None else remainder[: banner.start()]
 
 
-def _function(name: str) -> str:
+def script_function(name: str) -> str:
     """Return one named function's body, braces stripped.
 
     Bounded as the script bounds it: by a closing brace at column zero.
     """
-    script = _script()
+    script = script_text()
     start = script.index(f"{name}() {{") + len(f"{name}() {{")
     closing = script.index("\n}\n", start)
     return script[start:closing]
 
 
-def _host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     """Run one of the stdlib host helpers the way the script does: ``python3 -I``."""
     return subprocess.run(  # noqa: S603 - interpreter is sys.executable
         [sys.executable, "-I", str(SOURCE / "host" / f"{helper}.py"), *arguments],
@@ -96,7 +96,7 @@ def _host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[st
 # script with every privileged command stubbed.
 
 
-def _instrument(sandbox: Path) -> tuple[Path, Path]:
+def instrument(sandbox: Path) -> tuple[Path, Path]:
     """Copy install.sh with every path redirected under ``sandbox/root``.
 
     The root check becomes a tautology so a normal user can exercise the
@@ -140,7 +140,7 @@ def _instrument(sandbox: Path) -> tuple[Path, Path]:
 FAKE_IMAGE = "ghcr.io/misaf/blitzecdn-control-plane:test"
 
 
-def _stub_bin(sandbox: Path, root: Path) -> None:
+def stub_bin(sandbox: Path, root: Path) -> None:
     """Provide stand-ins for every privileged command the destructive paths run."""
     bindir = sandbox / "bin"
     bindir.mkdir(exist_ok=True)
@@ -204,7 +204,7 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         '  *"rev-parse HEAD"*)\n'
         '    echo "0123456789abcdef0123456789abcdef01234567"; exit 0 ;;\n'
         '  *"show HEAD:pyproject.toml"*)\n'
-        f"    echo 'version = \"{_workspace_version()}\"'; exit 0 ;;\n"
+        f"    echo 'version = \"{workspace_version()}\"'; exit 0 ;;\n"
         "  clone*)\n"
         '    [[ -z "${FRESH_GIT_CLONE_FAIL:-}" ]] || exit 1\n'
         '    if [[ -n "${FRESH_GIT_CLONE_MARKER:-}" ]]; then\n'
@@ -228,14 +228,14 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         path.chmod(0o700)
 
 
-def _workspace_version() -> str:
+def workspace_version() -> str:
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
     assert match is not None
     return match.group(1)
 
 
-def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
+def fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
     """Create every artifact a standalone install owns on the host."""
     owned = [
         root / "opt/blitzecdn/install.sh",
@@ -316,7 +316,7 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
     return owned
 
 
-def _fake_unrelated(root: Path) -> list[Path]:
+def fake_unrelated(root: Path) -> list[Path]:
     """Files a neighbouring admin could own that cleanup must leave alone."""
     unrelated = [
         root / "etc/nginx/sites-available/my-own-site.conf",
@@ -335,7 +335,7 @@ def _fake_unrelated(root: Path) -> list[Path]:
     return unrelated
 
 
-def _run_sandboxed(
+def run_sandboxed(
     script: Path,
     *arguments: str,
     input: str | None = None,  # noqa: A002 - mirrors subprocess.run
@@ -456,19 +456,17 @@ def _stub_update_services(sandbox: Path, root: Path) -> None:
     wrapper.chmod(0o700)
 
 
-def _update_sandbox(
-    tmp_path: Path, *, with_git: bool = True
-) -> tuple[Path, Path, Path]:
+def update_sandbox(tmp_path: Path, *, with_git: bool = True) -> tuple[Path, Path, Path]:
     """Build an installation whose install.sh *is* the instrumented script.
 
     `update` only runs from the installation directory it updates. Returns the
     script, the stub directory, and the root.
     """
     sandbox = tmp_path / "sandbox"
-    script, root = _instrument(sandbox)
-    _stub_bin(sandbox, root)
+    script, root = instrument(sandbox)
+    stub_bin(sandbox, root)
     _stub_update_git(sandbox)
-    _fake_installation(root, with_git=with_git)
+    fake_installation(root, with_git=with_git)
     _stub_update_services(sandbox, root)
     installed = root / "opt/blitzecdn/install.sh"
     shutil.copyfile(script, installed)
@@ -481,22 +479,22 @@ def _update_sandbox(
 ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 
 
-def _role_tasks() -> list[dict[str, Any]]:
+def role_tasks() -> list[dict[str, Any]]:
     return cast(
         list[dict[str, Any]],
         yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8")),
     )
 
 
-def _role_task(name: str) -> dict[str, Any]:
-    matches = [task for task in _role_tasks() if task.get("name") == name]
+def role_task(name: str) -> dict[str, Any]:
+    matches = [task for task in role_tasks() if task.get("name") == name]
     assert len(matches) == 1, f"expected exactly one task named {name!r}"
     return matches[0]
 
 
-def _evaluate_os_gate(distribution: str, major_version: str) -> bool:
+def evaluate_os_gate(distribution: str, major_version: str) -> bool:
     """Evaluate the role's supported-OS expression as Ansible would."""
-    task = _role_task("Validate supported operating system")
+    task = role_task("Validate supported operating system")
     expression = task["ansible.builtin.assert"]["that"][0]
     environment = jinja2.Environment(  # noqa: S701 - evaluates a boolean, renders no markup
         undefined=jinja2.StrictUndefined

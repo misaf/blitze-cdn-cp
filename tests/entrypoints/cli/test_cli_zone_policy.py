@@ -3,9 +3,9 @@
 import json
 
 from support.cli import (
-    _control,
-    _seed_site,
+    cli_control,
     runner,
+    seed_cli_site,
 )
 from support.control_plane import (
     FakeRunner,
@@ -25,7 +25,7 @@ def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypat
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
-    _seed_site(control, "api", "198.51.100.20")
+    seed_cli_site(control, "api", "198.51.100.20")
 
     sites = json.loads(runner.invoke(cli.app, ["domain", "hosts", "--json"]).stdout)
     assert sites[0]["always_use_https"] is False
@@ -50,7 +50,7 @@ def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypat
 
 
 def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(
         control,
         name="example-com",
@@ -73,7 +73,7 @@ def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
 
 
 def test_site_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(
         control,
         name="example-com",
@@ -95,7 +95,7 @@ def test_site_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
 
 
 def test_site_under_attack_toggles_edge_mitigation(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
@@ -110,7 +110,7 @@ def test_site_under_attack_toggles_edge_mitigation(settings, monkeypatch):
 
 
 def test_site_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
@@ -131,7 +131,7 @@ def test_site_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
 
 
 def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     tls = runner.invoke(
@@ -167,7 +167,7 @@ def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch)
 
 
 def test_site_max_upload_size_command(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     assert (
         control.sites.get_site("example-com").policy.protocols.max_upload_size == "100m"
@@ -196,7 +196,7 @@ def test_site_max_upload_size_command(settings, monkeypatch):
 
 
 def test_site_compression_command(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     # Named explicitly rather than left to the seed's default.
     seed_site(
         control,
@@ -232,7 +232,7 @@ def test_site_compression_command(settings, monkeypatch):
 
 
 def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     # See the compression command above: the switch this asserts on is one the
     # seed would otherwise fill in for a capability that is not installed.
     seed_site(
@@ -263,7 +263,7 @@ def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
     settings, monkeypatch
 ):
     """Turning caching off is what lets a core-only controller converge a site."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(cli.app, ["domain", "cache", "example.com", "--off"])
@@ -275,7 +275,7 @@ def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
 
 
 def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
@@ -289,7 +289,7 @@ def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
 
 
 def test_site_cache_with_no_option_says_what_to_name(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(cli.app, ["domain", "cache", "example.com"])

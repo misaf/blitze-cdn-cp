@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from support.application import _await_terminal, _await_workflow
+from support.application import await_terminal, await_workflow
 from support.control_plane import (
     FakeRunner,
     FakeServingProbe,
@@ -169,9 +169,9 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings):
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
-    assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
+    assert await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
 
-    assert _await_workflow(repository, queued.id) is WorkflowStatus.SUCCEEDED
+    assert await_workflow(repository, queued.id) is WorkflowStatus.SUCCEEDED
     workflows = repository.workflows.list_workflows(10)
     assert [workflow.kind for workflow in workflows] == [DEPLOYMENT_WORKFLOW]
     assert workflows[0].resource_id == queued.id
@@ -201,9 +201,9 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings):
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
-    assert _await_terminal(repository, queued.id) is DeploymentStatus.FAILED
+    assert await_terminal(repository, queued.id) is DeploymentStatus.FAILED
 
-    assert _await_workflow(repository, queued.id) is WorkflowStatus.FAILED
+    assert await_workflow(repository, queued.id) is WorkflowStatus.FAILED
     assert repository.workflows.list_workflows(10)[0].error
 
 
@@ -382,12 +382,12 @@ def test_submit_releases_the_lock_after_queue_publication(settings):
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
-    assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
+    assert await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
     # A second submission proves the publisher handed the lock back.
     control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
-    assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
+    assert await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
 @pytest.mark.parametrize("rollback", [False, True])
@@ -490,7 +490,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(refusing.ids.pop())
-    assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
+    assert await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
 def test_runner_errors_are_recorded_and_reraised(settings):

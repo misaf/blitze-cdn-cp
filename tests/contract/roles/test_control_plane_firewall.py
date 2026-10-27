@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, _role, jinja2
+from support.contracts import PROJECT_DIR, jinja2, role_path
 from support.role_contracts import (
-    _defaults_of,
+    defaults_of,
 )
 
 
@@ -22,7 +22,7 @@ def test_the_control_plane_admits_the_port_its_api_actually_listens_on():
     """
     from blitzecdn.entrypoints.api.__main__ import API_PORT
 
-    defaults = _defaults_of(_role("blitzecdn_controlplane"))
+    defaults = defaults_of(role_path("blitzecdn_controlplane"))
     assert defaults["blitzecdn_controlplane_api_port"] == API_PORT
 
 
@@ -33,7 +33,7 @@ def test_the_control_plane_can_withdraw_an_api_rule_it_no_longer_manages():
     BLITZE_ALLOWED_IPS would still reach the host. Reading back what this role
     wrote closes that, as the edge firewall does for SSH sources.
     """
-    tasks = (_role("blitzecdn_controlplane") / "tasks/main.yml").read_text(
+    tasks = (role_path("blitzecdn_controlplane") / "tasks/main.yml").read_text(
         encoding="utf-8"
     )
 
@@ -57,11 +57,11 @@ def test_uninstalling_withdraws_the_api_rules_the_installation_added():
     Withdrawing after that removal would leave port 8000 open with nothing left to
     name the rule. Both roles share one registry path rather than two literals.
     """
-    control = _role("blitzecdn_controlplane")
-    uninstall = _role("blitzecdn_uninstall")
+    control = role_path("blitzecdn_controlplane")
+    uninstall = role_path("blitzecdn_uninstall")
 
     def registry(role: Path, prefix: str) -> str:
-        defaults = _defaults_of(role)
+        defaults = defaults_of(role)
         return (
             jinja2.Template(defaults[f"{prefix}_firewall_registry_file"])
             .render(defaults)
@@ -107,7 +107,7 @@ def test_the_control_plane_applies_a_given_access_list_on_every_run():
     before the services are recreated, since Compose reads the file then, and
     leaves the template's commented example alone.
     """
-    role = _role("blitzecdn_controlplane")
+    role = role_path("blitzecdn_controlplane")
     tasks = yaml.safe_load((role / "tasks/main.yml").read_text(encoding="utf-8"))
     names = [task["name"] for task in tasks]
     setter = tasks[names.index("Set the API access list this run was given")]
@@ -132,7 +132,7 @@ def test_the_control_plane_applies_a_given_access_list_on_every_run():
     )
     # The default makes omitting the flag mean "leave the file alone", so a routine
     # `update` cannot cut off access configured by hand.
-    assert _defaults_of(role)["blitzecdn_controlplane_allowed_ips"] == ""
+    assert defaults_of(role)["blitzecdn_controlplane_allowed_ips"] == ""
 
 
 def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
@@ -148,7 +148,7 @@ def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
     if not Path(ansible).exists():
         pytest.skip("ansible-playbook is not installed")
 
-    role = _role("blitzecdn_controlplane")
+    role = role_path("blitzecdn_controlplane")
     tasks = yaml.safe_load((role / "tasks/main.yml").read_text(encoding="utf-8"))
     compose = next(
         task
@@ -166,7 +166,7 @@ def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
                         "hosts": "localhost",
                         "connection": "local",
                         "gather_facts": False,
-                        "vars": _defaults_of(role)
+                        "vars": defaults_of(role)
                         | {
                             "blitzecdn_controlplane_environment_content": {
                                 "content": base64.b64encode(
