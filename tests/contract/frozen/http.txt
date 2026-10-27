@@ -29,6 +29,7 @@ blitzecdn	route	GET /v3/releases/current
 blitzecdn	route	GET /v3/releases/{release_id}
 blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
 blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/traffic/status/{edge}
 blitzecdn	route	GET /v3/traffic/usage
 blitzecdn	route	GET /v3/workflows
 blitzecdn	route	GET /v3/workflows/{workflow_id}
@@ -119,6 +120,20 @@ blitzecdn	schema	CertificateStatus.not_after	string required
 blitzecdn	schema	CertificateStatus.renewable	boolean required
 blitzecdn	schema	CertificateStatus.site	string required
 blitzecdn	schema	CertificateStatus.source	CertificateSource required
+blitzecdn	schema	CollectionStatus.checked_at	string required
+blitzecdn	schema	CollectionStatus.collection_enabled	boolean required
+blitzecdn	schema	CollectionStatus.edge	string required
+blitzecdn	schema	CollectionStatus.interval_seconds	integer required
+blitzecdn	schema	CollectionStatus.last_attempt_finished_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_attempt_started_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_caught_up_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_error	string|null optional
+blitzecdn	schema	CollectionStatus.last_success_at	string|null optional
+blitzecdn	schema	CollectionStatus.pending	boolean|null optional
+blitzecdn	schema	CollectionStatus.registered	boolean required
+blitzecdn	schema	CollectionStatus.stale	boolean required
+blitzecdn	schema	CollectionStatus.stale_after_seconds	integer required
+blitzecdn	schema	CollectionStatus.state	FreshnessState required
 blitzecdn	schema	DeployRequest.check	boolean optional
 blitzecdn	schema	DeployRequest.host_limit	string|null optional
 blitzecdn	schema	Deployment.canonical_digest	string|null optional

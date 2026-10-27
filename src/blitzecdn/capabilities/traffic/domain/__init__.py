@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -120,3 +121,40 @@ class UsageQuery(TrafficValue):
         if self.end <= self.start:
             raise ValueError("end must be after start")
         return self
+
+
+class CollectionRecord(TrafficValue):
+    edge: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_caught_up_at: datetime | None = None
+    pending: bool | None = None
+    last_error: str | None = None
+
+
+class FreshnessState(StrEnum):
+    DISABLED = "disabled"
+    NEVER_COLLECTED = "never_collected"
+    COLLECTING = "collecting"
+    FAILED = "failed"
+    BACKLOGGED = "backlogged"
+    STALE = "stale"
+    CURRENT = "current"
+
+
+class CollectionStatus(TrafficValue):
+    edge: str
+    registered: bool
+    collection_enabled: bool
+    interval_seconds: int
+    stale_after_seconds: int
+    checked_at: datetime
+    state: FreshnessState
+    stale: bool
+    last_attempt_started_at: datetime | None = None
+    last_attempt_finished_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_caught_up_at: datetime | None = None
+    pending: bool | None = None
+    last_error: str | None = None

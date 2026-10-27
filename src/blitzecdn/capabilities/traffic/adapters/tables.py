@@ -45,3 +45,16 @@ class TrafficRetentionRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cutoff: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class TrafficCollectionRow(Base):
+    __tablename__ = "traffic_collections"
+
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str] = mapped_column()
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_success_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_caught_up_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    pending: Mapped[bool | None] = mapped_column()
+    last_error: Mapped[str | None] = mapped_column()

@@ -112,6 +112,14 @@ blitzecdn	column	releases.digest	type=VARCHAR not-null pk
 blitzecdn	column	releases.document	type=JSON not-null
 blitzecdn	column	releases.id	type=VARCHAR not-null
 blitzecdn	column	releases.inputs_digest	type=VARCHAR not-null fk=release_inputs.digest
+blitzecdn	column	traffic_collections.attempt_id	type=VARCHAR not-null
+blitzecdn	column	traffic_collections.edge	type=VARCHAR not-null pk
+blitzecdn	column	traffic_collections.finished_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.last_caught_up_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.last_error	type=VARCHAR null
+blitzecdn	column	traffic_collections.last_success_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.pending	type=BOOLEAN null
+blitzecdn	column	traffic_collections.started_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	traffic_cursors.anchor	type=VARCHAR not-null
 blitzecdn	column	traffic_cursors.edge	type=VARCHAR not-null pk
 blitzecdn	column	traffic_cursors.latest_hour	type=UtcDateTime(VARCHAR) not-null

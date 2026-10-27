@@ -5,11 +5,11 @@ from typing import Annotated
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.traffic.api.models import TrafficUsage
+from blitzecdn.capabilities.traffic.api.models import CollectionStatus, TrafficUsage
 from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.entrypoints.api.dependencies import require_operator
@@ -63,3 +63,16 @@ def usage(
         params,
         lambda item: TrafficUsage.model_validate(item.model_dump()),
     )
+
+
+@router.get("/v3/traffic/status/{edge}", response_model=CollectionStatus)
+def collection_status(
+    edge: str, response: Response, traffic: FromDishka[TrafficService]
+) -> CollectionStatus:
+    """Last observed collection state; this does not trigger collection.
+
+    Current means recently caught up with available logs, not complete billing
+    coverage or proof of zero traffic. Unknown edges without history return 404.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return CollectionStatus.model_validate(traffic.status(edge).model_dump())

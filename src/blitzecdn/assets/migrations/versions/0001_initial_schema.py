@@ -61,6 +61,34 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("edge", "stream_id"),
     )
     op.create_table(
+        "traffic_collections",
+        sa.Column("edge", sa.String(), nullable=False),
+        sa.Column("attempt_id", sa.String(), nullable=False),
+        sa.Column(
+            "started_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column(
+            "finished_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column(
+            "last_success_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column(
+            "last_caught_up_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column("pending", sa.Boolean(), nullable=True),
+        sa.Column("last_error", sa.String(), nullable=True),
+        sa.PrimaryKeyConstraint("edge"),
+    )
+    op.create_table(
         "traffic_retention",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column(
@@ -454,6 +482,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("traffic_collections")
     op.drop_table("traffic_retention")
     op.drop_table("traffic_cursors")
     op.drop_table("traffic_hours")

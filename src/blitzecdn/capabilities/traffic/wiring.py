@@ -1,6 +1,6 @@
 """Wire traffic accounting to the fleet, database and audit journal."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from blitzecdn.capabilities.traffic.adapters.playbooks import TrafficPlaybooks
 from blitzecdn.capabilities.traffic.ports import TrafficStore
@@ -8,6 +8,7 @@ from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 from blitzecdn.core.runtime.resources import distribution_version
 
@@ -20,9 +21,18 @@ def build_traffic_service(
     fleet: PlaybookRunner,
     events: EventRecorder,
     uow: UnitOfWork,
+    config: TrafficConfig,
+    edge_names: Callable[[], Sequence[str]],
+    clock: Clock,
 ) -> TrafficService:
     return TrafficService(
-        store=store, runner=TrafficPlaybooks(fleet), events=events, uow=uow
+        store=store,
+        runner=TrafficPlaybooks(fleet),
+        events=events,
+        uow=uow,
+        config=config,
+        edge_names=edge_names,
+        clock=clock,
     )
 
 
