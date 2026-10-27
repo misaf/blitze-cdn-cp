@@ -88,3 +88,41 @@ Interrupted workflows moved to `needs_review` produce warnings with
 `workflow_id`, `workflow_kind`, `resource_id` and the last checkpoint name.
 Checkpoint details and credentials are omitted. Query `GET /v3/workflows` or the
 workflow's existing detail endpoint to inspect its retained journal.
+
+## HTTP traces and request metrics
+
+The API uses [FastAPI's native OpenTelemetry support](https://fastapi.tiangolo.com/advanced/opentelemetry/).
+The installed application includes its OpenTelemetry SDK and HTTP/protobuf
+exporter. To send request telemetry to your collector, set these variables in the
+API process environment before starting it:
+
+```sh
+export FASTAPI_OTEL_AUTO_CONFIGURE=true
+export OTEL_SERVICE_NAME=blitzecdn-api
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com
+python -m blitzecdn.entrypoints.api
+```
+
+Use your collector's base URL; FastAPI appends `/v1/traces` and `/v1/metrics`.
+If authentication is required, set `OTEL_EXPORTER_OTLP_HEADERS` to the collector's
+header configuration. For the installed Compose services, place these variables
+in `/etc/blitzecdn/blitzecdn.env` and recreate the API container. For local
+development, export them in the shell: the application's `.env` reader only
+loads application settings and does not populate the process environment.
+
+Export is off unless explicitly enabled. If another monitoring library configures
+providers and exporters, leave automatic setup disabled to avoid duplicate export.
+Existing configured providers are used by FastAPI automatically.
+
+Request spans include dependency resolution, endpoint execution and serialization.
+Request metrics measure traffic, duration and active requests. `/health` and
+`/metrics` are excluded to keep periodic probes out of these measurements.
+Exception log export is disabled because exception messages can contain
+infrastructure credentials; existing application logs remain local. Standard
+HTTP span attributes include request paths and query strings, so collector access
+and retention should reflect that data.
+
+These traces cover API request processing. Queued work executes in a separate
+worker and does not inherit the submitting request's trace context. Use the
+operation/deployment ID to follow its durable outcome and worker logs. The
+authenticated `/metrics` endpoint continues reporting operational state separately.

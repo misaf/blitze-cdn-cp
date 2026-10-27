@@ -7,7 +7,7 @@ leaves no history.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
@@ -40,7 +40,7 @@ def _summary(release: Any) -> dict[str, Any]:
 @router.get("/v3/releases", response_model=list[Release])
 def releases(
     releases: FromDishka[ReleaseService],
-    limit: int = Query(20, ge=1, le=100),
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[Release]:
     """Recorded releases, newest first."""
     return [
@@ -51,7 +51,7 @@ def releases(
 @router.get("/v3/releases/current", response_model=ReleaseDetail)
 def current_release(
     releases: FromDishka[ReleaseService],
-    host_limit: str | None = Query(default=None, max_length=512),
+    host_limit: Annotated[str | None, Query(max_length=512)] = None,
 ) -> ReleaseDetail:
     """What canonical state compiles to right now, without recording it.
 

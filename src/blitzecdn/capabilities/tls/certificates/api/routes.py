@@ -37,7 +37,7 @@ def certificate(
 @router.get("/v3/certificates", response_model=list[CertificateStatus])
 def list_certificates(
     certificates: FromDishka[CertificateService],
-    expiring_in: int | None = Query(None, ge=0, le=3650),
+    expiring_in: Annotated[int | None, Query(ge=0, le=3650)] = None,
 ) -> list[CertificateStatus]:
     """Managed certificates against the clock, soonest expiry first."""
     if expiring_in is None:
