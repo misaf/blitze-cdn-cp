@@ -65,13 +65,24 @@ class CollectedUsage(TrafficValue):
     batches: tuple[UsageBatch, ...]
     errors: tuple[str, ...] = ()
     more: bool = False
+    missing_streams: Annotated[tuple[Digest, ...], Field(max_length=128)] = ()
 
     @model_validator(mode="after")
     def distinct_streams(self) -> Self:
         ids = [batch.end.stream_id for batch in self.batches]
         if len(ids) != len(set(ids)):
             raise ValueError("a collection may contain only one batch per stream")
+        if self.missing_streams and (self.more or self.errors):
+            raise ValueError("missing streams require a complete, error-free inventory")
+        if set(ids) & set(self.missing_streams):
+            raise ValueError("a reported batch cannot also be a missing stream")
         return self
+
+
+class RetentionResult(TrafficValue):
+    cutoff: datetime
+    deleted_hours: int
+    more: bool
 
 
 class EdgeCollection(TrafficValue):

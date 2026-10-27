@@ -36,3 +36,12 @@ class TrafficCursorRow(Base):
     stream_id: Mapped[str] = mapped_column(primary_key=True)
     offset: Mapped[int] = mapped_column()
     anchor: Mapped[str] = mapped_column()
+    latest_hour: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class TrafficRetentionRow(Base):
+    __tablename__ = "traffic_retention"
+    __table_args__ = (CheckConstraint("id = 1", name="traffic_retention_singleton"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cutoff: Mapped[datetime] = mapped_column(UtcDateTime)

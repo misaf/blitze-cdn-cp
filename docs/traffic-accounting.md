@@ -49,9 +49,9 @@ An interrupted transaction, counter overflow or failed audit write rolls back
 both the increments and progress. Counters use signed 64-bit integers.
 
 Traffic rows do not depend on live domain or edge foreign keys, so removing
-configuration does not erase historical usage. This step does not prune totals
-or cursors. Deleting cursors independently of totals can cause a retained log
-to be counted again; backups must retain both tables together.
+configuration does not erase historical usage. Retention expires it according
+to the rules below. Manually deleting cursors can cause retained traffic to be
+counted again; backups must retain all traffic tables together.
 
 Collection is not a guarantee against lost source logs. Deleted logs, expired
 archives, a restored database older than the available logs, or an edge disk
@@ -142,3 +142,44 @@ Pagination reads current saved data; collecting more traffic between requests
 can change rows and offsets. Query a completed range after collection catches
 up when exporting multiple pages. This interface does not provide a frozen
 export snapshot or billing reconciliation.
+
+
+## Retention
+
+`BLITZE_TRAFFIC_RETENTION_DAYS=90` keeps 90 days of hourly visitor traffic by
+default. The equivalent `[blitzecdn]` TOML field is `traffic_retention_days`.
+Values are 0–3650; zero disables future expiry. Restart processes after changing
+configuration. Increasing retention or disabling expiry cannot restore data
+already discarded or reopen the persisted expiry cutoff.
+
+The independent `prune-traffic` worker job runs hourly, including when collection
+is disabled or no edges are registered. Each run advances a persisted cutoff to
+`now - retention_days`, rounded down to a UTC hour, and deletes at most 10,000
+older hourly rows. The cutoff never moves backward, including after a clock
+rollback. The hour at the cutoff is retained. Queries immediately exclude older
+rows even if physical deletion needs subsequent runs. A backlog produces a worker
+warning and continues next hour. The job records `traffic.pruned` in the audit
+journal; deletion and the cutoff commit together, or both roll back.
+
+Collection still advances through expired records, but never adds their counts
+back. Each stream checkpoint tracks its latest covered hour, preserving the
+maximum even if request timestamps arrive out of order. Once every hour that a
+checkpoint covers has expired, a complete, error-free edge scan may remove that
+checkpoint if its stream is absent. At most 128 missing streams are reported per
+scan, oldest checkpoints first. Existing files keep their checkpoints, including
+quiet active files; archives renamed or compressed retain the same stream ID.
+
+Failed, truncated, partial, or bounded scans never authorize checkpoint deletion.
+Offline, removed or perpetually backlogged edges retain checkpoints until a clean
+scan can confirm absence. This conservative rule can leave old checkpoints, but
+prevents forgetting progress on a file whose retained traffic could be replayed.
+Restoring an expired stream after its checkpoint was removed cannot resurrect
+expired totals: the persisted cutoff rejects its old buckets. New, retained hours
+from the same stream are still collected.
+
+Retention changes controller data only; edge logrotate keeps its existing policy.
+It does not prune queue or audit history. Deleted SQLite pages become reusable;
+this job does not run blocking `VACUUM` or promise an immediate file-size decrease.
+Back up `traffic_hours`, `traffic_cursors`, and `traffic_retention` together. As
+with any older database restore, traffic lost between the backup and available
+edge logs cannot be reconstructed automatically.

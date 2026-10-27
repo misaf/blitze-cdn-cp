@@ -39,9 +39,19 @@ def traffic_operations(
         if has_edges():
             traffic.collect_scheduled(operator, max_passes=config.collection_max_passes)
 
+    def prune(operator: str) -> None:
+        traffic.prune(operator, retention_days=config.retention_days)
+
     return FeatureOperations(
         feature="traffic",
         scheduled_jobs=(
+            ScheduledJob(
+                feature="traffic",
+                name="prune-traffic",
+                interval_seconds=3600 if config.retention_days else 0,
+                run=prune,
+                lease_seconds=300,
+            ),
             ScheduledJob(
                 feature="traffic",
                 name="collect-traffic",

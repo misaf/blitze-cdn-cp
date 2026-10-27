@@ -191,6 +191,10 @@ def collect(document: dict[str, Any]) -> dict[str, Any]:
                 else "unreadable or invalid traffic log; retry after checking the file"
             )
             result["errors"].append(f"{path.name}: {message}")
+    if not result["errors"] and not result["more"]:
+        result["missing_streams"] = [
+            stream_id for stream_id in checkpoints if stream_id not in seen
+        ][:MAX_BATCHES]
     return result
 
 

@@ -1,19 +1,21 @@
 """Commit increments and compare-and-swap log progress in one transaction."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, tuple_
 from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.traffic.adapters.tables import (
     TrafficCursorRow,
     TrafficHourRow,
+    TrafficRetentionRow,
 )
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
     EdgeCollection,
     HourlyUsage,
     LogCursor,
+    RetentionResult,
     TrafficUsage,
     UsageQuery,
 )
@@ -26,6 +28,56 @@ from blitzecdn.core.persistence.pagination import read_page
 class TrafficStore:
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def prune(self, retention_days: int) -> RetentionResult:
+        if not 1 <= retention_days <= 3650:
+            raise ValueError("retention_days must be between 1 and 3650")
+        proposed = (
+            self._db.now().astimezone(UTC) - timedelta(days=retention_days)
+        ).replace(minute=0, second=0, microsecond=0)
+        with self._db.transaction(), self._db.session() as session:
+            state = session.get(TrafficRetentionRow, 1)
+            if state is None:
+                state = TrafficRetentionRow(id=1, cutoff=proposed)
+                session.add(state)
+            else:
+                state.cutoff = max(state.cutoff, proposed)
+            session.flush()
+            expired = (
+                select(
+                    TrafficHourRow.edge, TrafficHourRow.hostname, TrafficHourRow.hour
+                )
+                .where(TrafficHourRow.hour < state.cutoff)
+                .order_by(
+                    TrafficHourRow.hour, TrafficHourRow.hostname, TrafficHourRow.edge
+                )
+                .limit(10_000)
+            )
+            deleted = list(
+                session.scalars(
+                    delete(TrafficHourRow)
+                    .where(
+                        tuple_(
+                            TrafficHourRow.edge,
+                            TrafficHourRow.hostname,
+                            TrafficHourRow.hour,
+                        ).in_(expired)
+                    )
+                    .returning(TrafficHourRow.hour),
+                    execution_options={"synchronize_session": False},
+                )
+            )
+            more = (
+                session.scalar(
+                    select(TrafficHourRow.hour)
+                    .where(TrafficHourRow.hour < state.cutoff)
+                    .limit(1)
+                )
+                is not None
+            )
+            return RetentionResult(
+                cutoff=state.cutoff, deleted_hours=len(deleted), more=more
+            )
 
     def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
         statement = select(TrafficHourRow).where(
@@ -40,6 +92,9 @@ class TrafficStore:
             TrafficHourRow.hour, TrafficHourRow.hostname, TrafficHourRow.edge
         )
         with self._db.session() as session:
+            state = session.get(TrafficRetentionRow, 1)
+            if state is not None:
+                statement = statement.where(TrafficHourRow.hour >= state.cutoff)
             return read_page(
                 session,
                 statement,
@@ -60,7 +115,9 @@ class TrafficStore:
         with self._db.session() as session:
             for row in session.scalars(
                 select(TrafficCursorRow).order_by(
-                    TrafficCursorRow.edge, TrafficCursorRow.stream_id
+                    TrafficCursorRow.latest_hour,
+                    TrafficCursorRow.edge,
+                    TrafficCursorRow.stream_id,
                 )
             ):
                 grouped.setdefault(row.edge, []).append(self._cursor(row))
@@ -69,6 +126,7 @@ class TrafficStore:
     def apply(self, edge: str, collection: CollectedUsage) -> EdgeCollection:
         requests = bytes_sent = 0
         with self._db.transaction(), self._db.session() as session:
+            state = session.get(TrafficRetentionRow, 1)
             for batch in collection.batches:
                 current = session.get(TrafficCursorRow, (edge, batch.end.stream_id))
                 if current and current.offset >= batch.end.offset:
@@ -86,16 +144,30 @@ class TrafficStore:
                         "from current checkpoints"
                     )
                 for bucket in batch.buckets:
+                    if state is not None and bucket.hour < state.cutoff:
+                        continue
                     self._increment(session, edge, bucket)
                     requests += bucket.requests
                     bytes_sent += bucket.bytes_sent
+                latest_hour = max(bucket.hour for bucket in batch.buckets)
                 if current is None:
-                    current = TrafficCursorRow(edge=edge, **batch.end.model_dump())
+                    current = TrafficCursorRow(
+                        edge=edge, latest_hour=latest_hour, **batch.end.model_dump()
+                    )
                     session.add(current)
                 else:
                     current.offset = batch.end.offset
                     current.anchor = batch.end.anchor
+                    current.latest_hour = max(current.latest_hour, latest_hour)
                 session.flush()
+            if state is not None and collection.missing_streams:
+                session.execute(
+                    delete(TrafficCursorRow).where(
+                        TrafficCursorRow.edge == edge,
+                        TrafficCursorRow.stream_id.in_(collection.missing_streams),
+                        TrafficCursorRow.latest_hour < state.cutoff,
+                    )
+                )
             return EdgeCollection(
                 edge=edge,
                 requests=requests,
