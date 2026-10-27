@@ -1,10 +1,33 @@
-"""The request frame, and the host-limit body several capabilities take."""
+"""HTTP request bodies, omittable PATCH values, and shared fleet selection."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Any, TypeVar
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from blitzecdn.core.domain.validation import EDGE_LIMIT
+
+T = TypeVar("T")
+
+
+def _reject_null(value: Any) -> Any:
+    if value is None:
+        raise ValueError("null is not allowed; omit the field to keep its value")
+    return value
+
+
+def _omit_default(schema: dict[str, Any]) -> None:
+    schema.pop("default", None)
+
+
+# None represents an omitted field internally, never an accepted JSON value.
+PatchValue = Annotated[
+    T | SkipJsonSchema[None],
+    BeforeValidator(_reject_null),
+    Field(json_schema_extra=_omit_default),
+]
 
 
 class RequestModel(BaseModel):
@@ -25,4 +48,4 @@ class FleetRequest(RequestModel):
     )
 
 
-__all__ = ["FleetRequest", "RequestModel"]
+__all__ = ["FleetRequest", "PatchValue", "RequestModel"]
