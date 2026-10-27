@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 from support.install import (
-    _function,
-    _query,
-    _role_task,
-    _script,
-    _section,
+    query,
+    role_task,
+    script_function,
+    script_section,
+    script_text,
 )
 
 from blitzecdn.capabilities.releases.service import compiler
@@ -24,7 +24,7 @@ from blitzecdn.capabilities.releases.service import compiler
 
 # --- structural guarantees no unprivileged run can reach ---------------------
 def test_standalone_keeps_the_management_api_on_loopback():
-    script = _script()
+    script = script_text()
     assert "ssh -L 8000:127.0.0.1:8000" in script
     assert "--host 0.0.0.0" not in script
 
@@ -33,21 +33,21 @@ def test_standalone_defaults_to_no_deployment():
     """Preparing a server and deploying to it are separate decisions."""
     required = "--admin-cidr 203.0.113.8/32 --email operator@example.com"
     assert (
-        _query(
+        query(
             f"parse_options standalone usage_standalone {required}\n"
             'echo "${parsed_deploy}"'
         )
         == "0"
     )
     assert (
-        _query(
+        query(
             f"parse_options standalone usage_standalone {required} --deploy\n"
             'echo "${parsed_deploy}"'
         )
         == "1"
     )
     # Forwarding happens inside a root-only command, so it stays structural.
-    assert "handoff_args+=(--deploy)" in _section("standalone")
+    assert "handoff_args+=(--deploy)" in script_section("standalone")
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_a_standalone_host_must_satisfy_the_edge_platform(
     Ubuntu 26.04. A standalone host is both, so it must meet the edge's.
     """
     supported = (
-        _query(
+        query(
             f'edge_platform_supported "{distribution}" "{version}" '
             "&& echo yes || echo no"
         )
@@ -86,22 +86,22 @@ def test_the_platform_is_checked_before_anything_is_installed():
     In `--fresh`, before the confirmation: a rebuild that cannot reinstall is a
     destroyed installation.
     """
-    standalone = _section("standalone")
+    standalone = script_section("standalone")
     assert standalone.index("require_edge_platform") < standalone.index("apt-get")
-    fresh = _section("fresh")
+    fresh = script_section("fresh")
     assert fresh.index("require_edge_platform") < fresh.index("converge_uninstall")
     assert fresh.index("require_edge_platform") < fresh.index("confirm_destructive")
     # Not the release-move commands: they converge the control plane alone, and
     # refusing them would strand an existing host.
     for command in ("update", "upgrade"):
-        assert "require_edge_platform" not in _section(command)
+        assert "require_edge_platform" not in script_section(command)
 
 
 def test_standalone_collects_the_access_list_from_either_spelling():
     """Repeat the flag or hand it a list; the role receives one value."""
     required = "--admin-cidr 203.0.113.8/32 --email operator@example.com"
     assert (
-        _query(
+        query(
             f"parse_options standalone usage_standalone {required} "
             "--allowed-ips 203.0.113.8/32 --allowed-ips 198.51.100.0/24\n"
             'printf "%s\\n" "${parsed_allowed_ips[@]}"'
@@ -109,14 +109,14 @@ def test_standalone_collects_the_access_list_from_either_spelling():
         == "203.0.113.8/32\n198.51.100.0/24"
     )
     assert (
-        _query(
+        query(
             f"parse_options standalone usage_standalone {required}\n"
             'echo "${#parsed_allowed_ips[@]}"'
         )
         == "0"
     )
     assert (
-        _query(
+        query(
             f"parse_options standalone usage_standalone {required} "
             "--allowed-ips '203.0.113.8/32, 198.51.100.0/24'\n"
             "allowed_ips_value"
@@ -127,7 +127,7 @@ def test_standalone_collects_the_access_list_from_either_spelling():
     # structural.
     assert (
         '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"'
-        in _section("standalone")
+        in script_section("standalone")
     )
 
 
@@ -137,8 +137,8 @@ def test_a_release_move_can_repoint_the_access_list(subcommand: str):
 
     Omitting the flag, the common case, leaves the installed list untouched.
     """
-    assert f"move_release {subcommand}" in _section(subcommand)
-    section = _function("move_release")
+    assert f"move_release {subcommand}" in script_section(subcommand)
+    section = script_function("move_release")
     assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
     # Before the point of no return, not after it. A rejected access list must
     # cost a refused command, never a host sitting with its services stopped.
@@ -154,7 +154,7 @@ def test_the_access_list_survives_an_empty_flag_on_bash_3():
     Every `update` evaluates this, flag or not.
     """
     assert (
-        _query(
+        query(
             'parse_options update usage_update --yes\nallowed_ips_value\necho "[empty]"'
         )
         == "[empty]"
@@ -167,7 +167,7 @@ def test_a_rebuild_carries_the_access_list_with_it():
     A dropped access list would silently return a public API to loopback.
     """
     assert (
-        _query(
+        query(
             "parse_options fresh usage_fresh --allowed-ips 203.0.113.8/32 --yes\n"
             'printf "%s\\n" "${parsed_forward_args[@]}"'
         )
@@ -181,7 +181,7 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     The module is located by import rather than by path, so a move cannot
     silently break the check.
     """
-    standalone = _section("standalone")
+    standalone = script_section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
     assert compiler.__file__ is not None
     assert "blitzecdn_nginx_allow_empty_sites" in Path(compiler.__file__).read_text(
@@ -190,7 +190,7 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
 
 
 def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
-    installation = _role_task("Set the installation directory mode")
+    installation = role_task("Set the installation directory mode")
     arguments = installation["ansible.builtin.file"]
     assert arguments["owner"] == "root"
     assert arguments["group"] == "root"
@@ -200,13 +200,13 @@ def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
 
 def test_installer_installs_only_third_party_collections():
     """The BlitzeCDN roles ship inside the package; nothing pins or builds them."""
-    bootstrap = _function("bootstrap_runtime")
+    bootstrap = script_function("bootstrap_runtime")
     assert (
         '-r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"'
         in bootstrap
     )
     assert "--force" not in bootstrap
-    assert "collection build" not in _script()
+    assert "collection build" not in script_text()
 
 
 @pytest.mark.parametrize("body", ["standalone", "move_release"])
@@ -216,7 +216,7 @@ def test_a_server_installs_no_python_packages_and_asks_no_package_index(body: st
     Ansible, its collections and the application all come from the image, so
     a server never builds a virtualenv, never runs uv, and never asks Galaxy.
     """
-    code = _section(body) if body == "standalone" else _function(body)
+    code = script_section(body) if body == "standalone" else script_function(body)
     for host_tooling in ("bootstrap_runtime", "uv", "ansible-galaxy", "pip"):
         assert not re.search(rf"\b{re.escape(host_tooling)}\b", code), host_tooling
     assert "ensure_docker" in code
@@ -225,16 +225,16 @@ def test_a_server_installs_no_python_packages_and_asks_no_package_index(body: st
 
 def test_only_a_source_build_needs_the_package_index():
     """The fallback is documented, opt-in, and the only path that builds."""
-    image = _function("obtain_control_plane_image")
+    image = script_function("obtain_control_plane_image")
     assert "BLITZECDN_CONTROL_PLANE_BUILD" in image
     assert image.count("docker build") == 1
     assert image.index("BLITZECDN_CONTROL_PLANE_BUILD") < image.index("docker build")
     for help_form in ("standalone", "update", "upgrade"):
-        assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in _query(f"usage_{help_form}")
+        assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in query(f"usage_{help_form}")
 
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
-    script = _script()
+    script = script_text()
     # The interpreter is the tell, not `pip`: uv builds the environment without
     # pip.
     assert "! -x .venv/bin/python" in script

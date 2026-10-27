@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from support.install import (
     BASH,
-    _function,
-    _script,
+    script_function,
+    script_text,
 )
 
 # --- uv: the pinned toolchain the installer builds the virtualenv with --------
@@ -53,7 +53,7 @@ def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Pa
     """
     pins = re.search(
         r"^UV_VERSION=.*?^UV_SHA256_aarch64_apple_darwin=.*?$",
-        _script(),
+        script_text(),
         re.DOTALL | re.MULTILINE,
     )
     assert pins is not None, "the uv pins are no longer where the harness expects"
@@ -61,9 +61,9 @@ def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Pa
     harness.write_text(
         "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
         f"{pins.group(0)}\n"
-        "die() {\n" + _function("die") + "\n}\n"
-        "sha256_of() {\n" + _function("sha256_of") + "\n}\n"
-        "ensure_uv() {\n" + _function("ensure_uv") + "\n}\n"
+        "die() {\n" + script_function("die") + "\n}\n"
+        "sha256_of() {\n" + script_function("sha256_of") + "\n}\n"
+        "ensure_uv() {\n" + script_function("ensure_uv") + "\n}\n"
         "ensure_uv\n",
         encoding="utf-8",
     )
@@ -98,7 +98,7 @@ def _run_harness(tmp_path: Path, harness: Path) -> subprocess.CompletedProcess[s
 
 def test_the_installer_pins_uv_and_a_checksum_for_every_architecture():
     """An unpinned download is an unreviewed dependency running as root."""
-    script = _script()
+    script = script_text()
     assert re.search(r'^UV_VERSION="\d+\.\d+\.\d+"$', script, re.MULTILINE)
     for triple in (
         "x86_64-unknown-linux-gnu",
@@ -217,7 +217,7 @@ def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
     """
     target = _host_uv_target()
     name = "UV_SHA256_" + target.replace("-", "_")
-    expected = re.search(rf'^{name}="([0-9a-f]{{64}})"$', _script(), re.MULTILINE)
+    expected = re.search(rf'^{name}="([0-9a-f]{{64}})"$', script_text(), re.MULTILINE)
     assert expected is not None
     harness = _uv_harness(
         tmp_path,

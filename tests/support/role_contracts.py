@@ -12,14 +12,14 @@ import yaml
 
 from support.contracts import (
     STACK_ROLE_DIR,
-    _ansible_jinja,
-    _role_defaults,
-    _split_runtime,
+    ansible_jinja,
     jinja2,
+    role_defaults,
+    split_runtime,
 )
 
 
-def _defaults_of(role_dir: Path) -> dict[str, Any]:
+def defaults_of(role_dir: Path) -> dict[str, Any]:
     """A role's `defaults/main.yml`, parsed, without resolving the runtime contract."""
     return cast(
         dict[str, Any],
@@ -32,17 +32,17 @@ COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
 )
 
 
-def _edge_context(**overrides: Any) -> dict[str, Any]:
+def edge_context(**overrides: Any) -> dict[str, Any]:
     """The variables the edge stack renders from, with references resolved.
 
     The stack's defaults derive from blitzecdn_edge_runtime, so both are resolved
     to read the paths the mounts actually use.
     """
-    inputs, plain = _split_runtime(overrides)
+    inputs, plain = split_runtime(overrides)
     context: dict[str, Any] = (
-        _role_defaults(**inputs) | _defaults_of(STACK_ROLE_DIR) | plain
+        role_defaults(**inputs) | defaults_of(STACK_ROLE_DIR) | plain
     )
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         unresolved = {
             name: value
@@ -62,10 +62,10 @@ def _edge_context(**overrides: Any) -> dict[str, Any]:
     return context
 
 
-def _render_compose(**overrides: Any) -> dict[str, Any]:
+def render_compose(**overrides: Any) -> dict[str, Any]:
     """The edge Compose project as Docker would read it, not as text."""
-    context = _edge_context(**overrides)
-    environment = _ansible_jinja(
+    context = edge_context(**overrides)
+    environment = ansible_jinja(
         loader=jinja2.FileSystemLoader(STACK_ROLE_DIR / "templates"),
         keep_trailing_newline=True,
     )

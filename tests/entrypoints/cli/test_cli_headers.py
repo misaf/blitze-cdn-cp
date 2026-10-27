@@ -3,7 +3,7 @@
 import json
 
 from support.cli import (
-    _control,
+    cli_control,
     runner,
 )
 from support.control_plane import (
@@ -14,7 +14,7 @@ from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_site_visitor_headers_command(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     site = control.sites.get_site("example-com")
     assert site.policy.headers.visitor_headers.connecting_ip is True
@@ -56,7 +56,7 @@ def test_site_visitor_headers_command(settings, monkeypatch):
 
 def test_site_visitor_headers_requires_a_switch(settings, monkeypatch):
     """With no option the command would silently rewrite the block as-is."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(cli.app, ["domain", "visitor-headers", "example.com"])
@@ -65,7 +65,7 @@ def test_site_visitor_headers_requires_a_switch(settings, monkeypatch):
 
 
 def test_site_visitor_headers_reports_what_the_origin_will_see(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     enabled = runner.invoke(

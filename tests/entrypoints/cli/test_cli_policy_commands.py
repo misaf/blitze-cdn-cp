@@ -1,7 +1,7 @@
 """Delivery submits intent without reading canonical policy to assemble it."""
 
 import pytest
-from support.cli import _control, runner
+from support.cli import cli_control, runner
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,
@@ -23,7 +23,7 @@ from blitzecdn.entrypoints.cli import main as cli
 def test_policy_edit_submits_intent_without_a_delivery_read(
     settings, monkeypatch, arguments, command_type
 ):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     control.dns.create_domain(Domain(name="example.com"), "setup")
     handler = control.dns.update_domain
     received = []

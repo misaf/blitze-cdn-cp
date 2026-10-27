@@ -11,9 +11,9 @@ import yaml
 from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
-    _role_defaults,
-    _seed_site,
-    _split_runtime,
+    role_defaults,
+    seed_site,
+    split_runtime,
 )
 from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE
@@ -55,9 +55,9 @@ def _run_validation(
         pytest.skip("ansible-playbook is not installed")
     # A contract input is applied before the contract is composed; anything
     # else is an ordinary variable override on top of it.
-    inputs, plain = _split_runtime(overrides)
+    inputs, plain = split_runtime(overrides)
     variables = (
-        _role_defaults(**inputs)
+        role_defaults(**inputs)
         | {
             "blitzecdn_nginx_sites": sites,
         }
@@ -365,7 +365,7 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
     """
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)
-    _seed_site(repository, name="example-com", label="cdn", origin="198.51.100.20")
+    seed_site(repository, name="example-com", label="cdn", origin="198.51.100.20")
     # A rule matching a hostname no record claims: the "awaiting DNS" case.
     repository.rules.create_rule(
         Rule(

@@ -14,12 +14,12 @@ from typing import Any
 import yaml
 from support.contracts import (
     STACK_ROLE_DIR,
-    _ansible_jinja,
-    _resolve,
-    _role_defaults,
-    _runtime_defaults,
+    ansible_jinja,
     jinja2,
+    resolve,
+    role_defaults,
     run_role_tasks,
+    runtime_defaults,
 )
 
 from blitzecdn.capabilities.security import ansible
@@ -31,18 +31,18 @@ NGINX = ansible.ROLES_PATH.parents[1] / "nginx"
 
 def _defaults(**overrides: Any) -> dict[str, Any]:
     """This role's defaults, resolved on top of the runtime contract."""
-    context = _runtime_defaults() | yaml.safe_load(
+    context = runtime_defaults() | yaml.safe_load(
         (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
     context |= overrides
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         plain = {
             name: value
             for name, value in context.items()
             if name != "blitzecdn_edge_runtime"
         }
-        resolved = _resolve(plain, context, environment)
+        resolved = resolve(plain, context, environment)
         if resolved == plain:
             break
         context |= resolved
@@ -68,7 +68,7 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     modules = resolved["blitzecdn_edge_runtime"]["paths"]["modules"]
     assert resolved["blitzecdn_security_under_attack_js_file"].startswith(f"{modules}/")
-    mounts = "\n".join(_role_defaults()["blitzecdn_nginx_config_test_volumes"])
+    mounts = "\n".join(role_defaults()["blitzecdn_nginx_config_test_volumes"])
     assert f"{modules}:{modules}:ro" in mounts
 
     compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
@@ -78,7 +78,7 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
 def test_the_snippet_imports_the_module_and_includes_the_key():
     """One path each, spelled the same in the snippet and where it is written."""
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
-    environment = _ansible_jinja(
+    environment = ansible_jinja(
         loader=jinja2.FileSystemLoader(NGINX),
         keep_trailing_newline=True,
     )

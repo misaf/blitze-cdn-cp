@@ -3,10 +3,10 @@
 import json
 
 from support.cli import (
-    _control,
-    _seed_site,
-    _store,
+    cli_control,
     runner,
+    seed_cli_site,
+    store,
 )
 from support.control_plane import (
     FakeRunner,
@@ -77,7 +77,7 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
-    _seed_site(control, "api", "198.51.100.20")
+    seed_cli_site(control, "api", "198.51.100.20")
     exported = json.loads(runner.invoke(cli.app, ["dns", "export", "--json"]).stdout)
     assert exported["records"][0]["proxied"] is True
     assert "value" not in exported["records"][0]
@@ -85,7 +85,7 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
 
 
 def test_domain_remove_keeps_the_zone_when_the_operator_declines(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     control.dns.create_domain(Domain(name="example.com"), "cli")
 
     result = runner.invoke(cli.app, ["domain", "remove", "example.com"], input="n\n")
@@ -97,7 +97,7 @@ def test_domain_remove_keeps_the_zone_when_the_operator_declines(settings, monke
 def test_record_remove_keeps_the_record_when_the_operator_declines(
     settings, monkeypatch
 ):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     control.dns.create_domain(Domain(name="example.com"), "cli")
     control.dns.create_record(
         DnsRecord(
@@ -114,4 +114,4 @@ def test_record_remove_keeps_the_record_when_the_operator_declines(
     )
 
     assert result.exit_code == 1
-    assert len(_store(settings).zones.list_records("example.com")) == 1
+    assert len(store(settings).zones.list_records("example.com")) == 1

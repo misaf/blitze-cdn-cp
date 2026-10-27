@@ -10,14 +10,14 @@ from contextlib import contextmanager
 
 import pytest
 import yaml
-from support.application import _seed_proxied_record
+from support.application import seed_proxied_record
 from support.certificates import (
     FakePreflight,
-    _automatic_origin_report,
-    _proxied_site_with_certificate,
-    _RecordingIssuer,
-    _seed_automatic_ssl_record,
+    RecordingIssuer,
+    automatic_origin_report,
     certificate_control_plane,
+    proxied_site_with_certificate,
+    seed_automatic_ssl_record,
 )
 from support.control_plane import (
     FakeRunner,
@@ -65,7 +65,7 @@ def test_issuance_is_outside_activation_transaction_and_failure_keeps_evidence(
     control = certificate_control_plane(
         settings, runner=FakeRunner(), issuer=Issuer(), preflight=FakePreflight()
     )
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     original = control.releases.inputs().digest
     record = control.certificates.events.record
 
@@ -101,7 +101,7 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     control = certificate_control_plane(
         settings, runner=FakeRunner(), issuer=FakeIssuer(), preflight=FakePreflight()
     )
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     certificate, key = certificate_pair()
 
     uploaded = control.certificates.upload_certificate(
@@ -157,7 +157,7 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
             [ansible_run(host_run("edge-a")), ansible_run(host_run("edge-a"))]
         ),
     )
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     certificate, key = certificate_pair()
     kind = DeploymentRequirementKind.CERTIFICATES
 
@@ -178,7 +178,7 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
 def test_a_canary_leaves_the_certificate_requirement_owed(settings, certificate_pair):
     """A green canary converged only the named edges, so the rest are still owed."""
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     certificate, key = certificate_pair()
     kind = DeploymentRequirementKind.CERTIFICATES
     requirements = control.transactions.deployment_requirements
@@ -195,7 +195,7 @@ def test_a_canary_leaves_the_certificate_requirement_owed(settings, certificate_
 def test_a_rollback_leaves_the_certificate_requirement_owed(settings, certificate_pair):
     """A rollback restores a release that may predate the newest material."""
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     kind = DeploymentRequirementKind.CERTIFICATES
     requirements = control.transactions.deployment_requirements
 
@@ -218,7 +218,7 @@ def test_a_deployment_queued_before_the_material_does_not_satisfy_it(
     requirement, and convergence queues a fresh fleet deployment rather than
     reuse it."""
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     kind = DeploymentRequirementKind.CERTIFICATES
     requirements = control.transactions.deployment_requirements
 
@@ -249,9 +249,9 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
 ):
     runner = FakeRunner(
         [
-            ansible_run(_automatic_origin_report(SslMode.OFF)),
+            ansible_run(automatic_origin_report(SslMode.OFF)),
             ansible_run(
-                _automatic_origin_report(
+                automatic_origin_report(
                     SslMode.FULL_STRICT,
                     tls_verified=tls_verified,
                 )
@@ -261,7 +261,7 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
     )
     repository = Repository(settings.database_path)
     control = certificate_control_plane(settings, runner=runner)
-    _seed_automatic_ssl_record(control)
+    seed_automatic_ssl_record(control)
 
     result = control.automatic_ssl.reconcile("scheduler")
 
@@ -284,9 +284,9 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
 def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
     runner = FakeRunner(
         [
-            ansible_run(_automatic_origin_report(SslMode.OFF)),
+            ansible_run(automatic_origin_report(SslMode.OFF)),
             ansible_run(
-                _automatic_origin_report(
+                automatic_origin_report(
                     SslMode.FULL_STRICT,
                     reachable=False,
                 )
@@ -295,7 +295,7 @@ def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
         ]
     )
     control = certificate_control_plane(settings, runner=runner)
-    _seed_automatic_ssl_record(control)
+    seed_automatic_ssl_record(control)
 
     result = control.automatic_ssl.reconcile("scheduler")
 
@@ -306,7 +306,7 @@ def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
 def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
     runner = FakeRunner()
     control = certificate_control_plane(settings, runner=runner)
-    _seed_automatic_ssl_record(control, automatic=SslAutomaticMode.CUSTOM)
+    seed_automatic_ssl_record(control, automatic=SslAutomaticMode.CUSTOM)
 
     result = control.automatic_ssl.reconcile("scheduler")
 
@@ -320,13 +320,13 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
     runner = FakeRunner(
         [
             ansible_run(
-                _automatic_origin_report(
+                automatic_origin_report(
                     SslMode.FULL,
                     reachable=True,
                 )
             ),
             ansible_run(
-                _automatic_origin_report(
+                automatic_origin_report(
                     SslMode.FULL_STRICT,
                     reachable=False,
                 )
@@ -334,7 +334,7 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
         ]
     )
     control = certificate_control_plane(settings, runner=runner)
-    _seed_automatic_ssl_record(control, mode=SslMode.FULL)
+    seed_automatic_ssl_record(control, mode=SslMode.FULL)
 
     result = control.automatic_ssl.reconcile("scheduler")
 
@@ -361,7 +361,7 @@ def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(
         issuer=FakeIssuer(),
         preflight=FakePreflight(),
     )
-    site_name = _seed_proxied_record(control).name
+    site_name = seed_proxied_record(control).name
 
     result = control.certificates.reconcile_certificates("timer")
 
@@ -388,7 +388,7 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
         issuer=UnexpectedIssuer(),
         preflight=FakePreflight(("dns",)),
     )
-    site_name = _seed_proxied_record(control).name
+    site_name = seed_proxied_record(control).name
 
     result = control.certificates.reconcile_certificates("timer")
 
@@ -437,7 +437,7 @@ def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
         runner=LockingRunner(),
         certificate_store=RecordingStore(),
     )
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     events.clear()  # seeding does not take the deployment lock
     certificate, key = certificate_pair()
 
@@ -449,7 +449,7 @@ def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
 def test_certificate_statuses_report_time_left(settings, certificate_pair):
     repository = Repository(settings.database_path)
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _proxied_site_with_certificate(control, repository, certificate_pair, days=10)
+    proxied_site_with_certificate(control, repository, certificate_pair, days=10)
 
     statuses = control.certificates.certificate_statuses()
 
@@ -462,14 +462,14 @@ def test_certificate_statuses_report_time_left(settings, certificate_pair):
 def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate_pair):
     repository = Repository(settings.database_path)
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _proxied_site_with_certificate(control, repository, certificate_pair, days=89)
+    proxied_site_with_certificate(control, repository, certificate_pair, days=89)
 
     assert control.certificates.certificate_statuses() != []
     assert control.certificates.expiring_certificates() == []
 
 
 def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -506,7 +506,7 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
     The budget is checked between sites, never during one, so the CA cannot have
     issued something unrecorded. What was not reached comes back as `skipped`.
     """
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -540,7 +540,7 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
 
 def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
     """The CLI and the timer pass no budget, and must keep sweeping everything."""
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -563,14 +563,14 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
     settings, certificate_pair
 ):
     repository = Repository(settings.database_path)
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
         issuer=issuer,
         preflight=FakePreflight(),
     )
-    _proxied_site_with_certificate(control, repository, certificate_pair, days=3)
+    proxied_site_with_certificate(control, repository, certificate_pair, days=3)
 
     result = control.certificates.renew_certificates("alice")
 
@@ -619,7 +619,7 @@ def test_a_renewal_that_returned_the_same_certificate_is_not_reported_renewed(
 
 def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
     """A scheduled renewal must make progress even when a site is unreachable."""
-    issuer = _RecordingIssuer(certificate_pair, fails={"example-com--broken"})
+    issuer = RecordingIssuer(certificate_pair, fails={"example-com--broken"})
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -651,7 +651,7 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
 
 def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
     """Retrying one failure must not push the others through a rate-limited CA."""
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -672,7 +672,7 @@ def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
 
 def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_pair):
     """A typo must not read as 'nothing was due', which is how expiries are missed."""
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -693,7 +693,7 @@ def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_
 
 def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_pair):
     repository = Repository(settings.database_path)
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),

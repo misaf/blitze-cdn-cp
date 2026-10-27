@@ -13,8 +13,8 @@ import yaml
 from support.contracts import (
     PROJECT_DIR,
     ROLES_DIR,
-    _runtime_defaults,
     contributed_roles,
+    runtime_defaults,
 )
 
 #: The roles that converge an edge and share its runtime.
@@ -92,7 +92,7 @@ def test_the_contract_holds_no_value_only_one_role_uses():
     blitzecdn_edge_stack. A capability's role counts: blitzecdn_edge_stack and the
     cache role both own the cache directory as the image's worker uid.
     """
-    runtime = _runtime_defaults()["blitzecdn_edge_runtime"]
+    runtime = runtime_defaults()["blitzecdn_edge_runtime"]
     sources = {
         role: "\n".join(
             source.read_text(encoding="utf-8")

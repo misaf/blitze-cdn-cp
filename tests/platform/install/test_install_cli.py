@@ -15,9 +15,9 @@ import pytest
 from support.install import (
     BASH,
     SCRIPT,
-    _evaluate_os_gate,
-    _host_helper,
-    _run,
+    evaluate_os_gate,
+    host_helper,
+    run_script,
 )
 
 from blitzecdn.core.config.settings import Settings
@@ -56,13 +56,13 @@ def test_installer_has_valid_shell_syntax():
 
 def test_default_form_takes_no_arguments():
     """Controller-only installation has an intentionally argument-free form."""
-    result = _run("--bogus")
+    result = run_script("--bogus")
     assert result.returncode == 2
     assert "takes no arguments" in result.stderr
 
 
 def test_root_help_lists_every_subcommand():
-    result = _run("--help")
+    result = run_script("--help")
     assert result.returncode == 0
     assert "standalone" in result.stdout
     assert "update" in result.stdout
@@ -73,12 +73,12 @@ def test_root_help_lists_every_subcommand():
 
 @pytest.mark.parametrize("form", ["help", "-h", "--help"])
 def test_every_help_form_exits_zero(form: str):
-    assert _run(form).returncode == 0
+    assert run_script(form).returncode == 0
 
 
 @pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
-    result = _run(subcommand)
+    result = run_script(subcommand)
     assert result.returncode == 1
     assert "sudo" in result.stderr
     assert result.stdout == ""
@@ -99,21 +99,21 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
-    result = _run(subcommand, option)
+    result = run_script(subcommand, option)
     assert result.returncode == 2
     assert "needs a value" in result.stderr
 
 
 def test_update_does_not_take_a_ref():
     """A server follows its own release line; `update` takes no ref."""
-    result = _run("update", "--ref", "v3.1.0")
+    result = run_script("update", "--ref", "v3.1.0")
     assert result.returncode == 2
     assert "unknown option" in result.stderr
 
 
 @pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_unknown_options_are_rejected_with_usage(subcommand: str):
-    result = _run(subcommand, "--not-an-option")
+    result = run_script(subcommand, "--not-an-option")
     assert result.returncode == 2
     assert "unknown option" in result.stderr
     assert "Usage:" in result.stderr
@@ -127,7 +127,7 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
-    result = _run(subcommand, "--help")
+    result = run_script(subcommand, "--help")
     assert result.returncode == 0
     for fragment in expected:
         assert fragment in result.stdout
@@ -153,7 +153,7 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 )
 def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     """The gate is the role's assert now, so evaluate the expression it asserts."""
-    assert _evaluate_os_gate(distribution, version) is accepted
+    assert evaluate_os_gate(distribution, version) is accepted
 
 
 @pytest.mark.parametrize(
@@ -169,7 +169,7 @@ def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     ],
 )
 def test_admin_cidr_validation(cidr: str, accepted: bool):
-    result = _host_helper("install_inputs", "standalone", cidr, "operator@example.com")
+    result = host_helper("install_inputs", "standalone", cidr, "operator@example.com")
     assert (result.returncode == 0) is accepted
 
 
@@ -184,12 +184,12 @@ def test_admin_cidr_validation(cidr: str, accepted: bool):
     ],
 )
 def test_acme_email_validation(email: str, accepted: bool):
-    result = _host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
+    result = host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
     assert (result.returncode == 0) is accepted
 
 
 def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
-    return _host_helper("install_inputs", "allowed-ips", value)
+    return host_helper("install_inputs", "allowed-ips", value)
 
 
 @pytest.mark.parametrize(
