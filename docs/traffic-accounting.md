@@ -6,8 +6,8 @@ and the log timestamp at request completion. Redirects and errors count as
 requests. Release identity probes remain excluded by Nginx's `access_log off`.
 Counter semantics and the JSON format are described in [operations](operations.md#hostname-access-and-error-logs).
 
-This step supplies an internal `TrafficService.collect` and persistent storage.
-It adds no schedule, background handler, API route, or CLI command yet.
+The traffic service and scheduled worker job collect and persist these totals.
+Traffic API routes and CLI commands are not exposed yet.
 
 ## Collection and commits
 
@@ -64,3 +64,42 @@ For a custom log root, set `blitzecdn_traffic_collect_log_directory` to that
 root with `/domains` appended. The collector never modifies log files or
 keeps edge-local state. Its temporary script is removed even when execution
 fails. Persistent progress belongs to the controller database.
+
+## Scheduled collection
+
+The `collect-traffic` job uses the existing SQLite queue and worker. It runs
+once every 60 seconds by default. API and worker startup register the schedule;
+the first firing is due one interval later. An empty fleet is a successful
+no-op. Collection requires a running worker; the API process does not collect
+logs itself.
+
+```dotenv
+BLITZE_TRAFFIC_COLLECTION_INTERVAL_SECONDS=60
+BLITZE_TRAFFIC_COLLECTION_MAX_PASSES=3
+```
+
+The equivalent `[blitzecdn]` TOML fields are
+`traffic_collection_interval_seconds` and `traffic_collection_max_passes`.
+The interval supports 0–86400 seconds; zero removes the recurring schedule on
+restart. It does not cancel work already queued or running. The pass limit
+supports 1–10. These are typed traffic capability settings, available through
+existing configuration introspection.
+
+Each pass retains the collector's 4 MiB/128-stream limit per edge. Subsequent
+passes target only edges reporting remaining data, at least one newly committed
+request, and no errors. A partial trailing line or duplicate delivery cannot
+cause an immediate retry loop. At most three fleet calls run by default;
+remaining work waits for the next interval. If the explicit follow-up target
+list exceeds the shared fleet limit, it also waits for the next interval rather
+than broadening collection to unrelated edges.
+
+The queue deduplicates unfinished `collect-traffic` jobs. Its declared lease
+covers the pass limit times the configured playbook timeout plus 60 seconds,
+or twice the collection interval, whichever is greater. Due firings skip an
+already unfinished job instead of accumulating a backlog of duplicate jobs.
+
+Worker logs record per-edge counts, remaining-work flags and safe errors for
+each pass, with a warning when backlog remains. An edge error fails the job
+with the affected names. Healthy edges' committed totals remain intact.
+Recurring jobs get one attempt per firing; the next scheduled run retries from
+fresh database checkpoints. This stage adds no traffic API or CLI commands.
