@@ -154,13 +154,35 @@ def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
         "compress",
         "delaycompress",
         "su root adm",
-        "create 0640 101 adm",
+        "create 0640 :101 adm",
         "sharedscripts",
     ):
         assert f"    {directive}\n" in rendered
     assert "copytruncate" not in rendered
     assert "--format '{{.State.Running}}'" in rendered
     assert 'kill -USR1 "$(cat /var/run/nginx.pid)"' in rendered
+
+
+@pytest.mark.parametrize(
+    "check_mode,install_needed,expected",
+    [(True, True, False), (True, False, True), (False, True, True)],
+)
+def test_rotation_configuration_waits_for_package_installation(
+    check_mode, install_needed, expected
+):
+    tasks = yaml.safe_load((ROLE_DIR / "tasks/logging.yml").read_text())
+    context = AnsibleTemplates(
+        {
+            "ansible_check_mode": check_mode,
+            "blitzecdn_nginx_logrotate_apt": {"changed": install_needed},
+        }
+    )
+    for task in tasks:
+        if (
+            "ansible.builtin.template" in task
+            or "ansible.builtin.systemd_service" in task
+        ):
+            assert context.expression("{{ " + task["when"] + " }}") is expected
 
 
 def test_log_files_are_private_and_workers_can_reopen_them():
