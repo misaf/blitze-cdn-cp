@@ -1,0 +1,15 @@
+# Managed by BlitzeCDN. Set blitzecdn_controlplane_backup_schedule to change
+# when this fires; empty leaves the timer installed but stopped and disabled.
+[Unit]
+Description=Scheduled BlitzeCDN control-plane backup
+
+[Timer]
+{% if blitzecdn_controlplane_backup_schedule | length > 0 %}
+OnCalendar={{ blitzecdn_controlplane_backup_schedule }}
+{% endif %}
+# A run missed while the host was down happens soon after it comes back.
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

@@ -4,6 +4,7 @@ blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type
 blitzecdn	command	blitzecdn backup commit-restore
 blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
 blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
+blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
 blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False

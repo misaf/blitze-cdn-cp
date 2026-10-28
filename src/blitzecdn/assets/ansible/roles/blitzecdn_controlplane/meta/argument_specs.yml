@@ -16,6 +16,19 @@ argument_specs:
       blitzecdn_controlplane_config_dir: {type: path, required: true}
       blitzecdn_controlplane_state_dir: {type: path, required: true}
       blitzecdn_controlplane_backup_dir: {type: path, required: true}
+      blitzecdn_controlplane_backup_schedule:
+        type: str
+        required: true
+        description: >-
+          When the host timer takes a full backup and then prunes the backup
+          directory, as a systemd OnCalendar expression. Empty disables it.
+      blitzecdn_controlplane_backup_retain_count:
+        type: int
+        required: true
+        description: >-
+          Newest archives kept in the backup directory after each scheduled
+          backup. 0 keeps every archive.
+      blitzecdn_controlplane_systemd_dir: {type: path, required: true}
       blitzecdn_controlplane_deploy_user: {type: str, required: true}
       blitzecdn_controlplane_cli_wrapper: {type: path, required: true}
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}

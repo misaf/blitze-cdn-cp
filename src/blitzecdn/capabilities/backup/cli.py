@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.backup.domain import BackupComponent
+from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import (
     build_backup_service,
     build_restore_guard,
@@ -81,6 +82,41 @@ def create(
     )
     created = service.create(only=only, destination=destination)
     typer.echo(f"Backup created: {created}")
+
+
+@backup_app.command("prune")
+def prune(
+    keep: Annotated[
+        int | None,
+        typer.Option(
+            "--keep",
+            min=0,
+            help=(
+                "Keep this many of the newest archives instead of "
+                "BLITZE_BACKUP_RETAIN_COUNT. 0 keeps every archive."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Delete all but the newest archives in the backup directory.
+
+    Only archives named the way 'create' names them are counted or removed;
+    anything else in the directory, and anything written with '--output'
+    elsewhere, is left alone. The scheduled backup runs this after every
+    'create' that succeeds.
+    """
+    settings = common.settings()
+    retain = BackupConfig.from_settings(settings).retain_count if keep is None else keep
+    removed = build_backup_service(
+        settings,
+        configuration=common.installed_features().configuration_contributions(),
+    ).prune(keep=retain)
+    if not retain:
+        typer.echo("Retention is off (keep 0); no archive was removed.")
+        return
+    for path in removed:
+        typer.echo(f"Removed: {path}")
+    typer.echo(f"Kept the newest {retain}; removed {len(removed)}.")
 
 
 @backup_app.command("inspect")

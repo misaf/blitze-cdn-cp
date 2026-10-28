@@ -1,0 +1,15 @@
+# Managed by BlitzeCDN. One full backup, then retention over the backup
+# directory. Run through the CLI wrapper rather than by the worker: the wrapper
+# stages the root-only environment file into the archive, which no container
+# can read for itself.
+[Unit]
+Description=BlitzeCDN control-plane backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Each command runs only if the one before it succeeded, so a failed backup
+# never prunes the archives that are still good.
+ExecStart={{ blitzecdn_controlplane_cli_wrapper }} backup create
+ExecStart={{ blitzecdn_controlplane_cli_wrapper }} backup prune

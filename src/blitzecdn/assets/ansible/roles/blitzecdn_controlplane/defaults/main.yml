@@ -11,6 +11,14 @@ blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
 # /opt/blitzecdn and everything in it, and the one thing that must survive
 # that is the backup taken before it.
 blitzecdn_controlplane_backup_dir: /var/backups/blitzecdn
+# Scheduled full backups, then retention over the backup directory. A systemd
+# timer runs them through the CLI wrapper rather than the worker, because only
+# the wrapper can stage the root-only environment file into the archive. The
+# schedule is a systemd OnCalendar expression; empty disables the timer.
+blitzecdn_controlplane_backup_schedule: daily
+# Newest archives kept after each scheduled backup; 0 keeps every archive.
+blitzecdn_controlplane_backup_retain_count: 7
+blitzecdn_controlplane_systemd_dir: /etc/systemd/system
 blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy

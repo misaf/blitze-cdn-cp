@@ -71,6 +71,10 @@ blitzecdn	schema	AuditEvent.id	integer required
 blitzecdn	schema	AuditEvent.operator	string required
 blitzecdn	schema	AuditEvent.resource_id	string|null optional
 blitzecdn	schema	AuditEvent.resource_type	string required
+blitzecdn	schema	BackupStatistics.last_age_seconds	number|null required
+blitzecdn	schema	BackupStatistics.last_archive	string|null required
+blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
+blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
@@ -248,6 +252,7 @@ blitzecdn	schema	Operation.id	string required
 blitzecdn	schema	Operation.kind	string required
 blitzecdn	schema	Operation.result	object|null optional
 blitzecdn	schema	Operation.status	enum[pending,running,succeeded,failed] required
+blitzecdn	schema	OperationalStatus.backups	BackupStatistics required
 blitzecdn	schema	OperationalStatus.certificates	CertificateStatistics required
 blitzecdn	schema	OperationalStatus.observed_at	string required
 blitzecdn	schema	OperationalStatus.queue	QueueStatistics required
