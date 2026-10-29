@@ -175,6 +175,71 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
     assert not repository.deployment_requirements.pending(kind)
 
 
+def test_a_canary_leaves_the_certificate_requirement_owed(settings, certificate_pair):
+    """A green canary converged only the named edges, so the rest are still owed."""
+    control = certificate_control_plane(settings, runner=FakeRunner())
+    _seed_proxied_record(control)
+    certificate, key = certificate_pair()
+    kind = DeploymentRequirementKind.CERTIFICATES
+    requirements = control.transactions.deployment_requirements
+
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
+    canary = control.deployments.deploy("alice", host_limit="edge-a")
+    assert canary.status is DeploymentStatus.SUCCEEDED
+    assert requirements.pending(kind)
+
+    assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
+    assert not requirements.pending(kind)
+
+
+def test_a_rollback_leaves_the_certificate_requirement_owed(settings, certificate_pair):
+    """A rollback restores a release that may predate the newest material."""
+    control = certificate_control_plane(settings, runner=FakeRunner())
+    _seed_proxied_record(control)
+    kind = DeploymentRequirementKind.CERTIFICATES
+    requirements = control.transactions.deployment_requirements
+
+    certificate, key = certificate_pair(days=40)
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
+    deployed = control.deployments.deploy("alice")
+    assert not requirements.pending(kind)
+
+    certificate, key = certificate_pair(days=80)
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
+    restored = control.deployments.rollback("alice", deployed.id)
+    assert restored.status is DeploymentStatus.SUCCEEDED
+    assert requirements.pending(kind)
+
+
+def test_a_deployment_queued_before_the_material_does_not_satisfy_it(
+    settings, certificate_pair
+):
+    """Its release was compiled before the certificate, so it cannot clear the
+    requirement, and convergence queues a fresh fleet deployment rather than
+    reuse it."""
+    control = certificate_control_plane(settings, runner=FakeRunner())
+    _seed_proxied_record(control)
+    kind = DeploymentRequirementKind.CERTIFICATES
+    requirements = control.transactions.deployment_requirements
+
+    stale = control.deployments.submit_deployment("alice")
+    certificate, key = certificate_pair()
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
+
+    fresh = control.deployments.converge_requirements("alice")
+    assert fresh is not None
+    assert fresh.id != stale.id
+    assert control.deployments.converge_requirements("alice").id == fresh.id
+
+    stale_run = control.deployments.converge(stale, "alice")
+    assert stale_run.status is DeploymentStatus.SUCCEEDED
+    assert requirements.pending(kind)
+
+    fresh_run = control.deployments.converge(fresh, "alice")
+    assert fresh_run.status is DeploymentStatus.SUCCEEDED
+    assert not requirements.pending(kind)
+
+
 @pytest.mark.parametrize(
     ("tls_verified", "expected"),
     [(True, SslMode.FULL_STRICT), (False, SslMode.FULL)],

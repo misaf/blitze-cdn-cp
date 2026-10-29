@@ -229,19 +229,20 @@ class DeploymentService:
     def converge_requirements(self, operator: str) -> Deployment | None:
         """Queue one fleet deployment for pending requirements, or ``None`` if none.
 
-        A requirement clears only when a deployment succeeds, so an already queued fleet
-        deployment is returned rather than a second queued.
+        A requirement clears only when a deployment that can satisfy it succeeds, so an
+        already queued one is returned rather than a second queued. A fleet deployment
+        queued before the requirement compiled older state and cannot satisfy it.
         """
-        if not self.persistence.requirements.pending(
+        requested_at = self.persistence.requirements.requested_at(
             DeploymentRequirementKind.CERTIFICATES
-        ):
+        )
+        if requested_at is None:
             return None
         with self.execution.runner.lock():
             for waiting in self.persistence.deployments.queued_deployments():
                 if (
-                    not waiting.check_mode
-                    and waiting.host_limit is None
-                    and waiting.rollback_of is None
+                    _satisfies_requirement(waiting)
+                    and waiting.created_at >= requested_at
                 ):
                     return waiting
             return self._queue(operator, check=False, enqueue=True)
@@ -557,9 +558,16 @@ class DeploymentService:
                     target_status, now=self.clock(), result=run, error=outcome.error
                 ),
             )
-            if target_status is DeploymentStatus.SUCCEEDED and not check:
+            # A canary leaves other edges behind, and a rollback restores a release
+            # that may predate the material; neither clears the requirement.
+            if target_status is DeploymentStatus.SUCCEEDED and _satisfies_requirement(
+                deployment
+            ):
                 self.persistence.requirements.clear(
-                    DeploymentRequirementKind.CERTIFICATES
+                    DeploymentRequirementKind.CERTIFICATES,
+                    # The release was compiled under the lock before this row, so
+                    # only a requirement raised before it is in the release.
+                    through=deployment.created_at,
                 )
             self.events.record(
                 domain_event(
@@ -618,3 +626,12 @@ class DeploymentService:
     def publish_artifact(self, release: Release, path: Path) -> None:
         """Put a release's artifact, plus its digest, where Ansible reads it."""
         self.execution.write_yaml(path, release.execution_document())
+
+
+def _satisfies_requirement(deployment: Deployment) -> bool:
+    """Whether success means current state reached every edge: a forward fleet run."""
+    return (
+        not deployment.check_mode
+        and deployment.host_limit is None
+        and deployment.rollback_of is None
+    )
