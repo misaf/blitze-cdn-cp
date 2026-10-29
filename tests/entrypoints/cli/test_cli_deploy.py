@@ -15,9 +15,11 @@ from support.control_plane import (
     seed_site,
 )
 
+from blitzecdn.capabilities.deployments import cli as deployments_cli
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.entrypoints.cli import main as cli
 
 
@@ -272,3 +274,55 @@ def test_skip_preflight_is_what_gives_up_the_checks(settings, monkeypatch):
     assert result.exit_code == 0
     # One scripted run was enough, so no preview ran.
     assert "Configuration is valid" not in result.stdout
+
+
+class _BusyRunner(FakeRunner):
+    """A fleet whose deployment lock another run holds for the first ``busy`` tries."""
+
+    def __init__(self, runs, *, busy):
+        super().__init__(runs)
+        self.busy = busy
+
+    def lock(self):
+        if self.busy:
+            self.busy -= 1
+            raise DeploymentBusyError("another deployment is already running")
+        return super().lock()
+
+
+def test_plan_fails_at_once_when_another_run_holds_the_lock(settings, monkeypatch):
+    control = _fleet(
+        settings, monkeypatch, _BusyRunner([ansible_run(host_run("edge-a"))], busy=1)
+    )
+    planned = runner.invoke(cli.app, ["plan", "--json"])
+    # Raised to the entry point, which maps it to exit code BUSY.
+    assert isinstance(planned.exception, DeploymentBusyError)
+    assert control.repository.deployments.list_deployments() == []
+
+
+def test_plan_and_deploy_wait_for_the_lock_when_asked(settings, monkeypatch):
+    monkeypatch.setattr(deployments_cli, "_WAIT_POLL_SECONDS", 0.01)
+    fake = _BusyRunner(
+        [ansible_run(host_run("edge-a")), ansible_run(host_run("edge-a"))], busy=3
+    )
+    control = _fleet(settings, monkeypatch, fake)
+    planned = runner.invoke(cli.app, ["plan", "--wait", "10", "--json"])
+    assert planned.exit_code == 0, planned.output
+    # Refused attempts took the lock before writing, so they left no record.
+    assert len(control.repository.deployments.list_deployments()) == 1
+
+    fake.busy = 3
+    deployed = runner.invoke(
+        cli.app, ["deploy", "--yes", "--skip-preflight", "--wait", "10", "--json"]
+    )
+    assert deployed.exit_code == 0, deployed.output
+    assert len(control.repository.deployments.list_deployments()) == 2
+
+
+def test_waiting_gives_up_after_the_bound(settings, monkeypatch):
+    monkeypatch.setattr(deployments_cli, "_WAIT_POLL_SECONDS", 0.05)
+    fake = _BusyRunner([ansible_run(host_run("edge-a"))], busy=10_000)
+    _fleet(settings, monkeypatch, fake)
+    drifted = runner.invoke(cli.app, ["drift", "--wait", "1", "--json"])
+    # Raised to the entry point, which maps it to exit code BUSY.
+    assert isinstance(drifted.exception, DeploymentBusyError)
