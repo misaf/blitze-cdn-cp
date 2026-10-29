@@ -13,6 +13,8 @@ from typing import Any, NewType, cast
 from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.backup.service import BackupService
+from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
@@ -63,6 +65,9 @@ from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
 )
+from blitzecdn.capabilities.traffic.service.collection import TrafficService
+from blitzecdn.capabilities.traffic.settings import TrafficConfig
+from blitzecdn.capabilities.traffic.wiring import build_traffic_service
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.infrastructure import (
     Adapters,
@@ -104,6 +109,7 @@ class ServiceProvider(Provider):
         repository: Repository,
         certificates: CertificateService,
         workers: WorkerHistory,
+        backups: BackupService,
         adapters: Adapters,
     ) -> DiagnosticsService:
         return DiagnosticsService(
@@ -111,6 +117,7 @@ class ServiceProvider(Provider):
             workflows=repository.workflows,
             certificates=certificates,
             workers=workers,
+            backups=backups,
             clock=adapters.clock,
         )
 
@@ -248,6 +255,30 @@ class ServiceProvider(Provider):
         )
 
     @provide
+    def traffic_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> TrafficConfig:
+        return capability_config.for_feature("traffic").as_model(TrafficConfig)
+
+    @provide
+    def traffic(
+        self,
+        repository: Repository,
+        runner: FleetRunner,
+        traffic_config: TrafficConfig,
+        adapters: Adapters,
+    ) -> TrafficService:
+        return build_traffic_service(
+            store=repository.traffic,
+            fleet=runner,
+            events=repository.audit_log,
+            uow=repository,
+            config=traffic_config,
+            edge_names=lambda: [edge.name for edge in repository.edges.list_edges()],
+            clock=adapters.clock,
+        )
+
+    @provide
     def cache(
         self,
         adapters: Adapters,
@@ -301,6 +332,14 @@ class ServiceProvider(Provider):
         return OperationService(queue=queue, kinds=runs)
 
     # -- TLS ---------------------------------------------------------------
+
+    # -- backup opens no repository; the host timer runs it, diagnostics reads it.
+
+    @provide
+    def backups(self, settings: Settings, features: FeatureRegistry) -> BackupService:
+        return build_backup_service(
+            settings, configuration=features.configuration_contributions()
+        )
 
     @provide
     def certificate_config(
@@ -375,6 +414,8 @@ class ServiceProvider(Provider):
         automatic_ssl: AutomaticSslService,
         certificate_config: CertificateConfig,
         queue_ready: QueueReadiness,
+        traffic: TrafficService,
+        traffic_config: TrafficConfig,
     ) -> Operations:
         """Contributed jobs close over services, so they bind once every
         service exists."""
@@ -388,6 +429,9 @@ class ServiceProvider(Provider):
                     certificate_config=certificate_config,
                     read_database=lambda: repository.workflows.list_workflows(1),
                     queue_ready=queue_ready,
+                    traffic=traffic,
+                    traffic_config=traffic_config,
+                    has_edges=lambda: bool(repository.edges.list_edges()),
                 )
             )
         )

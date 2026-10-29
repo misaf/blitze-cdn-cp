@@ -10,6 +10,7 @@ from blitzecdn.capabilities.dns.api.models import (
     DnsRecord,
     Domain,
     DomainPatch,
+    RecordCreate,
     RecordPatch,
     RecordType,
     ResolvedPolicy,
@@ -20,35 +21,35 @@ from blitzecdn.capabilities.dns.api.models import (
 from blitzecdn.capabilities.dns.domain import PatchPolicy
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
-from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.entrypoints.api.pagination import Page, paginate
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
 )
 
 
-@router.get("/v1/domains", response_model=list[Domain])
-def list_domains(dns: FromDishka[DnsService]) -> list[Domain]:
-    return [Domain.from_domain(item) for item in dns.list_domains()]
+@router.get("/v3/domains", response_model=Page[Domain])
+def list_domains(dns: FromDishka[DnsService]) -> Page[Domain]:
+    return paginate(dns.list_domains(), Domain.from_domain)
 
 
-@router.post("/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
+@router.post("/v3/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
 def create_domain(
     domain: Domain, operator: OperatorDependency, dns: FromDishka[DnsService]
 ) -> Domain:
     return Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
 
 
-@router.get("/v1/domains/{domain}", response_model=Domain)
+@router.get("/v3/domains/{domain}", response_model=Domain)
 def get_domain(domain: str, dns: FromDishka[DnsService]) -> Domain:
     return Domain.from_domain(dns.get_domain(domain))
 
 
-@router.patch("/v1/domains/{domain}", response_model=Domain)
+@router.patch("/v3/domains/{domain}", response_model=Domain)
 def update_domain(
     domain: str,
     patch: DomainPatch,
@@ -60,53 +61,48 @@ def update_domain(
     )
 
 
-@router.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/v3/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_domain(
     domain: str, operator: OperatorDependency, dns: FromDishka[DnsService]
 ) -> None:
     dns.delete_domain(domain, operator)
 
 
-@router.get("/v1/hosts", response_model=list[CdnSite])
-def list_hosts(sites: FromDishka[SiteReader]) -> list[CdnSite]:
+@router.get("/v3/hosts", response_model=Page[CdnSite])
+def list_hosts(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     """The virtual hosts the zones and their rules resolve to; read-only.
 
     Its own collection, because a host belongs to a zone and to whichever rule
     claimed its hostnames. Change it through those.
     """
-    return [CdnSite.from_domain(host) for host in sites.list_sites()]
+    return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
-@router.get("/v1/hosts/{name}", response_model=CdnSite)
+@router.get("/v3/hosts/{name}", response_model=CdnSite)
 def get_host(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
     return CdnSite.from_domain(sites.get_site(name))
 
 
-@router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
-def list_records(domain: str, dns: FromDishka[DnsService]) -> list[DnsRecord]:
-    return [DnsRecord.from_domain(item) for item in dns.list_records(domain)]
+@router.get("/v3/domains/{domain}/records", response_model=Page[DnsRecord])
+def list_records(domain: str, dns: FromDishka[DnsService]) -> Page[DnsRecord]:
+    return paginate(dns.list_records(domain), DnsRecord.from_domain)
 
 
 @router.post(
-    "/v1/domains/{domain}/records",
+    "/v3/domains/{domain}/records",
     response_model=DnsRecord,
     status_code=status.HTTP_201_CREATED,
 )
 def create_record(
     domain: str,
-    record: DnsRecord,
+    record: RecordCreate,
     operator: OperatorDependency,
     dns: FromDishka[DnsService],
 ) -> DnsRecord:
-    if record.domain != domain:
-        raise ConflictError(
-            f"record domain {record.domain!r} does not match the path "
-            f"segment {domain!r}"
-        )
-    return DnsRecord.from_domain(dns.create_record(record.to_domain(), operator))
+    return DnsRecord.from_domain(dns.create_record(record.to_domain(domain), operator))
 
 
-@router.patch("/v1/domains/{domain}/records/{name}", response_model=DnsRecord)
+@router.patch("/v3/domains/{domain}/records/{name}", response_model=DnsRecord)
 def update_record(
     domain: str,
     name: str,
@@ -121,7 +117,7 @@ def update_record(
 
 
 @router.delete(
-    "/v1/domains/{domain}/records/{name}", status_code=status.HTTP_204_NO_CONTENT
+    "/v3/domains/{domain}/records/{name}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_record(
     domain: str,
@@ -133,7 +129,7 @@ def delete_record(
     dns.delete_record(domain, name, type_.to_domain(), operator)
 
 
-@router.get("/v1/dns/export")
+@router.get("/v3/dns/export")
 def dns_export(dns: FromDishka[DnsService]) -> dict[str, Any]:
     """Desired DNS state for whatever is authoritative for these zones.
 
@@ -142,13 +138,13 @@ def dns_export(dns: FromDishka[DnsService]) -> dict[str, Any]:
     return dns.dns_export()
 
 
-@router.get("/v1/domains/{domain}/rules", response_model=list[Rule])
-def list_rules(domain: str, rules: FromDishka[RuleService]) -> list[Rule]:
-    return [Rule.from_domain(item) for item in rules.list_rules(domain)]
+@router.get("/v3/domains/{domain}/rules", response_model=Page[Rule])
+def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
+    return paginate(rules.list_rules(domain), Rule.from_domain)
 
 
 @router.post(
-    "/v1/domains/{domain}/rules",
+    "/v3/domains/{domain}/rules",
     response_model=Rule,
     status_code=status.HTTP_201_CREATED,
 )
@@ -161,12 +157,12 @@ def create_rule(
     return Rule.from_domain(rules.create_rule(rule.to_domain(domain), operator))
 
 
-@router.get("/v1/domains/{domain}/rules/{name}", response_model=Rule)
+@router.get("/v3/domains/{domain}/rules/{name}", response_model=Rule)
 def get_rule(domain: str, name: str, rules: FromDishka[RuleService]) -> Rule:
     return Rule.from_domain(rules.get_rule(domain, name))
 
 
-@router.patch("/v1/domains/{domain}/rules/{name}", response_model=Rule)
+@router.patch("/v3/domains/{domain}/rules/{name}", response_model=Rule)
 def update_rule(
     domain: str,
     name: str,
@@ -180,7 +176,7 @@ def update_rule(
 
 
 @router.delete(
-    "/v1/domains/{domain}/rules/{name}", status_code=status.HTTP_204_NO_CONTENT
+    "/v3/domains/{domain}/rules/{name}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_rule(
     domain: str,
@@ -191,7 +187,7 @@ def delete_rule(
     rules.delete_rule(domain, name, operator)
 
 
-@router.get("/v1/domains/{domain}/resolve", response_model=ResolvedPolicy)
+@router.get("/v3/domains/{domain}/resolve", response_model=ResolvedPolicy)
 def resolve_hostname(
     domain: str,
     hostname: Annotated[

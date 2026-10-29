@@ -17,7 +17,7 @@ from pathlib import Path
 import jinja2
 import pytest
 import yaml
-from support.install import BASH, SCRIPT, _function, _workspace_version
+from support.install import BASH, SCRIPT, script_function, workspace_version
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
@@ -127,7 +127,7 @@ def test_the_bootstrap_installs_the_packages_the_role_requires():
     defaults = yaml.safe_load(
         (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
-    install = _function("ensure_docker")
+    install = script_function("ensure_docker")
     line = re.search(r"apt-get install -y ([^\n]*\\\n[^\n]*)", install)
     assert line is not None
     assert (
@@ -143,17 +143,29 @@ def test_the_bootstrap_installs_the_packages_the_role_requires():
 # --- the pin and the workflow that publishes it -------------------------------
 
 
-def test_the_role_pins_the_published_image_of_its_own_release():
-    """`just release-version` moves this with the version, and the tag publishes it."""
+def test_the_installer_and_the_role_pin_the_published_image_of_their_release():
+    """`just release-version` moves both with the version; the tag publishes it.
+
+    A downloaded install.sh has nothing else to read: its pin is the release.
+    """
     defaults = yaml.safe_load(
         (CONTROL_PLANE_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
-    assert defaults["blitzecdn_controlplane_image"] == (
-        f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
-    )
-    result = _bash("pinned_control_plane_image")
+    assert defaults["blitzecdn_controlplane_image"] == _pin()
+    result = _bash('printf "%s" "${CONTROL_PLANE_IMAGE}"')
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == defaults["blitzecdn_controlplane_image"]
+    assert result.stdout == _pin()
+
+
+def test_the_release_recipe_moves_every_pin_it_finds():
+    justfile = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+    recipe = justfile[justfile.index("release-version version:") :]
+    recipe = recipe[: recipe.index("\n# ---")]
+    assert '"install.sh": (' in recipe
+    script = SCRIPT.read_text(encoding="utf-8")
+    pattern = re.search(r'"install\.sh": \(\n\s+r"(.+)",', recipe)
+    assert pattern is not None
+    assert len(re.findall(pattern.group(1), script)) == 1
 
 
 def test_the_workflow_publishes_the_pinned_repository_from_the_shipped_dockerfile():
@@ -229,13 +241,13 @@ def _calls(engine: Path) -> list[str]:
 
 
 def _pin() -> str:
-    return f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
+    return f"ghcr.io/misaf/blitzecdn-control-plane:{workspace_version()}"
 
 
 def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path):
     digest = "sha256:" + "a" * 64
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={
             "REPO_DIGESTS": (
@@ -254,7 +266,7 @@ def test_an_image_already_present_is_not_pulled_again(engine: Path):
     """A re-run, or a host whose operator loaded the image by hand."""
     (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
 
-    result = _bash("obtain_control_plane_image", path=engine / "bin")
+    result = _bash(f'obtain_control_plane_image "{_pin()}"', path=engine / "bin")
 
     assert result.returncode == 0, result.stderr
     # No registry digest for a loaded image: the reference is kept as given.
@@ -262,29 +274,26 @@ def test_an_image_already_present_is_not_pulled_again(engine: Path):
     assert not any(call.startswith("pull") for call in _calls(engine))
 
 
-def test_an_operator_can_name_a_different_image(engine: Path):
+def test_an_image_named_by_digest_is_pulled_as_named(engine: Path):
     pinned = f"{_pin()}@sha256:{'c' * 64}"
 
-    result = _bash(
-        "obtain_control_plane_image",
-        path=engine / "bin",
-        env={"BLITZECDN_CONTROL_PLANE_IMAGE": pinned},
-    )
+    result = _bash(f'obtain_control_plane_image "{pinned}"', path=engine / "bin")
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"{pinned}\n"
     assert f"pull {pinned}" in _calls(engine)
 
 
-def test_a_failed_pull_is_retried_and_then_names_both_fallbacks(engine: Path):
+def test_a_failed_pull_is_retried_and_then_names_the_fallback(engine: Path):
     result = _bash(
-        "obtain_control_plane_image", path=engine / "bin", env={"PULL_FAILS": "1"}
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"PULL_FAILS": "1"},
     )
 
     assert result.returncode == 1
     assert sum(call.startswith("pull") for call in _calls(engine)) == 3
     assert "BLITZECDN_CONTROL_PLANE_ARCHIVE" in result.stderr
-    assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in result.stderr
     assert result.stdout == ""
 
 
@@ -293,7 +302,7 @@ def test_an_archive_is_loaded_instead_of_pulled(engine: Path, tmp_path: Path):
     archive.touch()
 
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={"BLITZECDN_CONTROL_PLANE_ARCHIVE": str(archive), "LOADED_IMAGE": _pin()},
     )
@@ -309,7 +318,7 @@ def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path
     archive.touch()
 
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={
             "BLITZECDN_CONTROL_PLANE_ARCHIVE": str(archive),
@@ -323,7 +332,7 @@ def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path
 
 def test_the_source_fallback_builds_this_checkout_and_pulls_nothing(engine: Path):
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={"BLITZECDN_CONTROL_PLANE_BUILD": "1"},
     )
@@ -338,6 +347,26 @@ def test_the_source_fallback_builds_this_checkout_and_pulls_nothing(engine: Path
     assert not any(call.startswith("pull") for call in _calls(engine))
 
 
+def test_a_lone_installer_cannot_build_the_image_it_has_no_source_for(
+    engine: Path, tmp_path: Path
+):
+    """A downloaded install.sh sits beside no Dockerfile; say so, build nothing."""
+    lone = tmp_path / "download" / "install.sh"
+    lone.parent.mkdir()
+    lone.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"BLITZECDN_CONTROL_PLANE_BUILD": "1"},
+        script=lone,
+    )
+
+    assert result.returncode == 2
+    assert "source checkout" in result.stderr
+    assert not any(call.startswith("build") for call in _calls(engine))
+
+
 # --- running Ansible from the image -------------------------------------------
 
 
@@ -348,7 +377,7 @@ def test_every_play_runs_in_the_image_against_the_host_through_nsenter():
     plays name the connection themselves so nothing else can run them locally
     inside the container by mistake.
     """
-    body = _function("run_playbook")
+    body = script_function("run_playbook")
     for flag in ("--privileged", "--pid=host", "--network=host", "--user 0:0"):
         assert flag in body
     assert '"${IMAGE_ANSIBLE_DIR}/playbooks/${playbook}"' in body

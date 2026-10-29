@@ -13,12 +13,12 @@ from blitzecdn.composition import Repository
 from support.control_plane import ControlPlane, seed_site
 
 
-def _seed_proxied_record(control: ControlPlane) -> CdnSite:
+def seed_proxied_record(control: ControlPlane) -> CdnSite:
     """The site and routed record most tests need: `example-com`."""
     return seed_site(control)
 
 
-def _await_terminal(
+def await_terminal(
     repository: Repository, deployment_id: str, timeout: float = 5.0
 ) -> DeploymentStatus:
     deadline = time.monotonic() + timeout
@@ -31,13 +31,13 @@ def _await_terminal(
     raise AssertionError(f"deployment {deployment_id} never finished")
 
 
-def _await_workflow(
+def await_workflow(
     repository: Repository, resource_id: str, timeout: float = 5.0
 ) -> WorkflowStatus:
     """Wait for the workflow covering a queued run to close.
 
     The deployment turns terminal inside the convergence and the workflow closes
-    around it, so asserting on the workflow right after `_await_terminal` races.
+    around it, so asserting on the workflow right after `await_terminal` races.
     """
     deadline = time.monotonic() + timeout
     pending = {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}
@@ -49,4 +49,4 @@ def _await_workflow(
     raise AssertionError(f"no workflow for {resource_id} finished")
 
 
-__all__ = ["_await_terminal", "_await_workflow", "_seed_proxied_record"]
+__all__ = ["await_terminal", "await_workflow", "seed_proxied_record"]

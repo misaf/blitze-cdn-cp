@@ -37,7 +37,7 @@ blitzecdn_nginx_resolvers: [127.0.0.11]
 # cannot work is not refused until nginx tries to open it.
 blitzecdn_nginx_sites:
   - name: site-one-test
-    server_names: [site-one.test]
+    server_names: [site-one.test, site-alias.test]
     origin_host: blitzecdn-http3-origin
     origin_request_host: site-one.test
     origin_sni: site-one.test

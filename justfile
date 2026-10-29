@@ -95,6 +95,11 @@ release-version version:
             r"(?m)^(blitzecdn_controlplane_image: .*blitzecdn-control-plane):\S+$",
             r"\1:%s" % version,
         ),
+        # The release a downloaded install.sh installs.
+        "install.sh": (
+            r"(?m)^(readonly CONTROL_PLANE_IMAGE=.*blitzecdn-control-plane):\S+$",
+            r"\1:%s" % version,
+        ),
     }
     for name, (pattern, replacement) in pins.items():
         path = pathlib.Path(name)

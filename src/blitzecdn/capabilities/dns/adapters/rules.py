@@ -2,7 +2,6 @@
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col
 
 from blitzecdn.capabilities.dns.adapters.tables import RuleRow
 from blitzecdn.capabilities.dns.domain import Rule
@@ -18,11 +17,9 @@ class RuleStore:
 
     def list_rules(self, domain: str | None = None) -> list[Rule]:
         """Every rule, in the order hostnames are matched against them (first wins)."""
-        query = select(RuleRow).order_by(
-            col(RuleRow.domain), col(RuleRow.priority), col(RuleRow.name)
-        )
+        query = select(RuleRow).order_by(RuleRow.domain, RuleRow.priority, RuleRow.name)
         if domain is not None:
-            query = query.where(col(RuleRow.domain) == domain)
+            query = query.where(RuleRow.domain == domain)
         with self._db.session() as session:
             return [self._rule(row) for row in session.scalars(query).all()]
 

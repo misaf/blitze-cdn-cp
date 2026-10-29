@@ -1,55 +1,57 @@
-blitzecdn	route	DELETE /v1/domains/{domain}
-blitzecdn	route	DELETE /v1/domains/{domain}/records/{name}
-blitzecdn	route	DELETE /v1/domains/{domain}/rules/{name}
-blitzecdn	route	DELETE /v1/edges/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}
+blitzecdn	route	DELETE /v3/domains/{domain}/records/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
+blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
-blitzecdn	route	GET /v1/audit-events
-blitzecdn	route	GET /v1/certificates
-blitzecdn	route	GET /v1/deployments
-blitzecdn	route	GET /v1/deployments/{deployment_id}
-blitzecdn	route	GET /v1/deployments/{deployment_id}/drift
-blitzecdn	route	GET /v1/deployments/{deployment_id}/targets
-blitzecdn	route	GET /v1/dns/export
-blitzecdn	route	GET /v1/domains
-blitzecdn	route	GET /v1/domains/{domain}
-blitzecdn	route	GET /v1/domains/{domain}/records
-blitzecdn	route	GET /v1/domains/{domain}/resolve
-blitzecdn	route	GET /v1/domains/{domain}/rules
-blitzecdn	route	GET /v1/domains/{domain}/rules/{name}
-blitzecdn	route	GET /v1/edges
-blitzecdn	route	GET /v1/edges/{name}
-blitzecdn	route	GET /v1/hosts
-blitzecdn	route	GET /v1/hosts/{name}
-blitzecdn	route	GET /v1/hosts/{name}/certificate
-blitzecdn	route	GET /v1/hosts/{name}/certificate/preflight
-blitzecdn	route	GET /v1/operations/{operation_id}
-blitzecdn	route	GET /v1/releases
-blitzecdn	route	GET /v1/releases/current
-blitzecdn	route	GET /v1/releases/{release_id}
-blitzecdn	route	GET /v1/releases/{release_id}/artifacts/{name}
-blitzecdn	route	GET /v1/status
-blitzecdn	route	GET /v1/workflows
-blitzecdn	route	GET /v1/workflows/{workflow_id}
-blitzecdn	route	PATCH /v1/domains/{domain}
-blitzecdn	route	PATCH /v1/domains/{domain}/records/{name}
-blitzecdn	route	PATCH /v1/domains/{domain}/rules/{name}
-blitzecdn	route	PATCH /v1/edges/{name}
-blitzecdn	route	POST /v1/cache/purge
-blitzecdn	route	POST /v1/cache/stats
-blitzecdn	route	POST /v1/certificates/reconcile
-blitzecdn	route	POST /v1/certificates/renew
-blitzecdn	route	POST /v1/deployments
-blitzecdn	route	POST /v1/domains
-blitzecdn	route	POST /v1/domains/{domain}/records
-blitzecdn	route	POST /v1/domains/{domain}/rules
-blitzecdn	route	POST /v1/drift
-blitzecdn	route	POST /v1/edges
-blitzecdn	route	POST /v1/hosts/{name}/certificate/request
-blitzecdn	route	POST /v1/hosts/{name}/certificate/upload
-blitzecdn	route	POST /v1/origins/check
-blitzecdn	route	POST /v1/rollbacks
-blitzecdn	route	POST /v1/ssl/automatic/reconcile
+blitzecdn	route	GET /v3/audit-events
+blitzecdn	route	GET /v3/certificates
+blitzecdn	route	GET /v3/deployments
+blitzecdn	route	GET /v3/deployments/{deployment_id}
+blitzecdn	route	GET /v3/deployments/{deployment_id}/drift
+blitzecdn	route	GET /v3/deployments/{deployment_id}/targets
+blitzecdn	route	GET /v3/dns/export
+blitzecdn	route	GET /v3/domains
+blitzecdn	route	GET /v3/domains/{domain}
+blitzecdn	route	GET /v3/domains/{domain}/records
+blitzecdn	route	GET /v3/domains/{domain}/resolve
+blitzecdn	route	GET /v3/domains/{domain}/rules
+blitzecdn	route	GET /v3/domains/{domain}/rules/{name}
+blitzecdn	route	GET /v3/edges
+blitzecdn	route	GET /v3/edges/{name}
+blitzecdn	route	GET /v3/hosts
+blitzecdn	route	GET /v3/hosts/{name}
+blitzecdn	route	GET /v3/hosts/{name}/certificate
+blitzecdn	route	GET /v3/hosts/{name}/certificate/preflight
+blitzecdn	route	GET /v3/operations/{operation_id}
+blitzecdn	route	GET /v3/releases
+blitzecdn	route	GET /v3/releases/current
+blitzecdn	route	GET /v3/releases/{release_id}
+blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
+blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/traffic/status/{edge}
+blitzecdn	route	GET /v3/traffic/usage
+blitzecdn	route	GET /v3/workflows
+blitzecdn	route	GET /v3/workflows/{workflow_id}
+blitzecdn	route	PATCH /v3/domains/{domain}
+blitzecdn	route	PATCH /v3/domains/{domain}/records/{name}
+blitzecdn	route	PATCH /v3/domains/{domain}/rules/{name}
+blitzecdn	route	PATCH /v3/edges/{name}
+blitzecdn	route	POST /v3/cache/purge
+blitzecdn	route	POST /v3/cache/stats
+blitzecdn	route	POST /v3/certificates/reconcile
+blitzecdn	route	POST /v3/certificates/renew
+blitzecdn	route	POST /v3/deployments
+blitzecdn	route	POST /v3/domains
+blitzecdn	route	POST /v3/domains/{domain}/records
+blitzecdn	route	POST /v3/domains/{domain}/rules
+blitzecdn	route	POST /v3/drift
+blitzecdn	route	POST /v3/edges
+blitzecdn	route	POST /v3/hosts/{name}/certificate/request
+blitzecdn	route	POST /v3/hosts/{name}/certificate/upload
+blitzecdn	route	POST /v3/origins/check
+blitzecdn	route	POST /v3/rollbacks
+blitzecdn	route	POST /v3/ssl/automatic/reconcile
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
@@ -69,8 +71,12 @@ blitzecdn	schema	AuditEvent.id	integer required
 blitzecdn	schema	AuditEvent.operator	string required
 blitzecdn	schema	AuditEvent.resource_id	string|null optional
 blitzecdn	schema	AuditEvent.resource_type	string required
-blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.certificate	string required
-blitzecdn	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn	schema	BackupStatistics.last_age_seconds	number|null required
+blitzecdn	schema	BackupStatistics.last_archive	string|null required
+blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
+blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
+blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
+blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional
@@ -118,6 +124,20 @@ blitzecdn	schema	CertificateStatus.not_after	string required
 blitzecdn	schema	CertificateStatus.renewable	boolean required
 blitzecdn	schema	CertificateStatus.site	string required
 blitzecdn	schema	CertificateStatus.source	CertificateSource required
+blitzecdn	schema	CollectionStatus.checked_at	string required
+blitzecdn	schema	CollectionStatus.collection_enabled	boolean required
+blitzecdn	schema	CollectionStatus.edge	string required
+blitzecdn	schema	CollectionStatus.interval_seconds	integer required
+blitzecdn	schema	CollectionStatus.last_attempt_finished_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_attempt_started_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_caught_up_at	string|null optional
+blitzecdn	schema	CollectionStatus.last_error	string|null optional
+blitzecdn	schema	CollectionStatus.last_success_at	string|null optional
+blitzecdn	schema	CollectionStatus.pending	boolean|null optional
+blitzecdn	schema	CollectionStatus.registered	boolean required
+blitzecdn	schema	CollectionStatus.stale	boolean required
+blitzecdn	schema	CollectionStatus.stale_after_seconds	integer required
+blitzecdn	schema	CollectionStatus.state	FreshnessState required
 blitzecdn	schema	DeployRequest.check	boolean optional
 blitzecdn	schema	DeployRequest.host_limit	string|null optional
 blitzecdn	schema	Deployment.canonical_digest	string|null optional
@@ -167,26 +187,26 @@ blitzecdn	schema	Domain.ssl_automatic_mode	SslAutomaticMode optional
 blitzecdn	schema	Domain.ssl_mode	SslMode optional
 blitzecdn	schema	Domain.under_attack_mode	boolean optional
 blitzecdn	schema	Domain.visitor_headers	ZoneVisitorHeaders optional
-blitzecdn	schema	DomainPatch.always_use_https	boolean|null optional
-blitzecdn	schema	DomainPatch.cache_enabled	boolean|null optional
-blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode|null optional
-blitzecdn	schema	DomainPatch.cache_valid_not_found	string|null optional
-blitzecdn	schema	DomainPatch.cache_valid_success	string|null optional
+blitzecdn	schema	DomainPatch.always_use_https	boolean optional
+blitzecdn	schema	DomainPatch.cache_enabled	boolean optional
+blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode optional
+blitzecdn	schema	DomainPatch.cache_valid_not_found	string optional
+blitzecdn	schema	DomainPatch.cache_valid_success	string optional
 blitzecdn	schema	DomainPatch.certificate_key_path	string|null optional
-blitzecdn	schema	DomainPatch.certificate_mode	CertificateMode|null optional
+blitzecdn	schema	DomainPatch.certificate_mode	CertificateMode optional
 blitzecdn	schema	DomainPatch.certificate_path	string|null optional
-blitzecdn	schema	DomainPatch.compression	CompressionMode|null optional
-blitzecdn	schema	DomainPatch.enabled	boolean|null optional
-blitzecdn	schema	DomainPatch.firewall	ZoneFirewall|null optional
-blitzecdn	schema	DomainPatch.http3_enabled	boolean|null optional
-blitzecdn	schema	DomainPatch.max_upload_size	MaxUploadSize|null optional
-blitzecdn	schema	DomainPatch.minimum_tls_version	MinimumTlsVersion|null optional
+blitzecdn	schema	DomainPatch.compression	CompressionMode optional
+blitzecdn	schema	DomainPatch.enabled	boolean optional
+blitzecdn	schema	DomainPatch.firewall	ZoneFirewall optional
+blitzecdn	schema	DomainPatch.http3_enabled	boolean optional
+blitzecdn	schema	DomainPatch.max_upload_size	MaxUploadSize optional
+blitzecdn	schema	DomainPatch.minimum_tls_version	MinimumTlsVersion optional
 blitzecdn	schema	DomainPatch.origin_request_host	string|null optional
 blitzecdn	schema	DomainPatch.origin_sni	string|null optional
-blitzecdn	schema	DomainPatch.ssl_automatic_mode	SslAutomaticMode|null optional
-blitzecdn	schema	DomainPatch.ssl_mode	SslMode|null optional
-blitzecdn	schema	DomainPatch.under_attack_mode	boolean|null optional
-blitzecdn	schema	DomainPatch.visitor_headers	ZoneVisitorHeaders|null optional
+blitzecdn	schema	DomainPatch.ssl_automatic_mode	SslAutomaticMode optional
+blitzecdn	schema	DomainPatch.ssl_mode	SslMode optional
+blitzecdn	schema	DomainPatch.under_attack_mode	boolean optional
+blitzecdn	schema	DomainPatch.visitor_headers	ZoneVisitorHeaders optional
 blitzecdn	schema	DriftReport.checked_at	string required
 blitzecdn	schema	DriftReport.deployment_id	string required
 blitzecdn	schema	DriftReport.host_limit	string|null optional
@@ -202,13 +222,12 @@ blitzecdn	schema	Edge.public_addresses	array[string] optional
 blitzecdn	schema	Edge.ssh_sources	array[string] optional
 blitzecdn	schema	Edge.user	string optional
 blitzecdn	schema	EdgePatch.capabilities	array[string]|null optional
-blitzecdn	schema	EdgePatch.host	string|null optional
-blitzecdn	schema	EdgePatch.port	integer|null optional
+blitzecdn	schema	EdgePatch.host	string optional
+blitzecdn	schema	EdgePatch.port	integer optional
 blitzecdn	schema	EdgePatch.private_key_file	string|null optional
-blitzecdn	schema	EdgePatch.public_addresses	array[string]|null optional
-blitzecdn	schema	EdgePatch.ssh_sources	array[string]|null optional
-blitzecdn	schema	EdgePatch.user	string|null optional
-blitzecdn	schema	HTTPValidationError.detail	array[ValidationError] optional
+blitzecdn	schema	EdgePatch.public_addresses	array[string] optional
+blitzecdn	schema	EdgePatch.ssh_sources	array[string] optional
+blitzecdn	schema	EdgePatch.user	string optional
 blitzecdn	schema	HostExplanation.host	string required
 blitzecdn	schema	HostExplanation.origin_host	string required
 blitzecdn	schema	HostExplanation.rule	string|null optional
@@ -233,6 +252,7 @@ blitzecdn	schema	Operation.id	string required
 blitzecdn	schema	Operation.kind	string required
 blitzecdn	schema	Operation.result	object|null optional
 blitzecdn	schema	Operation.status	enum[pending,running,succeeded,failed] required
+blitzecdn	schema	OperationalStatus.backups	BackupStatistics required
 blitzecdn	schema	OperationalStatus.certificates	CertificateStatistics required
 blitzecdn	schema	OperationalStatus.observed_at	string required
 blitzecdn	schema	OperationalStatus.queue	QueueStatistics required
@@ -241,6 +261,54 @@ blitzecdn	schema	OperationalStatus.worker_stale_after_seconds	integer optional
 blitzecdn	schema	OperationalStatus.workers	array[WorkerStatus] required
 blitzecdn	schema	OperationalStatus.workflows	WorkflowStatistics required
 blitzecdn	schema	OriginCheckRequest.host_limit	string|null optional
+blitzecdn	schema	Page_AuditEvent_.items	array[AuditEvent] required
+blitzecdn	schema	Page_AuditEvent_.limit	integer required
+blitzecdn	schema	Page_AuditEvent_.offset	integer required
+blitzecdn	schema	Page_AuditEvent_.total	integer required
+blitzecdn	schema	Page_CdnSite_.items	array[CdnSite] required
+blitzecdn	schema	Page_CdnSite_.limit	integer required
+blitzecdn	schema	Page_CdnSite_.offset	integer required
+blitzecdn	schema	Page_CdnSite_.total	integer required
+blitzecdn	schema	Page_CertificateStatus_.items	array[CertificateStatus] required
+blitzecdn	schema	Page_CertificateStatus_.limit	integer required
+blitzecdn	schema	Page_CertificateStatus_.offset	integer required
+blitzecdn	schema	Page_CertificateStatus_.total	integer required
+blitzecdn	schema	Page_DeploymentTarget_.items	array[DeploymentTarget] required
+blitzecdn	schema	Page_DeploymentTarget_.limit	integer required
+blitzecdn	schema	Page_DeploymentTarget_.offset	integer required
+blitzecdn	schema	Page_DeploymentTarget_.total	integer required
+blitzecdn	schema	Page_Deployment_.items	array[Deployment] required
+blitzecdn	schema	Page_Deployment_.limit	integer required
+blitzecdn	schema	Page_Deployment_.offset	integer required
+blitzecdn	schema	Page_Deployment_.total	integer required
+blitzecdn	schema	Page_DnsRecord_.items	array[DnsRecord] required
+blitzecdn	schema	Page_DnsRecord_.limit	integer required
+blitzecdn	schema	Page_DnsRecord_.offset	integer required
+blitzecdn	schema	Page_DnsRecord_.total	integer required
+blitzecdn	schema	Page_Domain_.items	array[Domain] required
+blitzecdn	schema	Page_Domain_.limit	integer required
+blitzecdn	schema	Page_Domain_.offset	integer required
+blitzecdn	schema	Page_Domain_.total	integer required
+blitzecdn	schema	Page_Edge_.items	array[Edge] required
+blitzecdn	schema	Page_Edge_.limit	integer required
+blitzecdn	schema	Page_Edge_.offset	integer required
+blitzecdn	schema	Page_Edge_.total	integer required
+blitzecdn	schema	Page_Release_.items	array[Release] required
+blitzecdn	schema	Page_Release_.limit	integer required
+blitzecdn	schema	Page_Release_.offset	integer required
+blitzecdn	schema	Page_Release_.total	integer required
+blitzecdn	schema	Page_Rule_.items	array[Rule] required
+blitzecdn	schema	Page_Rule_.limit	integer required
+blitzecdn	schema	Page_Rule_.offset	integer required
+blitzecdn	schema	Page_Rule_.total	integer required
+blitzecdn	schema	Page_TrafficUsage_.items	array[TrafficUsage] required
+blitzecdn	schema	Page_TrafficUsage_.limit	integer required
+blitzecdn	schema	Page_TrafficUsage_.offset	integer required
+blitzecdn	schema	Page_TrafficUsage_.total	integer required
+blitzecdn	schema	Page_Workflow_.items	array[Workflow] required
+blitzecdn	schema	Page_Workflow_.limit	integer required
+blitzecdn	schema	Page_Workflow_.offset	integer required
+blitzecdn	schema	Page_Workflow_.total	integer required
 blitzecdn	schema	PreflightCheck.detail	string required
 blitzecdn	schema	PreflightCheck.name	string required
 blitzecdn	schema	PreflightCheck.passed	boolean required
@@ -261,9 +329,14 @@ blitzecdn	schema	ReconciliationResult.deployment	Deployment|null optional
 blitzecdn	schema	ReconciliationResult.failed	object optional
 blitzecdn	schema	ReconciliationResult.issued	array[string] optional
 blitzecdn	schema	ReconciliationResult.skipped	object optional
-blitzecdn	schema	RecordPatch.proxied	boolean|null optional
-blitzecdn	schema	RecordPatch.ttl	integer|null optional
-blitzecdn	schema	RecordPatch.value	string|null optional
+blitzecdn	schema	RecordCreate.name	string required
+blitzecdn	schema	RecordCreate.proxied	boolean optional
+blitzecdn	schema	RecordCreate.ttl	integer optional
+blitzecdn	schema	RecordCreate.type	enum[A,AAAA] optional
+blitzecdn	schema	RecordCreate.value	string required
+blitzecdn	schema	RecordPatch.proxied	boolean optional
+blitzecdn	schema	RecordPatch.ttl	integer optional
+blitzecdn	schema	RecordPatch.value	string optional
 blitzecdn	schema	Release.artifacts	array[ArtifactDigest] optional
 blitzecdn	schema	Release.capabilities	array[string] optional
 blitzecdn	schema	Release.compiler_version	integer required
@@ -306,10 +379,10 @@ blitzecdn	schema	RuleCreate.match	string optional
 blitzecdn	schema	RuleCreate.name	string required
 blitzecdn	schema	RuleCreate.overrides	DomainPatch required
 blitzecdn	schema	RuleCreate.priority	integer optional
-blitzecdn	schema	RulePatch.enabled	boolean|null optional
-blitzecdn	schema	RulePatch.match	string|null optional
-blitzecdn	schema	RulePatch.overrides	DomainPatch|null optional
-blitzecdn	schema	RulePatch.priority	integer|null optional
+blitzecdn	schema	RulePatch.enabled	boolean optional
+blitzecdn	schema	RulePatch.match	string optional
+blitzecdn	schema	RulePatch.overrides	DomainPatch optional
+blitzecdn	schema	RulePatch.priority	integer optional
 blitzecdn	schema	SettingSource.origin	SettingOrigin required
 blitzecdn	schema	SettingSource.rule	string|null optional
 blitzecdn	schema	SettingSource.setting	string required
@@ -324,11 +397,16 @@ blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required
 blitzecdn	schema	TaskResult.role	string|null optional
 blitzecdn	schema	TaskResult.task	string required
-blitzecdn	schema	ValidationError.ctx	object optional
-blitzecdn	schema	ValidationError.input	any optional
-blitzecdn	schema	ValidationError.loc	array[string|integer] required
-blitzecdn	schema	ValidationError.msg	string required
-blitzecdn	schema	ValidationError.type	string required
+blitzecdn	schema	TrafficUsage.body_bytes_sent	integer required
+blitzecdn	schema	TrafficUsage.bytes_sent	integer required
+blitzecdn	schema	TrafficUsage.edge	string required
+blitzecdn	schema	TrafficUsage.hostname	string required
+blitzecdn	schema	TrafficUsage.hour	string required
+blitzecdn	schema	TrafficUsage.requests	integer required
+blitzecdn	schema	ValidationErrorResponse.detail	array[ValidationIssue] required
+blitzecdn	schema	ValidationIssue.loc	array[string|integer] required
+blitzecdn	schema	ValidationIssue.msg	string required
+blitzecdn	schema	ValidationIssue.type	string required
 blitzecdn	schema	WorkerStatus.current_job_age_seconds	number|null optional
 blitzecdn	schema	WorkerStatus.current_job_id	string|null optional
 blitzecdn	schema	WorkerStatus.current_kind	string|null optional

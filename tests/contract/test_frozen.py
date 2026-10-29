@@ -65,7 +65,7 @@ def test_every_surface_found_something_to_freeze(settings):
     """The failure mode a golden file cannot catch on its own.
 
     Each generator reaches into framework internals (Typer's click tree, FastAPI's
-    router wrappers, SQLModel's metadata). One that stopped finding anything would
+    router wrappers, SQLAlchemy's metadata). One that stopped finding anything would
     match an empty golden, so each surface has a loose floor.
     """
     floors = {

@@ -1,4 +1,4 @@
-"""`/v1/cache/*`, over the real application.
+"""`/v3/cache/*`, over the real application.
 
 Built with `create_app`, so a route that stopped being contributed would 404.
 """
@@ -17,20 +17,22 @@ from blitzecdn.entrypoints.api import create_app
 _HEADERS = {"X-API-Key": "x" * 32}
 
 
-def _proxied_site(client, domain_payload, record_payload):
-    client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+def _proxied_site(client, domain_payload, record_create_payload):
+    client.post("/v3/domains", json=domain_payload, headers=_HEADERS)
     client.post(
-        "/v1/domains/example.com/records",
-        json={**record_payload, "proxied": True},
+        "/v3/domains/example.com/records",
+        json={**record_create_payload, "proxied": True},
         headers=_HEADERS,
     )
-    return client.get("/v1/hosts", headers=_HEADERS).json()[0]["server_names"][0]
+    return client.get("/v3/hosts", headers=_HEADERS).json()["items"][0]["server_names"][
+        0
+    ]
 
 
 def test_purging_a_hostname_no_site_serves_is_a_404(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            "/v1/cache/purge",
+            "/v3/cache/purge",
             json={"entries": [{"host": "nothing.example.com", "uri": "/x"}]},
             headers=_HEADERS,
         )
@@ -40,14 +42,14 @@ def test_purging_a_hostname_no_site_serves_is_a_404(settings):
 def test_an_empty_purge_request_is_a_409(settings):
     """Neither entries nor purge_all: refused rather than reported as done."""
     with TestClient(create_app(settings)) as client:
-        response = client.post("/v1/cache/purge", json={}, headers=_HEADERS)
+        response = client.post("/v3/cache/purge", json={}, headers=_HEADERS)
         assert response.status_code == 409
 
 
 def test_purging_everything_and_entries_at_once_is_a_409(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            "/v1/cache/purge",
+            "/v3/cache/purge",
             json={
                 "purge_all": True,
                 "entries": [{"host": "cdn.example.com", "uri": "/x"}],
@@ -60,7 +62,7 @@ def test_purging_everything_and_entries_at_once_is_a_409(settings):
 def test_a_purge_uri_that_is_not_a_path_is_a_422(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            "/v1/cache/purge",
+            "/v3/cache/purge",
             json={"entries": [{"host": "cdn.example.com", "uri": "app.js"}]},
             headers=_HEADERS,
         )
@@ -70,7 +72,7 @@ def test_a_purge_uri_that_is_not_a_path_is_a_422(settings):
 def test_a_purge_host_limit_that_could_widen_is_a_422(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            "/v1/cache/purge",
+            "/v3/cache/purge",
             json={"purge_all": True, "host_limit": "edge-a:!edge-b"},
             headers=_HEADERS,
         )
@@ -79,7 +81,7 @@ def test_a_purge_host_limit_that_could_widen_is_a_422(settings):
 
 def _purge(client):
     return client.post(
-        "/v1/cache/purge",
+        "/v3/cache/purge",
         # The derived site has no certificate, so it serves http and only an
         # http entry could have been cached.
         json={
@@ -104,7 +106,7 @@ def test_a_purge_is_queued_and_its_result_is_read_from_the_operation(
 
         run_queued_operations(control)
         operation = client.get(
-            f"/v1/operations/{queued.json()['id']}", headers=_HEADERS
+            f"/v3/operations/{queued.json()['id']}", headers=_HEADERS
         ).json()
 
     assert operation["status"] == "succeeded"
@@ -129,7 +131,7 @@ def test_a_partial_purge_still_carries_the_whole_result(settings, seeded, monkey
         queued = _purge(client)
         run_queued_operations(control)
         result = client.get(
-            f"/v1/operations/{queued.json()['id']}", headers=_HEADERS
+            f"/v3/operations/{queued.json()['id']}", headers=_HEADERS
         ).json()["result"]
 
     assert result["complete"] is False
@@ -146,7 +148,7 @@ def test_the_purge_result_keeps_its_shape(settings, seeded, monkeypatch):
         queued = _purge(client)
         run_queued_operations(control)
         result = client.get(
-            f"/v1/operations/{queued.json()['id']}", headers=_HEADERS
+            f"/v3/operations/{queued.json()['id']}", headers=_HEADERS
         ).json()["result"]
 
     assert " ".join(sorted(result)) == (
@@ -162,6 +164,6 @@ def test_a_deployment_job_is_not_an_operation(settings, seeded, monkeypatch):
     serve(monkeypatch, control)
 
     with TestClient(create_app(settings)) as client:
-        response = client.get(f"/v1/operations/{job.id}", headers=_HEADERS)
+        response = client.get(f"/v3/operations/{job.id}", headers=_HEADERS)
 
     assert response.status_code == 404

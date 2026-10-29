@@ -380,13 +380,23 @@ def test_domain_models_do_not_render_adapter_documents():
 #: belong to serving. A capability whose contract a zone carries depends on dns
 #: for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
+    "traffic": set(),
     "backup": set(),
     "origins": {"edges", "jobs", "serving"},
     "cache": {"dns", "jobs", "serving"},
     "compression": {"dns"},
     "deployments": {"dns", "edges", "releases", "serving", "workflows"},
     # Readiness and metrics read the state these own.
-    "diagnostics": {"deployments", "dns", "edges", "jobs", "tls", "workflows"},
+    # `backup` for the last-backup record the status report and metrics carry.
+    "diagnostics": {
+        "backup",
+        "deployments",
+        "dns",
+        "edges",
+        "jobs",
+        "tls",
+        "workflows",
+    },
     "dns": {"serving"},
     "edges": {"jobs", "serving"},
     "hardening": set(),
@@ -414,6 +424,7 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 # Policy composition is independent of implementation dependencies: serving
 # composes the individual contracts and dns consumes it.
 ALLOWED_CONTRACT_DEPENDENCIES = {
+    "traffic": set(),
     "backup": set(),
     "origins": set(),
     "cache": {"http"},

@@ -14,12 +14,12 @@ from typing import Any
 import yaml
 from support.contracts import (
     STACK_ROLE_DIR,
-    _ansible_jinja,
-    _resolve,
-    _role_defaults,
-    _runtime_defaults,
+    ansible_jinja,
     jinja2,
+    resolve,
+    role_defaults,
     run_role_tasks,
+    runtime_defaults,
 )
 
 from blitzecdn.capabilities.security.geoip import ansible
@@ -34,18 +34,18 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
 
     Every path is an expression over `blitzecdn_edge_runtime`.
     """
-    context = _runtime_defaults() | yaml.safe_load(
+    context = runtime_defaults() | yaml.safe_load(
         (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
     context |= overrides
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         plain = {
             name: value
             for name, value in context.items()
             if name != "blitzecdn_edge_runtime"
         }
-        resolved = _resolve(plain, context, environment)
+        resolved = resolve(plain, context, environment)
         if resolved == plain:
             break
         context |= resolved
@@ -79,7 +79,7 @@ def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
 
     Without the mount every country lookup stops and the edge will not start.
     """
-    data = _runtime_defaults()["blitzecdn_edge_runtime"]["paths"]["data"]
+    data = runtime_defaults()["blitzecdn_edge_runtime"]["paths"]["data"]
     compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
     assert "- {{ blitzecdn_edge_runtime.paths.data }}:" in compose
     assert f"{data}:{data}:ro" in _render_data_mounts()
@@ -87,7 +87,7 @@ def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
 
 def _render_data_mounts() -> str:
     """Core's configuration-test mounts, resolved to real paths."""
-    return "\n".join(_role_defaults()["blitzecdn_nginx_config_test_volumes"])
+    return "\n".join(role_defaults()["blitzecdn_nginx_config_test_volumes"])
 
 
 def test_the_snippet_defines_the_variable_the_site_template_reads():
@@ -107,7 +107,7 @@ def test_maxmind_credentials_never_reach_an_nginx_config():
     /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only the
     database path.
     """
-    environment = _ansible_jinja(
+    environment = ansible_jinja(
         loader=jinja2.FileSystemLoader([NGINX, ROLE / "templates"]),
         keep_trailing_newline=True,
     )

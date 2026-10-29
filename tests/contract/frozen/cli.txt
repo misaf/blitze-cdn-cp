@@ -4,6 +4,7 @@ blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type
 blitzecdn	command	blitzecdn backup commit-restore
 blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
 blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
+blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
 blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
@@ -18,7 +19,7 @@ blitzecdn	command	blitzecdn cert upload	<name> type=str required --certificate t
 blitzecdn	command	blitzecdn config list	--json type=boolean default=False
 blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
 blitzecdn	command	blitzecdn config unset	<name> type=str required
-blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --wait type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
 blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
@@ -40,7 +41,7 @@ blitzecdn	command	blitzecdn domain ssl	<name> type=str required --mode type=choi
 blitzecdn	command	blitzecdn domain ssl-automatic	<name> type=str required --mode type=choice[auto,custom] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain under-attack	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain visitor-headers	<name> type=str required --connecting-ip/--no-connecting-ip type=boolean --ip-country/--no-ip-country type=boolean --json type=boolean default=False
-blitzecdn	command	blitzecdn drift	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn drift	--limit type=str --wait type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn edge add	<name> type=str required --host type=str required --ssh-source type=str required --public-address type=str --user type=str default='deploy' --port type=int range default=22 --private-key-file type=str --capability type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn edge image spec	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge list	--json type=boolean default=False
@@ -54,7 +55,7 @@ blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=bool
 blitzecdn	command	blitzecdn migrate
 blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn overview	--json type=boolean default=False
-blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn plan	--limit type=str --wait type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str required --proxy/--no-proxy type=boolean default=True --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
 blitzecdn	command	blitzecdn record list	<domain> type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn record proxy	<domain> type=str required <name> type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
@@ -76,4 +77,6 @@ blitzecdn	command	blitzecdn setup
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
 blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
+blitzecdn	command	blitzecdn traffic status	<edge> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn traffic usage	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn validate	--json type=boolean default=False

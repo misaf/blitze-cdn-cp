@@ -281,6 +281,65 @@ brotli=$("${client[@]}" --http2 -H 'Accept-Encoding: br' -D - -o /dev/null https
 printf '%s' "${brotli}"
 grep -qi 'content-encoding: br' <<<"${brotli}"
 
+say "Hostname access/error isolation and log rotation"
+alias_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS)
+"${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+  -A 'quoted" backslash\ client' \
+  -o /dev/null https://site-alias.test/hostname-access-probe
+# Flexible mode uses TLS to the origin on alternate HTTPS ports. The test
+# origin has no listener on 2053, so this deliberately produces an upstream
+# failure in the alias's server block without changing the running edge.
+alias_error=$("${alias_client[@]}" --resolve "site-alias.test:2053:${edge_ip}" \
+  -o /dev/null -w '%{http_code}' https://site-alias.test:2053/hostname-error-probe)
+[[ "${alias_error}" == 502 ]] || fail "the alias did not produce the expected upstream failure"
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge "! grep -q 'hostname-access-probe' /var/log/nginx/domains/site-one.test.access.log"
+in_edge "grep -q 'hostname-error-probe' /var/log/nginx/domains/site-alias.test.error.log"
+in_edge "! grep -q 'hostname-error-probe' /var/log/nginx/domains/site-one.test.error.log"
+log_identity=$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')
+in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-domains'
+[[ "$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')" == "${log_identity}" ]] ||
+  fail "rotation changed hostname log ownership or permissions"
+# Reopening happens asynchronously in the workers after the master is signalled.
+for _attempt in {1..10}; do
+  "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+    -o /dev/null https://site-alias.test/hostname-after-rotation
+  if in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"; then
+    break
+  fi
+  sleep 1
+done
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log.1"
+in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.error.log.1'
+
+say "Structured hostname records contain numeric visitor byte counters"
+docker exec -i "${edge}" python3 - <<'PY'
+import json
+from datetime import datetime
+from pathlib import Path
+
+root = Path('/var/log/nginx/domains')
+for hostname in ('site-one.test', 'site-alias.test'):
+    records = [
+        json.loads(line)
+        for path in root.glob(hostname + '.access.log*')
+        for line in path.read_text().splitlines()
+    ]
+    assert records, hostname
+    for record in records:
+        assert record['schema_version'] == 1
+        assert record['hostname'] == hostname
+        assert datetime.fromisoformat(record['timestamp']).tzinfo is not None
+        for key in ('bytes_sent', 'body_bytes_sent'):
+            assert type(record[key]) is int and record[key] >= 0
+        assert type(record['status']) is int
+    assert sum(record['bytes_sent'] for record in records) > 0
+    if hostname == 'site-alias.test':
+        probe = next(r for r in records if '/hostname-access-probe ' in r['request'])
+        assert probe['user_agent'] == 'quoted" backslash\\ client'
+PY
+
 # --------------------------------------------------------------------------
 # HTTP-01
 # --------------------------------------------------------------------------
@@ -411,6 +470,10 @@ in_edge 'test -s /etc/blitzecdn/tls/integration.key' ||
   fail "a runtime teardown destroyed the TLS material"
 in_edge 'test -d /var/cache/nginx/blitzecdn' ||
   fail "a runtime teardown destroyed the cache"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.access.log.1' ||
+  fail "a runtime teardown destroyed retained hostname logs"
+in_edge '! test -e /etc/logrotate.d/blitzecdn-domains' ||
+  fail "a runtime teardown left the log rotation policy"
 
 say "Destroying the persistent state on request"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml"

@@ -44,7 +44,7 @@ def test_the_shipped_registry_includes_it() -> None:
 def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None:
     """The command reads `blitzecdn origin check`."""
     routes = {route.path for router in FEATURE.api_routers for route in router.routes}
-    assert routes == {"/v1/origins/check"}
+    assert routes == {"/v3/origins/check"}
 
     groups = FEATURE.cli_commands
     assert [group.name for group in groups] == ["origin"]

@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from blitzecdn.core.domain.audit import AuditEvent
 from blitzecdn.core.domain.events import DomainEvent
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 
 
@@ -13,6 +14,10 @@ class AuditTrail(Protocol):
     """The append-only operator log, read-only; services write via `EventRecorder`."""
 
     def get_audit_event(self, event_id: int) -> AuditEvent: ...
+
+    def paginate_audit_events(
+        self, *, limit: int, offset: int
+    ) -> PageResult[AuditEvent]: ...
 
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]: ...
 

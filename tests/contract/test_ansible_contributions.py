@@ -203,8 +203,8 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
         raise AssertionError("stop after the environment is built")
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    monkeypatch.setenv("BLITZE_API_KEYS", "operator:" + "k" * 40)
-    monkeypatch.setenv("BLITZE_API_KEY", "k" * 40)
+    monkeypatch.setenv("BLITZE_API_KEYS", "operator:" + "0123456789abcdef" * 3)
+    monkeypatch.setenv("BLITZE_API_KEY", "fedcba9876543210" * 3)
     monkeypatch.setenv("BLITZE_SOMETHING_UNCLAIMED", "1")
     monkeypatch.setenv("SSH_AUTH_SOCK", "/run/user/1000/agent.sock")
     runner = ansible.AnsibleRunner(

@@ -29,6 +29,16 @@ class CertificateStatistics(BaseModel):
     next_expiry_at: datetime | None
 
 
+class BackupStatistics(BaseModel):
+    """The last full backup recorded on this controller, or all ``None``."""
+
+    model_config = ConfigDict(frozen=True)
+    last_completed_at: datetime | None
+    last_age_seconds: float | None
+    last_archive: str | None
+    last_size_bytes: int | None
+
+
 class OperationalStatus(BaseModel):
     model_config = ConfigDict(frozen=True)
     observed_at: datetime
@@ -38,3 +48,4 @@ class OperationalStatus(BaseModel):
     unreadable_worker_records: int
     worker_stale_after_seconds: int = WORKER_STALE_SECONDS
     certificates: CertificateStatistics
+    backups: BackupStatistics

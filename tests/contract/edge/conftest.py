@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 from support.control_plane import build_application
-from support.edge_render import _seed_site
+from support.edge_render import seed_site
 
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
@@ -28,7 +28,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
-    _seed_site(
+    seed_site(
         repository,
         name="example-com",
         label="cdn",
@@ -44,7 +44,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             "cache_valid_not_found": "1m",
         },
     )
-    _seed_site(
+    seed_site(
         repository,
         name="static-example-com",
         label="static",

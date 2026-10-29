@@ -5,9 +5,11 @@ state, compiles releases, and uses Ansible to provision and converge remote
 Linux hosts running the containerized edge runtime.
 
 The backend is a modular monolith: FastAPI and Typer expose the same application
-services, Dishka assembles dependencies, and SQLModel/SQLAlchemy with Alembic
+services, Dishka assembles dependencies, and SQLAlchemy with Alembic
 provide persistence. Background work uses a durable SQLite queue; no separate
 message broker is required.
+
+Collection endpoints share the [pagination contract](docs/api-pagination.md).
 
 ## Local development
 
@@ -41,6 +43,16 @@ just serve                  # API on port 8000; OpenAPI UI at /docs
 ```sh
 uv run blitzecdn-worker      # Schedule and consume durable jobs
 ```
+
+Control endpoints use `/v3`, independently of the application release version.
+Legacy `/v1` and `/v2` contracts are not served by this application. `/docs`
+and `/openapi.json` describe the current API; `/health` and `/metrics` remain
+unversioned. See [request defaults](docs/api-defaults.md) for creation values,
+PATCH semantics, inheritance, and operation scope.
+See [queued API work](docs/queued-operations.md) for submission responses,
+polling headers, and result handling.
+Existing clients should follow the [v2 to v3 migration guide](docs/migration-v2-v3.md)
+before changing their API prefix.
 
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with

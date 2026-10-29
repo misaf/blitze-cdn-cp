@@ -6,9 +6,9 @@
 {% set max_upload_size = item.max_upload_size | default('100m') %}
 {% set visitor_headers = item.visitor_headers | default({}, true) or {} %}
 {% set connecting_ip = visitor_headers.connecting_ip | default(true) %}
-{% macro fragments(context, listener_port, visitor_scheme, redirect_https=false) %}
+{% macro fragments(context, listener_port, visitor_scheme, redirect_https=false, first_hostname=true) %}
 {% for resource in blitzecdn_nginx_resources[context] | default([]) %}
-{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false}) }}
+{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false, 'first_hostname': first_hostname}) }}
 {% endfor %}
 {% endmacro %}
 {% macro proxy(listener_port, visitor_scheme='http') %}
@@ -80,17 +80,25 @@
 {% endif %}
     }
 {% endmacro %}
+{% for hostname in item.server_names %}
+{% set first_hostname = loop.first %}
+{% set log_name = hostname | replace('*', '_wildcard') %}
 {% for port in blitzecdn_edge_runtime.listeners.http %}
 server {
     listen {{ port }};
     listen [::]:{{ port }};
-    server_name {{ item.server_names | join(' ') }};
+    server_name {{ hostname }};
     client_max_body_size {{ max_upload_size }};
+    error_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.error.log warn;
+    error_log /dev/stderr warn;
 {% if blitzecdn_nginx_access_log_enabled | bool %}
+    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }}_json;
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
+{% else %}
+    access_log off;
 {% endif %}
-{{ fragments('server', port, 'http', tls and (item.always_use_https | default(false))) }}
+{{ fragments('server', port, 'http', tls and (item.always_use_https | default(false)), first_hostname) }}
     location ^~ /.well-known/acme-challenge/ {
         root {{ blitzecdn_edge_runtime.paths.acme }};
         default_type text/plain;
@@ -106,13 +114,18 @@ server {
     listen {{ port }} ssl;
     listen [::]:{{ port }} ssl;
     http2 on;
-    server_name {{ item.server_names | join(' ') }};
+    server_name {{ hostname }};
     client_max_body_size {{ max_upload_size }};
+    error_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.error.log warn;
+    error_log /dev/stderr warn;
 {% if blitzecdn_nginx_access_log_enabled | bool %}
+    access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.access.log {{ blitzecdn_nginx_log_format_name }}_json;
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
+{% else %}
+    access_log off;
 {% endif %}
-{{ fragments('server', port, 'https') }}
+{{ fragments('server', port, 'https', first_hostname=first_hostname) }}
     ssl_certificate {{ item.certificate_path }};
     ssl_certificate_key {{ item.certificate_key_path }};
 {% if item.minimum_tls_version | default('1.2') == '1.3' %}
@@ -140,3 +153,4 @@ server {
 }
 {% endfor %}
 {% endif %}
+{% endfor %}

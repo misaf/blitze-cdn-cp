@@ -28,7 +28,7 @@ def test_the_api_carries_every_zone_field_the_zone_has():
 def test_a_zone_is_created_read_and_patched(settings):
     with TestClient(control_plane_app(settings)) as client:
         created = client.post(
-            "/v1/domains",
+            "/v3/domains",
             json={
                 "name": "example.com",
                 "cache_valid_success": "1h",
@@ -39,7 +39,7 @@ def test_a_zone_is_created_read_and_patched(settings):
         assert created.json()["cache_valid_success"] == "1h"
 
         patched = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"cache_valid_success": "5m"},
             headers=API_HEADERS,
         )
@@ -47,7 +47,7 @@ def test_a_zone_is_created_read_and_patched(settings):
         assert patched.json()["cache_valid_success"] == "5m"
 
         assert (
-            client.get("/v1/domains/example.com", headers=API_HEADERS).json()[
+            client.get("/v3/domains/example.com", headers=API_HEADERS).json()[
                 "cache_valid_success"
             ]
             == "5m"
@@ -56,9 +56,9 @@ def test_a_zone_is_created_read_and_patched(settings):
 
 def test_a_zone_patch_that_breaks_a_cross_field_rule_is_refused(settings):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
         response = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"http3_enabled": True},
             headers=API_HEADERS,
         )
@@ -69,13 +69,13 @@ def test_a_zone_patch_that_breaks_a_cross_field_rule_is_refused(settings):
 def test_rules_are_written_listed_and_resolved(settings):
     with TestClient(control_plane_app(settings)) as client:
         client.post(
-            "/v1/domains",
+            "/v3/domains",
             json={"name": "example.com", "cache_valid_success": "10m"},
             headers=API_HEADERS,
         )
         assert (
             client.post(
-                "/v1/domains/example.com/rules",
+                "/v3/domains/example.com/rules",
                 json={
                     "name": "api",
                     "priority": 10,
@@ -87,7 +87,7 @@ def test_rules_are_written_listed_and_resolved(settings):
             == 201
         )
         client.post(
-            "/v1/domains/example.com/rules",
+            "/v3/domains/example.com/rules",
             json={
                 "name": "wide",
                 "priority": 50,
@@ -97,11 +97,13 @@ def test_rules_are_written_listed_and_resolved(settings):
             headers=API_HEADERS,
         )
 
-        listed = client.get("/v1/domains/example.com/rules", headers=API_HEADERS).json()
+        listed = client.get(
+            "/v3/domains/example.com/rules", headers=API_HEADERS
+        ).json()["items"]
         assert [rule["name"] for rule in listed] == ["api", "wide"]
 
         resolved = client.get(
-            "/v1/domains/example.com/resolve",
+            "/v3/domains/example.com/resolve",
             params={"hostname": "api.example.com"},
             headers=API_HEADERS,
         ).json()
@@ -111,7 +113,7 @@ def test_rules_are_written_listed_and_resolved(settings):
         assert resolved["policy"]["cache_valid_success"] == "10m"
 
         fallback = client.get(
-            "/v1/domains/example.com/resolve",
+            "/v3/domains/example.com/resolve",
             params={"hostname": "www.example.com"},
             headers=API_HEADERS,
         ).json()
@@ -121,9 +123,9 @@ def test_rules_are_written_listed_and_resolved(settings):
 
 def test_an_override_the_zone_would_refuse_is_refused_on_the_rule(settings):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
         response = client.post(
-            "/v1/domains/example.com/rules",
+            "/v3/domains/example.com/rules",
             json={"name": "r", "overrides": {"cache_enabled": "maybe"}},
             headers=API_HEADERS,
         )
@@ -132,9 +134,9 @@ def test_an_override_the_zone_would_refuse_is_refused_on_the_rule(settings):
 
 def test_a_rule_naming_a_hostname_outside_its_zone_is_refused(settings):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
         response = client.post(
-            "/v1/domains/example.com/rules",
+            "/v3/domains/example.com/rules",
             json={
                 "name": "r",
                 "match": "api.other.net",
@@ -162,14 +164,14 @@ def test_the_two_surfaces_replace_different_things(settings):
 
     # The API: the same edit as a PATCH body drops what it does not mention.
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
         client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"firewall": seeded.model_dump(mode="json")},
             headers=API_HEADERS,
         )
         response = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"firewall": {"deny_sources": ["198.51.100.0/24"]}},
             headers=API_HEADERS,
         )

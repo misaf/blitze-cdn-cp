@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -281,6 +282,41 @@ def test_deployment_transitions_releases_and_recovery(
     )
 
 
+def test_a_transition_waits_out_another_writer_instead_of_failing(
+    settings, domain_payload, record_payload, site_payload
+):
+    """Another process commits while a transition waits for the writer lock.
+
+    A transition that read first would hold a snapshot that commit made stale,
+    and SQLite fails its upgrade to a writer at once with "database is locked",
+    whatever the busy timeout. One conditional UPDATE waits and then applies.
+    """
+    repository = Repository(settings.database_path)
+    _seed(repository, domain_payload, record_payload, site_payload)
+    release = _release(repository)
+    deployment = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
+    )
+    other = sqlite3.connect(
+        settings.database_path, isolation_level=None, check_same_thread=False
+    )
+    other.execute("BEGIN IMMEDIATE")
+    other.execute(
+        "UPDATE deployments SET operator = 'bob' WHERE id = ?", (deployment.id,)
+    )
+    release_writer = threading.Timer(0.5, other.execute, ("COMMIT",))
+    release_writer.start()
+    try:
+        running = repository.deployments.save(
+            deployment, deployment.start(now=datetime.now(UTC))
+        )
+    finally:
+        release_writer.join()
+        other.close()
+    assert running.status is DeploymentStatus.RUNNING
+    assert running.operator == "bob"
+
+
 def test_rollback_target_requires_different_success(
     settings, domain_payload, record_payload, site_payload
 ):
@@ -377,9 +413,26 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 
     reopened = Repository(settings.database_path)
     assert reopened.deployment_requirements.pending(kind)
-    reopened.deployment_requirements.clear(kind)
+    reopened.deployment_requirements.clear(kind, through=datetime.now(UTC))
     assert not reopened.deployment_requirements.pending(kind)
     reopened.close()
+
+
+def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
+    """Clearing is bounded, so material newer than a deployment stays owed."""
+    kind = DeploymentRequirementKind.CERTIFICATES
+    repository = Repository(settings.database_path)
+    before = datetime.now(UTC)
+    repository.deployment_requirements.require(kind)
+
+    repository.deployment_requirements.clear(kind, through=before)
+    assert repository.deployment_requirements.pending(kind)
+
+    requested_at = repository.deployment_requirements.requested_at(kind)
+    assert requested_at is not None
+    repository.deployment_requirements.clear(kind, through=requested_at)
+    assert repository.deployment_requirements.requested_at(kind) is None
+    repository.close()
 
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):

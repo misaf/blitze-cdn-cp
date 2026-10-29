@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import col
+from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.releases.adapters.tables import (
     ReleaseConfigurationRow,
@@ -20,8 +20,10 @@ from blitzecdn.capabilities.releases.adapters.tables import (
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.releases.ports import ReleaseReferences
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 __all__ = ["ReleaseStore"]
 
@@ -130,12 +132,22 @@ class ReleaseStore:
                 )
             return decoded
 
+    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(ReleaseRow).order_by(
+                    ReleaseRow.created_at.desc(), ReleaseRow.id.desc()
+                ),
+                self._release,
+                limit=limit,
+                offset=offset,
+            )
+
     def list_releases(self, limit: int | None = 20) -> list[Release]:
         with self._db.session() as session:
             rows = session.scalars(
-                select(ReleaseRow)
-                .order_by(col(ReleaseRow.created_at).desc())
-                .limit(limit)
+                select(ReleaseRow).order_by(ReleaseRow.created_at.desc()).limit(limit)
             ).all()
             return [self._release(row) for row in rows]
 
@@ -147,32 +159,31 @@ class ReleaseStore:
         """
         with self._db.session() as session:
             survivors = (
-                select(col(ReleaseRow.digest))
-                .order_by(col(ReleaseRow.created_at).desc())
+                select(ReleaseRow.digest)
+                .order_by(ReleaseRow.created_at.desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             return _rows_affected(
                 session.execute(
                     delete(ReleaseRow).where(
-                        col(ReleaseRow.digest).not_in(survivors),
-                        col(ReleaseRow.id).not_in(self._referenced.in_use()),
+                        ReleaseRow.digest.not_in(survivors),
+                        ReleaseRow.id.not_in(self._referenced.in_use()),
                     )
                 )
             )
 
     @staticmethod
-    def _row(session: Any, release_id: str) -> ReleaseRow:
+    def _row(session: Session, release_id: str) -> ReleaseRow:
         """One release by its short id or its full digest; both are printed."""
         row = session.scalars(
             select(ReleaseRow).where(
-                (col(ReleaseRow.id) == release_id)
-                | (col(ReleaseRow.digest) == release_id)
+                (ReleaseRow.id == release_id) | (ReleaseRow.digest == release_id)
             )
         ).first()
         if row is None:
             raise NotFoundError(f"release {release_id!r} does not exist")
-        return cast("ReleaseRow", row)
+        return row
 
     @staticmethod
     def _release(row: ReleaseRow) -> Release:

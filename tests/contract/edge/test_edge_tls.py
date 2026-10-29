@@ -7,16 +7,16 @@ from typing import Any
 
 import pytest
 from support.contracts import (
-    _role_defaults,
     ansible_bool,
+    role_defaults,
 )
 from support.edge_render import (
     ROLE_DIR,
-    _mode_site,
-    _render,
-    _server_blocks,
-    _upstreams,
     jinja2,
+    mode_site,
+    render_site,
+    rendered_upstreams,
+    server_blocks,
 )
 from support.policy import site_from_settings
 
@@ -42,10 +42,11 @@ def test_site_template_renders_from_real_model_output(desired_state):
         keep_trailing_newline=True,
     )
     environment.filters["bool"] = ansible_bool
-    context = _role_defaults()
+    context = role_defaults()
     for site in desired_state["blitzecdn_nginx_sites"]:
         rendered = environment.get_template("site.conf.j2").render(**context, item=site)
-        assert f"server_name {' '.join(site['server_names'])};" in rendered
+        for hostname in site["server_names"]:
+            assert f"server_name {hostname};" in rendered
         assert "proxy_pass" in rendered
         if site["certificate_mode"] == CertificateMode.DISABLED:
             assert "ssl_certificate" not in rendered
@@ -72,7 +73,7 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
         }
     )
     assert site.effective_origin_sni == "origin.example.com"
-    rendered = _render(site_to_ansible(site))
+    rendered = render_site(site_to_ansible(site))
     assert "proxy_ssl_name origin.example.com;" in rendered
     assert "proxy_ssl_verify on;" in rendered
     assert (
@@ -125,8 +126,8 @@ def test_every_ssl_mode_renders_its_transport(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
     """Every listener proxies over the mode's scheme for it."""
-    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(mode, serves_tls)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
 
     for port in runtime["listeners"]["http"]:
@@ -136,7 +137,7 @@ def test_every_ssl_mode_renders_its_transport(
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
 
-    assert _upstreams(rendered) == _expected_upstreams(
+    assert rendered_upstreams(rendered) == _expected_upstreams(
         defaults, serves_tls, http_origin, canonical_origin, alternate_origin
     )
     assert "return 301 https://$host$request_uri;" not in rendered
@@ -150,10 +151,12 @@ def test_the_visitor_port_is_preserved_toward_the_origin(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
     """Origin port == listener port, except Flexible's 443, which uses 80."""
-    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(mode, serves_tls)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    ports = {int(upstream.rsplit(":", 1)[1]) for upstream in _upstreams(rendered)}
+    ports = {
+        int(upstream.rsplit(":", 1)[1]) for upstream in rendered_upstreams(rendered)
+    }
     listeners = set(runtime["listeners"]["http"])
     if serves_tls:
         listeners |= set(runtime["listeners"]["https"])
@@ -191,13 +194,15 @@ _PORT_UPSTREAMS = [
 def test_representative_ports_render_their_own_upstream(
     mode, serves_tls, port, upstream
 ):
-    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    assert upstream in _upstreams(rendered)
+    rendered = render_site(site_to_ansible(mode_site(mode, serves_tls)))
+    assert upstream in rendered_upstreams(rendered)
 
 
 def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
     """Flexible applies on 443 only; the other HTTPS proxy ports fall back to Full."""
-    upstreams = _upstreams(_render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))))
+    upstreams = rendered_upstreams(
+        render_site(site_to_ansible(mode_site(SslMode.FLEXIBLE, True)))
+    )
 
     assert "http://origin.example.com:80" in upstreams
     assert "http://origin.example.com:443" not in upstreams
@@ -208,7 +213,7 @@ def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
 
 def _https_block(rendered: str, defaults: dict[str, Any], port: int) -> str:
     """The one HTTPS server block listening on ``port``."""
-    _, https_blocks = _server_blocks(rendered, defaults)
+    _, https_blocks = server_blocks(rendered, defaults)
     matching = [block for block in https_blocks if f"listen {port} ssl;" in block]
     assert len(matching) == 1, f"expected exactly one :{port} block"
     return matching[0]
@@ -219,10 +224,10 @@ def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
 
     So proxy_ssl_* directives are attributed to the listener, not the site.
     """
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FLEXIBLE, True)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    http_blocks, _ = _server_blocks(rendered, defaults)
+    http_blocks, _ = server_blocks(rendered, defaults)
 
     for block in http_blocks:
         assert "proxy_ssl_" not in block
@@ -240,8 +245,8 @@ def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
 
 
 def test_full_strict_verifies_on_every_https_listener_including_alternates():
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FULL_STRICT, True)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
 
     for port in runtime["listeners"]["https"]:
@@ -252,7 +257,7 @@ def test_full_strict_verifies_on_every_https_listener_including_alternates():
 
 
 def test_ssl_off_never_encrypts_an_origin_leg_on_any_port():
-    rendered = _render(site_to_ansible(_mode_site(SslMode.OFF, serves_tls=False)))
+    rendered = render_site(site_to_ansible(mode_site(SslMode.OFF, serves_tls=False)))
     assert "proxy_ssl_" not in rendered
     assert "https://origin.example.com" not in rendered
 
@@ -270,15 +275,15 @@ def test_the_template_agrees_with_the_domains_scheme_rule(
     compared for equality with the domain method for every mode and listener,
     port included.
     """
-    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(mode, serves_tls)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     listeners = [(HttpScheme.HTTP, port) for port in runtime["listeners"]["http"]]
     if serves_tls:
         listeners += [
             (HttpScheme.HTTPS, port) for port in runtime["listeners"]["https"]
         ]
-    assert _upstreams(rendered) == {
+    assert rendered_upstreams(rendered) == {
         f"{mode.origin_scheme_for(visitor_scheme, port).value}"
         f"://origin.example.com:{mode.origin_port_for(visitor_scheme, port)}"
         for visitor_scheme, port in listeners
@@ -291,9 +296,9 @@ def test_full_strict_verifies_only_where_the_origin_leg_is_https():
     Under Full (strict) an HTTP visitor is proxied over HTTP, so its location
     carries no proxy_ssl_* directive.
     """
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
-    defaults = _role_defaults()
-    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FULL_STRICT, True)))
+    defaults = role_defaults()
+    http_blocks, https_blocks = server_blocks(rendered, defaults)
 
     for block in http_blocks:
         assert "proxy_ssl_verify" not in block
@@ -311,9 +316,9 @@ def test_full_strict_verifies_only_where_the_origin_leg_is_https():
 
 
 def test_full_does_not_verify_and_still_sends_sni_on_https_listeners():
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
-    defaults = _role_defaults()
-    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FULL, True)))
+    defaults = role_defaults()
+    http_blocks, https_blocks = server_blocks(rendered, defaults)
 
     for block in http_blocks:
         assert "proxy_ssl_" not in block
@@ -325,12 +330,12 @@ def test_full_does_not_verify_and_still_sends_sni_on_https_listeners():
 
 def test_an_ipv6_origin_is_bracketed_on_every_listener_port():
     """The literal has to keep its brackets once a port is appended to it."""
-    site = _mode_site(SslMode.FULL, serves_tls=True, origin_host="2001:db8::10")
-    rendered = _render(site_to_ansible(site))
-    defaults = _role_defaults()
+    site = mode_site(SslMode.FULL, serves_tls=True, origin_host="2001:db8::10")
+    rendered = render_site(site_to_ansible(site))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
 
-    assert _upstreams(rendered) == {
+    assert rendered_upstreams(rendered) == {
         f"http://[2001:db8::10]:{port}" for port in runtime["listeners"]["http"]
     } | {f"https://[2001:db8::10]:{port}" for port in runtime["listeners"]["https"]}
     # No unbracketed form anywhere, which would parse as host 2001 port db8.
@@ -339,13 +344,13 @@ def test_an_ipv6_origin_is_bracketed_on_every_listener_port():
 
 def test_a_pinned_resolver_free_edge_still_preserves_the_listener_port():
     """Without resolvers the upstream is a literal proxy_pass, same rule."""
-    rendered = _render(
-        site_to_ansible(_mode_site(SslMode.FULL, serves_tls=True)),
+    rendered = render_site(
+        site_to_ansible(mode_site(SslMode.FULL, serves_tls=True)),
         blitzecdn_nginx_resolvers=[],
     )
     assert "set $blitzecdn_upstream" not in rendered
     passes = set(re.findall(r"proxy_pass (\S+);", rendered))
-    defaults = _role_defaults()
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     assert passes == {
         f"http://origin.example.com:{port}" for port in runtime["listeners"]["http"]
@@ -353,8 +358,8 @@ def test_a_pinned_resolver_free_edge_still_preserves_the_listener_port():
 
 
 def test_the_origin_request_host_override_survives_port_preservation():
-    site = _mode_site(SslMode.FULL, serves_tls=True, origin_request_host="app.internal")
-    rendered = _render(site_to_ansible(site))
+    site = mode_site(SslMode.FULL, serves_tls=True, origin_request_host="app.internal")
+    rendered = render_site(site_to_ansible(site))
     assert "proxy_set_header Host app.internal;" in rendered
     assert "http://origin.example.com:8080" in rendered
     assert "https://origin.example.com:8443" in rendered
@@ -365,15 +370,15 @@ def test_the_cache_key_still_separates_the_listener_ports():
 
     Two listeners may reach genuinely different origin services.
     """
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FULL, True)))
     assert rendered.count('proxy_cache_key "$scheme$server_port$request_method') >= 2
 
 
 def test_the_acme_challenge_path_never_proxies_on_any_listener():
     """Challenge files are served from disk, so no listener turns one into an
     origin request on its own port."""
-    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
-    defaults = _role_defaults()
+    rendered = render_site(site_to_ansible(mode_site(SslMode.FULL, True)))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     expected = len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
     assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected

@@ -1,0 +1,8 @@
+---
+- name: Collect hourly visitor traffic from BlitzeCDN edges
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: false
+  max_fail_percentage: 100
+  roles:
+    - role: blitzecdn_traffic_collect

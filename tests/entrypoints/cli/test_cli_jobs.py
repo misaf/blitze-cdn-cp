@@ -3,14 +3,14 @@
 import json
 from datetime import UTC, datetime
 
-from support.cli import _control, runner
+from support.cli import cli_control, runner
 
 from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_job_show_prints_what_a_finished_operation_reported(settings, monkeypatch):
     """An operator on the host can read what an API client's operation found."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     submitted = control.queued_operations.submit("cache.stats", {"operator": "ops"})
     claim = control.job_queue.claim()
     assert claim is not None
@@ -26,7 +26,7 @@ def test_job_show_prints_what_a_finished_operation_reported(settings, monkeypatc
 
 def test_job_list_leaves_results_to_job_show(settings, monkeypatch):
     """A stats report per row would bury the queue it is listing."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     control.queued_operations.submit("cache.stats", {"operator": "ops"})
 
     listed = runner.invoke(cli.app, ["job", "list", "--json"])

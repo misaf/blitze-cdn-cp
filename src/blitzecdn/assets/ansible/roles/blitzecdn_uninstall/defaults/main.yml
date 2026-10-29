@@ -1,10 +1,12 @@
 ---
 blitzecdn_uninstall_cli_wrapper: /usr/local/bin/blitzecdn
+blitzecdn_uninstall_installer: /usr/local/sbin/blitzecdn-install
 blitzecdn_uninstall_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_uninstall_state_dir: /var/lib/blitzecdn
 blitzecdn_uninstall_deploy_user: deploy
 blitzecdn_uninstall_deploy_home: /home/deploy
 blitzecdn_uninstall_compose_file: /etc/blitzecdn/control-plane.compose.yml
+blitzecdn_uninstall_systemd_dir: /etc/systemd/system
 # The same file blitzecdn_controlplane records its API rules in, and the reason
 # this role has to read it before it deletes the state directory: ufw keeps
 # every rule it has ever been given, so the registry is the only thing that can

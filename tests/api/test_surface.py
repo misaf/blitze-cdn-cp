@@ -38,7 +38,7 @@ def test_routes_are_domain_modules():
     modules = {
         route.endpoint.__module__
         for route in routes
-        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/")
+        if route.path in {"/health", "/metrics"} or route.path.startswith("/v3/")
     }
     assert modules == {
         "blitzecdn.capabilities.diagnostics.api.readiness",
@@ -71,10 +71,14 @@ def test_openapi_documents_core_control_workflows(settings):
         schema = client.get("/openapi.json").json()
         assert schema["info"]["version"] == __version__
         paths = schema["paths"]
-        assert "/v1/hosts" in paths
-        assert "/v1/deployments" in paths
-        assert "/v1/workflows" in paths
-        assert not [path for path in paths if path.startswith("/v2/")]
+        assert "/v3/hosts" in paths
+        assert "/v3/deployments" in paths
+        assert "/v3/workflows" in paths
+        assert all(
+            path in {"/health", "/metrics"} or path.startswith("/v3/") for path in paths
+        )
+        for prefix in ("/v1", "/v2"):
+            assert client.get(f"{prefix}/hosts").status_code == 404
 
 
 def _schemas(settings) -> dict[str, dict]:

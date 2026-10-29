@@ -346,12 +346,11 @@ def schema_surface() -> str:
     (`CHECK`s, `ON DELETE`), since they say what a value may be and narrowing one
     must be reconciled against existing rows.
     """
-    from sqlmodel import SQLModel
-
     import blitzecdn.composition  # noqa: F401  — imports every store's tables
+    from blitzecdn.core.persistence.tables import Base
 
     lines = [_line(ROOT, "revision", _alembic_head())]
-    for name, table in sorted(SQLModel.metadata.tables.items()):
+    for name, table in sorted(Base.metadata.tables.items()):
         for column in table.columns:
             parts = [
                 f"type={_column_type(column.type)}",
@@ -388,8 +387,8 @@ def _column_type(declared: Any) -> str:
 
     `UtcDateTime` renders as `VARCHAR`, but the decorator is the contract: it
     refuses naive datetimes and keeps the offset the inventory plugin parses. So
-    our decorators are named beside their storage. SQLModel's `AutoString` is
-    plumbing and is not named, or a pure refactor would move the golden.
+    our decorators are named beside their storage; built-in types use their
+    SQL representation.
     """
     compiled = str(declared)
     own = type(declared)

@@ -57,7 +57,7 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
         uploaded = client.post(
-            "/v1/hosts/example-com/certificate/upload",
+            "/v3/hosts/example-com/certificate/upload",
             files={
                 "certificate": ("fullchain.pem", certificate, "application/x-pem-file"),
                 "private_key": ("privkey.pem", key, "application/x-pem-file"),
@@ -68,20 +68,22 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
         body = uploaded.json()
         assert body["source"] == "uploaded"
         assert "private_key" not in body
-        metadata = client.get("/v1/hosts/example-com/certificate", headers=headers)
+        metadata = client.get("/v3/hosts/example-com/certificate", headers=headers)
         assert metadata.json() == body
 
 
 def test_certificates_are_readable(settings):
     # The origin check runs a playbook across the fleet, so it is a POST.
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/certificates", headers=API_HEADERS).json() == []
+        assert client.get("/v3/certificates", headers=API_HEADERS).json()["items"] == []
         assert (
-            client.get("/v1/certificates?expiring_in=30", headers=API_HEADERS).json()
+            client.get("/v3/certificates?expiring_in=30", headers=API_HEADERS).json()[
+                "items"
+            ]
             == []
         )
         assert (
-            client.post("/v1/certificates/renew", json={}, headers=API_HEADERS).json()[
+            client.post("/v3/certificates/renew", json={}, headers=API_HEADERS).json()[
                 "renewed"
             ]
             == []
@@ -91,7 +93,7 @@ def test_certificates_are_readable(settings):
 def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
     with TestClient(control_plane_app(settings)) as client:
         response = client.post(
-            "/v1/ssl/automatic/reconcile",
+            "/v3/ssl/automatic/reconcile",
             headers=API_HEADERS,
         )
 
@@ -107,7 +109,7 @@ def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
 def test_renewal_can_be_narrowed_to_named_sites(settings):
     with TestClient(control_plane_app(settings)) as client:
         response = client.post(
-            "/v1/certificates/renew",
+            "/v3/certificates/renew",
             json={"sites": ["absent-example-com"]},
             headers=API_HEADERS,
         )
@@ -120,7 +122,7 @@ def test_an_empty_renewal_selector_is_a_422(settings):
     """`[]` would otherwise mean 'renew nothing' while reading as a filter."""
     with TestClient(control_plane_app(settings)) as client:
         response = client.post(
-            "/v1/certificates/renew", json={"sites": []}, headers=API_HEADERS
+            "/v3/certificates/renew", json={"sites": []}, headers=API_HEADERS
         )
         assert response.status_code == 422
 
@@ -139,7 +141,7 @@ def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
     )
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
     with TestClient(control_plane_app(configured)) as client:
-        response = client.post("/v1/certificates/renew", json={}, headers=API_HEADERS)
+        response = client.post("/v3/certificates/renew", json={}, headers=API_HEADERS)
 
     assert response.status_code == 200
     assert seen["budget_seconds"] == 42
@@ -160,7 +162,7 @@ def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkey
     with TestClient(control_plane_app(settings)) as client:
         assert (
             client.post(
-                "/v1/certificates/renew", json={}, headers=API_HEADERS
+                "/v3/certificates/renew", json={}, headers=API_HEADERS
             ).status_code
             == 200
         )
@@ -174,7 +176,7 @@ def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
         _seed_proxied_record(client)
 
         response = client.get(
-            "/v1/hosts/example-com/certificate/preflight", headers=API_HEADERS
+            "/v3/hosts/example-com/certificate/preflight", headers=API_HEADERS
         )
 
         assert response.status_code == 200
@@ -185,7 +187,7 @@ def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
     _stub_preflight(monkeypatch)
     with TestClient(control_plane_app(settings)) as client:
         assert (
-            client.get("/v1/hosts/example-com/certificate/preflight").status_code == 401
+            client.get("/v3/hosts/example-com/certificate/preflight").status_code == 401
         )
 
 
@@ -195,7 +197,7 @@ def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
         _seed_proxied_record(client)
 
         response = client.post(
-            "/v1/hosts/example-com/certificate/request",
+            "/v3/hosts/example-com/certificate/request",
             json={"email": "ops@example.com"},
             headers=API_HEADERS,
         )
@@ -212,7 +214,7 @@ def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
 
         assert (
             client.post(
-                "/v1/hosts/example-com/certificate/request",
+                "/v3/hosts/example-com/certificate/request",
                 json={"email": "ops@example.com", "skip_preflght": True},
                 headers=API_HEADERS,
             ).status_code

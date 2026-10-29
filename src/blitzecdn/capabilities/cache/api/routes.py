@@ -1,6 +1,6 @@
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 
 from blitzecdn.capabilities.cache.api.models import PurgeRequest, StatsRequest
 from blitzecdn.capabilities.cache.service import CacheService
@@ -16,6 +16,10 @@ from blitzecdn.entrypoints.api.dependencies import (
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import Operation, as_queued
+from blitzecdn.entrypoints.api.responses import (
+    ACCEPTED_RESPONSE,
+    polling_headers,
+)
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
@@ -23,11 +27,13 @@ router = APIRouter(
 
 
 @router.post(
-    "/v1/cache/purge",
+    "/v3/cache/purge",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
 )
 def purge_cache(
+    response: Response,
     request: PurgeRequest,
     operator: OperatorDependency,
     cache: FromDishka[CacheService],
@@ -43,7 +49,7 @@ def purge_cache(
         entries=[entry.to_domain() for entry in request.entries],
         purge_all=request.purge_all,
     )
-    return as_queued(
+    queued = as_queued(
         queued_operations.submit(
             PURGE_OPERATION,
             purge_payload(
@@ -54,21 +60,27 @@ def purge_cache(
             ),
         )
     )
+    polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
+    return queued
 
 
 @router.post(
-    "/v1/cache/stats",
+    "/v3/cache/stats",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
 )
 def cache_stats(
+    response: Response,
     request: StatsRequest,
     operator: OperatorDependency,
     queued_operations: FromDishka[OperationService],
 ) -> Operation:
     """Queue a collection of cache effectiveness; the result is a CacheStatsReport."""
-    return as_queued(
+    queued = as_queued(
         queued_operations.submit(
             STATS_OPERATION, stats_payload(operator, host_limit=request.host_limit)
         )
     )
+    polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
+    return queued

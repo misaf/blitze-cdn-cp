@@ -20,6 +20,7 @@ from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
@@ -46,9 +47,13 @@ class DeploymentRequirements(Protocol):
 
     def require(self, kind: DeploymentRequirementKind) -> None: ...
 
-    def clear(self, kind: DeploymentRequirementKind) -> None: ...
+    def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
+        """Clear ``kind`` only if it was requested at or before ``through``."""
+        ...
 
     def pending(self, kind: DeploymentRequirementKind) -> bool: ...
+
+    def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None: ...
 
 
 class DeploymentStore(Protocol):
@@ -70,6 +75,10 @@ class DeploymentStore(Protocol):
     def get_deployment(self, deployment_id: str) -> Deployment: ...
 
     def deployment_release(self, deployment_id: str) -> str: ...
+
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]: ...
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]: ...
 
@@ -242,6 +251,10 @@ class DeploymentTargets(Protocol):
     def claim_generation(self, deployment_id: str) -> int: ...
 
     def plan(self, deployment_id: str, edges: Sequence[str], *, fence: int) -> None: ...
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]: ...
 
     def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]: ...
 

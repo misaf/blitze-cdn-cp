@@ -7,7 +7,7 @@ exposes every domain field.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
@@ -32,6 +32,7 @@ from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.entrypoints.api.requests import PatchValue
 
 
 class ZoneFirewall(Model):
@@ -76,7 +77,11 @@ class ZonePolicy(Model):
 
 
 class Domain(ZonePolicy):
-    """A delegated zone and the policy every hostname in it is served by."""
+    """A delegated zone and its serving policy.
+
+    On creation, omitted policy fields use the documented defaults. Records
+    inherit this policy unless a matching rule overrides it.
+    """
 
     name: str
 
@@ -97,28 +102,45 @@ class Domain(ZonePolicy):
 
 
 class DomainPatch(Model):
-    """A partial update to a zone's policy; the name, its identity, is not patchable."""
+    """Omitted fields stay unchanged; null is not a request to restore a default.
 
-    ssl_mode: SslMode | None = None
-    ssl_automatic_mode: SslAutomaticMode | None = None
-    minimum_tls_version: MinimumTlsVersion | None = None
-    http3_enabled: bool | None = None
-    max_upload_size: MaxUploadSize | None = None
-    always_use_https: bool | None = None
-    under_attack_mode: bool | None = None
+    Null clears nullable fields such as origin_sni; other fields reject null.
+    Firewall and visitor_headers replace their whole block, including defaults
+    for omitted nested fields.
+    """
+
+    ssl_mode: PatchValue[SslMode] = None
+    ssl_automatic_mode: PatchValue[SslAutomaticMode] = None
+    minimum_tls_version: PatchValue[MinimumTlsVersion] = None
+    http3_enabled: PatchValue[bool] = None
+    max_upload_size: PatchValue[MaxUploadSize] = None
+    always_use_https: PatchValue[bool] = None
+    under_attack_mode: PatchValue[bool] = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
-    enabled: bool | None = None
-    certificate_mode: CertificateMode | None = None
+    enabled: PatchValue[bool] = None
+    certificate_mode: PatchValue[CertificateMode] = None
     certificate_path: str | None = None
     certificate_key_path: str | None = None
-    cache_enabled: bool | None = None
-    cache_query_string_mode: CacheQueryStringMode | None = None
-    cache_valid_success: str | None = None
-    cache_valid_not_found: str | None = None
-    compression: CompressionMode | None = None
-    firewall: ZoneFirewall | None = None
-    visitor_headers: ZoneVisitorHeaders | None = None
+    cache_enabled: PatchValue[bool] = None
+    cache_query_string_mode: PatchValue[CacheQueryStringMode] = None
+    cache_valid_success: PatchValue[str] = None
+    cache_valid_not_found: PatchValue[str] = None
+    compression: PatchValue[CompressionMode] = None
+    firewall: PatchValue[ZoneFirewall] = Field(
+        default=None,
+        description=(
+            "Omit to preserve all rules. A supplied object replaces every list; "
+            "{} clears all rules. Null is invalid."
+        ),
+    )
+    visitor_headers: PatchValue[ZoneVisitorHeaders] = Field(
+        default=None,
+        description=(
+            "Omit to preserve both switches. A supplied object replaces both; "
+            "{} restores their defaults. Null is invalid."
+        ),
+    )
 
     def to_domain(self) -> DomainDomainPatch:
         return DomainDomainPatch.model_validate(self.model_dump(exclude_unset=True))
@@ -132,15 +154,32 @@ class RecordType(StrEnum):
         return DomainRecordType(self.value)
 
 
-class DnsRecord(Model):
-    """A record: the address DNS answers with, or the origin the edge serves from."""
+class RecordBody(Model):
+    """Record fields shared by creation requests and responses."""
 
-    domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
     value: str
     ttl: int = Field(default=300, ge=1, le=604800)
     proxied: bool = True
+
+
+class RecordCreate(RecordBody):
+    """Create a record in the URL's domain; the body must not repeat the domain."""
+
+    @model_validator(mode="after")
+    def valid_record(self) -> Self:
+        self.to_domain("example.invalid")
+        return self
+
+    def to_domain(self, domain: str) -> DomainDnsRecord:
+        return DomainDnsRecord.model_validate({"domain": domain, **self.model_dump()})
+
+
+class DnsRecord(RecordBody):
+    """A record response, including the domain that owns it."""
+
+    domain: str
 
     @model_validator(mode="after")
     def valid_record(self) -> Self:
@@ -159,12 +198,12 @@ class RecordPatch(Model):
     """A partial update to a record. ``proxied`` and ``value`` are independent.
 
     Flipping ``proxied`` never touches the address: off makes it public, on makes
-    it the origin.
+    it the origin. Omitted fields stay unchanged; explicit null is invalid.
     """
 
-    value: str | None = None
-    ttl: int | None = Field(default=None, ge=1, le=604800)
-    proxied: bool | None = None
+    value: PatchValue[str] = None
+    ttl: PatchValue[Annotated[int, Field(ge=1, le=604800)]] = None
+    proxied: PatchValue[bool] = None
 
     def to_domain(self) -> DomainRecordPatch:
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
@@ -231,10 +270,10 @@ class RuleCreate(RuleBody):
 class RulePatch(Model):
     """A partial update to a rule; ``overrides``, when present, replaces wholesale."""
 
-    priority: int | None = Field(default=None, ge=1, le=1000)
-    match: str | None = None
-    overrides: DomainPatch | None = None
-    enabled: bool | None = None
+    priority: PatchValue[Annotated[int, Field(ge=1, le=1000)]] = None
+    match: PatchValue[str] = None
+    overrides: PatchValue[DomainPatch] = None
+    enabled: PatchValue[bool] = None
 
     def to_domain(self) -> DomainRulePatch:
         changes = self.model_dump(exclude_unset=True)
@@ -264,6 +303,7 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "RecordCreate",
     "RecordPatch",
     "RecordType",
     "ResolvedPolicy",

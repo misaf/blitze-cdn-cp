@@ -39,14 +39,6 @@
     shell: /bin/bash
     create_home: true
 
-- name: Set the installation directory mode
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_install_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Permit deployment account provisioning
   ansible.builtin.copy:
     content: |
@@ -165,6 +157,16 @@
   ansible.builtin.template:
     src: blitzecdn-cli.j2
     dest: "{{ blitzecdn_controlplane_cli_wrapper }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# Copied from the image this play runs in, so the host always holds the
+# installer of the release it runs: an update replaces it with the target's.
+- name: Install the blitzecdn-install command
+  ansible.builtin.copy:
+    src: "{{ blitzecdn_controlplane_install_dir }}/install.sh"
+    dest: "{{ blitzecdn_controlplane_installer }}"
     owner: root
     group: root
     mode: "0755"
@@ -383,6 +385,34 @@
   retries: 24
   delay: 5
   until: blitzecdn_controlplane_health.stdout == 'healthy'
+
+# --- scheduled backups -------------------------------------------------------
+
+# A host timer, not a worker job: the archive has to carry the environment
+# file, which is root-only on the host and which the CLI wrapper alone stages
+# into the backup container. After the services are healthy, because the first
+# run may fire as soon as the timer starts if a scheduled time was missed.
+- name: Install the scheduled backup units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ blitzecdn_controlplane_systemd_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [blitzecdn-backup.service, blitzecdn-backup.timer]
+  register: blitzecdn_controlplane_backup_units
+
+- name: Schedule the backup timer
+  ansible.builtin.systemd_service:
+    name: blitzecdn-backup.timer
+    daemon_reload: "{{ blitzecdn_controlplane_backup_units is changed }}"
+    enabled: "{{ blitzecdn_controlplane_backup_schedule | length > 0 }}"
+    state: >-
+      {{
+        ('restarted' if blitzecdn_controlplane_backup_units is changed else 'started')
+        if blitzecdn_controlplane_backup_schedule | length > 0
+        else 'stopped'
+      }}
 
 # Strictly after the API is healthy. A rule installed before the listener
 # exists is an open port nothing serves, and this play is `any_errors_fatal`,
