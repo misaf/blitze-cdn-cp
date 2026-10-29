@@ -2,17 +2,52 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Annotated
 
 import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
 #: Root-level verbs: `blitzecdn deploy`, not `blitzecdn deployment deploy`.
 deployment_app = typer.Typer()
+
+Wait = Annotated[
+    int,
+    typer.Option(
+        "--wait",
+        min=0,
+        max=3600,
+        help=(
+            "When another run holds the deployment lock, keep trying for up to "
+            "this many seconds instead of failing at once."
+        ),
+    ),
+]
+
+_WAIT_POLL_SECONDS = 2.0
+
+
+def _when_free[T](wait: int, attempt: Callable[[], T]) -> T:
+    """Run ``attempt``, retrying for ``wait`` seconds while the lock is busy.
+
+    Safe to repeat: each service call takes the lock before it writes anything,
+    so an attempt refused as busy left nothing behind.
+    """
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            return attempt()
+        except DeploymentBusyError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(_WAIT_POLL_SECONDS, remaining))
 
 
 @deployment_app.command()
@@ -27,11 +62,13 @@ def validate(json_output: common.JsonOutput = False) -> None:
 @deployment_app.command()
 def plan(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
+    wait: Wait = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Run Ansible check mode and show the resulting deployment record."""
-    result = common.service(DeploymentService).deploy(
-        "cli", check=True, host_limit=limit
+    deployments = common.service(DeploymentService)
+    result = _when_free(
+        wait, lambda: deployments.deploy("cli", check=True, host_limit=limit)
     )
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
@@ -43,6 +80,7 @@ def deploy(
     yes: common.Yes = False,
     skip_preflight: common.SkipPreflight = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
+    wait: Wait = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Validate, preview, and apply desired state to the configured edges.
@@ -60,7 +98,9 @@ def deploy(
         # Under --json this line would be the one non-JSON byte on stdout.
         if not json_output:
             typer.echo("Configuration is valid. Previewing changes...")
-        preview = deployments.deploy("cli", check=True, host_limit=limit)
+        preview = _when_free(
+            wait, lambda: deployments.deploy("cli", check=True, host_limit=limit)
+        )
         if preview.status is not DeploymentStatus.SUCCEEDED:
             common.emit(preview, json_output=json_output)
             raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -71,7 +111,7 @@ def deploy(
         target = f"edges matching {limit!r}" if limit else "all configured edges"
         if not typer.confirm(f"Apply these changes to {target}?"):
             raise typer.Abort()
-    result = deployments.deploy("cli", host_limit=limit)
+    result = _when_free(wait, lambda: deployments.deploy("cli", host_limit=limit))
     if result.status is not DeploymentStatus.SUCCEEDED:
         common.emit(result, json_output=json_output)
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -119,6 +159,7 @@ def rollback(
 @deployment_app.command()
 def drift(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
+    wait: Wait = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Report whether the edges still match the declared desired state.
@@ -126,7 +167,8 @@ def drift(
     A check-mode run that changes nothing. Exits 6 when a reachable edge would
     change, so it can be scheduled and alerted on.
     """
-    report = common.service(DeploymentService).check_drift("cli", host_limit=limit)
+    deployments = common.service(DeploymentService)
+    report = _when_free(wait, lambda: deployments.check_drift("cli", host_limit=limit))
     common.emit(
         {
             "deployment_id": report.deployment_id,
