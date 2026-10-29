@@ -156,11 +156,15 @@
 # Found rather than listed. The units on an edge are whichever ones the
 # capabilities wrote, and this role has no way to know — and no business
 # knowing — which of them converged this host. Everything we install is named
-# `blitzecdn-*`, and nothing else is.
+# `blitzecdn-*`, and nothing else is, except the controller's own backup units:
+# on a standalone host the controller is also an edge, and decommissioning that
+# edge must not take the controller's scheduled backups with it. Uninstall
+# removes those itself.
 - name: Find edge-owned timers and service units
   ansible.builtin.find:
     paths: /etc/systemd/system
     patterns: "{{ blitzecdn_edge_teardown_unit_prefix }}*.service,{{ blitzecdn_edge_teardown_unit_prefix }}*.timer"
+    excludes: blitzecdn-backup.service,blitzecdn-backup.timer
     file_type: file
   register: blitzecdn_edge_teardown_units
 

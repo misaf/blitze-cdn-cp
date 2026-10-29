@@ -10,10 +10,12 @@ from blitzecdn.capabilities.backup.adapters.components import (
     DatabaseComponent,
     TlsComponent,
 )
+from blitzecdn.capabilities.backup.adapters.history import BackupStatusFile
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 
 __all__ = [
     "AcmeComponent",
+    "BackupStatusFile",
     "ComposeRestoreGuard",
     "ConfigComponent",
     "DatabaseComponent",

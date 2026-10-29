@@ -387,7 +387,16 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "compression": {"dns"},
     "deployments": {"dns", "edges", "releases", "serving", "workflows"},
     # Readiness and metrics read the state these own.
-    "diagnostics": {"deployments", "dns", "edges", "jobs", "tls", "workflows"},
+    # `backup` for the last-backup record the status report and metrics carry.
+    "diagnostics": {
+        "backup",
+        "deployments",
+        "dns",
+        "edges",
+        "jobs",
+        "tls",
+        "workflows",
+    },
     "dns": {"serving"},
     "edges": {"jobs", "serving"},
     "hardening": set(),
