@@ -34,18 +34,17 @@ blitzecdn_docker_packages:
 # run under it.
 blitzecdn_docker_python_packages: [python3-requests]
 
-# The engine's own log driver. An edge container that logs forever fills the
-# root filesystem, and the filesystem it fills is the one holding the cache and
-# the TLS material. Nginx's request log is a bind-mounted file and is not
-# affected by this — these are the container's stdout/stderr, which carry
-# startup and error output only.
-blitzecdn_docker_log_driver: json-file
-blitzecdn_docker_log_max_size: 32m
-blitzecdn_docker_log_max_file: 3
+# files/daemon.json, a plain file rather than a template so install.sh can
+# carry it verbatim (`just installer-sync`) and seed the control-plane host
+# with exactly what this role writes. What it sets:
+#
+# - json-file logs capped at 3 x 32m. An edge container that logs forever fills
+#   the root filesystem, and the filesystem it fills is the one holding the
+#   cache and the TLS material. Nginx's request log is a bind-mounted file and
+#   is not affected by this — these are the container's stdout/stderr, which
+#   carry startup and error output only.
+# - `live-restore`, which keeps running containers alive across a daemon
+#   restart, so an engine upgrade or a `systemctl restart docker` does not drop
+#   every visitor's connection. It is incompatible with Swarm mode, which this
+#   edge deliberately does not use.
 blitzecdn_docker_daemon_config_file: /etc/docker/daemon.json
-
-# `live-restore` keeps running containers alive across a daemon restart, so an
-# engine upgrade or a `systemctl restart docker` does not drop every visitor's
-# connection. It is incompatible with Swarm mode, which this edge deliberately
-# does not use.
-blitzecdn_docker_live_restore: true

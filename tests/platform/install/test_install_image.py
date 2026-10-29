@@ -14,6 +14,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import installer_sync
 import jinja2
 import pytest
 import yaml
@@ -107,37 +108,28 @@ def _render_inline(expression: str, facts: dict[str, str]) -> str:
     return environment.from_string(expression.strip()).render(ansible_facts=facts)
 
 
-def test_the_bootstrap_daemon_configuration_is_the_one_the_role_renders():
+def test_the_bootstrap_carries_the_roles_current_docker_setup():
     """Byte for byte, or the converge restarts the engine under its own Ansible.
 
     The play runs in a container on this daemon, and a changed daemon.json
-    notifies a restart.
+    notifies a restart. The block is generated, so this only catches a role
+    edit that was never followed by `just installer-sync`.
     """
-    defaults = yaml.safe_load(
-        (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
-    )
-    expected = _render(DOCKER_ROLE / "templates/daemon.json.j2", **defaults)
+    assert installer_sync.synced(SCRIPT.read_text(encoding="utf-8")) == (
+        SCRIPT.read_text(encoding="utf-8")
+    ), "install.sh is stale; run `just installer-sync`"
     result = _bash("docker_daemon_json")
     assert result.returncode == 0, result.stderr
-    assert result.stdout == expected
     json.loads(result.stdout)
 
 
-def test_the_bootstrap_installs_the_packages_the_role_requires():
-    defaults = yaml.safe_load(
-        (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
-    )
+def test_the_bootstrap_restarts_a_reconfigured_daemon_before_using_it():
     install = script_function("ensure_docker")
-    line = re.search(r"apt-get install -y ([^\n]*\\\n[^\n]*)", install)
-    assert line is not None
-    assert (
-        line.group(1).replace("\\\n", " ").split()
-        == defaults["blitzecdn_docker_packages"]
-    )
+    assert 'apt-get install -y "${DOCKER_PACKAGES[@]}"' in install
     # Restarted here, before any container of ours runs on the engine.
-    assert install.index("converge_host_file /etc/docker/daemon.json") < install.index(
-        "systemctl restart docker"
-    )
+    assert install.index(
+        'converge_host_file "${DOCKER_DAEMON_CONFIG_FILE}"'
+    ) < install.index("systemctl restart docker")
 
 
 # --- the pin and the workflow that publishes it -------------------------------

@@ -86,10 +86,6 @@ blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_daemon_config_file	type=pat
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_gpg_url	type=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_keyring	type=path required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_list_file	type=path required
-blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_live_restore	type=bool required
-blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_log_driver	type=str required
-blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_log_max_file	type=int required
-blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_log_max_size	type=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_packages	type=list elements=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_python_packages	type=list elements=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_repository_url	type=str required
