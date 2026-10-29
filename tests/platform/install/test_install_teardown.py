@@ -1,9 +1,4 @@
-"""`--uninstall` and `--fresh`: dispatch, guarantees, and sandboxed runs.
-
-The destructive paths, driven for real inside the sandbox: what is removed,
-what is left alone, and that a rebuild takes the same path as a brand-new
-server.
-"""
+"""`--uninstall`: dispatch, guarantees, and sandboxed runs."""
 
 from __future__ import annotations
 
@@ -26,7 +21,7 @@ from support.install import (
     script_text,
     stub_bin,
 )
-from support.paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE
 
 # --- fresh rebuild and uninstall: dispatch ------------------------------------
 
@@ -34,10 +29,9 @@ from support.paths import CORE_ANSIBLE, REPO_ROOT
 def test_dispatch_recognizes_the_destructive_subcommands():
     script = script_text()
     assert re.search(r"\(--uninstall|--uninstall\)|cmd_uninstall", script)
-    assert re.search(r"\(--fresh|--fresh\)|cmd_fresh", script)
 
 
-@pytest.mark.parametrize("subcommand", ["--uninstall", "--fresh"])
+@pytest.mark.parametrize("subcommand", ["--uninstall"])
 def test_destructive_subcommands_refuse_to_run_unprivileged(subcommand):
     result = run_script(subcommand)
     assert result.returncode == 1
@@ -48,7 +42,6 @@ def test_destructive_subcommands_refuse_to_run_unprivileged(subcommand):
     ("subcommand", "help_fragment"),
     [
         ("--uninstall", "--yes"),
-        ("--fresh", "--admin-cidr"),
     ],
 )
 def test_destructive_subcommand_help_does_not_require_root(subcommand, help_fragment):
@@ -67,8 +60,8 @@ def test_uninstall_rejects_unknown_options():
 
 
 def test_destructive_commands_survive_deleting_their_own_directory():
-    """Both remove $INSTALL_DIR, so both must continue from a copied script."""
-    for name in ("uninstall", "fresh"):
+    """Uninstall removes $INSTALL_DIR, so it must continue from a copied script."""
+    for name in ("uninstall",):
         section = script_section(name)
         assert "reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC" in section
         # The copy must be taken before final self-removal deletes this file.
@@ -118,7 +111,7 @@ def test_uninstall_reuses_the_canonical_edge_teardown_role():
 
 
 def test_destructive_commands_require_confirmation():
-    for name in ("uninstall", "fresh"):
+    for name in ("uninstall",):
         section = script_section(name)
         assert "confirm_destructive" in section
         assert 'confirm_destructive "${parsed_yes}"' in section
@@ -127,7 +120,7 @@ def test_destructive_commands_require_confirmation():
     # case label grows with every new flag.
     assert re.search(r"^      --yes\|.*\)$", parser, re.MULTILINE)
     # And it is the parser that records it, for every command that takes it.
-    for command in ("uninstall", "fresh", "update"):
+    for command in ("uninstall", "update"):
         usage = query(f"command_field {command} 2")
         assert (
             query(f'parse_options {command} {usage} --yes\necho "${{parsed_yes}}"')
@@ -137,42 +130,6 @@ def test_destructive_commands_require_confirmation():
     confirm = script_function("confirm_destructive")
     assert "read -r -p" in confirm
     assert "Cancelled." in confirm
-
-
-def test_fresh_reuses_the_same_ansible_teardown_as_uninstall():
-    fresh = script_section("fresh")
-    assert "converge_uninstall" in fresh
-    assert "remove_installation_directory" in fresh
-    assert 'run "sudo ./install.sh --uninstall"' not in fresh
-
-
-def _release_branch() -> str:
-    """The branch a release installation tracks, from the workspace version.
-
-    `install.sh` preserves the current major's line across a rebuild; derived so
-    these tests do not break when the version moves.
-    """
-    version = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    return f"{re.search(r'^version = \"(\d+)', version, re.M).group(1)}.x"
-
-
-def test_fresh_preserves_the_running_source_line_like_a_new_server():
-    """Which revision is `install_release.fresh_source`'s; this is how it is used."""
-    fresh = script_section("fresh")
-    assert fresh.index("release_plan source") < fresh.index("converge_uninstall")
-    assert 'git clone --branch "${revision}"' in fresh
-    assert "git clone --depth 1" not in fresh
-    assert 'git -C "${staging}" checkout --detach "${revision}"' in fresh
-    assert '"${INSTALL_DIR}/install.sh" standalone ' in fresh
-    assert '${parsed_forward_args[@]+"${parsed_forward_args[@]}"}' in fresh
-
-
-def test_fresh_refuses_to_rebuild_without_a_source_checkout():
-    fresh = script_section("fresh")
-    assert "${INSTALL_DIR} is not a Git checkout" in fresh
-
-
-# --- fresh rebuild and uninstall: sandboxed behaviour ------------------------
 
 
 def test_uninstall_removes_owned_artifacts_and_leaves_unrelated(tmp_path):
@@ -274,105 +231,3 @@ def test_uninstall_removes_the_image_only_after_the_play_that_runs_in_it(
     assert play < removal
     # By ID: the stub answers every inspection with this one.
     assert calls[removal] == "docker image rm --force sha256:0123"
-
-
-def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(
-    tmp_path: Path,
-):
-    sandbox = tmp_path / "sandbox"
-    script, root = instrument(sandbox)
-    stub_bin(sandbox, root)
-    marker = tmp_path / "fresh-reinstalled"
-    fake_installation(root)
-
-    result = run_sandboxed(
-        script,
-        "--fresh",
-        "--yes",
-        env_extra={"FRESH_REINSTALL_MARKER": str(marker)},
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert marker.exists(), "the fresh install.sh never ran"
-    assert marker.read_text().strip() == "fresh-reinstalled"
-    assert (root / "opt/blitzecdn/install.sh").exists(), "no fresh checkout was created"
-
-
-def test_fresh_rebuild_keeps_a_release_branch_checkout_on_its_branch(tmp_path: Path):
-    sandbox = tmp_path / "sandbox"
-    script, root = instrument(sandbox)
-    stub_bin(sandbox, root)
-    reinstall_marker = tmp_path / "fresh-reinstalled"
-    clone_marker = tmp_path / "git-clone-arguments"
-    fake_installation(root)
-
-    result = run_sandboxed(
-        script,
-        "--fresh",
-        "--yes",
-        env_extra={
-            "FRESH_GIT_TAG": "",
-            "FRESH_GIT_BRANCH": _release_branch(),
-            "FRESH_GIT_CLONE_MARKER": str(clone_marker),
-            "FRESH_REINSTALL_MARKER": str(reinstall_marker),
-        },
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert reinstall_marker.exists()
-    clone_args = clone_marker.read_text(encoding="utf-8")
-    assert f"clone --branch {_release_branch()}" in clone_args
-    assert "--depth" not in clone_args
-
-
-def test_fresh_refuses_to_rebuild_without_a_git_checkout(tmp_path: Path):
-    sandbox = tmp_path / "sandbox"
-    script, root = instrument(sandbox)
-    stub_bin(sandbox, root)
-    fake_installation(root, with_git=False)
-
-    result = run_sandboxed(script, "--fresh", "--yes")
-
-    assert result.returncode == 1
-    assert "is not a Git checkout" in result.stderr
-
-
-def test_fresh_clone_failure_preserves_the_running_installation(tmp_path: Path):
-    sandbox = tmp_path / "sandbox"
-    script, root = instrument(sandbox)
-    stub_bin(sandbox, root)
-    owned = fake_installation(root)
-
-    result = run_sandboxed(
-        script,
-        "--fresh",
-        "--yes",
-        env_extra={"FRESH_GIT_CLONE_FAIL": "1"},
-    )
-
-    assert result.returncode == 1
-    assert "current installation was not changed" in result.stderr
-    assert all(path.exists() for path in owned)
-
-
-def test_fresh_refuses_an_unsupported_platform_before_destroying_anything(
-    tmp_path: Path,
-):
-    """The refusal that matters most, because the alternative is unrecoverable.
-
-    `--fresh` uninstalls then reruns `standalone`; on a host the reinstall would
-    refuse, that is a deletion. So the platform is read before the confirmation.
-    """
-    sandbox = tmp_path / "sandbox"
-    script, root = instrument(sandbox)
-    stub_bin(sandbox, root)
-    owned = fake_installation(root)
-    (root / "etc/os-release").write_text(
-        'ID=debian\nVERSION_ID="13"\n', encoding="utf-8"
-    )
-
-    result = run_sandboxed(script, "--fresh", "--yes")
-
-    assert result.returncode == 1
-    assert "requires Ubuntu 26.04" in result.stderr
-    assert all(path.exists() for path in owned)

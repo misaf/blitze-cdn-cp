@@ -1,12 +1,12 @@
-"""Which release `install.sh update`, `upgrade` and `--fresh` move a host to.
+"""Which release `install.sh update` moves a host to.
 
 Run by the host's ``python3 -I`` from the checkout being left, so standard
 library only. A host follows its release line: ``update`` moves forward to the
-newest complete ``vMAJOR.MINOR.PATCH`` tag in it; ``upgrade`` crosses to the
+newest complete ``vMAJOR.MINOR.PATCH`` tag in it; ``update --major`` crosses to the
 next line, only from the newest release of the current one. Both first check
-the checkout (upstream origin, no local modifications) and fetch. ``source``
-names what ``--fresh`` reinstalls. Prints ``key=value`` lines; exit 1 refuses
-and :data:`NOTHING_TO_DO` means current.
+the checkout (upstream origin, no local modifications) and fetch. The plan
+prints ``key=value`` lines; exit 1 refuses and :data:`NOTHING_TO_DO` means
+current.
 """
 
 from __future__ import annotations
@@ -89,36 +89,11 @@ def prepare(git: Git, repository: str, command: str) -> None:
         raise RefusedError(
             f"error: {repository} has local modifications; the {command} would "
             "discard them",
-            "Commit or discard them, or use --fresh to rebuild from origin.",
+            "Commit or discard them before updating.",
         )
     print("Fetching from origin...", file=sys.stderr)
     if git("fetch", "--tags", "--prune", "origin") is None:
         raise RefusedError("error: could not fetch from origin; nothing was changed")
-
-
-@dataclass(frozen=True, slots=True)
-class Source:
-    """What ``--fresh`` clones: a tag or the release branch by name, else a commit."""
-
-    origin: str
-    revision: str
-    named: bool
-
-
-def fresh_source(git: Git, repository: str) -> Source:
-    """The running checkout's identity, read before the teardown deletes it."""
-    origin = upstream_origin(git, repository)
-    if tag := git("describe", "--tags", "--exact-match", "HEAD"):
-        return Source(origin, tag, named=True)
-    # The current major's line, `6.x` for 6.0.0, is the one branch kept attached.
-    branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
-    version = project_version(git)
-    if branch and version and branch == f"{version.split('.', 1)[0]}.x":
-        return Source(origin, branch, named=True)
-    commit = git("rev-parse", "HEAD")
-    if commit is None:
-        raise RefusedError(f"error: could not read HEAD in {repository}")
-    return Source(origin, commit, named=False)
 
 
 def project_version(git: Git) -> str | None:
@@ -177,7 +152,7 @@ def plan_update(git: Git, repository: str) -> Plan:
         raise RefusedError(
             f"error: {repository} is not an ancestor of {target}; nothing was changed",
             "The checkout has commits origin does not, or is on a newer release.",
-            "Use --fresh to rebuild from origin.",
+            "Back up your changes and reinstall from a clean checkout if needed.",
         )
     commits = git("rev-list", "--count", f"HEAD..{target}")
     if commits is None:
@@ -212,18 +187,11 @@ def plan_upgrade(git: Git) -> Plan:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="install-release")
-    parser.add_argument("command", choices=("update", "upgrade", "source"))
+    parser.add_argument("command", choices=("update", "upgrade"))
     parser.add_argument("--repository", required=True)
     options = parser.parse_args(arguments)
     git = git_in(options.repository)
     try:
-        if options.command == "source":
-            source = fresh_source(git, options.repository)
-            print(
-                f"origin={source.origin}\nrevision={source.revision}\n"
-                f"named={int(source.named)}"
-            )
-            return 0
         prepare(git, options.repository, options.command)
         plan = (
             plan_update(git, options.repository)

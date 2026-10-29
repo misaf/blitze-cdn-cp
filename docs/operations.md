@@ -116,7 +116,7 @@ them (`blitzecdn-backup-YYYY-MM-DD_HH-MM-SSZ.tar.gz`). Other files in the
 directory, and archives written elsewhere with `--output`, are never touched.
 Run `blitzecdn backup prune --keep N` to apply a different count once.
 
-Every full backup, scheduled or manual, including the one `install.sh upgrade`
+Every full backup, scheduled or manual, including the one `install.sh update --major`
 takes, records itself in `backup-status.json` in the state directory. `overview`,
 `GET /v3/status` and `/metrics` report from that file, so they keep working
 without the backup directory and without the database. A `--only` backup is not

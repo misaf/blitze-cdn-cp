@@ -81,20 +81,12 @@ def test_a_standalone_host_must_satisfy_the_edge_platform(
 
 
 def test_the_platform_is_checked_before_anything_is_installed():
-    """Before apt, as --admin-cidr is.
-
-    In `--fresh`, before the confirmation: a rebuild that cannot reinstall is a
-    destroyed installation.
-    """
+    """Before apt, as --admin-cidr is."""
     standalone = script_section("standalone")
     assert standalone.index("require_edge_platform") < standalone.index("apt-get")
-    fresh = script_section("fresh")
-    assert fresh.index("require_edge_platform") < fresh.index("converge_uninstall")
-    assert fresh.index("require_edge_platform") < fresh.index("confirm_destructive")
     # Not the release-move commands: they converge the control plane alone, and
     # refusing them would strand an existing host.
-    for command in ("update", "upgrade"):
-        assert "require_edge_platform" not in script_section(command)
+    assert "require_edge_platform" not in script_section("update")
 
 
 def test_standalone_collects_the_access_list_from_either_spelling():
@@ -137,7 +129,7 @@ def test_a_release_move_can_repoint_the_access_list(subcommand: str):
 
     Omitting the flag, the common case, leaves the installed list untouched.
     """
-    assert f"move_release {subcommand}" in script_section(subcommand)
+    assert f"move_release {subcommand}" in script_section("update")
     section = script_function("move_release")
     assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
     # Before the point of no return, not after it. A rejected access list must
@@ -158,20 +150,6 @@ def test_the_access_list_survives_an_empty_flag_on_bash_3():
             'parse_options update usage_update --yes\nallowed_ips_value\necho "[empty]"'
         )
         == "[empty]"
-    )
-
-
-def test_a_rebuild_carries_the_access_list_with_it():
-    """`--fresh` reinstalls exactly as a new server is installed.
-
-    A dropped access list would silently return a public API to loopback.
-    """
-    assert (
-        query(
-            "parse_options fresh usage_fresh --allowed-ips 203.0.113.8/32 --yes\n"
-            'printf "%s\\n" "${parsed_forward_args[@]}"'
-        )
-        == "--allowed-ips\n203.0.113.8/32"
     )
 
 
@@ -229,7 +207,7 @@ def test_only_a_source_build_needs_the_package_index():
     assert "BLITZECDN_CONTROL_PLANE_BUILD" in image
     assert image.count("docker build") == 1
     assert image.index("BLITZECDN_CONTROL_PLANE_BUILD") < image.index("docker build")
-    for help_form in ("standalone", "update", "upgrade"):
+    for help_form in ("standalone", "update"):
         assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in query(f"usage_{help_form}")
 
 

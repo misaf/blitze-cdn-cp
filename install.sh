@@ -96,24 +96,6 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# mktemp, registered for cleanup. Only for callers in this shell: a `$(...)`
-# caller runs in a subshell the registration does not survive.
-temp_path() {
-  local path
-  path=$(mktemp "$@")
-  cleanup_paths+=("${path}")
-  printf '%s\n' "${path}"
-}
-
-# Stop treating a path as this run's to delete, once it becomes the real thing.
-unregister_path() {
-  local keep=$1 path remaining=()
-  for path in ${cleanup_paths[@]+"${cleanup_paths[@]}"}; do
-    [[ ${path} == "${keep}" ]] || remaining+=("${path}")
-  done
-  cleanup_paths=(${remaining[@]+"${remaining[@]}"})
-}
-
 # The pinned uv release and each build's checksum, kept in this repository so
 # the download is checked against what this release was tested with. Refresh
 # with `just uv-pin VERSION`. macOS builds exist for controller-only checkouts.
@@ -686,7 +668,7 @@ if sys.version_info[:2] < (3, 12):
   fi
 
   [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
-    die 1 "error: uv created an incomplete .venv; remove the incomplete .venv and rerun"
+    die 1 "error: uv created an incomplete .venv; inspect it and rerun"
   [[ -x .venv/bin/blitzecdn ]] ||
     die 1 "error: uv did not install the local BlitzeCDN CLI"
 
@@ -802,7 +784,7 @@ cmd_standalone() {
 }
 
 # ---------------------------------------------------------------------------
-# update / upgrade — move an installed host onto a newer release
+# update — move an installed host onto a newer release
 # ---------------------------------------------------------------------------
 
 usage_update() {
@@ -950,7 +932,8 @@ move_release() {
       die 1 "error: ${backup_label} failed; nothing was changed" \
         "Fix the failure, or rerun with --no-backup if the data is expendable."
   else
-    echo "warning: ${CLI_WRAPPER} is missing; skipping ${backup_label}" >&2
+    die 1 "error: ${CLI_WRAPPER} is missing; cannot take ${backup_label}; nothing was changed" \
+      "Repair the CLI wrapper, or use --no-backup if the data is expendable."
   fi
 
   # Detached at the tag: never a merge, pull, reset or force.
@@ -988,7 +971,7 @@ cmd_update() {
 }
 
 # ---------------------------------------------------------------------------
-# uninstall / fresh — remove every artifact, or wipe and rebuild clean
+# uninstall — remove every artifact
 # ---------------------------------------------------------------------------
 
 # Everything the two removal paths delete, read by the help and by the
@@ -1022,6 +1005,10 @@ Removed:
 EOF
   removal_manifest
   cat <<'EOF'
+
+To reinstall from a clean state, run --uninstall, clone the desired release
+again to /opt/blitzecdn, then run its standalone command. Back up data first:
+uninstall permanently removes the current installation and its state.
 
 Nothing outside those paths is changed and no packages are removed. The
 installed control-plane image must still be present: the Ansible in it

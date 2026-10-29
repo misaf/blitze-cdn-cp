@@ -66,7 +66,7 @@ def test_root_help_lists_every_subcommand():
     assert result.returncode == 0
     assert "standalone" in result.stdout
     assert "update" in result.stdout
-    assert "--fresh" in result.stdout
+    assert "--fresh" not in result.stdout
     assert "--uninstall" in result.stdout
     assert "BLITZECDN_WRAPPER_DIR" in result.stdout
 
@@ -95,7 +95,6 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--public-address"),
         ("standalone", "--allowed-ips"),
         ("update", "--allowed-ips"),
-        ("upgrade", "--allowed-ips"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -255,3 +254,9 @@ def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
     except ConfigurationError:
         accepted_by_setting = False
     assert accepted_by_installer is accepted_by_setting
+
+
+@pytest.mark.parametrize("command", ["upgrade", "--fresh"])
+def test_removed_commands_are_rejected(command: str):
+    result = run_script(command)
+    assert result.returncode == 2

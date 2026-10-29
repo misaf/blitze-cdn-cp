@@ -24,7 +24,8 @@ def test_upgrade_targets_the_next_major_line_and_only_the_next(tmp_path: Path):
 
     result = run_sandboxed(
         script,
-        "upgrade",
+        "update",
+        "--major",
         "--yes",
         env_extra={
             "UPDATE_PROJECT_VERSION": "3.0.0",
@@ -49,7 +50,8 @@ def test_upgrade_refuses_a_host_that_has_not_finished_its_own_line(tmp_path: Pat
 
     result = run_sandboxed(
         script,
-        "upgrade",
+        "update",
+        "--major",
         "--yes",
         env_extra={
             "UPDATE_PROJECT_VERSION": "3.0.0",
@@ -72,7 +74,8 @@ def test_upgrade_refuses_when_there_is_no_next_line(tmp_path: Path):
 
     result = run_sandboxed(
         script,
-        "upgrade",
+        "update",
+        "--major",
         "--yes",
         env_extra={
             "UPDATE_PROJECT_VERSION": "3.0.0",
@@ -94,7 +97,8 @@ def test_upgrade_backs_up_everything_not_just_the_database(tmp_path: Path):
 
     run_sandboxed(
         script,
-        "upgrade",
+        "update",
+        "--major",
         "--yes",
         env_extra={
             "UPDATE_PROJECT_VERSION": "3.0.0",
@@ -127,7 +131,8 @@ def test_upgrade_does_not_ask_the_commit_graph_whether_it_may_cross(tmp_path: Pa
 
     result = run_sandboxed(
         script,
-        "upgrade",
+        "update",
+        "--major",
         "--yes",
         env_extra={
             "UPDATE_PROJECT_VERSION": "3.0.0",

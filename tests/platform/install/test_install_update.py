@@ -26,7 +26,7 @@ from support.paths import REPO_ROOT
 
 
 def test_update_preserves_state_rather_than_removing_it():
-    """The whole point of the command: --fresh destroys, update does not."""
+    """Updating preserves the installation and its state."""
     update = script_function("move_release")
     for destructive in (
         "converge_uninstall",
@@ -54,7 +54,7 @@ def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str
     `test_controlplane_initializes_schema_before_starting_services` holds that
     order; a stop here would only lengthen the downtime.
     """
-    assert f"move_release {subcommand}" in script_section(subcommand)
+    assert f"move_release {subcommand}" in script_section("update")
     section = script_function("move_release")
     for direct in ("docker compose", "docker stop", "docker run"):
         assert direct not in section
@@ -206,7 +206,7 @@ def test_update_ignores_releases_from_another_major_line(tmp_path: Path):
 def test_update_refuses_a_checkout_that_is_not_an_ancestor_of_the_release(
     tmp_path: Path,
 ):
-    """Local commits, or a host already past the tag: --fresh is the tool."""
+    """Local commits or a host already past the tag must not be overwritten."""
     script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
@@ -223,7 +223,7 @@ def test_update_refuses_a_checkout_that_is_not_an_ancestor_of_the_release(
 
     assert result.returncode == 1
     assert "is not an ancestor of v3.1.0" in result.stderr
-    assert "--fresh" in result.stderr
+    assert "reinstall" in result.stderr
     assert "nothing was changed" in result.stderr
     assert not log.exists(), "a host that could not be updated was still taken down"
 
@@ -396,7 +396,7 @@ def test_every_command_uses_the_shared_option_parser():
     Asserted against the sourced script: the table must have a row per command.
     """
     assert script_text().count("while [[ $# -gt 0 ]]") == 1
-    for command in ("install", "standalone", "uninstall", "fresh", "update"):
+    for command in ("install", "standalone", "uninstall", "update"):
         assert query(f"command_field {command} 2") != "", (
             f"{command} has no row in COMMAND_TABLE"
         )
@@ -430,7 +430,6 @@ def test_the_command_table_and_the_help_agree_on_every_option():
         "standalone": "standalone",
         "update": "update",
         "uninstall": "--uninstall",
-        "fresh": "--fresh",
     }
     for command, token in invocations.items():
         declared = query(f"command_field {command} 4").split()
@@ -452,3 +451,11 @@ def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
     assert not any(line.lstrip().startswith("trap ") for line in code), (
         "a second EXIT trap here replaces the shared cleanup handler"
     )
+
+
+def test_update_refuses_when_backup_wrapper_is_missing(tmp_path: Path):
+    script, stubs, root = update_sandbox(tmp_path)
+    (root / "usr/local/bin/blitzecdn").unlink()
+    result = run_sandboxed(script, "update", "--yes", bin_dir=stubs)
+    assert result.returncode == 1
+    assert "cannot take the database backup; nothing was changed" in result.stderr

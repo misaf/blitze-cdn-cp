@@ -19,8 +19,6 @@ from blitzecdn.host.install_release import (
     NOTHING_TO_DO,
     Plan,
     RefusedError,
-    Source,
-    fresh_source,
     installed_release,
     main,
     newest_release,
@@ -195,22 +193,6 @@ def test_a_move_refuses_a_checkout_it_would_damage(git, message: str):
     with pytest.raises(RefusedError) as refused:
         prepare(git, REPOSITORY, "update")
     assert message in refused.value.args[0]
-
-
-@pytest.mark.parametrize(
-    ("git", "expected"),
-    [
-        (fake_git(exact="v3.1.0"), Source(ORIGIN, "v3.1.0", named=True)),
-        (fake_git(exact=None, branch="3.x"), Source(ORIGIN, "3.x", named=True)),
-        (
-            fake_git(exact=None, branch="feature"),
-            Source(ORIGIN, "abc1234def0123456789", named=False),
-        ),
-    ],
-)
-def test_fresh_reinstalls_the_running_release_line_or_commit(git, expected: Source):
-    """A tag or the current major's branch by name; anything else by commit."""
-    assert fresh_source(git, REPOSITORY) == expected
 
 
 @pytest.mark.parametrize("helper", ["install_release.py", "install_inputs.py"])
