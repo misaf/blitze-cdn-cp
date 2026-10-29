@@ -33,14 +33,4 @@ argument_specs:
         description: >-
           The community.docker API client's only dependency. Installed from the
           archive rather than pip; this is a system interpreter on a server.
-      blitzecdn_docker_log_driver: {type: str, required: true}
-      blitzecdn_docker_log_max_size: {type: str, required: true}
-      blitzecdn_docker_log_max_file: {type: int, required: true}
       blitzecdn_docker_daemon_config_file: {type: path, required: true}
-      blitzecdn_docker_live_restore:
-        type: bool
-        required: true
-        description: >-
-          Keep running containers alive across a daemon restart, so an engine
-          upgrade does not drop every visitor connection. Incompatible with
-          Swarm mode, which this edge deliberately does not use.
