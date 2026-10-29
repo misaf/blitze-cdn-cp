@@ -157,12 +157,33 @@ def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     } <= tables
 
 
-def test_the_current_schema_has_no_upgrade_chain(tmp_path):
-    """One revision until something ships; until then schema changes edit the
-    baseline.
-    """
+def test_initial_capability_revisions_form_one_chain(tmp_path):
     revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
-    assert [revision.revision for revision in revisions.walk_revisions()] == ["0001"]
+    assert [revision.revision for revision in revisions.walk_revisions()][-8:] == [
+        f"{number:04}" for number in range(8, 0, -1)
+    ]
+
+
+def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
+    path = tmp_path / "control.db"
+    config = _config(path)
+    for number in range(1, 9):
+        command.upgrade(config, f"{number:04}")
+        assert _revision(path) == f"{number:04}"
+    DatabaseSchema.validate(path)
+    for number in range(7, 0, -1):
+        command.downgrade(config, f"{number:04}")
+        assert _revision(path) == f"{number:04}"
+    command.downgrade(config, "base")
+    assert _revision(path) is None
+    with closing(sqlite3.connect(path)) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert tables <= {"alembic_version"}
 
 
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):
@@ -210,7 +231,12 @@ def test_migration_and_inspection_support_uri_and_interpolation_characters(tmp_p
     path = tmp_path / "controller %?# database.db"
     DatabaseSchema.migrate(path)
     DatabaseSchema.migrate(path)
-    assert DatabaseSchema.of(path) == "0001"
+    assert (
+        DatabaseSchema.of(path)
+        == ScriptDirectory.from_config(
+            _config(tmp_path / "unused.db")
+        ).get_current_head()
+    )
     repository = Repository(path)
     repository.zones.create_domain(Domain(name="example.com"))
     assert repository.zones.get_domain("example.com").name == "example.com"
