@@ -66,8 +66,10 @@ def test_root_help_lists_every_subcommand():
     assert result.returncode == 0
     assert "standalone" in result.stdout
     assert "update" in result.stdout
-    assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
+    assert "blitzecdn-install" in result.stdout
+    for removed in ("--fresh", "upgrade"):
+        assert removed not in result.stdout
     assert "BLITZECDN_WRAPPER_DIR" in result.stdout
 
 
@@ -95,7 +97,6 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--public-address"),
         ("standalone", "--allowed-ips"),
         ("update", "--allowed-ips"),
-        ("upgrade", "--allowed-ips"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -123,7 +124,7 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ("subcommand", "expected"),
     [
         ("standalone", ["--admin-cidr CIDR", "--email ADDRESS", "--deploy"]),
-        ("update", ["--yes", "--no-backup"]),
+        ("update", ["--yes", "--no-backup", "--major"]),
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
@@ -242,7 +243,7 @@ def test_allowed_ips_is_refused_before_anything_is_installed():
 def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
     """One list, two validators, and the flag runs first.
 
-    `--allowed-ips` is checked by the host interpreter before any package exists;
+    `--allowed-ips` is checked by the image's stdlib helper before the host converges;
     `Settings` checks the same list when the API reads it. This keeps the copies
     agreeing, so the flag never provisions a server that cannot start. An empty
     environment value returns a server to loopback, but an empty flag is refused,

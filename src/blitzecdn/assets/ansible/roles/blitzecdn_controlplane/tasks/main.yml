@@ -39,14 +39,6 @@
     shell: /bin/bash
     create_home: true
 
-- name: Set the installation directory mode
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_install_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Permit deployment account provisioning
   ansible.builtin.copy:
     content: |
@@ -165,6 +157,16 @@
   ansible.builtin.template:
     src: blitzecdn-cli.j2
     dest: "{{ blitzecdn_controlplane_cli_wrapper }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# Copied from the image this play runs in, so the host always holds the
+# installer of the release it runs: an update replaces it with the target's.
+- name: Install the blitzecdn-install command
+  ansible.builtin.copy:
+    src: "{{ blitzecdn_controlplane_install_dir }}/install.sh"
+    dest: "{{ blitzecdn_controlplane_installer }}"
     owner: root
     group: root
     mode: "0755"

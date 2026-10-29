@@ -6,14 +6,13 @@ parsing, and the validators the script runs through Python.
 
 The second group builds a sandbox for the lifecycle paths: the script copied
 with every path redirected under a temp directory, the root check neutralised,
-and privileged commands (systemctl, userdel, nginx, git, docker) stubbed on
+and privileged commands (systemctl, userdel, nginx, docker) stubbed on
 ``PATH``.
 """
 
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -90,9 +89,9 @@ def host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[str
     )
 
 
-# --- sandbox for the destructive paths ---------------------------------------
+# --- sandbox for the lifecycle paths ------------------------------------------
 #
-# `--uninstall` and `--fresh` run for real inside a redirected copy of the
+# `--uninstall` and `update` run for real inside a redirected copy of the
 # script with every privileged command stubbed.
 
 
@@ -107,8 +106,8 @@ def instrument(sandbox: Path) -> tuple[Path, Path]:
     script = sandbox / "install.sh"
     text = SCRIPT.read_text(encoding="utf-8")
     for real, redirected in (
-        # Read by the standalone platform gate, which `--fresh` runs before tearing
-        # down; redirected so the sandbox can choose the host it pretends to be.
+        # Read by the platform gate and by the Docker bootstrap; redirected so
+        # the sandbox can choose the host it pretends to be.
         ("/etc/os-release", root / "etc/os-release"),
         ("/etc/blitzecdn", root / "etc/blitzecdn"),
         ("/etc/sudoers.d", root / "etc/sudoers.d"),
@@ -123,7 +122,10 @@ def instrument(sandbox: Path) -> tuple[Path, Path]:
         ("/var/lib/blitzecdn", root / "var/lib/blitzecdn"),
         ("/home/deploy", root / "home/deploy"),
         ("/usr/local/bin/blitzecdn", root / "usr/local/bin/blitzecdn"),
-        ("/opt/blitzecdn", root / "opt/blitzecdn"),
+        (
+            "/usr/local/sbin/blitzecdn-install",
+            root / "usr/local/sbin/blitzecdn-install",
+        ),
     ):
         text = text.replace(real, str(redirected))
     text = text.replace("[[ ${EUID} -eq 0 ]]", "[[ 0 -eq 0 ]]")
@@ -136,8 +138,10 @@ def instrument(sandbox: Path) -> tuple[Path, Path]:
     return script, root
 
 
-#: The image a fake installation records in its Compose project.
-FAKE_IMAGE = "ghcr.io/misaf/blitzecdn-control-plane:test"
+#: The release a fake installation runs, and the image its Compose project
+#: records.
+FAKE_RELEASE = "3.0.0"
+FAKE_IMAGE = f"ghcr.io/misaf/blitzecdn-control-plane:{FAKE_RELEASE}"
 
 
 def stub_bin(sandbox: Path, root: Path) -> None:
@@ -188,42 +192,6 @@ def stub_bin(sandbox: Path, root: Path) -> None:
         "exit 0\n",
         encoding="utf-8",
     )
-    # A stand-in that answers the fresh-rebuild questions and fabricates a
-    # checkout whose install.sh proves the reinstall path ran.
-    (bindir / "git").write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$*" in\n'
-        '  *"remote get-url origin"*)\n'
-        '    echo "https://github.com/misaf/blitze-cdn-cp.git"; exit 0 ;;\n'
-        '  *"describe --tags --exact-match HEAD"*)\n'
-        '    [[ -n "${FRESH_GIT_TAG-v1.2.3}" ]] || exit 1\n'
-        '    echo "${FRESH_GIT_TAG-v1.2.3}"; exit 0 ;;\n'
-        '  *"symbolic-ref --quiet --short HEAD"*)\n'
-        '    [[ -n "${FRESH_GIT_BRANCH:-}" ]] || exit 1\n'
-        '    echo "${FRESH_GIT_BRANCH}"; exit 0 ;;\n'
-        '  *"rev-parse HEAD"*)\n'
-        '    echo "0123456789abcdef0123456789abcdef01234567"; exit 0 ;;\n'
-        '  *"show HEAD:pyproject.toml"*)\n'
-        f"    echo 'version = \"{workspace_version()}\"'; exit 0 ;;\n"
-        "  clone*)\n"
-        '    [[ -z "${FRESH_GIT_CLONE_FAIL:-}" ]] || exit 1\n'
-        '    if [[ -n "${FRESH_GIT_CLONE_MARKER:-}" ]]; then\n'
-        '      printf "%s\\n" "$*" > "${FRESH_GIT_CLONE_MARKER}"\n'
-        "    fi\n"
-        '    target="${@: -1}"\n'
-        '    mkdir -p "${target}"\n'
-        "    cat > \"${target}/install.sh\" <<'FAKE'\n"
-        "#!/usr/bin/env bash\n"
-        'echo fresh-reinstalled > "${FRESH_REINSTALL_MARKER}"\n'
-        "exit 0\n"
-        "FAKE\n"
-        '    chmod +x "${target}/install.sh"\n'
-        "    exit 0\n"
-        "    ;;\n"
-        "  *) exit 0 ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
     for path in bindir.iterdir():
         path.chmod(0o700)
 
@@ -235,27 +203,15 @@ def workspace_version() -> str:
     return match.group(1)
 
 
-def fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
+def fake_installation(root: Path) -> list[Path]:
     """Create every artifact a standalone install owns on the host."""
     owned = [
-        root / "opt/blitzecdn/install.sh",
-        root / "opt/blitzecdn/.state/control-plane.db",
-        root / "opt/blitzecdn/.state/desired-state.yml",
-        root
-        / "opt/blitzecdn/.state/certificates/example-cdn"
-        / "fullchain-deadbeef.pem",
-        root
-        / "opt/blitzecdn/.state/collections/ansible_collections/blitzecdn"
-        / "edge/MANIFEST.json",
-        root / "opt/blitzecdn/.state/letsencrypt/config",
-        root / "opt/blitzecdn/.state/ansible-local",
-        root / "opt/blitzecdn/src/blitzecdn/assets/ansible/playbooks/uninstall.yml",
-        root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/blitzecdn/control-plane.compose.yml",
         root / "etc/systemd/system/blitzecdn-geoipupdate.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.timer",
         root / "usr/local/bin/blitzecdn",
+        root / "usr/local/sbin/blitzecdn-install",
         root / "etc/sudoers.d/blitzecdn-deploy",
         root / "etc/nginx/blitzecdn-managed-sites",
         root / "etc/nginx/conf.d/blitzecdn-feature-cache-http.conf",
@@ -269,13 +225,13 @@ def fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "etc/fail2ban/jail.d/blitzecdn-sshd.local",
         root / "etc/ssh/sshd_config.d/50-blitzecdn.conf",
         root / "etc/sysctl.d/60-blitzecdn.conf",
+        root / "var/lib/blitzecdn/control-plane.db",
+        root / "var/lib/blitzecdn/certificates/example-cdn/fullchain-deadbeef.pem",
         root / "var/lib/blitzecdn/.ssh/known_hosts",
         root / "var/lib/blitzecdn/.ssh/config",
         root / "var/lib/blitzecdn/acme/.well-known/acme-challenge/token",
         root / "home/deploy/.ssh/authorized_keys",
     ]
-    if with_git:
-        owned.append(root / "opt/blitzecdn/.git/HEAD")
     for path in owned:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -291,28 +247,18 @@ def fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         f'  image: "{FAKE_IMAGE}"\n',
         encoding="utf-8",
     )
-    # The installer owns only invocation and final checkout removal. This
+    # The installer owns only invoking the play and removing the image. This
     # stand-in for the play the docker stub runs in the image models a
-    # successful uninstall by removing the system paths from the fixture; it
-    # deliberately leaves /opt/blitzecdn for Bash.
+    # successful uninstall by removing every path in the fixture.
     ansible = root.parent / "uninstall-play"
-    system_paths = [
-        path for path in owned if root / "opt/blitzecdn" not in path.parents
-    ]
     ansible.write_text(
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         + "rm -rf -- "
-        + " ".join(shlex.quote(str(path)) for path in system_paths)
+        + " ".join(shlex.quote(str(path)) for path in owned)
         + "\n",
         encoding="utf-8",
     )
     ansible.chmod(0o700)
-    # The real host helpers, where the script runs them from, answering
-    # through the git stub.
-    helpers = root / "opt/blitzecdn/src/blitzecdn/host"
-    helpers.mkdir(parents=True, exist_ok=True)
-    for helper in ("install_release.py", "install_inputs.py"):
-        shutil.copyfile(SOURCE / "host" / helper, helpers / helper)
     return owned
 
 
@@ -342,8 +288,6 @@ def run_sandboxed(
     env_extra: dict[str, str] | None = None,
     bin_dir: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    # `update` refuses to run from anywhere but the installation directory, so
-    # its copy of the script sits there rather than beside the stubs.
     environment = os.environ.copy()
     stubs = bin_dir if bin_dir is not None else script.parent / "bin"
     environment["PATH"] = f"{stubs}:{environment['PATH']}"
@@ -362,93 +306,48 @@ def run_sandboxed(
 # --- the update sandbox ------------------------------------------------------
 
 
-def _stub_update_git(sandbox: Path) -> None:
-    """Answer the questions a release move asks, driven by environment variables.
-
-    The arm order is load-bearing, and every mistake fails as a silently wrong
-    answer:
-
-    * `*fetch*` stays above the tag arm, and the tag arm matches ``tag --list``,
-      because the real call is ``fetch --tags --prune origin``.
-    * ``--exact-match`` precedes ``--abbrev=0``: both contain
-      ``describe --tags``.
-    * The ``HEAD..`` form of ``rev-list --count`` is matched before the general
-      one.
-    * Patterns start with ``*`` because ``$*`` carries `repo_git`'s
-      ``-c safe.directory=... -C <path>`` prefix.
-    * The unset-only default (``${VAR-x}``) lets a test pass ``""`` to mean "this
-      question has no answer".
-    """
-    (sandbox / "bin" / "git").write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$*" in\n'
-        '  *"status --porcelain"*)\n'
-        '    printf "%s" "${UPDATE_GIT_DIRTY:-}"; exit 0 ;;\n'
-        '  *"remote get-url origin"*)\n'
-        '    echo "https://github.com/misaf/blitze-cdn-cp.git"; exit 0 ;;\n'
-        "  *fetch*)\n"
-        '    exit "${UPDATE_GIT_FETCH_STATUS:-0}" ;;\n'
-        '  *"show HEAD:pyproject.toml"*)\n'
-        '    [[ -n "${UPDATE_PROJECT_VERSION-3.0.0}" ]] || exit 0\n'
-        '    printf \'version = "%s"\\n\' "${UPDATE_PROJECT_VERSION-3.0.0}"\n'
-        "    exit 0 ;;\n"
-        '  *"tag --list"*)\n'
-        # %b, not %s: the default carries escaped newlines that must become real ones.
-        #
-        # Filtered by the caller's glob, because `latest_release_tag` is asked about one
-        # major at a time and an upgrade asks about two.
-        '    for pattern in "$@"; do case "${pattern}" in v*.\\*) break ;; esac; done\n'
-        '    printf "%b" "${UPDATE_GIT_TAGS-v3.1.0\\nv3.0.0\\n}" |\n'
-        "      while IFS= read -r line; do\n"
-        "        [[ -z ${line} ]] && continue\n"
-        # shellcheck-free glob match: the pattern is `v3.*` and the tag `v3.1.0`.
-        '        case "${line}" in ${pattern}) printf "%s\\n" "${line}" ;; esac\n'
-        "      done\n"
-        "    exit 0 ;;\n"
-        '  *"merge-base --is-ancestor"*)\n'
-        '    exit "${UPDATE_GIT_ANCESTOR_STATUS:-0}" ;;\n'
-        '  *"describe --tags --exact-match HEAD"*)\n'
-        '    [[ -n "${UPDATE_GIT_EXACT_TAG-v3.0.0}" ]] || exit 1\n'
-        '    echo "${UPDATE_GIT_EXACT_TAG-v3.0.0}"; exit 0 ;;\n'
-        '  *"describe --tags --abbrev=0"*)\n'
-        '    [[ -n "${UPDATE_GIT_NEAREST_TAG-v3.0.0}" ]] || exit 1\n'
-        '    echo "${UPDATE_GIT_NEAREST_TAG-v3.0.0}"; exit 0 ;;\n'
-        '  *"rev-list --count HEAD.."*)\n'
-        '    echo "${UPDATE_GIT_COMMITS:-12}"; exit 0 ;;\n'
-        '  *"rev-list --count"*)\n'
-        '    echo "${UPDATE_GIT_DRIFT:-4}"; exit 0 ;;\n'
-        '  *"rev-parse --short HEAD"*)\n'
-        '    echo "${UPDATE_GIT_SHORT_SHA:-abc1234}"; exit 0 ;;\n'
-        "  *checkout*)\n"
-        '    if [[ -n "${UPDATE_GIT_CHECKOUT_FAILS:-}" ]]; then exit 1; fi\n'
-        '    printf "%s\\n" "checkout" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
-        "    exit 0 ;;\n"
-        "  *) exit 0 ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
-    (sandbox / "bin" / "git").chmod(0o700)
-
-
 def _stub_update_services(sandbox: Path, root: Path) -> None:
-    """Docker, which answers nothing, and the CLI wrapper, which records.
+    """Docker answering the questions a release move asks, and a recording CLI.
 
-    The installer never stops a service (the role does), so a `stop` reaching this
-    stub shows up in the order log.
+    The image helpers answer from the environment: ``UPDATE_TARGET`` is what
+    `image_releases` selects, and ``UPDATE_SELECT_ERROR`` makes it refuse. The
+    installer never stops a service (the role does), so anything that reaches
+    the engine beyond those questions shows up in the order log. `dpkg` fails,
+    which stops a run at the Docker bootstrap, past its point of no return.
     """
     (sandbox / "bin" / "docker").write_text(
         "#!/usr/bin/env bash\n"
+        'case "$*" in\n'
+        '  "image inspect"*)\n'
+        '    [[ -z "${DOCKER_IMAGE_MISSING:-}" ]] || exit 1\n'
+        "    exit 0 ;;\n"
+        "  run*blitzecdn.host.install_inputs*)\n"
+        "    exit 0 ;;\n"
+        "  run*blitzecdn.host.image_releases*)\n"
+        '    printf "%s\\n" "$*" >> "${UPDATE_SELECT_LOG:-/dev/null}"\n'
+        '    if [[ -n "${UPDATE_SELECT_ERROR:-}" ]]; then\n'
+        '      echo "error: ${UPDATE_SELECT_ERROR}; nothing was changed" >&2; exit 1\n'
+        "    fi\n"
+        '    echo "${UPDATE_TARGET:-3.1.0}"; exit 0 ;;\n'
+        "esac\n"
         'printf "%s\\n" "docker $*" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
         "exit 0\n",
         encoding="utf-8",
     )
-    (sandbox / "bin" / "docker").chmod(0o700)
+    (sandbox / "bin" / "dpkg").write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "docker bootstrap" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    for stub in ("docker", "dpkg"):
+        (sandbox / "bin" / stub).chmod(0o700)
     wrapper = root / "usr/local/bin/blitzecdn"
     wrapper.parent.mkdir(parents=True, exist_ok=True)
     wrapper.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "backup" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
-        # Only when asked: `update` and `upgrade` differ in which backup they take.
+        # Only when asked: a plain and a major update take different backups.
         'printf "%s\\n" "$*" >> "${UPDATE_BACKUP_ARGS_LOG:-/dev/null}"\n'
         'exit "${UPDATE_BACKUP_STATUS:-0}"\n',
         encoding="utf-8",
@@ -456,22 +355,17 @@ def _stub_update_services(sandbox: Path, root: Path) -> None:
     wrapper.chmod(0o700)
 
 
-def update_sandbox(tmp_path: Path, *, with_git: bool = True) -> tuple[Path, Path, Path]:
-    """Build an installation whose install.sh *is* the instrumented script.
+def update_sandbox(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """An installed host on `FAKE_RELEASE`, with its installer instrumented.
 
-    `update` only runs from the installation directory it updates. Returns the
-    script, the stub directory, and the root.
+    Returns the script, the stub directory, and the root.
     """
     sandbox = tmp_path / "sandbox"
     script, root = instrument(sandbox)
     stub_bin(sandbox, root)
-    _stub_update_git(sandbox)
-    fake_installation(root, with_git=with_git)
+    fake_installation(root)
     _stub_update_services(sandbox, root)
-    installed = root / "opt/blitzecdn/install.sh"
-    shutil.copyfile(script, installed)
-    installed.chmod(0o700)
-    return installed, sandbox / "bin", root
+    return script, sandbox / "bin", root
 
 
 # --- the control-plane role --------------------------------------------------

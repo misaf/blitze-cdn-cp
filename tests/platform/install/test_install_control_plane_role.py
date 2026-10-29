@@ -80,9 +80,9 @@ def test_controlplane_fails_the_play_unless_both_services_become_healthy():
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
     standalone = script_section("standalone")
-    # python3 runs the input checks and, under nsenter, the play's modules;
-    # curl and ca-certificates fetch Docker's signing key.
-    assert "apt-get install -y ca-certificates curl git python3" in standalone
+    # python3 runs the play's modules under nsenter; curl and ca-certificates
+    # fetch Docker's signing key. No git: a server has no source tree.
+    assert "apt-get install -y ca-certificates curl python3" in standalone
     assert standalone.index("ensure_docker") < standalone.index(
         "obtain_control_plane_image"
     )
