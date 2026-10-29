@@ -13,7 +13,6 @@ reach.
 | `test_image_releases.py` | `image_releases`, the release selection `update` runs in the installed image before it changes anything |
 | `test_install_control_plane_role.py` | The `blitzecdn_controlplane` role, which owns the host state |
 | `test_install_image.py` | The control-plane image a server runs everything from: Docker seeding, pull, archive and source fallbacks, and Ansible over nsenter |
-| `test_install_toolchain.py` | uv, the pinned toolchain the virtualenv is built with |
 
 The privileged subcommands refuse to run as a normal user, so the paths that
 provision a server cannot be executed directly. What *can* be executed is

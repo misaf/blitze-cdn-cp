@@ -17,7 +17,6 @@ from support.install import (
     run_sandboxed,
     run_script,
     script_function,
-    script_section,
     script_text,
     update_sandbox,
 )
@@ -255,19 +254,13 @@ def test_update_refuses_when_backup_wrapper_is_missing(tmp_path: Path):
     assert not log.exists()
 
 
-def test_the_default_install_ends_by_installing_the_wrapper():
-    """Otherwise the CLI is only reachable from inside the checkout."""
-    install = script_section("install")
-    assert "handoff_user_wrapper" in install
-
-
 def test_every_command_uses_the_shared_option_parser():
     """One parser, and one table that routes every command through it.
 
     Asserted against the sourced script: the table must have a row per command.
     """
     assert script_text().count("while [[ $# -gt 0 ]]") == 1
-    for command in ("install", "standalone", "uninstall", "update"):
+    for command in ("standalone", "uninstall", "update"):
         assert query(f"command_field {command} 2") != "", (
             f"{command} has no row in COMMAND_TABLE"
         )

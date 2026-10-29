@@ -252,17 +252,6 @@ def test_a_server_has_no_source_tree():
     )
 
 
-def test_installer_installs_only_third_party_collections():
-    """The BlitzeCDN roles ship inside the package; nothing pins or builds them."""
-    bootstrap = script_function("bootstrap_runtime")
-    assert (
-        '-r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"'
-        in bootstrap
-    )
-    assert "--force" not in bootstrap
-    assert "collection build" not in script_text()
-
-
 @pytest.mark.parametrize("body", ["standalone", "cmd_update"])
 def test_a_server_installs_no_python_packages_and_asks_no_package_index(body: str):
     """The point of the image: a host that cannot reach PyPI can still install.
@@ -285,11 +274,3 @@ def test_only_a_source_build_needs_the_package_index():
     assert image.index("BLITZECDN_CONTROL_PLANE_BUILD") < image.index("docker build")
     for help_form in ("standalone", "update"):
         assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in query(f"usage_{help_form}")
-
-
-def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
-    script = script_text()
-    # The interpreter is the tell, not `pip`: uv builds the environment without
-    # pip.
-    assert "! -x .venv/bin/python" in script
-    assert ".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)" in script

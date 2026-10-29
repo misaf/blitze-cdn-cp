@@ -10,7 +10,6 @@ from pathlib import Path
 
 import yaml
 from support.install import (
-    PROJECT_DIR,
     ROLE,
     fake_installation,
     instrument,
@@ -159,10 +158,3 @@ def test_edge_platform_is_pinned_to_ubuntu_26_04():
         "ansible_facts.distribution_version == '26.04'",
     ]
     assert "Ubuntu 26.04 LTS" in edge_gate["fail_msg"]
-
-
-def test_no_upper_bound_on_the_python_version():
-    """A ceiling is discovered on somebody's fresh server, never in CI."""
-    script = (PROJECT_DIR / "install.sh").read_text(encoding="utf-8")
-    assert "sys.version_info[:2] < (3, 12)" in script
-    assert "(3, 15)" not in script, "install.sh still refuses a future Python"

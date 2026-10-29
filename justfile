@@ -57,27 +57,6 @@ lock:
 lock-check:
     uv lock --check
 
-# Repin the uv that install.sh downloads, refreshing its checksums together.
-#
-# The version and the hashes have to move as one. Bumping the version alone
-# leaves install.sh comparing a new download against an old hash and refusing
-# to run, which looks exactly like the tampering the check exists to catch.
-uv-pin version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-                  x86_64-apple-darwin aarch64-apple-darwin; do
-        sum=$(curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/astral-sh/uv/releases/download/{{version}}/uv-${triple}.tar.gz.sha256" \
-            | awk '{print $1}')
-        [[ -n "${sum}" ]] || { echo "no checksum for ${triple}" >&2; exit 1; }
-        name="UV_SHA256_${triple//-/_}"
-        sed -i.bak -E "s|^${name}=.*|${name}=\"${sum}\"|" install.sh
-    done
-    sed -i.bak -E 's|^UV_VERSION=.*|UV_VERSION="{{version}}"|' install.sh
-    rm -f install.sh.bak
-    echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
-
 # Move the application version, both edge image pins and the control-plane
 # image pin together. Publishing the corresponding images remains an explicit
 # release action: the tag does it.
