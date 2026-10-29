@@ -46,7 +46,9 @@ def require_operator(
         )
     if x_api_key:
         for operator, expected in settings.api_keys.items():
-            if hmac.compare_digest(x_api_key, expected.get_secret_value()):
+            if hmac.compare_digest(
+                x_api_key.encode("utf-8"), expected.get_secret_value().encode("utf-8")
+            ):
                 return operator
     raise HTTPException(
         status.HTTP_401_UNAUTHORIZED,

@@ -26,6 +26,8 @@ def test_health_is_public_and_controls_require_auth(settings):
         wrong = client.get("/v3/hosts", headers={"X-API-Key": "wrong"})
         assert wrong.status_code == 401
         assert wrong.headers["WWW-Authenticate"] == "ApiKey"
+        non_ascii = client.get("/v3/hosts", headers=[(b"X-API-Key", b"\xff")])
+        assert non_ascii.status_code == 401
         assert (
             client.get("/v3/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
