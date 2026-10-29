@@ -6,9 +6,8 @@
 #   standalone      provision this whole server as control plane and edge, from
 #                   the published control-plane image: no Python package is
 #                   installed on the host, and nothing is fetched from PyPI
-#   update/upgrade  move an installed host onto a newer release
+#   update          move an installed host onto a newer release
 #   --uninstall     remove every BlitzeCDN artifact
-#   --fresh         uninstall, then reinstall the running release
 set -Eeuo pipefail
 
 readonly INSTALL_DIR=/opt/blitzecdn
@@ -38,12 +37,10 @@ Subcommands:
   (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
   update      Move an installed server onto a newer release, keeping its state
-  upgrade     Cross to the next major release line, keeping its state
   help        Show this message
 
 Whole-host operations:
   --uninstall Remove every BlitzeCDN artifact and stop there
-  --fresh     Uninstall, then reinstall like a brand-new server
 
 Run './install.sh SUBCOMMAND --help' for the options of a subcommand.
 
@@ -58,7 +55,7 @@ Environment for the no-argument form:
 The no-argument form installs a `blitzecdn` command that pins this checkout as
 the project directory, so it can be run from any working directory.
 
-Environment for standalone, update and upgrade:
+Environment for standalone and update:
 EOF
   usage_image_environment
 }
@@ -238,19 +235,17 @@ parsed_email=''
 parsed_deploy=0
 parsed_allow_empty_sites=0
 parsed_no_backup=0
+parsed_major=0
 parsed_public_addresses=()
 parsed_allowed_ips=()
-parsed_forward_args=()
 
 # Every subcommand: name, usage function, the sudo label (empty when root is
 # not needed), and the options it takes.
 readonly COMMAND_TABLE='
 install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
-update|usage_update|updater|--yes --no-backup --allowed-ips
-upgrade|usage_upgrade|updater|--yes --no-backup --allowed-ips
+update|usage_update|updater|--yes --no-backup --allowed-ips --major
 uninstall|usage_uninstall|uninstaller|--yes
-fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips --yes
 '
 
 # Print one field of one command's row. Fields: 2 usage, 3 root label, 4 options.
@@ -294,17 +289,15 @@ parse_options() {
         "${usage}"
         exit 0
         ;;
-      --yes|--deploy|--allow-empty-sites|--no-backup)
+      --yes|--deploy|--allow-empty-sites|--no-backup|--major)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         case "${option}" in
           --yes) parsed_yes=1 ;;
           --deploy) parsed_deploy=1 ;;
           --allow-empty-sites) parsed_allow_empty_sites=1 ;;
           --no-backup) parsed_no_backup=1 ;;
+          --major) parsed_major=1 ;;
         esac
-        if [[ ${command} == fresh && ${option} != --yes ]]; then
-          parsed_forward_args+=("${option}")
-        fi
         shift
         ;;
       --admin-cidr|--email|--public-address|--allowed-ips)
@@ -316,9 +309,6 @@ parse_options() {
           --public-address) parsed_public_addresses+=("$2") ;;
           --allowed-ips) parsed_allowed_ips+=("$2") ;;
         esac
-        if [[ ${command} == fresh ]]; then
-          parsed_forward_args+=("${option}" "$2")
-        fi
         shift 2
         ;;
       *) reject_option "${option}" "${usage}" ;;
@@ -696,7 +686,7 @@ if sys.version_info[:2] < (3, 12):
   fi
 
   [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
-    die 1 "error: uv created an incomplete .venv; rerun with --fresh"
+    die 1 "error: uv created an incomplete .venv; remove the incomplete .venv and rerun"
   [[ -x .venv/bin/blitzecdn ]] ||
     die 1 "error: uv did not install the local BlitzeCDN CLI"
 
@@ -826,15 +816,16 @@ migrate state, and recreate the Compose services on the new release.
 There is nothing to choose. The release line comes from the installed version,
 the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
 never crosses a major version and never moves backwards. It leaves the checkout
-detached at that tag, so a later --fresh reinstalls the exact release that was
-running. Crossing to the next major is `./install.sh upgrade`.
+detached at that tag. Crossing to the next major is `./install.sh update --major`.
 
 The database, the certificates, the inventory, and the API credentials in
-/etc/blitzecdn all survive; --fresh is the destructive counterpart.
+/etc/blitzecdn all survive.
 
 Options:
+  --major      Move to the next major line after updating the current line;
+               use a full backup and type the target version to confirm
   --yes        Do not ask for confirmation
-  --no-backup  Skip the database backup taken before anything changes
+  --no-backup  Skip the backup taken before anything changes
   --allowed-ips LIST
                Repoint the API access list while updating; comma-separated or
                repeated. Omitted, this update does not touch it.
@@ -849,32 +840,6 @@ The checkout must be /opt/blitzecdn, must have the upstream origin, and must
 have no local modifications. The persistent containers are stopped while the
 schema and immutable image are replaced.
 EOF
-}
-
-usage_upgrade() {
-  cat <<'EOF'
-Usage: ./install.sh upgrade [OPTIONS]
-
-Cross this server onto the next major release line, one line at a time: a v3
-host upgrades to the newest v4, never straight to v5.
-
-It refuses unless the host is already on the newest release of its own line,
-where that line's deprecation notices were published. Run `update` first, and
-check inventories, playbooks and scripts against the target's release notes.
-
-Everything `update` preserves, this preserves. It takes a full backup rather
-than the database alone, and asks you to type the target version.
-
-Options:
-  --yes        Do not ask for confirmation
-  --no-backup  Skip the backup taken before anything changes
-  --allowed-ips LIST
-               Repoint the API access list while upgrading; comma-separated or
-               repeated. Omitted, this upgrade does not touch it.
-
-Environment:
-EOF
-  usage_image_environment
 }
 
 # Check the checkout, fetch, and choose the target with `install_release.py`.
@@ -1015,11 +980,11 @@ move_release() {
 }
 
 cmd_update() {
-  move_release update
-}
-
-cmd_upgrade() {
-  move_release upgrade
+  if [[ ${parsed_major} -eq 1 ]]; then
+    move_release upgrade
+  else
+    move_release update
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1065,42 +1030,12 @@ checkout from a private copy.
 EOF
 }
 
-usage_fresh() {
-  cat <<'EOF'
-Usage: sudo ./install.sh --fresh [OPTIONS] [STANDALONE OPTIONS]
-
-Uninstall BlitzeCDN completely, then install it again exactly as a brand-new
-server is installed: clone the running release from origin and run the
-standalone installer. The standalone options pass through unchanged:
-
-  --admin-cidr CIDR  Network allowed to administer SSH
-  --email ADDRESS    Default ACME account email
-  --public-address ADDRESS
-                     Public edge IP or hostname; repeat when needed
-  --allowed-ips LIST Client IPv4 addresses or CIDRs allowed to reach the API
-  --deploy           Run the initial edge deployment (default: prepare only)
-  --allow-empty-sites
-                     Permit --deploy to remove every previously managed site
-
-Options:
-  --yes        Do not ask for confirmation before uninstalling
-  -h, --help   Show this help
-
-The current checkout must be a Git clone whose origin is the upstream
-repository, so the rebuild reinstalls the exact release that is running. Run
---uninstall instead to remove BlitzeCDN without installing it again.
-EOF
-}
-
 confirm_destructive() {
-  local assume_yes="$1" mode="$2"
+  local assume_yes="$1"
   [[ ${assume_yes} == 1 ]] && return 0
   echo >&2 "This removes every BlitzeCDN artifact on this host and cannot be undone:"
   echo >&2
   removal_manifest >&2
-  if [[ ${mode} == fresh ]]; then
-    echo >&2 "Afterwards it re-clones the current release and reinstalls it."
-  fi
   local answer
   read -r -p "Continue? [y/N]: " answer
   [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
@@ -1109,63 +1044,13 @@ confirm_destructive() {
 cmd_uninstall() {
   reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC uninstall
 
-  confirm_destructive "${parsed_yes}" uninstall
+  confirm_destructive "${parsed_yes}"
   converge_uninstall
   remove_installation_directory
 
   echo
   echo "BlitzeCDN has been removed. No packages were removed and nothing outside"
   echo "the paths listed in the confirmation was changed."
-}
-
-cmd_fresh() {
-  reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC fresh
-
-  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
-    "error: ${INSTALL_DIR} is not a Git checkout; nothing to reinstall from" \
-    "Run --uninstall instead, or clone the release to ${INSTALL_DIR} first."
-
-  # The origin and the running release, read before the teardown deletes the
-  # checkout: a tag or the release branch by name, anything else by commit.
-  local source remote_url revision named_revision
-  source=$(release_plan source) || exit 1
-  remote_url=$(plan_field origin "${source}")
-  revision=$(plan_field revision "${source}")
-  named_revision=$(plan_field named "${source}")
-
-  # Before the confirmation: a rebuild that cannot reinstall is a deletion.
-  require_edge_platform
-
-  confirm_destructive "${parsed_yes}" fresh
-
-  # Stage the replacement before destroying anything, beside the final path so
-  # the handoff is a rename. Registered, so every refusal removes it.
-  local staging
-  staging=$(temp_path -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
-  if [[ ${named_revision} -eq 1 ]]; then
-    git clone --branch "${revision}" "${remote_url}" "${staging}" ||
-      die 1 "error: could not stage release ${revision}; the current installation was not changed"
-  else
-    if ! git clone "${remote_url}" "${staging}" ||
-      ! git -C "${staging}" checkout --detach "${revision}"; then
-      die 1 "error: could not stage commit ${revision}; the current installation was not changed"
-    fi
-  fi
-  [[ -x ${staging}/install.sh ]] ||
-    die 1 "error: staged release has no executable install.sh; the current installation was not changed"
-
-  converge_uninstall ||
-    die 1 "error: teardown failed; the current checkout remains, but inspect and repair any partially removed host state before retrying"
-  remove_installation_directory
-  # From here the staged clone is the only copy of the release.
-  unregister_path "${staging}"
-  mv -- "${staging}" "${INSTALL_DIR}" ||
-    die 1 "error: teardown succeeded but the staged release remains at ${staging}; move it to ${INSTALL_DIR} and rerun standalone"
-
-  echo
-  echo "Reinstalling the running release from a clean state..."
-  "${INSTALL_DIR}/install.sh" standalone \
-    ${parsed_forward_args[@]+"${parsed_forward_args[@]}"}
 }
 
 # ---------------------------------------------------------------------------
@@ -1176,16 +1061,12 @@ main() {
   local subcommand=install
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      standalone|update|upgrade|install)
+      standalone|update|install)
         subcommand=$1
         shift
         ;;
       --uninstall)
         subcommand=uninstall
-        shift
-        ;;
-      --fresh)
-        subcommand=fresh
         shift
         ;;
       help|-h|--help)
