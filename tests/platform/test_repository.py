@@ -413,9 +413,26 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 
     reopened = Repository(settings.database_path)
     assert reopened.deployment_requirements.pending(kind)
-    reopened.deployment_requirements.clear(kind)
+    reopened.deployment_requirements.clear(kind, through=datetime.now(UTC))
     assert not reopened.deployment_requirements.pending(kind)
     reopened.close()
+
+
+def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
+    """Clearing is bounded, so material newer than a deployment stays owed."""
+    kind = DeploymentRequirementKind.CERTIFICATES
+    repository = Repository(settings.database_path)
+    before = datetime.now(UTC)
+    repository.deployment_requirements.require(kind)
+
+    repository.deployment_requirements.clear(kind, through=before)
+    assert repository.deployment_requirements.pending(kind)
+
+    requested_at = repository.deployment_requirements.requested_at(kind)
+    assert requested_at is not None
+    repository.deployment_requirements.clear(kind, through=requested_at)
+    assert repository.deployment_requirements.requested_at(kind) is None
+    repository.close()
 
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):

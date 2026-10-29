@@ -285,17 +285,23 @@ class DeploymentRequirementStore:
                 )
             )
 
-    def clear(self, kind: DeploymentRequirementKind) -> None:
+    def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
+        # Conditional, so a requirement raised after ``through`` survives.
         with self._db.session() as session:
             session.execute(
                 delete(DeploymentRequirementRow).where(
-                    DeploymentRequirementRow.kind == kind.value
+                    DeploymentRequirementRow.kind == kind.value,
+                    DeploymentRequirementRow.requested_at <= through,
                 )
             )
 
     def pending(self, kind: DeploymentRequirementKind) -> bool:
+        return self.requested_at(kind) is not None
+
+    def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None:
         with self._db.session() as session:
-            return session.get(DeploymentRequirementRow, kind.value) is not None
+            row = session.get(DeploymentRequirementRow, kind.value)
+            return None if row is None else row.requested_at
 
 
 __all__ = [
