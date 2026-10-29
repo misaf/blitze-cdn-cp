@@ -157,33 +157,95 @@ def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     } <= tables
 
 
+#: The initial revisions in upgrade order, each named after the capability
+#: whose tables it creates.
+INITIAL = (
+    "0001_core",
+    "0002_jobs",
+    "0003_releases",
+    "0004_deployments",
+    "0005_dns",
+    "0006_edges",
+    "0007_workflows",
+    "0008_traffic",
+)
+
+
+def _tables(path) -> set[str]:
+    with closing(sqlite3.connect(path)) as connection:
+        return {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        } - {"alembic_version"}
+
+
+def _owner(module: str) -> str:
+    """The capability a table module belongs to; core owns the shared tables."""
+    if module == "blitzecdn.core.persistence.tables":
+        return "core"
+    return module.removeprefix("blitzecdn.capabilities.").removesuffix(
+        ".adapters.tables"
+    )
+
+
 def test_initial_capability_revisions_form_one_chain(tmp_path):
     revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
-    assert [revision.revision for revision in revisions.walk_revisions()][-8:] == [
-        f"{number:04}" for number in range(8, 0, -1)
-    ]
+    chain = [revision.revision for revision in revisions.walk_revisions()]
+    assert chain[-len(INITIAL) :] == list(reversed(INITIAL))
+
+
+def test_each_initial_revision_creates_exactly_its_capabilitys_tables(tmp_path):
+    """The capability grouping is enforced, not just a naming convention."""
+    owners = {
+        mapper.local_table.name: _owner(mapper.class_.__module__)
+        for mapper in Base.registry.mappers
+    }
+    path = tmp_path / "control.db"
+    config = _config(path)
+    before: set[str] = set()
+    for revision in INITIAL:
+        command.upgrade(config, revision)
+        after = _tables(path)
+        capability = revision.split("_", 1)[1]
+        assert after - before == {
+            table for table, owner in owners.items() if owner == capability
+        }, revision
+        before = after
 
 
 def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
     path = tmp_path / "control.db"
     config = _config(path)
-    for number in range(1, 9):
-        command.upgrade(config, f"{number:04}")
-        assert _revision(path) == f"{number:04}"
+    for revision in INITIAL:
+        command.upgrade(config, revision)
+        assert _revision(path) == revision
     DatabaseSchema.validate(path)
-    for number in range(7, 0, -1):
-        command.downgrade(config, f"{number:04}")
-        assert _revision(path) == f"{number:04}"
+    for revision in reversed(INITIAL[:-1]):
+        command.downgrade(config, revision)
+        assert _revision(path) == revision
     command.downgrade(config, "base")
     assert _revision(path) is None
-    with closing(sqlite3.connect(path)) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-    assert tables <= {"alembic_version"}
+    assert _tables(path) == set()
+
+
+def test_a_database_from_the_retired_single_baseline_is_refused(tmp_path):
+    """Before the split, revision "0001" held the whole schema.
+
+    No current revision reuses that id, so such a file or backup is refused as
+    unknown rather than half-upgraded on top of tables that already exist.
+    """
+    assert not DatabaseSchema.known("0001")
+    legacy = tmp_path / "legacy.db"
+    DatabaseSchema.migrate(legacy)
+    with closing(sqlite3.connect(legacy)) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = '0001'")
+        connection.commit()
+    before = legacy.read_bytes()
+    with pytest.raises(ConfigurationError, match="unknown schema revision '0001'"):
+        DatabaseSchema.migrate(legacy)
+    assert legacy.read_bytes() == before
 
 
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):

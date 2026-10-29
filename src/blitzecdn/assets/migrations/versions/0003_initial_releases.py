@@ -1,17 +1,17 @@
 """Initial releases schema.
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 0003_releases
+Revises: 0002_jobs
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0003"
-down_revision = "0002"
+revision = "0003_releases"
+down_revision = "0002_jobs"
 branch_labels = None
 depends_on = None
 
@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("document", sa.String(), nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("digest"),
@@ -37,7 +37,7 @@ def upgrade() -> None:
         sa.Column("inputs_digest", sa.String(), nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column("document", sqlite.JSON(), nullable=False),
@@ -58,7 +58,7 @@ def upgrade() -> None:
         sa.Column("digest", sa.String(), nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column("document", sa.String(), nullable=False),
@@ -70,7 +70,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
     op.drop_table("release_configurations")
 
     op.drop_table("releases")

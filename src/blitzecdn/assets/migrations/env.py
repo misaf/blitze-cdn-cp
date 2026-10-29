@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from typing import Any, Literal
 
 from alembic import context
+from alembic.autogenerate.api import AutogenContext
 from sqlalchemy import create_engine
 
 # Every table module, imported so its rows register on `Base.metadata`;
@@ -23,7 +25,7 @@ from blitzecdn.capabilities.workflows.adapters import (
     tables as _workflows,  # noqa: F401
 )
 from blitzecdn.core.config import Settings
-from blitzecdn.core.persistence.tables import Base
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 config = context.config
 
@@ -44,6 +46,19 @@ def _url() -> str:
     return f"sqlite+pysqlite:///{Settings.from_environment().database_path}"
 
 
+def _render_item(
+    type_: str, obj: Any, autogen_context: AutogenContext
+) -> str | Literal[False]:
+    """Render timestamps as plain text columns, as `UtcDateTime` stores them.
+
+    A revision is permanent history, so it must not import application code
+    that may later move or be renamed.
+    """
+    if type_ == "type" and isinstance(obj, UtcDateTime):
+        return "sa.String()"
+    return False
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=_url(),
@@ -52,6 +67,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         # SQLite cannot ALTER most things, so Alembic rebuilds tables.
         render_as_batch=True,
+        render_item=_render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -65,6 +81,7 @@ def run_migrations_online() -> None:
                 connection=connection,
                 target_metadata=target_metadata,
                 render_as_batch=True,
+                render_item=_render_item,
             )
             with context.begin_transaction():
                 context.run_migrations()

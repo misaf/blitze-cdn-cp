@@ -1,17 +1,17 @@
 """Initial deployments schema.
 
-Revision ID: 0004
-Revises: 0003
+Revision ID: 0004_deployments
+Revises: 0003_releases
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0004"
-down_revision = "0003"
+revision = "0004_deployments"
+down_revision = "0003_releases"
 branch_labels = None
 depends_on = None
 
@@ -27,15 +27,13 @@ def upgrade() -> None:
         sa.Column("host_limit", sa.String(), nullable=True),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
-        sa.Column(
-            "started_at", blitzecdn.core.persistence.tables.UtcDateTime(), nullable=True
-        ),
+        sa.Column("started_at", sa.String(), nullable=True),
         sa.Column(
             "finished_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column("result", sqlite.JSON(), nullable=True),
@@ -87,12 +85,12 @@ def upgrade() -> None:
         sa.Column("fence", sa.Integer(), nullable=False),
         sa.Column(
             "started_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column(
             "finished_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column("last_error", sa.String(), nullable=True),
@@ -121,7 +119,7 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(), nullable=False),
         sa.Column(
             "requested_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("kind"),

@@ -105,6 +105,13 @@ class DatabaseSchema:
         with _alembic_lock, migration_lock.open("a+b") as lock_file:
             migration_lock.chmod(0o600)
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            # Alembic resolves a revision by unique prefix, so a retired id
+            # such as "0001" would silently mean "0001_core"; demand an exact one.
+            stamped = DatabaseSchema.of(path)
+            if stamped is not None and not DatabaseSchema.known(stamped):
+                raise _schema_error(
+                    path, CommandError(f"unknown schema revision {stamped!r}")
+                )
             config = _config(path)
             try:
                 command.upgrade(config, "head")

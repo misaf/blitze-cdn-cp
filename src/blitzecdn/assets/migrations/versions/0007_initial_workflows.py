@@ -1,17 +1,17 @@
 """Initial workflows schema.
 
-Revision ID: 0007
-Revises: 0006
+Revision ID: 0007_workflows
+Revises: 0006_edges
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0007"
-down_revision = "0006"
+revision = "0007_workflows"
+down_revision = "0006_edges"
 branch_labels = None
 depends_on = None
 
@@ -26,12 +26,12 @@ def upgrade() -> None:
         sa.Column("operator", sa.String(), nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column("steps", sqlite.JSON(), nullable=False),
@@ -57,5 +57,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
     op.drop_table("workflows")
