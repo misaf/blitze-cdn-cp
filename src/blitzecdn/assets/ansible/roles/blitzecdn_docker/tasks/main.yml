@@ -75,13 +75,13 @@
       delay: 5
 
     - name: Configure the Docker daemon
-      ansible.builtin.template:
-        src: daemon.json.j2
+      ansible.builtin.copy:
+        src: daemon.json
         dest: "{{ blitzecdn_docker_daemon_config_file }}"
         owner: root
         group: root
         mode: "0644"
-        # Validate the temporary render before replacing the live file. Docker
+        # Validate the temporary copy before replacing the live file. Docker
         # treats every top-level JSON key as a daemon option, so syntactically
         # valid JSON can still make the service impossible to start.
         validate: /usr/bin/dockerd --validate --config-file %s

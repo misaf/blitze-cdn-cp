@@ -57,6 +57,15 @@ lock:
 lock-check:
     uv lock --check
 
+# Copy the blitzecdn_docker role's packages, apt source and daemon.json into
+# install.sh's generated block.
+#
+# The installer is downloaded on its own and has to install Docker before the
+# image that runs the role exists, so it carries a copy. Edit the role, then run
+# this; the suite fails while the copy is stale.
+installer-sync:
+    uv run python tests/installer_sync.py
+
 # Move the application version, both edge image pins and the control-plane
 # image pin together. Publishing the corresponding images remains an explicit
 # release action: the tag does it.

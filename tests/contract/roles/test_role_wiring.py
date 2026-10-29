@@ -1,11 +1,11 @@
 """Cross-role wiring: the firewall registry, and the daemon's own configuration."""
 
+import json
+
 import yaml
 from support.contracts import (
     DOCKER_ROLE_DIR,
     STACK_ROLE_DIR,
-    ansible_bool,
-    jinja2,
     role_path,
 )
 from support.paths import CORE_ANSIBLE
@@ -47,17 +47,9 @@ def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
 
 def test_docker_daemon_configuration_uses_only_supported_directives():
     """A JSON pseudo-comment is a real key that makes dockerd refuse to start."""
-    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    environment.filters["bool"] = ansible_bool
-    rendered = environment.from_string(
-        (DOCKER_ROLE_DIR / "templates/daemon.json.j2").read_text(encoding="utf-8")
-    ).render(
-        blitzecdn_docker_log_driver="json-file",
-        blitzecdn_docker_log_max_size="32m",
-        blitzecdn_docker_log_max_file=3,
-        blitzecdn_docker_live_restore=True,
+    configuration = json.loads(
+        (DOCKER_ROLE_DIR / "files/daemon.json").read_text(encoding="utf-8")
     )
-    configuration = yaml.safe_load(rendered)
 
     assert set(configuration) == {"log-driver", "log-opts", "live-restore"}
 
@@ -69,7 +61,8 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
         for task in tasks[0]["block"]
         if task["name"] == "Configure the Docker daemon"
     )
-    assert configure["ansible.builtin.template"]["validate"] == (
+    assert configure["ansible.builtin.copy"]["src"] == "daemon.json"
+    assert configure["ansible.builtin.copy"]["validate"] == (
         "/usr/bin/dockerd --validate --config-file %s"
     )
 
