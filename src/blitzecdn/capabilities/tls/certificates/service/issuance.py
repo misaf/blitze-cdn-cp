@@ -1,7 +1,7 @@
 """Issuing, uploading, renewing and reporting on TLS certificates.
 
 Certificate state is written to the zone or rule that produced a host, through
-``HostService.activate_managed_certificate``; the host itself is derived.
+``SiteEditing.activate_managed_certificate``; the host itself is derived.
 """
 
 from __future__ import annotations
@@ -41,7 +41,11 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator,
     WorkflowProgress,
 )
-from blitzecdn.capabilities.tls.contract import CertificateMode, CertificateVersion
+from blitzecdn.capabilities.tls.contract import (
+    CertificateMode,
+    CertificateVersion,
+    TlsPolicy,
+)
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -299,7 +303,10 @@ class CertificateService:
         skipped: dict[str, str] = {}
         failed: dict[str, str] = {}
         for candidate in self.persistence.sites.list_sites():
-            if candidate.policy.tls.certificate_mode is not CertificateMode.DISABLED:
+            if (
+                candidate.policy[TlsPolicy].certificate_mode
+                is not CertificateMode.DISABLED
+            ):
                 continue
             report = self.certificate_preflight(candidate.name)
             if not report.ok:
@@ -314,7 +321,10 @@ class CertificateService:
                     ) as progress,
                 ):
                     site = self.persistence.sites.get_site(candidate.name)
-                    if site.policy.tls.certificate_mode is not CertificateMode.DISABLED:
+                    if (
+                        site.policy[TlsPolicy].certificate_mode
+                        is not CertificateMode.DISABLED
+                    ):
                         continue
                     registration_email = self.policy.default_email
                     if not registration_email:
@@ -356,8 +366,8 @@ class CertificateService:
             site.name,
             version=CertificateVersion.from_paths(
                 site.name,
-                site.policy.tls.certificate_path or "",
-                site.policy.tls.certificate_key_path or "",
+                site.policy[TlsPolicy].certificate_path or "",
+                site.policy[TlsPolicy].certificate_key_path or "",
             ),
         )
 

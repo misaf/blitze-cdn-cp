@@ -32,7 +32,7 @@ def domain_http3(
     HTTP/2 and HTTP/1.1 remain available over TCP. This setting never changes
     the protocol used from the edge to the origin.
     """
-    zone = update(name, DomainPatch(http3_enabled=on))
+    zone = update(name, DomainPatch.model_validate({"http3_enabled": on}))
     report(
         zone,
         f"HTTP/3 is now {'enabled' if on else 'disabled'} for {zone.name}.",
@@ -55,7 +55,7 @@ def domain_max_upload_size(
     contacted, so this is a limit on what visitors may upload rather than on
     what the origin is willing to receive.
     """
-    zone = update(name, DomainPatch(max_upload_size=size))
+    zone = update(name, DomainPatch.model_validate({"max_upload_size": size}))
     report(
         zone,
         f"{zone.name} now accepts uploads up to {size.value}.",
@@ -80,7 +80,7 @@ def domain_always_use_https(
     The setting takes effect only while the SSL mode serves HTTPS. Disabling it
     leaves HTTPS available and serves HTTP requests through to the origin.
     """
-    zone = update(name, DomainPatch(always_use_https=on))
+    zone = update(name, DomainPatch.model_validate({"always_use_https": on}))
     report(
         zone,
         f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for {zone.name}.",

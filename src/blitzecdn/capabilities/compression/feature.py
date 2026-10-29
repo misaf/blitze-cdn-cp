@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.compression import ansible, cli
+from blitzecdn.capabilities.compression.contract import CompressionPolicy
 from blitzecdn.core.features import (
     AnsibleContribution,
     CliCommandGroup,
@@ -10,6 +11,7 @@ from blitzecdn.core.features import (
     Feature,
     FeatureMetadata,
     NginxContribution,
+    PolicyContribution,
 )
 from blitzecdn.core.runtime.resources import distribution_version, package_directory
 
@@ -63,6 +65,11 @@ FEATURES = (
                 feature="compression",
                 templates_path=NGINX_TEMPLATES,
                 server_fragments=("compression-server.conf.j2",),
+            ),
+        ),
+        site_policy=(
+            PolicyContribution(
+                feature="compression", group="compression", contract=CompressionPolicy
             ),
         ),
     ),

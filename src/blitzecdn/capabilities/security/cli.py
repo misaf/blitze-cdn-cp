@@ -8,8 +8,9 @@ import typer
 
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.editing import report, update
-from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
-from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import common
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
@@ -35,7 +36,7 @@ def domain_under_attack(
     capability and a signing secret. A deploy fails rather than ignoring a
     zone whose edge cannot enforce it.
     """
-    zone = update(name, DomainPatch(under_attack_mode=on))
+    zone = update(name, DomainPatch.model_validate({"under_attack_mode": on}))
     report(
         zone,
         f"Under Attack Mode is now {'enabled' if on else 'disabled'} for {zone.name}.",
@@ -121,7 +122,7 @@ def domain_firewall(
         name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
     )
     rules = sum(
-        len(getattr(zone.policy.security.firewall, f))
+        len(getattr(zone.policy[SecurityPolicy].firewall, f))
         for f in SiteFirewall.model_fields
     )
     report(
