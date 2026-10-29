@@ -2,7 +2,6 @@
 # BlitzeCDN installer: the bootstrap that gets a host to where Ansible and the
 # stdlib helpers under src/blitzecdn/host/ can do the rest.
 #
-#   (no arguments)  build the virtualenv and install the pinned collections
 #   standalone      provision this whole server as control plane and edge, from
 #                   the published control-plane image: no Python package is
 #                   installed on the host, and nothing is fetched from PyPI
@@ -31,12 +30,11 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage_root() {
   cat <<'EOF'
-Usage: ./install.sh [SUBCOMMAND] [OPTIONS]
+Usage: ./install.sh SUBCOMMAND [OPTIONS]
 
-Install BlitzeCDN.
+Manage a BlitzeCDN server.
 
 Subcommands:
-  (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
   update      Move an installed server onto a newer release, keeping its state
   help        Show this message
@@ -47,16 +45,10 @@ Whole-host operations:
 Run './install.sh SUBCOMMAND --help' for the options of a subcommand. On an
 installed server the same commands are `sudo blitzecdn-install SUBCOMMAND`.
 
-Environment for the no-argument form:
-  BLITZECDN_PYTHON     Python interpreter to build .venv with (default python3)
-  BLITZECDN_DEV=1      Install -e '.[dev]' instead of a plain wheel
-  BLITZECDN_WRAPPER_DIR
-                       Where to put the `blitzecdn` command (default ~/.local/bin)
-  BLITZECDN_USER_WRAPPER=0
-                       Do not put `blitzecdn` on PATH; use .venv/bin/blitzecdn
-
-The no-argument form installs a `blitzecdn` command that pins this checkout as
-the project directory, so it can be run from any working directory.
+For local development, install Python 3.12+, uv and just, then run:
+  just install
+  uv run blitzecdn setup
+See README.md for the local development workflow.
 
 Environment for standalone and update:
 EOF
@@ -100,114 +92,6 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# The pinned uv release and each build's checksum, kept in this repository so
-# the download is checked against what this release was tested with. Refresh
-# with `just uv-pin VERSION`. macOS builds exist for controller-only checkouts.
-UV_VERSION="0.12.3"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_x86_64_unknown_linux_gnu="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_aarch64_unknown_linux_gnu="bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_x86_64_apple_darwin="4c9f52262a14da336e4a42ed24992d12d0c956acde87619e4611d321dffa602b"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_aarch64_apple_darwin="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"
-
-# Print the SHA-256 of a file: `sha256sum` on servers, `shasum` on macOS.
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    die 1 "error: need sha256sum or shasum to verify the uv download"
-  fi
-}
-
-# Print the path to a usable uv: the operator's own if at least the pinned
-# version, otherwise the pinned build unpacked into .state/bin.
-ensure_uv() {
-  local existing
-  if existing="$(command -v uv 2>/dev/null)" && [[ -x "${existing}" ]]; then
-    local have
-    have="$("${existing}" --version 2>/dev/null | awk '{print $2}')"
-    if [[ -n "${have}" ]] &&
-      [[ "$(printf '%s\n%s\n' "${UV_VERSION}" "${have}" | sort -V | head -1)" == "${UV_VERSION}" ]]; then
-      printf '%s\n' "${existing}"
-      return 0
-    fi
-  fi
-
-  local vendored=".state/bin/uv"
-  if [[ -x "${vendored}" ]] &&
-    [[ "$("${vendored}" --version 2>/dev/null | awk '{print $2}')" == "${UV_VERSION}" ]]; then
-    printf '%s\n' "${PWD}/${vendored}"
-    return 0
-  fi
-
-  # Both halves of the target triple: the OS as well as the architecture.
-  local system machine platform architecture target pin expected
-  system="$(uname -s)"
-  machine="$(uname -m)"
-  case "${system}" in
-    Linux) platform="unknown-linux-gnu" ;;
-    Darwin) platform="apple-darwin" ;;
-    *)
-      die 1 "error: no pinned uv build for ${system}; install uv ${UV_VERSION} or newer and rerun"
-      ;;
-  esac
-  case "${machine}" in
-    x86_64 | amd64) architecture="x86_64" ;;
-    aarch64 | arm64) architecture="aarch64" ;;
-    *)
-      die 1 "error: no pinned uv build for ${machine}; install uv ${UV_VERSION} or newer and rerun"
-      ;;
-  esac
-  target="${architecture}-${platform}"
-  pin="UV_SHA256_${target//-/_}"
-  expected="${!pin-}"
-  [[ -n "${expected}" ]] ||
-    die 1 "error: no pinned checksum for ${target}; install uv ${UV_VERSION} or newer and rerun"
-
-  command -v curl >/dev/null 2>&1 ||
-    die 1 "error: curl is required to download uv; install it and rerun"
-
-  # Cleaned up here: this runs in a `$(...)` subshell.
-  local archive
-  archive="$(mktemp)"
-
-  # stderr: stdout is this function's return value.
-  echo "Downloading uv ${UV_VERSION} (${target})..." >&2
-  if ! curl -fsSL --proto '=https' --tlsv1.2 \
-    --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
-    -o "${archive}" \
-    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"; then
-    rm -f -- "${archive}"
-    die 1 "error: could not download uv ${UV_VERSION}"
-  fi
-
-  local actual
-  actual="$(sha256_of "${archive}")"
-  if [[ "${actual}" != "${expected}" ]]; then
-    rm -f -- "${archive}"
-    die 1 \
-      "error: the uv download does not match its pinned checksum" \
-      "       expected ${expected}" \
-      "       received ${actual}" \
-      "       Refusing to run it. Retry, and if it persists, do not proceed."
-  fi
-
-  mkdir -p .state/bin
-  if ! tar -xzf "${archive}" -C .state/bin --strip-components=1 \
-    "uv-${target}/uv"; then
-    rm -f -- "${archive}"
-    die 1 "error: could not unpack uv ${UV_VERSION}"
-  fi
-  rm -f -- "${archive}"
-  chmod 0755 "${vendored}"
-  printf '%s\n' "${PWD}/${vendored}"
-}
-
 # Guard a privileged subcommand. One line, which the test sandbox neutralises.
 require_root() {
   [[ ${EUID} -eq 0 ]] || die 1 "error: run this ${1:-installer} with sudo"
@@ -228,7 +112,6 @@ parsed_allowed_ips=()
 # Every subcommand: name, usage function, the sudo label (empty when root is
 # not needed), and the options it takes.
 readonly COMMAND_TABLE='
-install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
 update|usage_update|updater|--yes --no-backup --major --allowed-ips
 uninstall|usage_uninstall|uninstaller|--yes
@@ -263,11 +146,6 @@ reject_option() {
 parse_options() {
   local command=$1 usage=$2
   shift 2
-  if [[ ${command} == install && $# -gt 0 ]]; then
-    echo "error: the default install takes no arguments: $*" >&2
-    usage_root >&2
-    exit 2
-  fi
   while [[ $# -gt 0 ]]; do
     local option=$1
     case "${option}" in
@@ -368,7 +246,7 @@ require_edge_platform() {
   edge_platform_supported "${id}" "${version}" || die 1 \
     "error: a standalone installation requires Ubuntu 26.04 LTS; this host is ${id:-unknown} ${version:-unknown}" \
     "A standalone server is its own edge, and edges for this release require Ubuntu 26.04." \
-    "To use this host as a controller only, run ./install.sh with no arguments and register a separate Ubuntu 26.04 edge."
+    "For a controller checkout, follow README.md: just install, then uv run blitzecdn setup; register a separate Ubuntu 26.04 edge."
 }
 
 # Validate `--allowed-ips` in the given image and print the single
@@ -441,29 +319,6 @@ converge_uninstall() {
   run_playbook "${image}" uninstall.yml ||
     die 1 "error: teardown failed; inspect and repair any partially removed host state, then rerun --uninstall"
   docker image rm --force "${image_id}" >/dev/null 2>&1 || true
-}
-
-# Hand application-specific wrapper generation to the installed runtime.
-handoff_user_wrapper() {
-  [[ "${BLITZECDN_USER_WRAPPER:-1}" != 0 ]] || return 0
-  local wrapper_dir="${BLITZECDN_WRAPPER_DIR:-${HOME:-}/.local/bin}"
-  if [[ -z ${BLITZECDN_WRAPPER_DIR:-} && -z ${HOME:-} ]]; then
-    echo "warning: HOME is unset; skipping the ${script_dir}/.venv/bin/blitzecdn shortcut" >&2
-    return 0
-  fi
-  .venv/bin/python -m blitzecdn.entrypoints.install_handoff wrapper \
-    --project-dir "${script_dir}" --wrapper-dir "${wrapper_dir}"
-  case ":${PATH}:" in
-    *":${wrapper_dir}:"*) echo "Run 'blitzecdn' from any directory." ;;
-    *)
-      local login_rc=.profile
-      if [[ ${SHELL##*/} == zsh ]]; then
-        login_rc=.zprofile
-      fi
-      echo "${wrapper_dir}/blitzecdn is not on your PATH yet. Add it with:"
-      echo "  echo 'export PATH=\"${wrapper_dir}:\${PATH}\"' >> \"\${HOME}\"/${login_rc}"
-      ;;
-  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -621,67 +476,6 @@ obtain_control_plane_image() {
   fi
   resolve_image_digest "${image}"
 }
-
-# ---------------------------------------------------------------------------
-# (no arguments) — virtualenv and collections
-# ---------------------------------------------------------------------------
-
-# Build the virtualenv a controller checkout runs the CLI from. A server never
-# runs this: everything there runs from the control-plane image.
-bootstrap_runtime() {
-  cd -- "${script_dir}"
-
-  local python_command="${BLITZECDN_PYTHON:-python3}"
-  command -v "${python_command}" >/dev/null 2>&1 ||
-    die 1 "error: ${python_command} was not found; install Python 3.12 or newer"
-
-  "${python_command}" -c '
-import sys
-if sys.version_info[:2] < (3, 12):
-    raise SystemExit("error: BlitzeCDN requires Python 3.12 or newer")
-'
-
-  local uv
-  uv="$(ensure_uv)"
-
-  if [[ -e .venv && ! -x .venv/bin/python ]]; then
-    local invalid_venv
-    invalid_venv=".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)"
-    echo "warning: .venv is incomplete; preserving it as ${invalid_venv}" >&2
-    mv -- .venv "${invalid_venv}"
-  fi
-
-  # Exactly what uv.lock describes; --frozen refuses a lockfile that does not
-  # match pyproject.toml. BLITZECDN_DEV=1 adds the dev tooling, editable.
-  local -a sync_flags=(--frozen --python "${python_command}")
-  if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-    "${uv}" sync "${sync_flags[@]}"
-  else
-    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
-  fi
-
-  [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
-    die 1 "error: uv created an incomplete .venv; remove it and rerun"
-  [[ -x .venv/bin/blitzecdn ]] ||
-    die 1 "error: uv did not install the local BlitzeCDN CLI"
-
-  # Third-party collections, inside the checkout. Exported because ansible.cfg
-  # cannot name a path outside the package; deploys set the same variable.
-  local collections_path=.state/collections
-  export ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg
-  export ANSIBLE_COLLECTIONS_PATH="${collections_path}"
-  .venv/bin/ansible-galaxy collection install \
-    -r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"
-}
-
-cmd_install() {
-  bootstrap_runtime
-  .venv/bin/blitzecdn setup
-  handoff_user_wrapper
-  echo
-  echo "Installation complete. Run commands with .venv/bin/blitzecdn"
-}
-
 
 # ---------------------------------------------------------------------------
 # standalone — provision this server
@@ -1032,23 +826,30 @@ cmd_uninstall() {
 # ---------------------------------------------------------------------------
 
 main() {
-  local subcommand=install
-  if [[ $# -gt 0 ]]; then
-    case "$1" in
-      standalone|update|install)
-        subcommand=$1
-        shift
-        ;;
-      --uninstall)
-        subcommand=uninstall
-        shift
-        ;;
-      help|-h|--help)
-        usage_root
-        exit 0
-        ;;
-    esac
+  if [[ $# -eq 0 ]]; then
+    usage_root
+    return 0
   fi
+  local subcommand
+  case "$1" in
+    standalone|update)
+      subcommand=$1
+      shift
+      ;;
+    --uninstall)
+      subcommand=uninstall
+      shift
+      ;;
+    help|-h|--help)
+      usage_root
+      exit 0
+      ;;
+    *)
+      echo "error: unknown subcommand: $1" >&2
+      usage_root >&2
+      return 2
+      ;;
+  esac
 
   local usage root_label
   usage=$(command_field "${subcommand}" 2)

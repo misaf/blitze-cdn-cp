@@ -23,6 +23,9 @@ uv run blitzecdn setup       # Migrate the local database; create .env if absent
 uv run blitzecdn --help
 ```
 
+`install.sh` manages server lifecycle operations. Running it without arguments
+shows help; for local development use the commands above.
+
 `setup` preserves existing configuration. For a fresh checkout it creates a local
 API credential in `.env` with mode `0600`. Keep that file private. Optional
 controller settings are documented in
