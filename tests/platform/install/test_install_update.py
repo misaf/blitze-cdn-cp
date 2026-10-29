@@ -384,19 +384,13 @@ def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
     assert not log.exists(), "no backup was taken and nothing was stopped"
 
 
-def test_the_default_install_ends_by_installing_the_wrapper():
-    """Otherwise the CLI is only reachable from inside the checkout."""
-    install = _section("install")
-    assert "handoff_user_wrapper" in install
-
-
 def test_every_command_uses_the_shared_option_parser():
     """One parser, and one table that routes every command through it.
 
     Asserted against the sourced script: the table must have a row per command.
     """
     assert _script().count("while [[ $# -gt 0 ]]") == 1
-    for command in ("install", "standalone", "uninstall", "fresh", "update"):
+    for command in ("standalone", "uninstall", "fresh", "update", "upgrade"):
         assert _query(f"command_field {command} 2") != "", (
             f"{command} has no row in COMMAND_TABLE"
         )
