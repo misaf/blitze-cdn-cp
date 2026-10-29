@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from support.edge_render import (
     ROLES_DIR,
-    _role_spec,
+    role_spec,
 )
 from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, SOURCE
 
@@ -119,7 +119,7 @@ def test_controller_refuses_password_authentication():
 
 def test_empty_site_removal_requires_explicit_approval(desired_state):
     assert desired_state["blitzecdn_nginx_allow_empty_sites"] is False
-    assert "blitzecdn_nginx_allow_empty_sites" in _role_spec()
+    assert "blitzecdn_nginx_allow_empty_sites" in role_spec()
 
 
 def test_committed_fixture_matches_generated_desired_state(desired_state):

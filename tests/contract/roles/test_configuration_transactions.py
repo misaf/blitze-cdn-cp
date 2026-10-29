@@ -158,7 +158,7 @@ def test_real_ansible_selects_candidate_paths_and_matching_parent_mounts(
     import sys
 
     import yaml
-    from support.role_contracts import _render_compose
+    from support.role_contracts import render_compose
 
     root = str(tmp_path / "releases")
     digest = "a" * 64
@@ -246,7 +246,7 @@ def test_real_ansible_selects_candidate_paths_and_matching_parent_mounts(
     # Read the debug list from the default callback's JSON-shaped output.
     marker = '"blitzecdn_nginx_config_test_volumes": '
     volumes, _ = json.JSONDecoder().raw_decode(result.stdout.split(marker)[-1])
-    compose = _render_compose(
+    compose = render_compose(
         blitzecdn_config_release_enabled=True, blitzecdn_config_release_root=root
     )
     assert volumes == compose["services"]["edge"]["volumes"]

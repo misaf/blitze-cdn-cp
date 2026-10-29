@@ -1,7 +1,7 @@
 """Canonical resource versions survive renewal, replay and retained history."""
 
 import pytest
-from support.application import _seed_proxied_record
+from support.application import seed_proxied_record
 from support.certificates import certificate_control_plane
 from support.control_plane import FakeRunner
 
@@ -27,7 +27,7 @@ def test_compilation_replays_canonical_versions_after_metadata_moves(
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     captured = control.releases.capture()
     original = compile_release(captured)
@@ -60,7 +60,7 @@ def test_collection_preserves_retained_release_and_metadata_then_reclaims_after_
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     old = control.releases.prepare()
     second = _upload(control, certificate_pair, days=80)
@@ -89,7 +89,7 @@ def test_collection_reads_all_retained_releases_not_only_the_recent_page(
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     control.releases.prepare()
     # Keep the old material only through history, beyond the default page size.
@@ -115,7 +115,7 @@ def test_canonical_reference_protects_material_even_without_metadata_or_a_releas
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair)
     paths = CertificateStore(settings).sources(first.site)
     (settings.certificate_dir / first.site / "metadata.json").unlink()
@@ -128,7 +128,7 @@ def test_collection_preserves_a_pair_installed_before_failed_canonical_writeback
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     site = control.sites.get_site(first.site)
     certificate, key = certificate_pair(days=80)
@@ -168,7 +168,7 @@ def test_damaged_retained_inputs_abort_collection_before_any_deletion(
     from blitzecdn.capabilities.releases.adapters.tables import ReleaseInputsRow
 
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     _upload(control, certificate_pair)
     control.releases.prepare()
     orphan = settings.certificate_dir / "orphan" / f"fullchain-{'a' * 64}.pem"
@@ -243,7 +243,7 @@ def test_selected_missing_or_corrupt_material_never_falls_back_to_latest(
     settings, certificate_pair
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     site = control.sites.get_site(first.site)
     path = control.certificates.installed_sources(site)[0]
@@ -260,7 +260,7 @@ def test_captured_checksums_cannot_follow_a_file_changed_after_verification(
     settings, certificate_pair, monkeypatch
 ):
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     info = _upload(control, certificate_pair)
     site = control.sites.get_site(info.site)
     sources = control.certificate_store.sources
@@ -284,7 +284,7 @@ def test_deployment_history_keeps_material_and_rollback_restores_its_version(
     from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 
     control = certificate_control_plane(settings, runner=FakeRunner())
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     first = _upload(control, certificate_pair, days=40)
     deployed = control.deployments.deploy("alice")
     assert deployed.status is DeploymentStatus.SUCCEEDED
