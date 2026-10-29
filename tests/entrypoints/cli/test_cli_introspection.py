@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from click.utils import strip_ansi
 from support.cli import (
-    _control,
-    _seed_site,
+    cli_control,
     runner,
+    seed_cli_site,
 )
 from support.control_plane import (
     FakeRunner,
@@ -42,7 +42,7 @@ def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_pa
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
-    _seed_site(control, "cdn", "198.51.100.10")
+    seed_cli_site(control, "cdn", "198.51.100.10")
     listed = runner.invoke(cli.app, ["domain", "list", "--json"])
     assert listed.exit_code == 0 and "example.com" in listed.stdout
     hosts = runner.invoke(cli.app, ["domain", "hosts", "--json"])
@@ -63,7 +63,7 @@ def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_pa
 
 def test_domain_show_reveals_defaults_nothing_ever_mentioned(settings, monkeypatch):
     """A site is derived, so its resolved policy is not visible on the record."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(cli.app, ["domain", "hosts", "--json"])
@@ -83,7 +83,7 @@ def test_domain_show_reveals_defaults_nothing_ever_mentioned(settings, monkeypat
 
 
 def test_site_show_reports_an_unknown_site_without_a_traceback(settings, monkeypatch):
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "domain", "show", "absent"])
 
     with pytest.raises(SystemExit) as exit_info:
@@ -93,7 +93,7 @@ def test_site_show_reports_an_unknown_site_without_a_traceback(settings, monkeyp
 
 
 def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
     monkeypatch.setattr(
         diagnostics_cli,
         "check_resolver",
@@ -113,11 +113,11 @@ def test_doctor_reports_who_the_api_answers(settings, monkeypatch):
 
     An empty list is how a loopback-only listener looks.
     """
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
     closed = runner.invoke(cli.app, ["doctor", "--no-resolver", "--json"])
     assert json.loads(closed.stdout)["api_allowed_ips"] == []
 
-    _control(
+    cli_control(
         settings.model_copy(
             update={"allowed_ips": ("203.0.113.8/32", "198.51.100.0/24")}
         ),
@@ -132,7 +132,7 @@ def test_doctor_reports_who_the_api_answers(settings, monkeypatch):
 
 def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
     """--no-resolver keeps doctor usable on a host with no DNS at all."""
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
 
     def explode(_settings):
         raise AssertionError("the probe must not run with --no-resolver")
@@ -186,7 +186,7 @@ def test_features_lists_every_feature_and_the_tokens_it_answers_for(
     settings, monkeypatch
 ):
     """The table an operator reads to see what this controller has."""
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
 
     result = runner.invoke(cli.app, ["features", "--json"])
     document = json.loads(result.stdout)
@@ -207,7 +207,7 @@ def test_features_shows_a_settings_value_and_only_a_secrets_presence(
 
     A secret is only reported as set or unset; a setting with its resolved value.
     """
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
 
     result = runner.invoke(cli.app, ["features", "--json"])
     document = json.loads(result.stdout)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from support.edge_render import (
-    _role_spec,
+    role_spec,
 )
 
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
@@ -23,7 +23,7 @@ from blitzecdn.capabilities.tls.contract import (
 
 
 def test_every_emitted_key_is_declared_by_the_role(desired_state):
-    declared = set(_role_spec()["blitzecdn_nginx_sites"]["options"])
+    declared = set(role_spec()["blitzecdn_nginx_sites"]["options"])
     # The control plane adds these when distributing managed certificates.
     declared |= {"certificate_source_path", "certificate_key_source_path"}
     for site in desired_state["blitzecdn_nginx_sites"]:
@@ -35,7 +35,7 @@ def test_every_emitted_key_is_declared_by_the_role(desired_state):
 
 
 def test_required_keys_are_always_emitted(desired_state):
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
+    options = role_spec()["blitzecdn_nginx_sites"]["options"]
     required = {name for name, spec in options.items() if (spec or {}).get("required")}
     for site in desired_state["blitzecdn_nginx_sites"]:
         missing = required - set(site)
@@ -45,7 +45,7 @@ def test_required_keys_are_always_emitted(desired_state):
 
 
 def test_nginx_role_accepts_only_the_current_ssl_policy():
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
+    options = role_spec()["blitzecdn_nginx_sites"]["options"]
     assert options["ssl_mode"]["required"] is True
     assert "origin_scheme" not in options
 
@@ -64,7 +64,7 @@ def test_nginx_role_accepts_only_the_current_ssl_policy():
 )
 def test_role_choices_cover_every_domain_value(field, enum):
     """A new enum member must not reach a role that rejects it."""
-    declared = set(_role_spec()["blitzecdn_nginx_sites"]["options"][field]["choices"])
+    declared = set(role_spec()["blitzecdn_nginx_sites"]["options"][field]["choices"])
     assert {member.value for member in enum} <= declared, (
         f"{enum.__name__} has values the role's {field} choices do not allow"
     )
@@ -77,7 +77,7 @@ def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
     ``SiteFirewall`` field would fail the deploy; this catches it first.
     """
     declared = set(
-        _role_spec()["blitzecdn_nginx_sites"]["options"]["firewall"]["options"]
+        role_spec()["blitzecdn_nginx_sites"]["options"]["firewall"]["options"]
     )
     assert set(SiteFirewall.model_fields) == declared, (
         "SiteFirewall and the role's firewall suboptions disagree: "
@@ -89,13 +89,13 @@ def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
 
 def test_the_role_defaults_agree_with_the_domain_defaults():
     """The role's suboption defaults are the values the domain would send."""
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]
+    options = role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]
     assert options.get("required", False) is False
     for name, field in SiteVisitorHeaders.model_fields.items():
         assert options["options"][name]["default"] == field.default
 
 
 def test_origin_port_is_not_part_of_the_edge_site_contract():
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
+    options = role_spec()["blitzecdn_nginx_sites"]["options"]
     assert "origin_port" not in SitePolicy.model_fields
     assert "origin_port" not in options

@@ -17,7 +17,7 @@ from pathlib import Path
 import jinja2
 import pytest
 import yaml
-from support.install import BASH, SCRIPT, _function, _workspace_version
+from support.install import BASH, SCRIPT, script_function, workspace_version
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
@@ -127,7 +127,7 @@ def test_the_bootstrap_installs_the_packages_the_role_requires():
     defaults = yaml.safe_load(
         (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
-    install = _function("ensure_docker")
+    install = script_function("ensure_docker")
     line = re.search(r"apt-get install -y ([^\n]*\\\n[^\n]*)", install)
     assert line is not None
     assert (
@@ -149,7 +149,7 @@ def test_the_role_pins_the_published_image_of_its_own_release():
         (CONTROL_PLANE_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
     assert defaults["blitzecdn_controlplane_image"] == (
-        f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
+        f"ghcr.io/misaf/blitzecdn-control-plane:{workspace_version()}"
     )
     result = _bash("pinned_control_plane_image")
     assert result.returncode == 0, result.stderr
@@ -229,7 +229,7 @@ def _calls(engine: Path) -> list[str]:
 
 
 def _pin() -> str:
-    return f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
+    return f"ghcr.io/misaf/blitzecdn-control-plane:{workspace_version()}"
 
 
 def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path):
@@ -348,7 +348,7 @@ def test_every_play_runs_in_the_image_against_the_host_through_nsenter():
     plays name the connection themselves so nothing else can run them locally
     inside the container by mistake.
     """
-    body = _function("run_playbook")
+    body = script_function("run_playbook")
     for flag in ("--privileged", "--pid=host", "--network=host", "--user 0:0"):
         assert flag in body
     assert '"${IMAGE_ANSIBLE_DIR}/playbooks/${playbook}"' in body

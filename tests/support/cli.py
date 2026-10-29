@@ -19,7 +19,7 @@ from support.control_plane import (
 runner = CliRunner()
 
 
-def _seed_site(
+def seed_cli_site(
     control: ControlPlane,
     label: str = "api",
     origin: str = "198.51.100.20",
@@ -48,7 +48,7 @@ def _seed_site(
     return name or "example-com"
 
 
-def _control(
+def cli_control(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
@@ -56,5 +56,5 @@ def _control(
     return cli_control_plane(settings, monkeypatch, runner_double)
 
 
-def _store(settings: Settings) -> Repository:
+def store(settings: Settings) -> Repository:
     return repository_on(settings)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from support.edge_render import (
-    _render,
+    render_site,
 )
 from support.policy import site_from_settings
 
@@ -25,7 +25,7 @@ def test_firewall_rules_reach_the_generated_configuration(desired_state):
         for entry in desired_state["blitzecdn_nginx_sites"]
         if entry.get("firewall")
     )
-    rendered = _render(site)
+    rendered = render_site(site)
     assert "allow 203.0.113.9/32;" in rendered
     assert "deny 203.0.113.0/24;" in rendered
     assert "deny 2001:db8::/32;" in rendered
@@ -45,7 +45,7 @@ def test_a_site_without_firewall_rules_renders_exactly_as_before(desired_state):
         for entry in desired_state["blitzecdn_nginx_sites"]
         if not entry.get("firewall")
     )
-    rendered = _render(site)
+    rendered = render_site(site)
     for directive in ("allow ", "deny ", "$blitzecdn_country", "$request_method ~"):
         assert directive not in rendered
 
@@ -66,7 +66,7 @@ def test_the_acme_challenge_path_is_never_filtered():
             }
         )
     )
-    rendered = _render(site, blitzecdn_edge_geoip_enabled=True)
+    rendered = render_site(site, blitzecdn_edge_geoip_enabled=True)
     challenge = rendered.index("location ^~ /.well-known/acme-challenge/ {")
     block_end = rendered.index("}", rendered.index("try_files $uri =404;"))
     challenge_block = rendered[challenge:block_end]
@@ -96,5 +96,5 @@ def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
             }
         )
     )
-    rendered = _render(site, blitzecdn_edge_geoip_enabled=True)
+    rendered = render_site(site, blitzecdn_edge_geoip_enabled=True)
     assert 'if ($blitzecdn_country !~ "^(DE|FR)$")' in rendered

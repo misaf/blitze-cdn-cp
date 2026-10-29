@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 from support.install import (
-    _function,
-    _query,
-    _run,
-    _run_sandboxed,
-    _script,
-    _section,
-    _update_sandbox,
+    query,
+    run_sandboxed,
+    run_script,
+    script_function,
+    script_section,
+    script_text,
+    update_sandbox,
 )
 from support.paths import REPO_ROOT
 
@@ -27,7 +27,7 @@ from support.paths import REPO_ROOT
 
 def test_update_preserves_state_rather_than_removing_it():
     """The whole point of the command: --fresh destroys, update does not."""
-    update = _function("move_release")
+    update = script_function("move_release")
     for destructive in (
         "converge_uninstall",
         "remove_installation_directory",
@@ -38,7 +38,7 @@ def test_update_preserves_state_rather_than_removing_it():
 
 
 def test_update_takes_a_backup_before_it_changes_anything():
-    update = _function("move_release")
+    update = script_function("move_release")
     assert "backup create --only database" in update
     # Ordering is the guarantee. A backup taken after the checkout, or after the
     # migration, is a backup of the thing it was supposed to protect against.
@@ -54,8 +54,8 @@ def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str
     `test_controlplane_initializes_schema_before_starting_services` holds that
     order; a stop here would only lengthen the downtime.
     """
-    assert f"move_release {subcommand}" in _section(subcommand)
-    section = _function("move_release")
+    assert f"move_release {subcommand}" in script_section(subcommand)
+    section = script_function("move_release")
     for direct in ("docker compose", "docker stop", "docker run"):
         assert direct not in section
     assert section.index("ensure_docker") < section.index("converge_control_plane")
@@ -67,19 +67,19 @@ def test_a_release_move_runs_the_image_its_target_pins():
     Read before it, the pin would be the release being left, and the update
     would recreate the services on the image they already run.
     """
-    section = _function("move_release")
+    section = script_function("move_release")
     checkout = section.index('repo_git checkout --quiet "${target}"')
     assert checkout < section.index("obtain_control_plane_image")
     assert section.index("obtain_control_plane_image") < section.index(
         'converge_control_plane "${image}"'
     )
-    pin = _function("pinned_control_plane_image")
+    pin = script_function("pinned_control_plane_image")
     assert '"${script_dir}/${CONTROL_PLANE_IMAGE_PIN}"' in pin
 
 
 def test_update_only_ever_moves_forward_onto_a_release_tag():
     """A merge or a rewrite on a server is never what an operator meant."""
-    update = _function("move_release")
+    update = script_function("move_release")
     assert 'release_plan "${mode}"' in update
     assert 'repo_git checkout --quiet "${target}"' in update
     # `merge --ff-only`, not a bare "merge": `merge-base` contains that word.
@@ -90,7 +90,7 @@ def test_update_only_ever_moves_forward_onto_a_release_tag():
 
 def test_update_decides_where_it_is_going_before_it_changes_anything():
     """Every refusal about *which* release must cost no downtime."""
-    update = _function("move_release")
+    update = script_function("move_release")
     assert update.index('release_plan "${mode}"') < update.index(
         "backup create --only database"
     )
@@ -99,7 +99,7 @@ def test_update_decides_where_it_is_going_before_it_changes_anything():
 def test_update_verifies_the_code_it_is_about_to_run_as_root():
     """The origin and clean-tree checks are `install_release.prepare`'s, which
     `release_plan` runs before anything is fetched or changed."""
-    update = _function("move_release")
+    update = script_function("move_release")
     assert update.index("${INSTALL_DIR} is not a Git checkout") < update.index(
         'release_plan "${mode}"'
     )
@@ -109,9 +109,9 @@ def test_update_verifies_the_code_it_is_about_to_run_as_root():
 
 
 def test_update_refuses_a_checkout_with_local_modifications(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -124,19 +124,19 @@ def test_update_refuses_a_checkout_with_local_modifications(tmp_path: Path):
 
 
 def test_update_refuses_without_a_git_checkout(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path, with_git=False)
+    script, stubs, _ = update_sandbox(tmp_path, with_git=False)
 
-    result = _run_sandboxed(script, "update", "--yes", bin_dir=stubs)
+    result = run_sandboxed(script, "update", "--yes", bin_dir=stubs)
 
     assert result.returncode == 1
     assert "is not a Git checkout" in result.stderr
 
 
 def test_update_leaves_the_host_alone_when_the_fetch_fails(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -156,9 +156,9 @@ def test_update_moves_a_detached_release_onto_the_newest_tag_in_its_line(
 
     Driven into the checkout failure so the run stops before the rebuild.
     """
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -180,10 +180,10 @@ def test_update_moves_a_detached_release_onto_the_newest_tag_in_its_line(
 
 def test_update_ignores_releases_from_another_major_line(tmp_path: Path):
     """A 4.0.0 release is a migration an operator opts into, not an update."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -207,10 +207,10 @@ def test_update_refuses_a_checkout_that_is_not_an_ancestor_of_the_release(
     tmp_path: Path,
 ):
     """Local commits, or a host already past the tag: --fresh is the tool."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -230,10 +230,10 @@ def test_update_refuses_a_checkout_that_is_not_an_ancestor_of_the_release(
 
 def test_update_refuses_when_the_project_version_is_unreadable(tmp_path: Path):
     """Without a version there is no release line, so there is no target."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -247,10 +247,10 @@ def test_update_refuses_when_the_project_version_is_unreadable(tmp_path: Path):
 
 
 def test_update_is_a_no_op_when_already_on_the_newest_release(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -269,10 +269,10 @@ def test_update_is_a_no_op_when_already_on_the_newest_release(tmp_path: Path):
 
 
 def test_update_asks_for_confirmation_and_can_be_cancelled(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         input="n\n",
@@ -295,9 +295,9 @@ def test_update_names_the_drifted_release_a_branch_checkout_is_leaving(
     tmp_path: Path,
 ):
     """A host past its tag says so, rather than claiming to be on that release."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         input="n\n",
@@ -315,9 +315,9 @@ def test_update_names_the_drifted_release_a_branch_checkout_is_leaving(
 def test_update_falls_back_to_the_recorded_version_when_no_tag_is_reachable(
     tmp_path: Path,
 ):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         input="n\n",
@@ -334,10 +334,10 @@ def test_update_falls_back_to_the_recorded_version_when_no_tag_is_reachable(
 
 def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
     """A failed backup must abort while the controller is still serving."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -352,10 +352,10 @@ def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
 
 def test_update_backs_up_and_stops_nothing_itself(tmp_path: Path):
     """Driven into the checkout failure so it stops before the heavy rebuild."""
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -368,10 +368,10 @@ def test_update_backs_up_and_stops_nothing_itself(tmp_path: Path):
 
 
 def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
+    script, stubs, _ = update_sandbox(tmp_path)
     log = tmp_path / "order.log"
 
-    result = _run_sandboxed(
+    result = run_sandboxed(
         script,
         "update",
         "--yes",
@@ -386,7 +386,7 @@ def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
 
 def test_the_default_install_ends_by_installing_the_wrapper():
     """Otherwise the CLI is only reachable from inside the checkout."""
-    install = _section("install")
+    install = script_section("install")
     assert "handoff_user_wrapper" in install
 
 
@@ -395,9 +395,9 @@ def test_every_command_uses_the_shared_option_parser():
 
     Asserted against the sourced script: the table must have a row per command.
     """
-    assert _script().count("while [[ $# -gt 0 ]]") == 1
+    assert script_text().count("while [[ $# -gt 0 ]]") == 1
     for command in ("install", "standalone", "uninstall", "fresh", "update"):
-        assert _query(f"command_field {command} 2") != "", (
+        assert query(f"command_field {command} 2") != "", (
             f"{command} has no row in COMMAND_TABLE"
         )
 
@@ -433,16 +433,16 @@ def test_the_command_table_and_the_help_agree_on_every_option():
         "fresh": "--fresh",
     }
     for command, token in invocations.items():
-        declared = _query(f"command_field {command} 4").split()
+        declared = query(f"command_field {command} 4").split()
         assert declared, f"{command} declares no options"
-        helped = _run(token, "--help").stdout
+        helped = run_script(token, "--help").stdout
         for option in declared:
             assert option in helped, f"{command} accepts {option} but never says so"
 
 
 def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
     """The mechanics the three destructive paths used to repeat verbatim."""
-    helper = _function("reexec_from_private_copy")
+    helper = script_function("reexec_from_private_copy")
     assert 'install -m 0700 -- "$0" "${copy}"' in helper
     assert 'exec env "${guard}=1" "${copy}" "${original_args[@]}"' in helper
     # The copy deletes itself through the shared cleanup stack; its own EXIT trap

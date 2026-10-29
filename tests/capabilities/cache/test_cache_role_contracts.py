@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, _role_defaults, _runtime_defaults
+from support.contracts import PROJECT_DIR, role_defaults, runtime_defaults
 
 from blitzecdn.capabilities.cache import ansible
 
@@ -49,7 +49,7 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
 
 
 def _contract_value(*path: str) -> Any:
-    value: Any = _runtime_defaults()["blitzecdn_edge_runtime"]
+    value: Any = runtime_defaults()["blitzecdn_edge_runtime"]
     for key in path:
         value = value[key]
     return value
@@ -89,7 +89,7 @@ def test_stats_role_reads_the_log_the_nginx_role_writes():
     stats = _defaults_of(STATS_ROLE_DIR)
     assert (
         stats["blitzecdn_cache_stats_access_log_path"]
-        == _role_defaults()["blitzecdn_nginx_access_log_path"]
+        == role_defaults()["blitzecdn_nginx_access_log_path"]
     )
     assert stats["blitzecdn_cache_stats_status_address"] == _contract_value(
         "status", "address"
