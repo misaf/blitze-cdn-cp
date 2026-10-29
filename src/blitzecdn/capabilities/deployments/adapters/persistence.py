@@ -7,7 +7,6 @@ from uuid import uuid4
 
 from sqlalchemy import CursorResult, Result, delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import col
 
 from blitzecdn.capabilities.deployments.adapters.tables import (
     DeploymentRequirementRow,
@@ -24,8 +23,10 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetStatus,
     abandoned_run,
 )
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -43,7 +44,7 @@ class DeploymentStore:
         """Every release some deployment still names; pruning must keep them."""
         with self._db.session() as session:
             return list(
-                session.scalars(select(col(DeploymentRow.release_id)).distinct()).all()
+                session.scalars(select(DeploymentRow.release_id).distinct()).all()
             )
 
     def create_deployment(
@@ -83,14 +84,30 @@ class DeploymentStore:
         if after.id != before.id:
             raise ValueError("a transition cannot change which deployment it is")
         with self._db.session() as session:
-            row = session.get(DeploymentRow, before.id)
-            if row is None or row.status != before.status.value:
+            # One conditional UPDATE, never a read then a write. The status
+            # check and the write cannot be split by another process's commit,
+            # and a transaction whose first statement writes waits out a busy
+            # writer; a read first would pin a snapshot that the upgrade to a
+            # writer then fails on at once, as "database is locked".
+            row = session.execute(
+                update(DeploymentRow)
+                .where(
+                    DeploymentRow.id == before.id,
+                    DeploymentRow.status == before.status.value,
+                )
+                .values(
+                    status=after.status.value,
+                    started_at=after.started_at,
+                    finished_at=after.finished_at,
+                    result=(
+                        after.result.model_dump(mode="json") if after.result else None
+                    ),
+                    error=after.error,
+                )
+                .returning(DeploymentRow)
+            ).scalar_one_or_none()
+            if row is None:
                 raise ConflictError(f"deployment {before.id} is not {before.status}")
-            row.status = after.status.value
-            row.started_at = after.started_at
-            row.finished_at = after.finished_at
-            row.result = after.result.model_dump(mode="json") if after.result else None
-            row.error = after.error
             # Inside the transaction: the caller is handed the deployment it
             # moved, not the state of the row a moment later.
             return self._deployment(row)
@@ -110,11 +127,25 @@ class DeploymentStore:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
             return row.release_id
 
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(DeploymentRow).order_by(
+                    DeploymentRow.created_at.desc(), DeploymentRow.id.desc()
+                ),
+                self._deployment,
+                limit=limit,
+                offset=offset,
+            )
+
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentRow)
-                .order_by(col(DeploymentRow.created_at).desc())
+                .order_by(DeploymentRow.created_at.desc())
                 .limit(limit)
             ).all()
             return [self._deployment(row) for row in rows]
@@ -125,10 +156,10 @@ class DeploymentStore:
             row = session.scalars(
                 select(DeploymentRow)
                 .where(
-                    col(DeploymentRow.status) == DeploymentStatus.SUCCEEDED.value,
-                    col(DeploymentRow.check_mode).is_(False),
+                    DeploymentRow.status == DeploymentStatus.SUCCEEDED.value,
+                    DeploymentRow.check_mode.is_(False),
                 )
-                .order_by(col(DeploymentRow.created_at).desc())
+                .order_by(DeploymentRow.created_at.desc())
                 .limit(1)
             ).first()
             return self._deployment(row) if row is not None else None
@@ -137,8 +168,8 @@ class DeploymentStore:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentRow)
-                .where(col(DeploymentRow.status) == DeploymentStatus.QUEUED.value)
-                .order_by(col(DeploymentRow.created_at))
+                .where(DeploymentRow.status == DeploymentStatus.QUEUED.value)
+                .order_by(DeploymentRow.created_at)
             ).all()
             return [self._deployment(row) for row in rows]
 
@@ -146,8 +177,8 @@ class DeploymentStore:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentRow)
-                .where(col(DeploymentRow.status) == DeploymentStatus.RUNNING.value)
-                .order_by(col(DeploymentRow.created_at))
+                .where(DeploymentRow.status == DeploymentStatus.RUNNING.value)
+                .order_by(DeploymentRow.created_at)
             ).all()
             return [self._deployment(row) for row in rows]
 
@@ -161,7 +192,7 @@ class DeploymentStore:
             return _rows_affected(
                 session.execute(
                     update(DeploymentRow)
-                    .where(col(DeploymentRow.status) == DeploymentStatus.RUNNING.value)
+                    .where(DeploymentRow.status == DeploymentStatus.RUNNING.value)
                     .values(
                         status=DeploymentStatus.ABANDONED.value,
                         finished_at=now,
@@ -180,21 +211,21 @@ class DeploymentStore:
         finished = tuple(status.value for status in TERMINAL_STATUSES)
         with self._db.session() as session:
             survivors = (
-                select(col(DeploymentRow.id))
+                select(DeploymentRow.id)
                 .where(
-                    col(DeploymentRow.check_mode).is_(True),
-                    col(DeploymentRow.status).in_(finished),
+                    DeploymentRow.check_mode.is_(True),
+                    DeploymentRow.status.in_(finished),
                 )
-                .order_by(col(DeploymentRow.created_at).desc())
+                .order_by(DeploymentRow.created_at.desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             return _rows_affected(
                 session.execute(
                     delete(DeploymentRow).where(
-                        col(DeploymentRow.check_mode).is_(True),
-                        col(DeploymentRow.status).in_(finished),
-                        col(DeploymentRow.id).not_in(survivors),
+                        DeploymentRow.check_mode.is_(True),
+                        DeploymentRow.status.in_(finished),
+                        DeploymentRow.id.not_in(survivors),
                     )
                 )
             )
@@ -206,12 +237,12 @@ class DeploymentStore:
             row = session.scalars(
                 select(DeploymentRow)
                 .where(
-                    col(DeploymentRow.status) == DeploymentStatus.SUCCEEDED.value,
-                    col(DeploymentRow.check_mode).is_(False),
-                    col(DeploymentRow.release_id) != current_release,
-                    col(DeploymentRow.host_limit).is_(None),
+                    DeploymentRow.status == DeploymentStatus.SUCCEEDED.value,
+                    DeploymentRow.check_mode.is_(False),
+                    DeploymentRow.release_id != current_release,
+                    DeploymentRow.host_limit.is_(None),
                 )
-                .order_by(col(DeploymentRow.created_at).desc())
+                .order_by(DeploymentRow.created_at.desc())
                 .limit(1)
             ).first()
             if row is None:
@@ -254,17 +285,23 @@ class DeploymentRequirementStore:
                 )
             )
 
-    def clear(self, kind: DeploymentRequirementKind) -> None:
+    def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
+        # Conditional, so a requirement raised after ``through`` survives.
         with self._db.session() as session:
             session.execute(
                 delete(DeploymentRequirementRow).where(
-                    col(DeploymentRequirementRow.kind) == kind.value
+                    DeploymentRequirementRow.kind == kind.value,
+                    DeploymentRequirementRow.requested_at <= through,
                 )
             )
 
     def pending(self, kind: DeploymentRequirementKind) -> bool:
+        return self.requested_at(kind) is not None
+
+    def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None:
         with self._db.session() as session:
-            return session.get(DeploymentRequirementRow, kind.value) is not None
+            row = session.get(DeploymentRequirementRow, kind.value)
+            return None if row is None else row.requested_at
 
 
 __all__ = [
@@ -289,9 +326,9 @@ class DeploymentTargetStore:
         with self._db.session() as session:
             generation = session.execute(
                 update(DeploymentRow)
-                .where(col(DeploymentRow.id) == deployment_id)
+                .where(DeploymentRow.id == deployment_id)
                 .values(generation=DeploymentRow.generation + 1)
-                .returning(col(DeploymentRow.generation))
+                .returning(DeploymentRow.generation)
             ).scalar_one_or_none()
             if generation is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
@@ -299,7 +336,7 @@ class DeploymentTargetStore:
             # A second `plan` call must not be needed to make takeover real.
             session.execute(
                 update(DeploymentTargetRow)
-                .where(col(DeploymentTargetRow.deployment_id) == deployment_id)
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
                 .values(fence=generation)
             )
             return int(generation)
@@ -329,7 +366,7 @@ class DeploymentTargetStore:
                 row.edge
                 for row in session.scalars(
                     select(DeploymentTargetRow).where(
-                        col(DeploymentTargetRow.deployment_id) == deployment_id
+                        DeploymentTargetRow.deployment_id == deployment_id
                     )
                 ).all()
             }
@@ -348,16 +385,30 @@ class DeploymentTargetStore:
             session.flush()
             session.execute(
                 update(DeploymentTargetRow)
-                .where(col(DeploymentTargetRow.deployment_id) == deployment_id)
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
                 .values(fence=fence)
+            )
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(DeploymentTargetRow)
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
+                .order_by(DeploymentTargetRow.edge),
+                _target,
+                limit=limit,
+                offset=offset,
             )
 
     def targets(self, deployment_id: str) -> list[DeploymentTarget]:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentTargetRow)
-                .where(col(DeploymentTargetRow.deployment_id) == deployment_id)
-                .order_by(col(DeploymentTargetRow.edge))
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
+                .order_by(DeploymentTargetRow.edge)
             ).all()
             return [_target(row) for row in rows]
 
@@ -413,9 +464,9 @@ class DeploymentTargetStore:
                 session.execute(
                     update(DeploymentTargetRow)
                     .where(
-                        col(DeploymentTargetRow.deployment_id) == deployment_id,
-                        col(DeploymentTargetRow.status) == TargetStatus.PENDING.value,
-                        col(DeploymentTargetRow.fence) == fence,
+                        DeploymentTargetRow.deployment_id == deployment_id,
+                        DeploymentTargetRow.status == TargetStatus.PENDING.value,
+                        DeploymentTargetRow.fence == fence,
                     )
                     .values(
                         status=TargetStatus.SKIPPED.value,
@@ -439,9 +490,9 @@ class DeploymentTargetStore:
                     session.execute(
                         update(DeploymentTargetRow)
                         .where(
-                            col(DeploymentTargetRow.deployment_id) == deployment_id,
-                            col(DeploymentTargetRow.edge) == edge,
-                            col(DeploymentTargetRow.fence) == fence,
+                            DeploymentTargetRow.deployment_id == deployment_id,
+                            DeploymentTargetRow.edge == edge,
+                            DeploymentTargetRow.fence == fence,
                         )
                         .values(**values)
                     )

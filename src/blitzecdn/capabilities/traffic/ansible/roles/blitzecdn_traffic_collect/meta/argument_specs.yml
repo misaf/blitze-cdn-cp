@@ -1,0 +1,8 @@
+---
+argument_specs:
+  main:
+    short_description: Read bounded visitor traffic batches without modifying logs
+    options:
+      blitzecdn_traffic_collect_log_directory: {type: path, required: true}
+      blitzecdn_traffic_collect_max_bytes: {type: int, required: true}
+      blitzecdn_traffic_collect_checkpoints: {type: dict, required: true}

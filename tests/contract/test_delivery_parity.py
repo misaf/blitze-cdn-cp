@@ -9,7 +9,7 @@ The map below is exhaustive by construction: an unclassified command or route
 fails the tests underneath with the entry it needs.
 
 Pairing is by operation, not by shape: many `domain` commands map to one
-`PATCH /v1/domains/{domain}` (see `blitzecdn.capabilities.dns.cli`).
+`PATCH /v3/domains/{domain}` (see `blitzecdn.capabilities.dns.cli`).
 """
 
 from __future__ import annotations
@@ -21,30 +21,30 @@ import support.frozen_surfaces as surfaces
 #: the operation is not one an operator types.
 _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- Zones: policy edits, all landing on the one patch route -----------
-    ("blitzecdn", "domain add", "POST /v1/domains", ""),
-    ("blitzecdn", "domain list", "GET /v1/domains", ""),
-    ("blitzecdn", "domain show", "GET /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain remove", "DELETE /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain enable", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain origin", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain ssl", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain ssl-automatic", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain minimum-tls", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain always-use-https", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain http3", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain max-upload-size", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain cache", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain cache-query-string", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain compression", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain firewall", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain under-attack", "PATCH /v1/domains/{domain}", ""),
-    ("blitzecdn", "domain visitor-headers", "PATCH /v1/domains/{domain}", ""),
+    ("blitzecdn", "domain add", "POST /v3/domains", ""),
+    ("blitzecdn", "domain list", "GET /v3/domains", ""),
+    ("blitzecdn", "domain show", "GET /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain remove", "DELETE /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain enable", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain origin", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain ssl", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain ssl-automatic", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain minimum-tls", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain always-use-https", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain http3", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain max-upload-size", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain cache", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain cache-query-string", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain compression", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain firewall", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain under-attack", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain visitor-headers", "PATCH /v3/domains/{domain}", ""),
     # -- Derived hosts: read-only on both sides ----------------------------
-    ("blitzecdn", "domain hosts", "GET /v1/hosts", ""),
+    ("blitzecdn", "domain hosts", "GET /v3/hosts", ""),
     (
         "blitzecdn",
         None,
-        "GET /v1/hosts/{name}",
+        "GET /v3/hosts/{name}",
         "one derived host by name. `domain hosts` prints the whole set and an "
         "operator greps it; a client fetching one host by name would rather "
         "not receive the fleet.",
@@ -52,34 +52,34 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         None,
-        "GET /v1/domains/{domain}/resolve",
+        "GET /v3/domains/{domain}/resolve",
         "what a hostname resolves to once the rules are applied — a preview a "
         "UI shows beside the rule being edited. The CLI's answer to the same "
         "question is `rule show` plus `domain hosts`.",
     ),
     # -- Records -----------------------------------------------------------
-    ("blitzecdn", "record add", "POST /v1/domains/{domain}/records", ""),
-    ("blitzecdn", "record list", "GET /v1/domains/{domain}/records", ""),
-    ("blitzecdn", "record proxy", "PATCH /v1/domains/{domain}/records/{name}", ""),
-    ("blitzecdn", "record unproxy", "PATCH /v1/domains/{domain}/records/{name}", ""),
-    ("blitzecdn", "record remove", "DELETE /v1/domains/{domain}/records/{name}", ""),
-    ("blitzecdn", "dns export", "GET /v1/dns/export", ""),
+    ("blitzecdn", "record add", "POST /v3/domains/{domain}/records", ""),
+    ("blitzecdn", "record list", "GET /v3/domains/{domain}/records", ""),
+    ("blitzecdn", "record proxy", "PATCH /v3/domains/{domain}/records/{name}", ""),
+    ("blitzecdn", "record unproxy", "PATCH /v3/domains/{domain}/records/{name}", ""),
+    ("blitzecdn", "record remove", "DELETE /v3/domains/{domain}/records/{name}", ""),
+    ("blitzecdn", "dns export", "GET /v3/dns/export", ""),
     # -- Rules -------------------------------------------------------------
-    ("blitzecdn", "rule add", "POST /v1/domains/{domain}/rules", ""),
-    ("blitzecdn", "rule list", "GET /v1/domains/{domain}/rules", ""),
-    ("blitzecdn", "rule show", "GET /v1/domains/{domain}/rules/{name}", ""),
-    ("blitzecdn", "rule set", "PATCH /v1/domains/{domain}/rules/{name}", ""),
-    ("blitzecdn", "rule remove", "DELETE /v1/domains/{domain}/rules/{name}", ""),
+    ("blitzecdn", "rule add", "POST /v3/domains/{domain}/rules", ""),
+    ("blitzecdn", "rule list", "GET /v3/domains/{domain}/rules", ""),
+    ("blitzecdn", "rule show", "GET /v3/domains/{domain}/rules/{name}", ""),
+    ("blitzecdn", "rule set", "PATCH /v3/domains/{domain}/rules/{name}", ""),
+    ("blitzecdn", "rule remove", "DELETE /v3/domains/{domain}/rules/{name}", ""),
     # -- Edges -------------------------------------------------------------
-    ("blitzecdn", "edge add", "POST /v1/edges", ""),
-    ("blitzecdn", "edge list", "GET /v1/edges", ""),
-    ("blitzecdn", "edge update", "PATCH /v1/edges/{name}", ""),
-    ("blitzecdn", "edge remove", "DELETE /v1/edges/{name}", ""),
+    ("blitzecdn", "edge add", "POST /v3/edges", ""),
+    ("blitzecdn", "edge list", "GET /v3/edges", ""),
+    ("blitzecdn", "edge update", "PATCH /v3/edges/{name}", ""),
+    ("blitzecdn", "edge remove", "DELETE /v3/edges/{name}", ""),
     (
         "blitzecdn",
         None,
-        "GET /v1/edges/{name}",
-        "one edge by name; see GET /v1/hosts/{name}.",
+        "GET /v3/edges/{name}",
+        "one edge by name; see GET /v3/hosts/{name}.",
     ),
     (
         "blitzecdn",
@@ -89,6 +89,9 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "version pins. It describes the installed control plane rather than "
         "any state it holds, which is the same reason `features` is here.",
     ),
+    # -- Traffic -----------------------------------------------------------
+    ("blitzecdn", "traffic usage", "GET /v3/traffic/usage", ""),
+    ("blitzecdn", "traffic status", "GET /v3/traffic/status/{edge}", ""),
     # -- Durable work ------------------------------------------------------
     (
         "blitzecdn",
@@ -98,7 +101,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "route: a job is control-plane machinery rather than a resource a "
         "client manages, and the two things a client actually wants — did my "
         "deployment run, did my certificate renew — are already answered by "
-        "`GET /v1/deployments/{deployment_id}` and `GET /v1/workflows`. "
+        "`GET /v3/deployments/{deployment_id}` and `GET /v3/workflows`. "
         "Publishing the queue would be publishing an implementation.",
     ),
     ("blitzecdn", "job show", None, "one job, and the error that ended it; see above."),
@@ -112,13 +115,13 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "a timer.",
     ),
     # -- Releases ----------------------------------------------------------
-    ("blitzecdn", "release list", "GET /v1/releases", ""),
-    ("blitzecdn", "release show", "GET /v1/releases/{release_id}", ""),
-    ("blitzecdn", "release show", "GET /v1/releases/current", ""),
+    ("blitzecdn", "release list", "GET /v3/releases", ""),
+    ("blitzecdn", "release show", "GET /v3/releases/{release_id}", ""),
+    ("blitzecdn", "release show", "GET /v3/releases/current", ""),
     (
         "blitzecdn",
         "release artifact",
-        "GET /v1/releases/{release_id}/artifacts/{name}",
+        "GET /v3/releases/{release_id}/artifacts/{name}",
         "",
     ),
     (
@@ -136,53 +139,53 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         None,
         "where each effective setting came from. The route answers it too — an "
         "explanation is part of every release document — so a client asking "
-        "`GET /v1/releases/{release_id}` already has it and needs no endpoint "
+        "`GET /v3/releases/{release_id}` already has it and needs no endpoint "
         "of its own. The command exists because a terminal wants one host's "
         "settings rather than the fleet's.",
     ),
     # -- Deployments -------------------------------------------------------
-    ("blitzecdn", "deploy", "POST /v1/deployments", ""),
-    ("blitzecdn", "status", "GET /v1/deployments", ""),
-    ("blitzecdn", "status", "GET /v1/deployments/{deployment_id}", ""),
+    ("blitzecdn", "deploy", "POST /v3/deployments", ""),
+    ("blitzecdn", "status", "GET /v3/deployments", ""),
+    ("blitzecdn", "status", "GET /v3/deployments/{deployment_id}", ""),
     (
         "blitzecdn",
         "status",
-        "GET /v1/deployments/{deployment_id}/targets",
+        "GET /v3/deployments/{deployment_id}/targets",
         "how far each edge got. `blitzecdn status <id>` prints it beneath the "
         "deployment, because an operator asking about a run wants the per-edge "
         "answer in the same breath; a client polling a rollout wants to fetch "
         "just the progress without re-reading the deployment each time.",
     ),
-    ("blitzecdn", "rollback", "POST /v1/rollbacks", ""),
-    ("blitzecdn", "drift", "POST /v1/drift", ""),
+    ("blitzecdn", "rollback", "POST /v3/rollbacks", ""),
+    ("blitzecdn", "drift", "POST /v3/drift", ""),
     (
         "blitzecdn",
         None,
-        "GET /v1/deployments/{deployment_id}/drift",
+        "GET /v3/deployments/{deployment_id}/drift",
         "the drift a past deployment recorded. `blitzecdn drift` measures it "
         "now, which is the question at a terminal; reading an old deployment's "
         "answer is the question a dashboard asks.",
     ),
-    ("blitzecdn", "audit", "GET /v1/audit-events", ""),
+    ("blitzecdn", "audit", "GET /v3/audit-events", ""),
     (
         "blitzecdn",
         None,
-        "GET /v1/workflows",
+        "GET /v3/workflows",
         "progress of an operation still running. A command *is* the operation "
         "and prints as it goes, so it has nothing to poll; an HTTP client that "
         "started one has only this.",
     ),
-    ("blitzecdn", None, "GET /v1/workflows/{workflow_id}", "see GET /v1/workflows."),
+    ("blitzecdn", None, "GET /v3/workflows/{workflow_id}", "see GET /v3/workflows."),
     (
         "blitzecdn",
         "plan",
         None,
         "what a deploy would do, without doing it. Reads the same state "
         "`deploy` would and writes nothing, so an HTTP caller can have the "
-        "answer by not calling POST /v1/deployments.",
+        "answer by not calling POST /v3/deployments.",
     ),
     # -- Diagnostics: about this install, not about the fleet --------------
-    ("blitzecdn", "overview", "GET /v1/status", ""),
+    ("blitzecdn", "overview", "GET /v3/status", ""),
     (
         "blitzecdn",
         None,
@@ -246,14 +249,14 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         None,
-        "GET /v1/operations/{operation_id}",
+        "GET /v3/operations/{operation_id}",
         "polls an edge operation the API queued for the worker. The CLI runs "
         "the same operations in-process and prints their result, so it has "
         "nothing to poll.",
     ),
-    ("blitzecdn", "cache purge", "POST /v1/cache/purge", ""),
-    ("blitzecdn", "stats", "POST /v1/cache/stats", ""),
-    ("blitzecdn", "origin check", "POST /v1/origins/check", ""),
+    ("blitzecdn", "cache purge", "POST /v3/cache/purge", ""),
+    ("blitzecdn", "stats", "POST /v3/cache/stats", ""),
+    ("blitzecdn", "origin check", "POST /v3/origins/check", ""),
     (
         "blitzecdn",
         "cert acme-hook",
@@ -266,34 +269,34 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         None,
         "Controller-local material maintenance; no remote operation is needed.",
     ),
-    ("blitzecdn", "cert list", "GET /v1/certificates", ""),
+    ("blitzecdn", "cert list", "GET /v3/certificates", ""),
     (
         "blitzecdn",
         "cert preflight",
-        "GET /v1/hosts/{name}/certificate/preflight",
+        "GET /v3/hosts/{name}/certificate/preflight",
         "",
     ),
-    ("blitzecdn", "cert renew", "POST /v1/certificates/renew", ""),
-    ("blitzecdn", "cert reconcile", "POST /v1/certificates/reconcile", ""),
+    ("blitzecdn", "cert renew", "POST /v3/certificates/renew", ""),
+    ("blitzecdn", "cert reconcile", "POST /v3/certificates/reconcile", ""),
     (
         "blitzecdn",
         "cert upload",
-        "POST /v1/hosts/{name}/certificate/upload",
+        "POST /v3/hosts/{name}/certificate/upload",
         "",
     ),
     (
         "blitzecdn",
         "cert request",
-        "POST /v1/hosts/{name}/certificate/request",
+        "POST /v3/hosts/{name}/certificate/request",
         "",
     ),
-    ("blitzecdn", "ssl reconcile", "POST /v1/ssl/automatic/reconcile", ""),
+    ("blitzecdn", "ssl reconcile", "POST /v3/ssl/automatic/reconcile", ""),
     (
         "blitzecdn",
         None,
-        "GET /v1/hosts/{name}/certificate",
+        "GET /v3/hosts/{name}/certificate",
         "one host's certificate. `cert list` prints the fleet's, sorted by "
-        "expiry, which is the form a human wants; see GET /v1/hosts/{name}.",
+        "expiry, which is the form a human wants; see GET /v3/hosts/{name}.",
     ),
     (
         "blitzecdn",
@@ -304,6 +307,13 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "caller every private key the control plane holds.",
     ),
     ("blitzecdn", "backup inspect", None, "see `backup create`."),
+    (
+        "blitzecdn",
+        "backup prune",
+        None,
+        "deletes archives on the control-plane host; the host timer runs it "
+        "after each scheduled `backup create`. See `backup create`.",
+    ),
     ("blitzecdn", "backup restore", None, "see `backup create`."),
     (
         "blitzecdn",

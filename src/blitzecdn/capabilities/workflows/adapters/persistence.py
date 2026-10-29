@@ -1,14 +1,10 @@
 """The workflow journal store, with the read side the API publishes."""
 
-# SQLModel types a column as its instance value; mypy cannot see the SQL
-# expression it becomes on the class in these bulk statements.
-
 from __future__ import annotations
 
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, func, select
-from sqlmodel import col
 
 from blitzecdn.capabilities.workflows.adapters.tables import WorkflowRow
 from blitzecdn.capabilities.workflows.domain import (
@@ -18,8 +14,10 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.pagination import read_page
 
 
 class WorkflowStore:
@@ -33,8 +31,8 @@ class WorkflowStore:
             counts = {
                 WorkflowStatus(status): count
                 for status, count in session.execute(
-                    select(col(WorkflowRow.status), func.count()).group_by(
-                        col(WorkflowRow.status)
+                    select(WorkflowRow.status, func.count()).group_by(
+                        WorkflowRow.status
                     )
                 )
             }
@@ -52,7 +50,7 @@ class WorkflowStore:
                         )
                     ),
                 ).where(
-                    col(WorkflowRow.status).in_(
+                    WorkflowRow.status.in_(
                         [
                             WorkflowStatus.SUCCEEDED.value,
                             WorkflowStatus.FAILED.value,
@@ -122,11 +120,11 @@ class WorkflowStore:
             rows = session.scalars(
                 select(WorkflowRow)
                 .where(
-                    col(WorkflowRow.status).in_(
+                    WorkflowRow.status.in_(
                         (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
                     )
                 )
-                .order_by(col(WorkflowRow.created_at))
+                .order_by(WorkflowRow.created_at)
             ).all()
             return [self._workflow(row) for row in rows]
 
@@ -138,26 +136,36 @@ class WorkflowStore:
         with self._db.session() as session:
             unfinished = (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
             survivors = (
-                select(col(WorkflowRow.id))
-                .where(col(WorkflowRow.status).not_in(unfinished))
-                .order_by(col(WorkflowRow.created_at).desc())
+                select(WorkflowRow.id)
+                .where(WorkflowRow.status.not_in(unfinished))
+                .order_by(WorkflowRow.created_at.desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             result = session.execute(
                 delete(WorkflowRow).where(
-                    col(WorkflowRow.status).not_in(unfinished),
-                    col(WorkflowRow.id).not_in(survivors),
+                    WorkflowRow.status.not_in(unfinished),
+                    WorkflowRow.id.not_in(survivors),
                 )
             )
             return cast("CursorResult[Any]", result).rowcount
 
+    def paginate_workflows(self, *, limit: int, offset: int) -> PageResult[Workflow]:
+        with self._db.session() as session:
+            return read_page(
+                session,
+                select(WorkflowRow).order_by(
+                    WorkflowRow.created_at.desc(), WorkflowRow.id.desc()
+                ),
+                self._workflow,
+                limit=limit,
+                offset=offset,
+            )
+
     def list_workflows(self, limit: int = 100) -> list[Workflow]:
         with self._db.session() as session:
             rows = session.scalars(
-                select(WorkflowRow)
-                .order_by(col(WorkflowRow.created_at).desc())
-                .limit(limit)
+                select(WorkflowRow).order_by(WorkflowRow.created_at.desc()).limit(limit)
             ).all()
             return [self._workflow(row) for row in rows]
 

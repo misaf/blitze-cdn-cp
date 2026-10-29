@@ -4,9 +4,9 @@ import json
 
 from click.utils import strip_ansi
 from support.cli import (
-    _control,
-    _store,
+    cli_control,
     runner,
+    store,
 )
 from support.control_plane import (
     FakeRunner,
@@ -134,7 +134,7 @@ def _add_edge():
 def test_edge_remove_tears_the_host_down_before_forgetting_it(settings, monkeypatch):
     """The teardown has to reach the host while it is still in inventory."""
     double = FakeRunner([_torn_down()])
-    _control(settings, monkeypatch, double)
+    cli_control(settings, monkeypatch, double)
     _add_edge()
 
     result = runner.invoke(cli.app, ["edge", "remove", "edge-01", "--yes"])
@@ -147,7 +147,7 @@ def test_edge_remove_tears_the_host_down_before_forgetting_it(settings, monkeypa
 def test_edge_remove_keeps_the_entry_when_the_teardown_fails(settings, monkeypatch):
     """An unreachable host keeps its entry: its private keys are still on it."""
     double = FakeRunner([_unreachable()])
-    _control(settings, monkeypatch, double)
+    cli_control(settings, monkeypatch, double)
     _add_edge()
 
     result = runner.invoke(cli.app, ["edge", "remove", "edge-01", "--yes"])
@@ -160,19 +160,19 @@ def test_edge_remove_keeps_the_entry_when_the_teardown_fails(settings, monkeypat
 def test_edge_remove_force_drops_a_host_that_no_longer_exists(settings, monkeypatch):
     """--force is for a destroyed instance, which can never report clean."""
     double = FakeRunner([_unreachable()])
-    _control(settings, monkeypatch, double)
+    cli_control(settings, monkeypatch, double)
     _add_edge()
 
     result = runner.invoke(cli.app, ["edge", "remove", "edge-01", "--yes", "--force"])
 
     assert result.exit_code == 0
     assert json.loads(runner.invoke(cli.app, ["edge", "list", "--json"]).stdout) == []
-    actions = [event.action for event in _store(settings).audit_log.list_audit_events()]
+    actions = [event.action for event in store(settings).audit_log.list_audit_events()]
     assert "edge.decommission_failed" in actions
 
 
 def test_edge_remove_keeps_the_edge_when_the_operator_declines(settings, monkeypatch):
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
     runner.invoke(
         cli.app,
         [
@@ -194,7 +194,7 @@ def test_edge_remove_keeps_the_edge_when_the_operator_declines(settings, monkeyp
 
 def test_edge_add_refuses_to_open_ssh_to_the_world(settings, monkeypatch):
     """The firewall fails closed; an edge with no management CIDR cannot exist."""
-    _control(settings, monkeypatch)
+    cli_control(settings, monkeypatch)
 
     result = runner.invoke(
         cli.app,

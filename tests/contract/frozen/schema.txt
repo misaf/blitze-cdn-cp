@@ -16,6 +16,9 @@ blitzecdn	check	job_schedules.job_schedules_lease_check	lease_seconds >= 1
 blitzecdn	check	jobs.jobs_attempts_check	attempts >= 0
 blitzecdn	check	jobs.jobs_max_attempts_check	max_attempts >= 1
 blitzecdn	check	jobs.jobs_status_check	status IN ('pending', 'running', 'succeeded', 'failed')
+blitzecdn	check	traffic_cursors.traffic_cursors_offset_check	offset > 0
+blitzecdn	check	traffic_hours.traffic_hours_counters_check	requests > 0 AND bytes_sent >= 0 AND body_bytes_sent >= 0
+blitzecdn	check	traffic_retention.traffic_retention_singleton	id = 1
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
 blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
@@ -109,6 +112,27 @@ blitzecdn	column	releases.digest	type=VARCHAR not-null pk
 blitzecdn	column	releases.document	type=JSON not-null
 blitzecdn	column	releases.id	type=VARCHAR not-null
 blitzecdn	column	releases.inputs_digest	type=VARCHAR not-null fk=release_inputs.digest
+blitzecdn	column	traffic_collections.attempt_id	type=VARCHAR not-null
+blitzecdn	column	traffic_collections.edge	type=VARCHAR not-null pk
+blitzecdn	column	traffic_collections.finished_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.last_caught_up_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.last_error	type=VARCHAR null
+blitzecdn	column	traffic_collections.last_success_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	traffic_collections.pending	type=BOOLEAN null
+blitzecdn	column	traffic_collections.started_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	traffic_cursors.anchor	type=VARCHAR not-null
+blitzecdn	column	traffic_cursors.edge	type=VARCHAR not-null pk
+blitzecdn	column	traffic_cursors.latest_hour	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	traffic_cursors.offset	type=INTEGER not-null
+blitzecdn	column	traffic_cursors.stream_id	type=VARCHAR not-null pk
+blitzecdn	column	traffic_hours.body_bytes_sent	type=INTEGER not-null
+blitzecdn	column	traffic_hours.bytes_sent	type=INTEGER not-null
+blitzecdn	column	traffic_hours.edge	type=VARCHAR not-null pk
+blitzecdn	column	traffic_hours.hostname	type=VARCHAR not-null pk
+blitzecdn	column	traffic_hours.hour	type=UtcDateTime(VARCHAR) not-null pk
+blitzecdn	column	traffic_hours.requests	type=INTEGER not-null
+blitzecdn	column	traffic_retention.cutoff	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	traffic_retention.id	type=INTEGER not-null pk
 blitzecdn	column	workflows.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	workflows.error	type=VARCHAR null
 blitzecdn	column	workflows.id	type=VARCHAR not-null pk
@@ -137,6 +161,7 @@ blitzecdn	index	jobs.ix_jobs_leased_until	(leased_until)
 blitzecdn	index	jobs.ix_jobs_status_available_at	(status,available_at)
 blitzecdn	index	releases.ix_releases_created_at	(created_at)
 blitzecdn	index	releases.ix_releases_id	(id) unique
+blitzecdn	index	traffic_hours.ix_traffic_hours_hour_hostname_edge	(hour,hostname,edge)
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
 blitzecdn	revision	0001

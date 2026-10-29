@@ -303,3 +303,82 @@ def test_the_services_run_the_image_the_installer_obtained():
     tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")
     for local_build in ("- build", "docker build", "--pull"):
         assert local_build not in tasks
+
+
+def _backup_unit(name: str, **overrides: Any) -> str:
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)  # noqa: S701
+    return environment.from_string(
+        (ROLE / f"templates/{name}.j2").read_text(encoding="utf-8")
+    ).render(**(_role_defaults() | overrides))
+
+
+def test_scheduled_backups_run_through_the_host_wrapper_and_prune_after():
+    """The wrapper stages the root-only environment file into the archive; a
+    container on its own cannot read it, so the schedule lives on the host."""
+    service = _backup_unit("blitzecdn-backup.service")
+    starts = [line for line in service.splitlines() if line.startswith("ExecStart=")]
+    assert starts == [
+        "ExecStart=/usr/local/bin/blitzecdn backup create",
+        "ExecStart=/usr/local/bin/blitzecdn backup prune",
+    ]
+    assert "Type=oneshot" in service
+    assert "After=docker.service" in service
+
+    timer = _backup_unit("blitzecdn-backup.timer")
+    assert "OnCalendar=daily" in timer
+    assert "Persistent=true" in timer
+    disabled = _backup_unit(
+        "blitzecdn-backup.timer", blitzecdn_controlplane_backup_schedule=""
+    )
+    assert "OnCalendar" not in disabled
+
+
+def test_the_backup_timer_follows_its_schedule_and_the_services():
+    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    names = [task["name"] for task in tasks]
+    install = names.index("Install the scheduled backup units")
+    assert names.index("Wait for the API and worker containers to become healthy") < (
+        install
+    )
+    units = tasks[install]
+    assert units["loop"] == ["blitzecdn-backup.service", "blitzecdn-backup.timer"]
+    assert units["ansible.builtin.template"]["mode"] == "0644"
+    timer = tasks[names.index("Schedule the backup timer")]
+    assert timer["ansible.builtin.systemd_service"]["name"] == "blitzecdn-backup.timer"
+    defaults = _role_defaults()
+    assert defaults["blitzecdn_controlplane_backup_schedule"] == "daily"
+    assert defaults["blitzecdn_controlplane_backup_retain_count"] == 7
+    config = (ROLE / "templates/blitzecdn.toml.j2").read_text(encoding="utf-8")
+    assert (
+        "backup_retain_count = {{ blitzecdn_controlplane_backup_retain_count | int }}"
+        in config
+    )
+
+
+def test_uninstall_stops_the_backup_timer_before_the_project_and_keeps_archives():
+    tasks = yaml.safe_load(UNINSTALL.read_text(encoding="utf-8"))
+    names = [task["name"] for task in tasks]
+    assert names.index("Stop the scheduled backup timer") < names.index(
+        "Remove the control-plane containers and any volumes they hold"
+    )
+    removed = tasks[names.index("Remove the scheduled backup units")]
+    assert removed["loop"] == ["blitzecdn-backup.timer", "blitzecdn-backup.service"]
+    assert "backup" not in json.dumps(
+        tasks[names.index("Remove exact BlitzeCDN-owned host paths")]
+    )
+
+
+def test_edge_teardown_leaves_the_controller_backup_units_alone():
+    """A standalone controller is also an edge; removing that edge keeps backups."""
+    tasks = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_edge_teardown/tasks/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    find = next(
+        task["ansible.builtin.find"]
+        for task in tasks
+        if task.get("name") == "Find edge-owned timers and service units"
+    )
+    excluded = set(find["excludes"].split(","))
+    assert {"blitzecdn-backup.service", "blitzecdn-backup.timer"} <= excluded

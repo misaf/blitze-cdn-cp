@@ -1,5 +1,5 @@
 import pytest
-from support.application import _seed_proxied_record
+from support.application import seed_proxied_record
 from support.control_plane import (
     FakeRunner,
     advance,
@@ -218,7 +218,7 @@ class _RecordingIssuer:
 
 
 def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
-    site = _seed_proxied_record(control)
+    site = seed_proxied_record(control)
     certificate, key = certificate_pair((site.server_names[0],), days=days)
     return control.certificates.upload_certificate(site.name, certificate, key, "alice")
 

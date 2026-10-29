@@ -31,14 +31,13 @@ def _zone(client, **policy):
     The record's value is the origin the edge fetches from.
     """
     created = client.post(
-        "/v1/domains",
+        "/v3/domains",
         json={"name": "example.com", **policy},
         headers=API_HEADERS,
     )
     client.post(
-        "/v1/domains/example.com/records",
+        "/v3/domains/example.com/records",
         json={
-            "domain": "example.com",
             "name": "cdn",
             "value": "198.51.100.10",
             "proxied": True,
@@ -67,52 +66,56 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
     )
 
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/workflows").status_code == 401
-        response = client.get("/v1/workflows", headers={"X-API-Key": "x" * 32})
+        assert client.get("/v3/workflows").status_code == 401
+        response = client.get("/v3/workflows", headers={"X-API-Key": "x" * 32})
         detail = client.get(
-            f"/v1/workflows/{workflow.id}", headers={"X-API-Key": "x" * 32}
+            f"/v3/workflows/{workflow.id}", headers={"X-API-Key": "x" * 32}
         )
 
     assert response.status_code == 200
-    assert response.json()[0]["status"] == "needs_review"
+    assert response.json()["items"][0]["status"] == "needs_review"
     assert detail.json()["error"].startswith("the controller restarted")
 
 
-def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payload):
+def test_domain_and_record_crud_and_errors(
+    settings, domain_payload, record_create_payload
+):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         assert (
-            client.post("/v1/domains", json=domain_payload, headers=headers).status_code
+            client.post("/v3/domains", json=domain_payload, headers=headers).status_code
             == 201
         )
         assert (
-            client.post("/v1/domains", json=domain_payload, headers=headers).status_code
+            client.post("/v3/domains", json=domain_payload, headers=headers).status_code
             == 409
         )
         # A record cannot exist without its zone.
         orphan = client.post(
-            "/v1/domains/absent.example/records",
-            json={**record_payload, "domain": "absent.example"},
+            "/v3/domains/absent.example/records",
+            json=record_create_payload,
             headers=headers,
         )
         assert orphan.status_code == 404
 
         created = client.post(
-            "/v1/domains/example.com/records", json=record_payload, headers=headers
+            "/v3/domains/example.com/records",
+            json=record_create_payload,
+            headers=headers,
         )
         assert created.status_code == 201
         assert created.json()["proxied"] is True
 
-        # The body's domain must agree with the path.
+        # The domain belongs in the URL, never the body.
         mismatched = client.post(
-            "/v1/domains/example.com/records",
-            json={**record_payload, "domain": "other.example", "name": "x"},
+            "/v3/domains/example.com/records",
+            json={**record_create_payload, "domain": "other.example", "name": "x"},
             headers=headers,
         )
-        assert mismatched.status_code == 409
+        assert mismatched.status_code == 422
 
         # A proxied record is what puts a hostname on a virtual host.
-        sites = client.get("/v1/hosts", headers=headers).json()
+        sites = client.get("/v3/hosts", headers=headers).json()["items"]
         assert len(sites) == 1
         assert sites[0]["server_names"] == ["cdn.example.com"]
         assert sites[0]["always_use_https"] is False
@@ -120,19 +123,21 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert sites[0]["cache_query_string_mode"] == "include"
 
         redirect = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"always_use_https": True},
             headers=headers,
         )
         assert redirect.status_code == 200
         assert redirect.json()["always_use_https"] is True
         assert (
-            client.get("/v1/hosts", headers=headers).json()[0]["always_use_https"]
+            client.get("/v3/hosts", headers=headers).json()["items"][0][
+                "always_use_https"
+            ]
             is True
         )
 
         policy = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={
                 "minimum_tls_version": "1.3",
                 "cache_query_string_mode": "ignore",
@@ -145,24 +150,24 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
 
         # Unproxying takes the hostname off the edge and leaves the zone.
         unproxied = client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v3/domains/example.com/records/cdn",
             json={"proxied": False, "value": "203.0.113.7"},
             headers=headers,
         )
         assert unproxied.json()["proxied"] is False
         assert unproxied.json()["value"] == "203.0.113.7"
         # With nothing proxied the zone derives no virtual host at all.
-        assert client.get("/v1/hosts", headers=headers).json() == []
+        assert client.get("/v3/hosts", headers=headers).json()["items"] == []
         assert (
             client.delete(
-                "/v1/domains/example.com/records/cdn", headers=headers
+                "/v3/domains/example.com/records/cdn", headers=headers
             ).status_code
             == 204
         )
         assert (
-            client.delete("/v1/domains/example.com", headers=headers).status_code == 204
+            client.delete("/v3/domains/example.com", headers=headers).status_code == 204
         )
-        assert client.get("/v1/deployments/missing", headers=headers).status_code == 404
+        assert client.get("/v3/deployments/missing", headers=headers).status_code == 404
 
 
 def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
@@ -174,44 +179,43 @@ def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
-        assert client.get("/v1/hosts", headers=headers).json()[0]["server_names"] == [
-            "cdn.example.com"
-        ]
+        assert client.get("/v3/hosts", headers=headers).json()["items"][0][
+            "server_names"
+        ] == ["cdn.example.com"]
         for method in (client.post, client.put):
             assert (
                 method(
-                    "/v1/hosts",
+                    "/v3/hosts",
                     json={"name": "example-com", "origin_host": "198.51.100.10"},
                     headers=headers,
                 ).status_code
                 == 405
             )
         assert (
-            client.delete("/v1/hosts/example-com", headers=headers).status_code == 405
+            client.delete("/v3/hosts/example-com", headers=headers).status_code == 405
         )
         schema = client.get("/openapi.json").json()
-        assert set(schema["paths"]["/v1/hosts"]) == {"get"}
-        assert set(schema["paths"]["/v1/hosts/{name}"]) == {"get"}
+        assert set(schema["paths"]["/v3/hosts"]) == {"get"}
+        assert set(schema["paths"]["/v3/hosts/{name}"]) == {"get"}
 
 
 def test_dns_export_omits_addresses_for_proxied_records(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     """A routed name must resolve to an edge, and edge IPs are not ours."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
         client.post(
-            "/v1/domains/example.com/records",
+            "/v3/domains/example.com/records",
             json={
-                "domain": "example.com",
                 "name": "db",
                 "proxied": False,
                 "value": "198.51.100.10",
             },
             headers=headers,
         )
-        document = client.get("/v1/dns/export", headers=headers).json()
+        document = client.get("/v3/dns/export", headers=headers).json()
         exported = {row["fqdn"]: row for row in document["records"]}
         assert "value" not in exported["cdn.example.com"]
         assert exported["cdn.example.com"]["proxied"] is True
@@ -230,19 +234,19 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
-        queued = client.post("/v1/deployments", json={"check": True}, headers=headers)
+        queued = client.post("/v3/deployments", json={"check": True}, headers=headers)
         assert queued.status_code == 202
         deployment_id = queued.json()["id"]
         assert queued.json()["status"] == "queued"
 
-        body = client.get(f"/v1/deployments/{deployment_id}", headers=headers).json()
+        body = client.get(f"/v3/deployments/{deployment_id}", headers=headers).json()
         assert body["status"] == "queued"
 
 
 def test_a_deploy_can_be_narrowed_to_some_edges(settings):
     with TestClient(control_plane_app(settings)) as client:
         accepted = client.post(
-            "/v1/deployments",
+            "/v3/deployments",
             json={"check": True, "host_limit": "edge-a"},
             headers=API_HEADERS,
         )
@@ -255,24 +259,24 @@ def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
     with TestClient(control_plane_app(settings)) as client:
         for pattern in ("edge-a:database-1", "edge-a:!edge-b", "@/etc/passwd"):
             response = client.post(
-                "/v1/deployments",
+                "/v3/deployments",
                 json={"host_limit": pattern},
                 headers=API_HEADERS,
             )
             assert response.status_code == 422, pattern
-        assert client.get("/v1/deployments", headers=API_HEADERS).json() == []
+        assert client.get("/v3/deployments", headers=API_HEADERS).json()["items"] == []
 
 
 def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
     with TestClient(control_plane_app(settings)) as client:
-        queued = client.post("/v1/drift", json={}, headers=API_HEADERS)
+        queued = client.post("/v3/drift", json={}, headers=API_HEADERS)
         assert queued.status_code == 202
         assert queued.json()["check_mode"] is True
 
         deployment_id = queued.json()["id"]
         for _ in range(50):
             report = client.get(
-                f"/v1/deployments/{deployment_id}/drift", headers=API_HEADERS
+                f"/v3/deployments/{deployment_id}/drift", headers=API_HEADERS
             )
             if report.status_code == 200:
                 break
@@ -284,11 +288,11 @@ def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
 def test_an_applied_deployment_is_not_readable_as_drift(settings):
     with TestClient(control_plane_app(settings)) as client:
         queued = client.post(
-            "/v1/deployments", json={"check": False}, headers=API_HEADERS
+            "/v3/deployments", json={"check": False}, headers=API_HEADERS
         )
         deployment_id = queued.json()["id"]
         response = client.get(
-            f"/v1/deployments/{deployment_id}/drift", headers=API_HEADERS
+            f"/v3/deployments/{deployment_id}/drift", headers=API_HEADERS
         )
         assert response.status_code == 409
 
@@ -296,9 +300,9 @@ def test_an_applied_deployment_is_not_readable_as_drift(settings):
 def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, API_HEADERS)
-        name = client.get("/v1/hosts", headers=API_HEADERS).json()[0]["name"]
+        name = client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0]["name"]
 
-        response = client.get(f"/v1/hosts/{name}", headers=API_HEADERS)
+        response = client.get(f"/v3/hosts/{name}", headers=API_HEADERS)
 
         assert response.status_code == 200
         assert response.json()["name"] == name
@@ -309,30 +313,30 @@ def test_a_single_site_is_readable_by_name(settings):
 
 
 def test_removed_origin_scheme_is_rejected_on_create(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
+        client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
-            "/v1/domains/example.com/records",
-            json={**record_payload, "origin_scheme": "https"},
+            "/v3/domains/example.com/records",
+            json={**record_create_payload, "origin_scheme": "https"},
             headers=API_HEADERS,
         )
         assert response.status_code == 422
 
 
 def test_removed_origin_scheme_is_rejected_on_patch(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
+        client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
-            "/v1/domains/example.com/records",
-            json=record_payload,
+            "/v3/domains/example.com/records",
+            json=record_create_payload,
             headers=API_HEADERS,
         )
         response = client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v3/domains/example.com/records/cdn",
             params={"type": "A"},
             json={"origin_scheme": "http"},
             headers=API_HEADERS,
@@ -341,30 +345,30 @@ def test_removed_origin_scheme_is_rejected_on_patch(
 
 
 def test_removed_origin_port_is_rejected_on_create(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
+        client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
-            "/v1/domains/example.com/records",
-            json={**record_payload, "origin_port": 8080},
+            "/v3/domains/example.com/records",
+            json={**record_create_payload, "origin_port": 8080},
             headers=API_HEADERS,
         )
         assert response.status_code == 422
 
 
 def test_removed_origin_port_is_rejected_on_patch(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_create_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
+        client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
-            "/v1/domains/example.com/records",
-            json=record_payload,
+            "/v3/domains/example.com/records",
+            json=record_create_payload,
             headers=API_HEADERS,
         )
         response = client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v3/domains/example.com/records/cdn",
             params={"type": "A"},
             json={"origin_port": 8080},
             headers=API_HEADERS,
@@ -374,7 +378,7 @@ def test_removed_origin_port_is_rejected_on_patch(
 
 def test_an_unknown_site_is_a_404(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/hosts/absent", headers=API_HEADERS).status_code == 404
+        assert client.get("/v3/hosts/absent", headers=API_HEADERS).status_code == 404
 
 
 # ----------------------------------------------------------------------
@@ -397,7 +401,7 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
     )
     with TestClient(control_plane_app(settings)) as client:
         response = client.patch(
-            "/v1/edges/edge-01", json={"port": 22}, headers=API_HEADERS
+            "/v3/edges/edge-01", json={"port": 22}, headers=API_HEADERS
         )
     assert response.status_code == 400
     assert response.json()["detail"] == "edge does not exist: edge-01"
@@ -413,7 +417,7 @@ def test_an_execution_error_is_a_502(settings, monkeypatch):
     )
     with TestClient(control_plane_app(settings)) as client:
         response = client.patch(
-            "/v1/edges/edge-01", json={"port": 22}, headers=API_HEADERS
+            "/v3/edges/edge-01", json={"port": 22}, headers=API_HEADERS
         )
     assert response.status_code == 502
 
@@ -426,7 +430,7 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
 
     monkeypatch.setattr(DeploymentService, "submit_deployment", busy)
     with TestClient(control_plane_app(settings)) as client:
-        response = client.post("/v1/deployments", json={}, headers=API_HEADERS)
+        response = client.post("/v3/deployments", json={}, headers=API_HEADERS)
     assert response.status_code == 409
     assert response.headers["Retry-After"] == "30"
 
@@ -445,9 +449,9 @@ _EDGE = {
 
 def test_edge_crud_over_http(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
+        assert client.get("/v3/edges", headers=API_HEADERS).json()["items"] == []
 
-        created = client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
+        created = client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["name"] == "edge-01"
         # Defaults are resolved by the model, not left for the feature to guess.
@@ -455,17 +459,17 @@ def test_edge_crud_over_http(settings):
         assert created.json()["port"] == 22
 
         assert (
-            client.post("/v1/edges", json=_EDGE, headers=API_HEADERS).status_code == 409
+            client.post("/v3/edges", json=_EDGE, headers=API_HEADERS).status_code == 409
         )
-        assert len(client.get("/v1/edges", headers=API_HEADERS).json()) == 1
+        assert len(client.get("/v3/edges", headers=API_HEADERS).json()["items"]) == 1
         assert (
-            client.get("/v1/edges/edge-01", headers=API_HEADERS).json()["host"]
+            client.get("/v3/edges/edge-01", headers=API_HEADERS).json()["host"]
             == "192.0.2.10"
         )
-        assert client.get("/v1/edges/absent", headers=API_HEADERS).status_code == 404
+        assert client.get("/v3/edges/absent", headers=API_HEADERS).status_code == 404
 
         patched = client.patch(
-            "/v1/edges/edge-01",
+            "/v3/edges/edge-01",
             json={"port": 7845, "public_addresses": ["203.0.113.10"]},
             headers=API_HEADERS,
         )
@@ -477,7 +481,7 @@ def test_edge_crud_over_http(settings):
 
         assert (
             client.patch(
-                "/v1/edges/absent", json={"port": 22}, headers=API_HEADERS
+                "/v3/edges/absent", json={"port": 22}, headers=API_HEADERS
             ).status_code
             == 404
         )
@@ -489,10 +493,10 @@ def test_an_edge_patch_cannot_rename_the_host(settings):
     `EdgePatch` has no name field and forbids extras, so a rename is a 422.
     """
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
+        client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
 
         response = client.patch(
-            "/v1/edges/edge-01", json={"name": "edge-99"}, headers=API_HEADERS
+            "/v3/edges/edge-01", json={"name": "edge-99"}, headers=API_HEADERS
         )
 
         assert response.status_code == 422
@@ -502,13 +506,13 @@ def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
     """Validation is the model's, so the API rejects exactly what the CLI does."""
     with TestClient(control_plane_app(settings)) as client:
         response = client.post(
-            "/v1/edges",
+            "/v3/edges",
             json={**_EDGE, "ssh_sources": ["anywhere"]},
             headers=API_HEADERS,
         )
 
         assert response.status_code == 422
-        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
+        assert client.get("/v3/edges", headers=API_HEADERS).json()["items"] == []
 
 
 def _queued_removal(settings, monkeypatch, path):
@@ -520,15 +524,16 @@ def _queued_removal(settings, monkeypatch, path):
     )
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
+        client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
         queued = client.delete(path, headers=API_HEADERS)
         assert queued.status_code == 202, queued.text
         run_queued_operations(control)
         operation = client.get(
-            f"/v1/operations/{queued.json()['id']}", headers=API_HEADERS
+            f"/v3/operations/{queued.json()['id']}", headers=API_HEADERS
         ).json()
         edges = [
-            edge["name"] for edge in client.get("/v1/edges", headers=API_HEADERS).json()
+            edge["name"]
+            for edge in client.get("/v3/edges", headers=API_HEADERS).json()["items"]
         ]
     return operation, edges
 
@@ -540,7 +545,7 @@ def test_removing_an_edge_without_decommissioning_says_so(settings, monkeypatch)
     so the result reports which kind of removal happened.
     """
     operation, edges = _queued_removal(
-        settings, monkeypatch, "/v1/edges/edge-01?decommission=false"
+        settings, monkeypatch, "/v3/edges/edge-01?decommission=false"
     )
 
     assert operation["status"] == "succeeded"
@@ -566,7 +571,7 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
         ),
     )
 
-    operation, edges = _queued_removal(settings, monkeypatch, "/v1/edges/edge-01")
+    operation, edges = _queued_removal(settings, monkeypatch, "/v3/edges/edge-01")
 
     assert operation["status"] == "failed"
     assert operation["error"] == "teardown of edge-01 failed"
@@ -575,17 +580,17 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
 
 def test_removing_an_unknown_edge_is_refused_before_queueing(settings):
     with TestClient(control_plane_app(settings)) as client:
-        response = client.delete("/v1/edges/nowhere", headers=API_HEADERS)
+        response = client.delete("/v3/edges/nowhere", headers=API_HEADERS)
     assert response.status_code == 404
 
 
 def test_registering_an_edge_is_audited(settings):
     """Unanswerable before: edges never went through a service, so never a bus."""
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
-        client.patch("/v1/edges/edge-01", json={"port": 7845}, headers=API_HEADERS)
+        client.post("/v3/edges", json=_EDGE, headers=API_HEADERS)
+        client.patch("/v3/edges/edge-01", json={"port": 7845}, headers=API_HEADERS)
 
-        events = client.get("/v1/audit-events", headers=API_HEADERS).json()
+        events = client.get("/v3/audit-events", headers=API_HEADERS).json()["items"]
 
         actions = [event["action"] for event in events]
         assert "edge.added" in actions
@@ -597,10 +602,10 @@ def test_registering_an_edge_is_audited(settings):
 def test_edge_routes_require_authentication(settings):
     """Every edge route is a control route; none may be read unauthenticated."""
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/edges").status_code == 401
-        assert client.post("/v1/edges", json=_EDGE).status_code == 401
-        assert client.patch("/v1/edges/edge-01", json={"port": 22}).status_code == 401
-        assert client.delete("/v1/edges/edge-01").status_code == 401
+        assert client.get("/v3/edges").status_code == 401
+        assert client.post("/v3/edges", json=_EDGE).status_code == 401
+        assert client.patch("/v3/edges/edge-01", json={"port": 22}).status_code == 401
+        assert client.delete("/v3/edges/edge-01").status_code == 401
 
 
 def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
@@ -613,7 +618,7 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
         ),
     )
 
-    operation, _ = _queued_removal(settings, monkeypatch, "/v1/edges/edge-01")
+    operation, _ = _queued_removal(settings, monkeypatch, "/v3/edges/edge-01")
 
     result = operation["result"]
     assert result["decommissioned"] is True
@@ -644,12 +649,14 @@ def test_http3_create_read_patch_and_validation(settings):
         assert created.status_code == 201
         assert created.json()["http3_enabled"] is True
         assert (
-            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["http3_enabled"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "http3_enabled"
+            ]
             is True
         )
 
         unchanged = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"http3_enabled": True},
             headers=API_HEADERS,
         )
@@ -657,7 +664,7 @@ def test_http3_create_read_patch_and_validation(settings):
         assert unchanged.json()["http3_enabled"] is True
 
         disabled = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"http3_enabled": False},
             headers=API_HEADERS,
         )
@@ -665,14 +672,14 @@ def test_http3_create_read_patch_and_validation(settings):
         assert disabled.json()["http3_enabled"] is False
 
         rejected = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"ssl_mode": "off", "http3_enabled": True},
             headers=API_HEADERS,
         )
         assert rejected.status_code == 422
         assert "requires ssl_mode" in rejected.text
 
-        events = client.get("/v1/audit-events", headers=API_HEADERS).json()
+        events = client.get("/v3/audit-events", headers=API_HEADERS).json()["items"]
         updates = [event for event in events if event["action"] == "domain.updated"]
         assert any("http3_enabled" in event["details"]["fields"] for event in updates)
 
@@ -683,26 +690,28 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         property_schema = schema["components"]["schemas"]["DomainPatch"]["properties"][
             "under_attack_mode"
         ]
-        assert property_schema["anyOf"][0]["type"] == "boolean"
+        assert property_schema["type"] == "boolean"
 
         created = _zone(client)
         assert created.status_code == 201
         assert created.json()["under_attack_mode"] is False
 
         patched = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"under_attack_mode": True},
             headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["under_attack_mode"] is True
         assert (
-            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["under_attack_mode"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "under_attack_mode"
+            ]
             is True
         )
 
         invalid = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"under_attack_mode": "sometimes"},
             headers=API_HEADERS,
         )
@@ -716,7 +725,7 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
         assert created.json()["max_upload_size"] == "100m"
 
         patched = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"max_upload_size": "200m"},
             headers=API_HEADERS,
         )
@@ -725,7 +734,7 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
 
         # A size nginx would accept but the tier list does not name.
         rejected = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"max_upload_size": "500m"},
             headers=API_HEADERS,
         )
@@ -733,12 +742,14 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
 
         # A patch that does not name the field leaves it where it was.
         client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"cache_enabled": False},
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["max_upload_size"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "max_upload_size"
+            ]
             == "200m"
         )
 
@@ -750,7 +761,7 @@ def test_compression_is_reported_patchable_and_validated(settings):
         assert created.json()["compression"] == "brotli"
 
         patched = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"compression": "off"},
             headers=API_HEADERS,
         )
@@ -758,7 +769,7 @@ def test_compression_is_reported_patchable_and_validated(settings):
         assert patched.json()["compression"] == "off"
 
         rejected = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"compression": "deflate"},
             headers=API_HEADERS,
         )
@@ -766,12 +777,14 @@ def test_compression_is_reported_patchable_and_validated(settings):
 
         # A patch that does not name the field leaves it where it was.
         client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"cache_enabled": False},
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["compression"]
+            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+                "compression"
+            ]
             == "off"
         )
 
@@ -786,7 +799,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         }
 
         patched = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
             headers=API_HEADERS,
         )
@@ -799,7 +812,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         # A partial block replaces the whole thing rather than merging, so the
         # unnamed switch comes back at its default.
         replaced = client.patch(
-            "/v1/domains/example.com",
+            "/v3/domains/example.com",
             json={"visitor_headers": {"ip_country": True}},
             headers=API_HEADERS,
         )
@@ -811,7 +824,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         # No aliases, and no Cloudflare spelling smuggled in as an extra.
         for unknown in ({"cf_connecting_ip": True}, {"true_client_ip": True}):
             rejected = client.patch(
-                "/v1/domains/example.com",
+                "/v3/domains/example.com",
                 json={"visitor_headers": unknown},
                 headers=API_HEADERS,
             )

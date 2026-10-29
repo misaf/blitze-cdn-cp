@@ -559,7 +559,7 @@ def test_the_controllers_own_credentials_are_never_forwarded(settings):
     configured = Settings.from_environment(
         {
             "BLITZE_PROJECT_DIR": str(settings.project_dir),
-            "BLITZE_API_KEY": "k" * 40,
+            "BLITZE_API_KEY": "0123456789abcdef" * 3,
             "BLITZE_MAXMIND_LICENSE_KEY": "SENTINELKEY",
         }
     )

@@ -1,0 +1,55 @@
+---
+- name: Create the persistent hostname log directory
+  ansible.builtin.file:
+    path: "{{ blitzecdn_edge_runtime.paths.logs }}/domains"
+    state: directory
+    owner: root
+    group: adm
+    # Workers must traverse this directory when reopening files after rotation.
+    # The files themselves stay private to the worker uid and host log readers.
+    mode: "0751"
+
+- name: Create private hostname log files without changing their timestamps
+  ansible.builtin.file:
+    path: >-
+      {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ item.0 | replace('*', '_wildcard') }}.{{ item.1 }}.log
+    state: touch
+    owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
+    group: adm
+    mode: "0640"
+    access_time: preserve
+    modification_time: preserve
+  loop: >-
+    {{ blitzecdn_nginx_sites | map(attribute='server_names') | flatten | unique
+       | product(['access', 'error']) | list }}
+  loop_control:
+    label: "{{ item.0 }}.{{ item.1 }}"
+
+- name: Install log rotation
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: blitzecdn_nginx_logrotate_apt
+  until: blitzecdn_nginx_logrotate_apt is success
+  retries: 3
+  delay: 5
+
+- name: Configure hostname log rotation
+  ansible.builtin.template:
+    src: logrotate.j2
+    dest: /etc/logrotate.d/blitzecdn-domains
+    owner: root
+    group: root
+    mode: "0644"
+  # The package's configuration directory may not exist on a fresh dry run.
+  when: not ansible_check_mode or not blitzecdn_nginx_logrotate_apt.changed
+
+- name: Enable scheduled log rotation
+  ansible.builtin.systemd_service:
+    name: logrotate.timer
+    enabled: true
+    state: started
+  # A dry run cannot enable the timer of a package it only predicted installing.
+  when: not ansible_check_mode or not blitzecdn_nginx_logrotate_apt.changed
