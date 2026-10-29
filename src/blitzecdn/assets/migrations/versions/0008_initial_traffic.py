@@ -1,16 +1,16 @@
 """Initial traffic schema.
 
-Revision ID: 0008
-Revises: 0007
+Revision ID: 0008_traffic
+Revises: 0007_workflows
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 
-import blitzecdn.core.persistence.tables
-
-revision = "0008"
-down_revision = "0007"
+revision = "0008_traffic"
+down_revision = "0007_workflows"
 branch_labels = None
 depends_on = None
 
@@ -20,9 +20,7 @@ def upgrade() -> None:
         "traffic_hours",
         sa.Column("edge", sa.String(), nullable=False),
         sa.Column("hostname", sa.String(), nullable=False),
-        sa.Column(
-            "hour", blitzecdn.core.persistence.tables.UtcDateTime(), nullable=False
-        ),
+        sa.Column("hour", sa.String(), nullable=False),
         sa.Column("requests", sa.Integer(), nullable=False),
         sa.Column("bytes_sent", sa.Integer(), nullable=False),
         sa.Column("body_bytes_sent", sa.Integer(), nullable=False),
@@ -48,7 +46,7 @@ def upgrade() -> None:
         sa.Column("anchor", sa.String(), nullable=False),
         sa.Column(
             "latest_hour",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.CheckConstraint("offset > 0", name="traffic_cursors_offset_check"),
@@ -61,22 +59,22 @@ def upgrade() -> None:
         sa.Column("attempt_id", sa.String(), nullable=False),
         sa.Column(
             "started_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column(
             "finished_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column(
             "last_success_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column(
             "last_caught_up_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column("pending", sa.Boolean(), nullable=True),
@@ -87,9 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "traffic_retention",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column(
-            "cutoff", blitzecdn.core.persistence.tables.UtcDateTime(), nullable=False
-        ),
+        sa.Column("cutoff", sa.String(), nullable=False),
         sa.CheckConstraint("id = 1", name="traffic_retention_singleton"),
         sa.PrimaryKeyConstraint("id"),
     )

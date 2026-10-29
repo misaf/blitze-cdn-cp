@@ -1,17 +1,17 @@
 """Initial dns schema.
 
-Revision ID: 0005
-Revises: 0004
+Revision ID: 0005_dns
+Revises: 0004_deployments
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0005"
-down_revision = "0004"
+revision = "0005_dns"
+down_revision = "0004_deployments"
 branch_labels = None
 depends_on = None
 
@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("policy", sqlite.JSON(), nullable=False),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["domain"], ["domains.name"], ondelete="CASCADE"),
@@ -62,7 +62,7 @@ def upgrade() -> None:
         sa.Column("proxied", sa.Boolean(), nullable=False),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["domain"], ["domains.name"], ondelete="CASCADE"),

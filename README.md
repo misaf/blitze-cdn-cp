@@ -168,10 +168,11 @@ handlers thin and test their shared behavior through the service.
 
 Persisted schema changes need an Alembic migration under
 `src/blitzecdn/assets/migrations/`; `just db-revision "description"` generates a
-candidate for review. The initial revisions group tables by capability in one
-dependency-ordered chain. Add a new revision for each later schema change rather
-than editing an existing revision. Apply migrations with controller services
-stopped using `uv run blitzecdn migrate`.
+candidate for review. The initial revisions (`0001_core` to `0008_traffic`)
+group tables by capability in one dependency-ordered chain. Revisions are
+permanent: add a new one for each later schema change rather than editing an
+existing revision, and keep application imports out of them. Apply migrations
+with controller services stopped using `uv run blitzecdn migrate`.
 
 Public CLI, HTTP, database, and Ansible surfaces are frozen under
 `tests/contract/frozen/`. For an intentional public change, update delivery

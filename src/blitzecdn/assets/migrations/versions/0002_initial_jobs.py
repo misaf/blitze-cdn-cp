@@ -1,17 +1,17 @@
 """Initial jobs schema.
 
-Revision ID: 0002
-Revises: 0001
+Revision ID: 0002_jobs
+Revises: 0001_core
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0002"
-down_revision = "0001"
+revision = "0002_jobs"
+down_revision = "0001_core"
 branch_labels = None
 depends_on = None
 
@@ -28,24 +28,24 @@ def upgrade() -> None:
         sa.Column("max_attempts", sa.Integer(), nullable=False),
         sa.Column(
             "available_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column(
             "leased_until",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column("leased_by", sa.String(), nullable=True),
         sa.Column("fence", sa.Integer(), nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column(
             "finished_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.Column("last_error", sa.String(), nullable=True),
@@ -83,12 +83,12 @@ def upgrade() -> None:
         sa.Column("lease_seconds", sa.Integer(), nullable=False),
         sa.Column(
             "next_run_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column(
             "last_run_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=True,
         ),
         sa.CheckConstraint(
@@ -105,7 +105,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
     op.drop_table("job_schedules")
 
     op.drop_table("jobs")

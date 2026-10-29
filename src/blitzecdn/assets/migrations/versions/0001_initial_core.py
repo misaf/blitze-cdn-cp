@@ -1,16 +1,16 @@
 """Initial core schema.
 
-Revision ID: 0001
+Revision ID: 0001_core
 Revises: none
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0001"
+revision = "0001_core"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("value", sqlite.JSON(), nullable=False),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("name"),
@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column(
             "created_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.Column("operator", sa.String(), nullable=False),
@@ -47,7 +47,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
     op.drop_table("audit_events")
 
     op.drop_table("ansible_settings")

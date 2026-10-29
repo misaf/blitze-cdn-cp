@@ -164,4 +164,4 @@ blitzecdn	index	releases.ix_releases_id	(id) unique
 blitzecdn	index	traffic_hours.ix_traffic_hours_hour_hostname_edge	(hour,hostname,edge)
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
-blitzecdn	revision	0008
+blitzecdn	revision	0008_traffic

@@ -1,17 +1,17 @@
 """Initial edges schema.
 
-Revision ID: 0006
-Revises: 0005
+Revision ID: 0006_edges
+Revises: 0005_dns
 """
+
+from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import sqlite
 
-import blitzecdn.core.persistence.tables
-
-revision = "0006"
-down_revision = "0005"
+revision = "0006_edges"
+down_revision = "0005_dns"
 branch_labels = None
 depends_on = None
 
@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("capabilities", sqlite.JSON(), nullable=True),
         sa.Column(
             "updated_at",
-            blitzecdn.core.persistence.tables.UtcDateTime(),
+            sa.String(),
             nullable=False,
         ),
         sa.CheckConstraint("length(name) > 0", name="edges_name_nonempty_check"),
