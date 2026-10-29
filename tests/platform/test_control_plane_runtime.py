@@ -366,3 +366,19 @@ def test_uninstall_stops_the_backup_timer_before_the_project_and_keeps_archives(
     assert "backup" not in json.dumps(
         tasks[names.index("Remove exact BlitzeCDN-owned host paths")]
     )
+
+
+def test_edge_teardown_leaves_the_controller_backup_units_alone():
+    """A standalone controller is also an edge; removing that edge keeps backups."""
+    tasks = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_edge_teardown/tasks/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    find = next(
+        task["ansible.builtin.find"]
+        for task in tasks
+        if task.get("name") == "Find edge-owned timers and service units"
+    )
+    excluded = set(find["excludes"].split(","))
+    assert {"blitzecdn-backup.service", "blitzecdn-backup.timer"} <= excluded
