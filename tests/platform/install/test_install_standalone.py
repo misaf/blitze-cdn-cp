@@ -12,11 +12,17 @@ from pathlib import Path
 
 import pytest
 from support.install import (
+    FAKE_IMAGE,
+    fake_installation,
+    instrument,
     query,
     role_task,
+    role_tasks,
+    run_sandboxed,
     script_function,
     script_section,
     script_text,
+    stub_bin,
 )
 
 from blitzecdn.capabilities.releases.service import compiler
@@ -81,20 +87,71 @@ def test_a_standalone_host_must_satisfy_the_edge_platform(
 
 
 def test_the_platform_is_checked_before_anything_is_installed():
-    """Before apt, as --admin-cidr is.
-
-    In `--fresh`, before the confirmation: a rebuild that cannot reinstall is a
-    destroyed installation.
-    """
+    """Before apt, as --admin-cidr is."""
     standalone = script_section("standalone")
     assert standalone.index("require_edge_platform") < standalone.index("apt-get")
-    fresh = script_section("fresh")
-    assert fresh.index("require_edge_platform") < fresh.index("converge_uninstall")
-    assert fresh.index("require_edge_platform") < fresh.index("confirm_destructive")
-    # Not the release-move commands: they converge the control plane alone, and
-    # refusing them would strand an existing host.
-    for command in ("update", "upgrade"):
-        assert "require_edge_platform" not in script_section(command)
+    # Not the release-move command: it converges the control plane alone, and
+    # refusing it would strand an existing host.
+    assert "require_edge_platform" not in script_section("update")
+
+
+def test_the_inputs_are_checked_by_the_image_before_the_host_converges():
+    """The host has no copy of the validators; the image about to act does."""
+    standalone = script_section("standalone")
+    checked = standalone.index('check_inputs "${image}" standalone')
+    assert standalone.index("obtain_control_plane_image") < checked
+    assert checked < standalone.index("converge_control_plane")
+    assert standalone.index('allowed_ips_value "${image}"') < standalone.index(
+        "converge_control_plane"
+    )
+
+
+def _standalone_sandbox(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """An installed host on 3.0.0 whose apt records instead of installing."""
+    sandbox = tmp_path / "sandbox"
+    script, root = instrument(sandbox)
+    stub_bin(sandbox, root)
+    fake_installation(root)
+    apt = sandbox / "bin" / "apt-get"
+    apt.write_text(
+        f'#!/usr/bin/env bash\necho "$*" >> "{tmp_path / "apt.log"}"\nexit 1\n',
+        encoding="utf-8",
+    )
+    apt.chmod(0o700)
+    return script, root, tmp_path / "apt.log"
+
+
+def test_standalone_refuses_a_host_that_runs_another_release(tmp_path: Path):
+    """An old download re-run on a newer host would be an irreversible downgrade."""
+    script, _, apt = _standalone_sandbox(tmp_path)
+
+    result = run_sandboxed(
+        script, "standalone", "--admin-cidr", "203.0.113.8/32", "--email", "a@b.example"
+    )
+
+    assert result.returncode == 1
+    assert "this host runs 3.0.0" in result.stderr
+    assert "nothing was changed" in result.stderr
+    assert "update" in result.stderr
+    assert not apt.exists(), "nothing may be installed"
+
+
+def test_standalone_repairs_the_release_that_is_installed(tmp_path: Path):
+    """The same release goes on to apt, past the release check."""
+    script, _, apt = _standalone_sandbox(tmp_path)
+
+    result = run_sandboxed(
+        script,
+        "standalone",
+        "--admin-cidr",
+        "203.0.113.8/32",
+        "--email",
+        "a@b.example",
+        env_extra={"BLITZECDN_CONTROL_PLANE_IMAGE": FAKE_IMAGE},
+    )
+
+    assert result.returncode == 1, "stopped by the apt stub"
+    assert apt.read_text(encoding="utf-8").splitlines()[0] == "update"
 
 
 def test_standalone_collects_the_access_list_from_either_spelling():
@@ -119,7 +176,8 @@ def test_standalone_collects_the_access_list_from_either_spelling():
         query(
             f"parse_options standalone usage_standalone {required} "
             "--allowed-ips '203.0.113.8/32, 198.51.100.0/24'\n"
-            "allowed_ips_value"
+            "run_image_helper() { return 0; }\n"
+            "allowed_ips_value image"
         )
         == "203.0.113.8/32, 198.51.100.0/24"
     )
@@ -131,21 +189,17 @@ def test_standalone_collects_the_access_list_from_either_spelling():
     )
 
 
-@pytest.mark.parametrize("subcommand", ["update", "upgrade"])
-def test_a_release_move_can_repoint_the_access_list(subcommand: str):
-    """The three commands that converge the control plane all take the list.
+def test_a_release_move_can_repoint_the_access_list():
+    """Both commands that converge the control plane take the list.
 
     Omitting the flag, the common case, leaves the installed list untouched.
     """
-    assert f"move_release {subcommand}" in script_section(subcommand)
-    section = script_function("move_release")
+    section = script_function("cmd_update")
     assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
     # Before the point of no return, not after it. A rejected access list must
     # cost a refused command, never a host sitting with its services stopped.
-    assert section.index("allowed_ips_value") < section.index(
-        'repo_git checkout --quiet "${target}"'
-    )
-    assert section.index("allowed_ips_value") < section.index("backup")
+    assert section.index('allowed_ips_value "${installed}"') < section.index("backup")
+    assert section.index("allowed_ips_value") < section.index("ensure_docker")
 
 
 def test_the_access_list_survives_an_empty_flag_on_bash_3():
@@ -155,23 +209,10 @@ def test_the_access_list_survives_an_empty_flag_on_bash_3():
     """
     assert (
         query(
-            'parse_options update usage_update --yes\nallowed_ips_value\necho "[empty]"'
+            "parse_options update usage_update --yes\n"
+            'allowed_ips_value image\necho "[empty]"'
         )
         == "[empty]"
-    )
-
-
-def test_a_rebuild_carries_the_access_list_with_it():
-    """`--fresh` reinstalls exactly as a new server is installed.
-
-    A dropped access list would silently return a public API to loopback.
-    """
-    assert (
-        query(
-            "parse_options fresh usage_fresh --allowed-ips 203.0.113.8/32 --yes\n"
-            'printf "%s\\n" "${parsed_forward_args[@]}"'
-        )
-        == "--allowed-ips\n203.0.113.8/32"
     )
 
 
@@ -189,13 +230,26 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     )
 
 
-def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
-    installation = role_task("Set the installation directory mode")
-    arguments = installation["ansible.builtin.file"]
-    assert arguments["owner"] == "root"
-    assert arguments["group"] == "root"
-    assert arguments["mode"] == "0755"
-    assert arguments.get("recurse") is not True
+def test_the_role_installs_the_installer_of_the_release_it_runs():
+    """Copied out of the image, so an update replaces it with the target's own."""
+    installer = role_task("Install the blitzecdn-install command")
+    arguments = installer["ansible.builtin.copy"]
+    assert arguments["src"] == "{{ blitzecdn_controlplane_install_dir }}/install.sh"
+    assert arguments["dest"] == "{{ blitzecdn_controlplane_installer }}"
+    assert (arguments["owner"], arguments["group"], arguments["mode"]) == (
+        "root",
+        "root",
+        "0755",
+    )
+
+
+def test_a_server_has_no_source_tree():
+    """The role makes no host directory for the project: only the image has one."""
+    assert not any(
+        "blitzecdn_controlplane_install_dir"
+        in str(task.get("ansible.builtin.file", ""))
+        for task in role_tasks()
+    )
 
 
 def test_installer_installs_only_third_party_collections():
@@ -209,7 +263,7 @@ def test_installer_installs_only_third_party_collections():
     assert "collection build" not in script_text()
 
 
-@pytest.mark.parametrize("body", ["standalone", "move_release"])
+@pytest.mark.parametrize("body", ["standalone", "cmd_update"])
 def test_a_server_installs_no_python_packages_and_asks_no_package_index(body: str):
     """The point of the image: a host that cannot reach PyPI can still install.
 
@@ -229,7 +283,7 @@ def test_only_a_source_build_needs_the_package_index():
     assert "BLITZECDN_CONTROL_PLANE_BUILD" in image
     assert image.count("docker build") == 1
     assert image.index("BLITZECDN_CONTROL_PLANE_BUILD") < image.index("docker build")
-    for help_form in ("standalone", "update", "upgrade"):
+    for help_form in ("standalone", "update"):
         assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in query(f"usage_{help_form}")
 
 

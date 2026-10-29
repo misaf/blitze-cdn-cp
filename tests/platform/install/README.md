@@ -7,13 +7,13 @@ reach.
 | --- | --- |
 | `test_install_cli.py` | Lint gates, dispatch, argument parsing, and the validators the script delegates to Python |
 | `test_install_standalone.py` | What a `standalone` install guarantees about the host it produces |
-| `test_install_teardown.py` | `--uninstall` and `--fresh`, driven for real in the sandbox |
+| `test_install_teardown.py` | `--uninstall`, driven for real in the sandbox |
 | `test_install_update.py` | `update`, driven as far as its point of no return |
-| `test_install_release.py` | `install_release`, the release selection `update` and `upgrade` run before they change anything |
+| `test_install_update_major.py` | `update --major`, crossing a major line |
+| `test_image_releases.py` | `image_releases`, the release selection `update` runs in the installed image before it changes anything |
 | `test_install_control_plane_role.py` | The `blitzecdn_controlplane` role, which owns the host state |
 | `test_install_image.py` | The control-plane image a server runs everything from: Docker seeding, pull, archive and source fallbacks, and Ansible over nsenter |
 | `test_install_toolchain.py` | uv, the pinned toolchain the virtualenv is built with |
-| `test_install_upgrade.py` | `upgrade`, crossing a major line |
 
 The privileged subcommands refuse to run as a normal user, so the paths that
 provision a server cannot be executed directly. What *can* be executed is
