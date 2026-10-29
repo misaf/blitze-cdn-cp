@@ -4,6 +4,9 @@
 # to exist before Ansible can run at all: Docker Engine and this image, which
 # carries Ansible and its collections. Application processes run only in the
 # Compose project.
+#
+# Where the image holds the project it was built from, install.sh included. A
+# path inside the containers, not on the host: a server has no source tree.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
 blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
@@ -21,16 +24,19 @@ blitzecdn_controlplane_backup_retain_count: 7
 blitzecdn_controlplane_systemd_dir: /etc/systemd/system
 blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
+# The release's own install.sh, copied out of the image so every later update
+# and uninstall runs the installer of the release that is installed.
+blitzecdn_controlplane_installer: /usr/local/sbin/blitzecdn-install
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
 blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 # The published image this release runs: API, worker, CLI, and the Ansible
-# that converges this host. Pinned to the release's own version, moved with it
-# by `just release-version`, and read from here by install.sh, which pulls it
-# and passes the reference it resolved back in as this variable — by digest
-# when the registry gave one, so the services and the CLI wrapper run exactly
-# the bytes that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1)
-# passes its local tag instead.
+# that converges this host. Pinned to the release's own version and moved with
+# it by `just release-version`, as install.sh's own pin is. install.sh always
+# passes the reference it resolved as this variable — by digest when the
+# registry gave one, so the services and the CLI wrapper run exactly the bytes
+# that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1) passes its
+# local tag instead.
 blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.1.0
 # Where the CLI wrapper stages a restore's configuration. On the host's tmpfs,
 # and mounted at the same path into the container that runs the wrapper,

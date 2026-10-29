@@ -1,7 +1,7 @@
 ---
-# Runs before install.sh removes /opt/blitzecdn and the control-plane image,
-# from a container of that image, reaching the host through nsenter exactly as
-# control-plane.yml does. Edge cleanup is delegated by the uninstall role to
+# Runs before install.sh removes the control-plane image, from a container of
+# that image, reaching the host through nsenter exactly as control-plane.yml
+# does. Edge cleanup is delegated by the uninstall role to
 # blitzecdn_edge_teardown, the same role normal decommission uses.
 - name: Remove BlitzeCDN-managed state from a standalone host
   hosts: localhost
