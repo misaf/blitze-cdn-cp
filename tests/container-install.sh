@@ -149,8 +149,8 @@ if ! in_container "cd /opt/blitzecdn && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/co
   # an opaque import error several layers inside the installer.
   # The expansions belong to the container shell.
   # shellcheck disable=SC2016
-  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
-  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py' || true
+  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_core.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_core.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
+  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_core.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_core.py' || true
   fail "install failed on ${IMAGE}"
 fi
 
