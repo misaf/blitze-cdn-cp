@@ -83,6 +83,41 @@ recorded one). Choose durations and severity from
 your operational recovery requirements. `/health` retains its existing database
 and queue readiness checks; historical failures do not make it fail.
 
+## Installing, updating and removing a server
+
+A server is installed from one file. Fetch `install.sh` for the release you
+want and run its standalone command; it installs Docker Engine, pulls that
+release's control-plane image, and runs everything else from the image. No
+source tree, virtualenv or Git checkout is left on the host.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
+sudo bash install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
+```
+
+The installation leaves that release's installer on the host as
+`blitzecdn-install`, and every later operation runs it:
+
+```sh
+sudo blitzecdn-install update           # newest release of the installed line
+sudo blitzecdn-install update --major   # next major line, once on the newest of this one
+sudo blitzecdn-install standalone ...   # repair the installed release
+sudo blitzecdn-install --uninstall      # remove everything but the backups
+```
+
+The image tag is the release. `update` reads the installed tag, lists the
+published tags of `ghcr.io/misaf/blitzecdn-control-plane`, and moves to the
+newest one in the same major line, never backwards and never across a major;
+`--major` crosses one line, takes a full backup instead of the database alone,
+and asks for the target version to be typed. Both refuse to run without a
+backup unless given `--no-backup`. Set `BLITZECDN_CONTROL_PLANE_IMAGE` to a
+tagged reference to name the target instead, for example from a mirror; it is
+still refused unless it moves the way the command does.
+
+A `standalone` run converges the release its installer names, so it refuses a
+host that runs a different one. To start again from a clean state, uninstall,
+then run the standalone command of the release you want.
+
 ## Backups
 
 An installed controller takes a full backup every day and then prunes the
@@ -116,12 +151,12 @@ them (`blitzecdn-backup-YYYY-MM-DD_HH-MM-SSZ.tar.gz`). Other files in the
 directory, and archives written elsewhere with `--output`, are never touched.
 Run `blitzecdn backup prune --keep N` to apply a different count once.
 
-Every full backup, scheduled or manual, including the one `install.sh upgrade`
-takes, records itself in `backup-status.json` in the state directory. `overview`,
+Every full backup, scheduled or manual, including the one
+`blitzecdn-install update --major` takes, records itself in `backup-status.json` in the state directory. `overview`,
 `GET /v3/status` and `/metrics` report from that file, so they keep working
 without the backup directory and without the database. A `--only` backup is not
-recorded, including the database-only one `install.sh update` takes: it cannot
-rebuild a controller.
+recorded, including the database-only one `blitzecdn-install update` takes: it
+cannot rebuild a controller.
 
 **Copy archives off the host.** A backup that exists only on the disk it
 protects is lost with that disk. Each archive holds every private key, the

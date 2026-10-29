@@ -127,7 +127,9 @@ jobs:
   install:
     name: Install on ${{ matrix.image }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # A full run takes 20 to 25 minutes, most of it the edge converge and the
+    # ACME issue and renewal stages, so 25 cut passing runs off near the end.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
