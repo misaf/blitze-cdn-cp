@@ -54,11 +54,27 @@ def test_installer_has_valid_shell_syntax():
 # --- dispatch ----------------------------------------------------------------
 
 
-def test_default_form_takes_no_arguments():
-    """Controller-only installation has an intentionally argument-free form."""
-    result = _run("--bogus")
+def test_no_arguments_show_help_and_the_development_workflow(tmp_path):
+    result = subprocess.run(  # noqa: S603 - fixed executable and repository script
+        [BASH, str(SCRIPT)],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Usage:" in result.stdout
+    assert "just install" in result.stdout
+    assert "uv run blitzecdn setup" in result.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("argument", ["install", "--bogus", "bogus"])
+def test_unknown_subcommands_are_rejected_with_guidance(argument):
+    result = _run(argument)
     assert result.returncode == 2
-    assert "takes no arguments" in result.stderr
+    assert "unknown subcommand" in result.stderr
+    assert "just install" in result.stderr
 
 
 def test_root_help_lists_every_subcommand():
@@ -68,7 +84,8 @@ def test_root_help_lists_every_subcommand():
     assert "update" in result.stdout
     assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
-    assert "BLITZECDN_WRAPPER_DIR" in result.stdout
+    assert "BLITZECDN_CONTROL_PLANE_IMAGE" in result.stdout
+    assert "BLITZECDN_WRAPPER_DIR" not in result.stdout
 
 
 @pytest.mark.parametrize("form", ["help", "-h", "--help"])
