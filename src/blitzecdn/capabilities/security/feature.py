@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.security import ansible, cli
+from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.security.settings import CONFIGURATION
 from blitzecdn.core.features import (
     AnsibleContribution,
@@ -11,6 +12,7 @@ from blitzecdn.core.features import (
     Feature,
     FeatureMetadata,
     NginxContribution,
+    PolicyContribution,
 )
 from blitzecdn.core.runtime.resources import distribution_version, package_directory
 
@@ -73,6 +75,11 @@ FEATURES = (
                 # The Under Attack Mode implementation. Carries no secret, so
                 # it ships in the configuration release with the fragments.
                 module_fragments=("under-attack.js.j2",),
+            ),
+        ),
+        site_policy=(
+            PolicyContribution(
+                feature="security", group="security", contract=SecurityPolicy
             ),
         ),
     ),

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import (
     CacheStatsReport,
     EdgeStats,
@@ -156,7 +156,7 @@ class CacheService:
                 continue
             uri = entry.uri
             if (
-                owner.policy.cache.cache_query_string_mode
+                owner.policy[CachePolicy].cache_query_string_mode
                 is CacheQueryStringMode.IGNORE
             ):
                 uri = uri.partition("?")[0]

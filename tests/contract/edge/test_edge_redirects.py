@@ -22,6 +22,7 @@ from support.policy import site_from_settings
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
+    TlsPolicy,
 )
 
 REQUIRES_CAPABILITIES = {
@@ -144,7 +145,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, https_blocks = server_blocks(rendered, defaults)
 
-    assert site.policy.tls.always_use_https is True
+    assert site.policy[TlsPolicy].always_use_https is True
     assert site.redirects_http_to_https is False
     assert not https_blocks
     assert "listen 443" not in rendered

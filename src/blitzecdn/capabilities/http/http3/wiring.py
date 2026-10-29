@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from blitzecdn.capabilities.http.contract import ProtocolPolicy
 from blitzecdn.core.features import FeatureRendering, FleetStateContribution
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -24,7 +25,7 @@ def quic_listener(sites: tuple[CdnSite, ...]) -> FleetStateContribution:
     enabled = sorted(
         site.name
         for site in sites
-        if site.policy.enabled and site.policy.protocols.http3_enabled
+        if site.policy.enabled and site.policy[ProtocolPolicy].http3_enabled
     )
     return FleetStateContribution(
         feature="http3",

@@ -7,11 +7,9 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.serving.contract import OriginPolicy, SitePolicy
 from blitzecdn.capabilities.tls.contract import (
-    MANAGED_TLS_ROOT,
-    CertificateMode,
-    CertificateVersion,
+    TlsPolicy,
 )
 from blitzecdn.core.domain.validation import HOST_NAME, hostname
 
@@ -59,41 +57,9 @@ class CdnSite(BaseModel):
         return hostname(value)
 
     @model_validator(mode="after")
-    def validate_certificate_pair(self) -> Self:
-        """Keep certificate mode and both paths consistent; clear all three together."""
-        supplied = (
-            self.policy.tls.certificate_path is not None
-            or self.policy.tls.certificate_key_path is not None
-        )
-        if self.policy.tls.certificate_mode is not CertificateMode.DISABLED and not (
-            self.policy.tls.certificate_path and self.policy.tls.certificate_key_path
-        ):
-            raise ValueError("TLS certificate modes require both certificate paths")
-        if self.policy.tls.certificate_mode is CertificateMode.DISABLED and supplied:
-            raise ValueError("certificate paths require certificate_mode='existing'")
-        if self.policy.tls.certificate_mode.issuer_owned:
-            try:
-                CertificateVersion.from_paths(
-                    self.name,
-                    self.policy.tls.certificate_path or "",
-                    self.policy.tls.certificate_key_path or "",
-                )
-            except ValueError as error:
-                raise ValueError(
-                    f"certificate_mode={self.policy.tls.certificate_mode.value!r} "
-                    "is set by the "
-                    "certificate upload and request endpoints, which own the paths "
-                    "for exact versions "
-                    f"under {MANAGED_TLS_ROOT}/<site>/"
-                ) from error
-        if (
-            self.policy.tls.ssl_mode.serves_tls
-            and self.policy.tls.certificate_mode is CertificateMode.DISABLED
-        ):
-            raise ValueError(
-                f"ssl_mode={self.policy.tls.ssl_mode.value!r} "
-                "requires an active edge certificate"
-            )
+    def validate_contributed_site_checks(self) -> Self:
+        """The rules a contract states about a host rather than about a zone."""
+        self.policy.validate_for_site(self.name)
         return self
 
     @property
@@ -114,15 +80,15 @@ class CdnSite(BaseModel):
         ``proxy_ssl_name`` identically, or preflight would verify the wrong name.
         """
         return (
-            self.policy.origin.origin_sni
-            or self.policy.origin.origin_request_host
+            self.policy[OriginPolicy].origin_sni
+            or self.policy[OriginPolicy].origin_request_host
             or self.origin_host
         )
 
     @property
     def serves_tls(self) -> bool:
         """Whether this site answers on 443."""
-        return self.policy.tls.ssl_mode.serves_tls
+        return self.policy[TlsPolicy].ssl_mode.serves_tls
 
     @property
     def canonical_visitor_scheme(self) -> HttpScheme:
@@ -137,7 +103,9 @@ class CdnSite(BaseModel):
         only this endpoint, and what Flexible means for alternate ports.
         """
         scheme = self.canonical_visitor_scheme
-        return self.policy.tls.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
+        return self.policy[TlsPolicy].ssl_mode.origin_scheme_for(
+            scheme, DEFAULT_PORTS[scheme]
+        )
 
     @property
     def redirects_http_to_https(self) -> bool:
@@ -147,4 +115,4 @@ class CdnSite(BaseModel):
         there is no HTTPS listener to send anyone to, and the preference applies again
         once TLS is on. ``site.conf.j2`` gates on the same condition, under test.
         """
-        return self.serves_tls and self.policy.tls.always_use_https
+        return self.serves_tls and self.policy[TlsPolicy].always_use_https

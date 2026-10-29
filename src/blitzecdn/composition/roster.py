@@ -17,6 +17,7 @@ from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERIN
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
@@ -36,7 +37,10 @@ from blitzecdn.core.features import (
     FeatureRendering,
     load_features,
 )
-from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.features.resolution import (
+    ResolvedCapabilityEnvironment,
+    resolve_policy_schema,
+)
 
 __all__ = [
     "BUILTIN_FEATURES",
@@ -180,8 +184,14 @@ BUILTIN_FEATURES: tuple[str, ...] = tuple(entry.module for entry in ROSTER)
 
 
 def load_registry() -> FeatureRegistry:
-    """Every built-in feature's declarations. Any failure is fatal."""
-    return FeatureRegistry(load_features(BUILTIN_FEATURES))
+    """Every built-in feature's declarations, and the site policy they compose.
+
+    Any failure is fatal. Composing the policy here, before any process builds
+    a service, is what lets every model that carries one be declared at import.
+    """
+    registry = FeatureRegistry(load_features(BUILTIN_FEATURES))
+    SitePolicy.seal(resolve_policy_schema(registry.policy_contributions()))
+    return registry
 
 
 def bind_renderings(inputs: RenderingInputs) -> tuple[FeatureRendering[CdnSite], ...]:

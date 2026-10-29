@@ -12,6 +12,7 @@ from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,
+    TlsPolicy,
 )
 from blitzecdn.entrypoints.cli import common
 
@@ -39,10 +40,10 @@ def domain_ssl(
     origin certificate and hostname. Every mode except Off requires an active
     edge certificate.
     """
-    zone = update(name, DomainPatch(ssl_mode=mode))
+    zone = update(name, DomainPatch.model_validate({"ssl_mode": mode}))
     report(
         zone,
-        f"{zone.name} now uses SSL mode {zone.policy.tls.ssl_mode.value!r}.",
+        f"{zone.name} now uses SSL mode {zone.policy[TlsPolicy].ssl_mode.value!r}.",
         json_output=json_output,
     )
 
@@ -60,13 +61,13 @@ def domain_ssl_automatic(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Enroll a zone in Automatic SSL/TLS or opt it into Custom mode."""
-    zone = update(name, DomainPatch(ssl_automatic_mode=mode))
+    zone = update(name, DomainPatch.model_validate({"ssl_automatic_mode": mode}))
     common.emit(
         zone,
         json_output=json_output,
         note=(
             f"{zone.name} now uses SSL automatic mode "
-            f"{zone.policy.tls.ssl_automatic_mode.value!r}."
+            f"{zone.policy[TlsPolicy].ssl_automatic_mode.value!r}."
         ),
     )
 
@@ -84,10 +85,10 @@ def domain_minimum_tls(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Set the minimum visitor TLS version for one zone."""
-    zone = update(name, DomainPatch(minimum_tls_version=version))
+    zone = update(name, DomainPatch.model_validate({"minimum_tls_version": version}))
     report(
         zone,
         f"{zone.name} now requires TLS "
-        f"{zone.policy.tls.minimum_tls_version.value} or newer.",
+        f"{zone.policy[TlsPolicy].minimum_tls_version.value} or newer.",
         json_output=json_output,
     )

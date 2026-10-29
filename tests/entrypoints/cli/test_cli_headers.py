@@ -10,6 +10,7 @@ from support.control_plane import (
     seed_site,
 )
 
+from blitzecdn.capabilities.serving.contract import HeaderPolicy
 from blitzecdn.entrypoints.cli import main as cli
 
 
@@ -17,8 +18,8 @@ def test_site_visitor_headers_command(settings, monkeypatch):
     control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     site = control.sites.get_site("example-com")
-    assert site.policy.headers.visitor_headers.connecting_ip is True
-    assert site.policy.headers.visitor_headers.ip_country is False
+    assert site.policy[HeaderPolicy].visitor_headers.connecting_ip is True
+    assert site.policy[HeaderPolicy].visitor_headers.ip_country is False
 
     result = runner.invoke(
         cli.app,
@@ -31,7 +32,9 @@ def test_site_visitor_headers_command(settings, monkeypatch):
         "ip_country": True,
     }
     assert (
-        control.sites.get_site("example-com").policy.headers.visitor_headers.ip_country
+        control.sites.get_site("example-com")
+        .policy[HeaderPolicy]
+        .visitor_headers.ip_country
         is True
     )
 
@@ -86,8 +89,8 @@ def test_site_visitor_headers_reports_what_the_origin_will_see(settings, monkeyp
     )
     assert "no BZ-* visitor headers" in off.stdout
     assert (
-        control.sites.get_site(
-            "example-com"
-        ).policy.headers.visitor_headers.connecting_ip
+        control.sites.get_site("example-com")
+        .policy[HeaderPolicy]
+        .visitor_headers.connecting_ip
         is False
     )

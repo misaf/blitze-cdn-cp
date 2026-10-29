@@ -19,7 +19,7 @@ from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.contract import SslMode
+from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 
 
 def _site(**overrides) -> CdnSite:
@@ -275,10 +275,10 @@ def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings)
     # The legs preflight is silent about.
     for port in (2053, 2083, 2087, 2096, 8443):
         assert (
-            site.policy.tls.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, port)
+            site.policy[TlsPolicy].ssl_mode.origin_scheme_for(HttpScheme.HTTPS, port)
             is HttpScheme.HTTPS
         )
     assert (
-        site.policy.tls.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, 443)
+        site.policy[TlsPolicy].ssl_mode.origin_scheme_for(HttpScheme.HTTPS, 443)
         is HttpScheme.HTTP
     )

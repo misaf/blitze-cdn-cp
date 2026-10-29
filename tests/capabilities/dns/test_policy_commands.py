@@ -9,13 +9,13 @@ from support.control_plane import FakeRunner, build_application
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
-    EditFirewall,
-    EditVisitorHeaders,
     PatchPolicy,
 )
 from blitzecdn.capabilities.dns.service import DnsService
 from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.serving.domain import EditVisitorHeaders
 from blitzecdn.composition import Repository
 
 

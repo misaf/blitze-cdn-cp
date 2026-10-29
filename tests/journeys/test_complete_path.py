@@ -38,7 +38,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
-from blitzecdn.capabilities.tls.contract import SslMode
+from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 
@@ -241,14 +241,19 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
     )
     bad = control.deployments.deploy("alice")
     assert bad.release_id != good.release_id
-    assert control.dns.get_domain("example.com").policy.tls.always_use_https is True
+    assert (
+        control.dns.get_domain("example.com").policy[TlsPolicy].always_use_https is True
+    )
 
     rolled_back = control.deployments.rollback("alice", good.id)
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
     # Canonical state came back with the old release, so compiling now produces
     # the release rolled back to.
-    assert control.dns.get_domain("example.com").policy.tls.always_use_https is False
+    assert (
+        control.dns.get_domain("example.com").policy[TlsPolicy].always_use_https
+        is False
+    )
     assert control.releases.compile().id == good.release_id
 
 
