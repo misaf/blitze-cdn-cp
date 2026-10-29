@@ -298,7 +298,10 @@ in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-lo
 # JSON is the evidence, so it is kept rather than sent to /dev/null.
 deploy_or_fail() {
   local environment=$1 message=$2 output
-  if ! output=$(in_container "cd / && ${environment} blitzecdn deploy --yes --json"); then
+  # --wait: the worker's own background runs (startup recovery, the drift
+  # check, certificate reconciliation) take the deployment lock too, and a
+  # test that has just restarted the services must not race them for it.
+  if ! output=$(in_container "cd / && ${environment} blitzecdn deploy --yes --wait 300 --json"); then
     printf '%s\n' "${output}" | tail -80
     # shellcheck disable=SC2016
     in_container 'latest=$(ls -t /var/lib/blitzecdn/logs/*.log 2>/dev/null | head -1)
@@ -322,7 +325,7 @@ in_container 'cd / && blitzecdn record add example.com cdn --value 127.0.0.1' ||
   fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged.
-in_container 'cd / && blitzecdn plan --json >/dev/null' || {
+in_container 'cd / && blitzecdn plan --wait 300 --json >/dev/null' || {
   # shellcheck disable=SC2016
   dump_ansible_log
   fail "check-mode run failed"
@@ -343,7 +346,7 @@ in_container '! command -v nginx' || fail "nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
 deploy_or_fail "" "second deploy failed"
-in_container 'cd / && blitzecdn drift --json' || {
+in_container 'cd / && blitzecdn drift --wait 300 --json' || {
   # shellcheck disable=SC2016
   dump_ansible_log
   # The two files the stack renders itself from. A check-mode diff says which

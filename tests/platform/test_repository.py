@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -279,6 +280,41 @@ def test_deployment_transitions_releases_and_recovery(
         repository.deployments.get_deployment(deployment.id).status
         is DeploymentStatus.ABANDONED
     )
+
+
+def test_a_transition_waits_out_another_writer_instead_of_failing(
+    settings, domain_payload, record_payload, site_payload
+):
+    """Another process commits while a transition waits for the writer lock.
+
+    A transition that read first would hold a snapshot that commit made stale,
+    and SQLite fails its upgrade to a writer at once with "database is locked",
+    whatever the busy timeout. One conditional UPDATE waits and then applies.
+    """
+    repository = Repository(settings.database_path)
+    _seed(repository, domain_payload, record_payload, site_payload)
+    release = _release(repository)
+    deployment = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
+    )
+    other = sqlite3.connect(
+        settings.database_path, isolation_level=None, check_same_thread=False
+    )
+    other.execute("BEGIN IMMEDIATE")
+    other.execute(
+        "UPDATE deployments SET operator = 'bob' WHERE id = ?", (deployment.id,)
+    )
+    release_writer = threading.Timer(0.5, other.execute, ("COMMIT",))
+    release_writer.start()
+    try:
+        running = repository.deployments.save(
+            deployment, deployment.start(now=datetime.now(UTC))
+        )
+    finally:
+        release_writer.join()
+        other.close()
+    assert running.status is DeploymentStatus.RUNNING
+    assert running.operator == "bob"
 
 
 def test_rollback_target_requires_different_success(

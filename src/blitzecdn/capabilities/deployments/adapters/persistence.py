@@ -84,14 +84,30 @@ class DeploymentStore:
         if after.id != before.id:
             raise ValueError("a transition cannot change which deployment it is")
         with self._db.session() as session:
-            row = session.get(DeploymentRow, before.id)
-            if row is None or row.status != before.status.value:
+            # One conditional UPDATE, never a read then a write. The status
+            # check and the write cannot be split by another process's commit,
+            # and a transaction whose first statement writes waits out a busy
+            # writer; a read first would pin a snapshot that the upgrade to a
+            # writer then fails on at once, as "database is locked".
+            row = session.execute(
+                update(DeploymentRow)
+                .where(
+                    DeploymentRow.id == before.id,
+                    DeploymentRow.status == before.status.value,
+                )
+                .values(
+                    status=after.status.value,
+                    started_at=after.started_at,
+                    finished_at=after.finished_at,
+                    result=(
+                        after.result.model_dump(mode="json") if after.result else None
+                    ),
+                    error=after.error,
+                )
+                .returning(DeploymentRow)
+            ).scalar_one_or_none()
+            if row is None:
                 raise ConflictError(f"deployment {before.id} is not {before.status}")
-            row.status = after.status.value
-            row.started_at = after.started_at
-            row.finished_at = after.finished_at
-            row.result = after.result.model_dump(mode="json") if after.result else None
-            row.error = after.error
             # Inside the transaction: the caller is handed the deployment it
             # moved, not the state of the row a moment later.
             return self._deployment(row)
