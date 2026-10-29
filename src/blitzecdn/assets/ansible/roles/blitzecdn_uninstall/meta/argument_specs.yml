@@ -15,5 +15,7 @@ argument_specs:
         type: path
       blitzecdn_uninstall_compose_file:
         type: path
+      blitzecdn_uninstall_systemd_dir:
+        type: path
       blitzecdn_uninstall_firewall_registry_file:
         type: path

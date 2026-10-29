@@ -7,7 +7,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.capabilities.backup.domain import BackupComponent
+from blitzecdn.capabilities.backup.domain import BackupComponent, BackupRecord
 
 
 class ArchiveEntry(Protocol):
@@ -57,6 +57,19 @@ class BackupComponentGateway(Protocol):
     def recovery_paths(self) -> Sequence[Path]: ...
 
 
+class BackupHistory(Protocol):
+    """The last full backup this controller completed, readable without a database.
+
+    Kept apart from the database on purpose: a restore is wanted when the
+    database is the thing that broke, and monitoring should still say when the
+    last good backup was.
+    """
+
+    def record(self, entry: BackupRecord) -> None: ...
+
+    def latest(self) -> BackupRecord | None: ...
+
+
 class RestoreRecovery(Protocol):
     """Preserve selected live paths and recover them if application fails."""
 
@@ -93,6 +106,7 @@ __all__ = [
     "ArchiveEntry",
     "ArchiveGateway",
     "BackupComponentGateway",
+    "BackupHistory",
     "RestoreRecovery",
     "SchemaVersions",
     "ServiceControl",

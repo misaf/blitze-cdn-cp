@@ -19,6 +19,7 @@ preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',
 
 # Backup
 backup_dir = {{ blitzecdn_controlplane_backup_dir | to_json }}
+backup_retain_count = {{ blitzecdn_controlplane_backup_retain_count | int }}
 
 # Managed TLS
 acme_default_email = {{ blitzecdn_controlplane_effective_acme_email | to_json }}

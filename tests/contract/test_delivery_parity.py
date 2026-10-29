@@ -307,6 +307,13 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "caller every private key the control plane holds.",
     ),
     ("blitzecdn", "backup inspect", None, "see `backup create`."),
+    (
+        "blitzecdn",
+        "backup prune",
+        None,
+        "deletes archives on the control-plane host; the host timer runs it "
+        "after each scheduled `backup create`. See `backup create`.",
+    ),
     ("blitzecdn", "backup restore", None, "see `backup create`."),
     (
         "blitzecdn",

@@ -13,6 +13,8 @@ from typing import Any, NewType, cast
 from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.backup.service import BackupService
+from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
@@ -107,6 +109,7 @@ class ServiceProvider(Provider):
         repository: Repository,
         certificates: CertificateService,
         workers: WorkerHistory,
+        backups: BackupService,
         adapters: Adapters,
     ) -> DiagnosticsService:
         return DiagnosticsService(
@@ -114,6 +117,7 @@ class ServiceProvider(Provider):
             workflows=repository.workflows,
             certificates=certificates,
             workers=workers,
+            backups=backups,
             clock=adapters.clock,
         )
 
@@ -328,6 +332,14 @@ class ServiceProvider(Provider):
         return OperationService(queue=queue, kinds=runs)
 
     # -- TLS ---------------------------------------------------------------
+
+    # -- backup opens no repository; the host timer runs it, diagnostics reads it.
+
+    @provide
+    def backups(self, settings: Settings, features: FeatureRegistry) -> BackupService:
+        return build_backup_service(
+            settings, configuration=features.configuration_contributions()
+        )
 
     @provide
     def certificate_config(

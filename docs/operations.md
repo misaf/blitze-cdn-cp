@@ -28,6 +28,8 @@ probes and start no workers.
 * **Certificates:** managed, expired, expiring within 30 whole days (including
   expired), due for ACME renewal, and earliest expiry. Uploaded certificates
   count toward expiry alerts but cannot be renewed automatically.
+* **Backups:** the last full backup's completion time, age, archive name and
+  size, or all `null` when none is recorded. See [Backups](#backups).
 
 Workers publish a heartbeat every five seconds under `.state/workers/`, shared
 with the API through the controller's state volume. A heartbeat older than 30
@@ -63,6 +65,8 @@ deployment metrics and adds:
 | `blitzecdn_certificates_expiring` | Certificates with at most 30 whole days remaining |
 | `blitzecdn_certificates_renewal_due` | ACME certificates due for renewal |
 | `blitzecdn_certificate_next_expiry_timestamp_seconds` | Earliest expiry, or zero with no managed certificates |
+| `blitzecdn_backup_last_success_timestamp_seconds` | Completion time of the last full backup, or zero when none is recorded |
+| `blitzecdn_backup_last_success_size_bytes` | Size of that archive, or zero when none is recorded |
 
 These metrics are **gauges**. History pruning can reduce job/workflow counts and
 change average duration; do not apply `rate()` as if they were lifetime counters.
@@ -72,9 +76,65 @@ reporting; certificate details remain at `GET /v3/certificates`.
 
 Useful alert conditions include ready work with zero fresh workers, increasing
 oldest-ready age, expired leases, stale/unreadable worker records, workflows
-requiring review, and expiring certificates. Choose durations and severity from
+requiring review, expiring certificates, and an old or missing backup
+(`time() - blitzecdn_backup_last_success_timestamp_seconds > 2 * 86400` fires
+after two missed daily runs, and immediately on a controller that has never
+recorded one). Choose durations and severity from
 your operational recovery requirements. `/health` retains its existing database
 and queue readiness checks; historical failures do not make it fail.
+
+## Backups
+
+An installed controller takes a full backup every day and then prunes the
+backup directory, `/var/backups/blitzecdn`, to the newest seven archives. A
+systemd timer on the host, `blitzecdn-backup.timer`, runs
+`blitzecdn backup create` and then `blitzecdn backup prune` through the CLI
+wrapper. The prune runs only if the backup succeeded, so failed runs never
+thin out good archives. It runs on the host rather than in the worker because
+the wrapper is the only thing that can put the root-only
+`/etc/blitzecdn/blitzecdn.env`, which holds the API keys and other secrets,
+into the archive.
+
+```sh
+systemctl list-timers blitzecdn-backup.timer   # next and last run
+journalctl -u blitzecdn-backup.service         # what the last runs printed
+sudo systemctl start blitzecdn-backup.service  # take one now
+```
+
+The installer's role variables set the schedule and retention:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `blitzecdn_controlplane_backup_schedule` | `daily` | systemd `OnCalendar` expression; empty stops and disables the timer |
+| `blitzecdn_controlplane_backup_retain_count` | `7` | Rendered as `backup_retain_count`; `0` keeps every archive |
+
+A missed run, for example while the host was off, happens soon after it comes
+back. Each run is delayed by up to 15 minutes at random.
+
+Retention counts and removes only archives named the way `backup create` names
+them (`blitzecdn-backup-YYYY-MM-DD_HH-MM-SSZ.tar.gz`). Other files in the
+directory, and archives written elsewhere with `--output`, are never touched.
+Run `blitzecdn backup prune --keep N` to apply a different count once.
+
+Every full backup, scheduled or manual, including the one `install.sh upgrade`
+takes, records itself in `backup-status.json` in the state directory. `overview`,
+`GET /v3/status` and `/metrics` report from that file, so they keep working
+without the backup directory and without the database. A `--only` backup is not
+recorded, including the database-only one `install.sh update` takes: it cannot
+rebuild a controller.
+
+**Copy archives off the host.** A backup that exists only on the disk it
+protects is lost with that disk. Each archive holds every private key, the
+controller's SSH identity, the secrets file and the full audit trail, so keep
+the copy encrypted and access-controlled. For example, from another machine:
+
+```sh
+rsync -a --chmod=F600 root@controller:/var/backups/blitzecdn/ ./blitzecdn-backups/
+```
+
+Or point an encrypted backup tool such as restic or borg at
+`/var/backups/blitzecdn` on the same schedule. Uninstalling stops and removes
+the timer but leaves the backup directory in place.
 
 ## Logs
 
