@@ -1,4 +1,4 @@
-"""The `http` contract's switches: protocols, upload limit, scheme redirect."""
+"""HTTP protocols, upload limits, redirects and visitor headers."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.http.contract import MaxUploadSize
+from blitzecdn.capabilities.http.contract import HeaderPolicy, MaxUploadSize
+from blitzecdn.capabilities.http.domain import EditVisitorHeaders
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.domain_editing import report, update
 
@@ -84,5 +86,73 @@ def domain_always_use_https(
     report(
         zone,
         f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for {zone.name}.",
+        json_output=json_output,
+    )
+
+
+@domain_commands.command("visitor-headers")
+def domain_visitor_headers(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
+    connecting_ip: Annotated[
+        bool | None,
+        typer.Option(
+            "--connecting-ip/--no-connecting-ip",
+            help="Send BZ-Connecting-IP, the visitor address the edge saw.",
+        ),
+    ] = None,
+    ip_country: Annotated[
+        bool | None,
+        typer.Option(
+            "--ip-country/--no-ip-country",
+            help="Send BZ-IPCountry, the visitor's ISO 3166-1 alpha-2 code. "
+            "Needs GeoIP on the edge.",
+        ),
+    ] = None,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Choose what the edge tells the origin about the visitor.
+
+    BZ-Connecting-IP carries the visitor address, IPv4 or IPv6, as nginx saw it
+    on the connection; it is on by default, because an origin behind the CDN
+    sees an edge address on every connection. BZ-IPCountry carries the country
+    the GeoIP2 database resolves that address to, and is off by default.
+
+    Both are written by BlitzeCDN and overwrite whatever the visitor sent under
+    the same name; a header turned off here is cleared rather than forwarded,
+    so the BZ- namespace never carries client input. Trust them at the origin
+    only where the origin accepts traffic from BlitzeCDN edges alone.
+
+    BZ-IPCountry needs the 'geoip' capability, and blitzecdn_geoip_enabled
+    with a country database on the edge. A deploy refuses rather than send an origin a
+    header that is silently absent.
+
+    Options you do not name are left as they are.
+    """
+    supplied = {"connecting_ip": connecting_ip, "ip_country": ip_country}
+    named = {field: value for field, value in supplied.items() if value is not None}
+    if not named:
+        raise typer.BadParameter(
+            "give at least one of --connecting-ip/--no-connecting-ip or "
+            "--ip-country/--no-ip-country"
+        )
+    zone = common.service(DnsService).update_domain(
+        name, EditVisitorHeaders.model_validate(named), "cli"
+    )
+    sent = [
+        header
+        for header, on in (
+            (
+                "BZ-Connecting-IP",
+                zone.policy[HeaderPolicy].visitor_headers.connecting_ip,
+            ),
+            ("BZ-IPCountry", zone.policy[HeaderPolicy].visitor_headers.ip_country),
+        )
+        if on
+    ]
+    report(
+        zone,
+        f"{zone.name} now sends {', '.join(sent)} to the origin."
+        if sent
+        else f"{zone.name} now sends no BZ-* visitor headers to the origin.",
         json_output=json_output,
     )

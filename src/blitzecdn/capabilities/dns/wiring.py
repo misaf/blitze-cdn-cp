@@ -11,7 +11,7 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.dns.service import DnsService, HostService, RuleService
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.features import FeatureRendering, SiteStateContribution
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder

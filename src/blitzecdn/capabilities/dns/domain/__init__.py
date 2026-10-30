@@ -1,6 +1,6 @@
 """Canonical zones, records, rules, and the virtual hosts derived from them.
 
-Shared serving policy lives in `serving`, so compilation and execution consume
+Shared serving policy lives in `core.domain`, so compilation and execution consume
 it without importing DNS lifecycle concerns.
 """
 

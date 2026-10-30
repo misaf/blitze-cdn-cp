@@ -12,11 +12,11 @@ from blitzecdn.capabilities.dns.domain import (
     PatchPolicy,
 )
 from blitzecdn.capabilities.dns.service import DnsService
+from blitzecdn.capabilities.http.domain import EditVisitorHeaders
 from blitzecdn.capabilities.security.contract import SiteFirewall
 from blitzecdn.capabilities.security.domain import EditFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import EditVisitorHeaders
 from blitzecdn.composition import Repository
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_selective_firewall_intent_covers_the_contract_lists():

@@ -3,7 +3,7 @@
 The feature below exists only in this test. Registered beside the built-in
 features, its contract must be stored, patched, overridden by a rule, served
 over HTTP, published in the API schema, rendered for the edge and asked about
-by capability validation, without one edit to `dns`, `serving` or core.
+by capability validation, without one edit to `dns` or core.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ from support.control_plane import API_HEADERS, seed_site_over_http
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import DomainPatch, Rule
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import compose_registry, load_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.features import (
     Feature,
     FeatureMetadata,

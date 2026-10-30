@@ -22,7 +22,6 @@ from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
@@ -31,6 +30,7 @@ from blitzecdn.composition import (
     Repository,
     load_registry,
 )
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import (
     AnsibleContribution,

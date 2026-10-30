@@ -168,6 +168,26 @@ class TlsPolicy(CapabilityPolicy):
     certificate_path: str | None = None
     certificate_key_path: str | None = None
 
+    @property
+    def canonical_visitor_scheme(self) -> HttpScheme:
+        """The strongest visitor transport this TLS policy enables."""
+        return HttpScheme.HTTPS if self.ssl_mode.serves_tls else HttpScheme.HTTP
+
+    @property
+    def canonical_origin_scheme(self) -> HttpScheme:
+        """Origin transport for a visitor using the default public port.
+
+        Probes use this endpoint; Flexible mode can use a different origin
+        transport for visitors on alternate HTTPS ports.
+        """
+        scheme = self.canonical_visitor_scheme
+        return self.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
+
+    @property
+    def redirects_http_to_https(self) -> bool:
+        """A redirect needs an active HTTPS listener, even when requested."""
+        return self.ssl_mode.serves_tls and self.always_use_https
+
     @field_validator("certificate_path", "certificate_key_path")
     @classmethod
     def validate_remote_path(cls, value: str | None) -> str | None:

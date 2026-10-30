@@ -116,7 +116,7 @@ def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
     """The redirect rule is written twice, so the two are pinned together.
 
     The template gates on ``tls and always_use_https``; the control plane answers
-    ``CdnSite.redirects_http_to_https``. Checked for every mode in both the normal
+    ``TlsPolicy.redirects_http_to_https``. Checked for every mode in both the normal
     and Under Attack Mode flow.
     """
     site = mode_site(
@@ -129,7 +129,7 @@ def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
         site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=under_attack
     )
 
-    assert _redirects(rendered) is site.redirects_http_to_https
+    assert _redirects(rendered) is site.policy[TlsPolicy].redirects_http_to_https
 
 
 def test_ssl_off_ignores_always_use_https_instead_of_looping():
@@ -145,7 +145,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     http_blocks, https_blocks = server_blocks(rendered, defaults)
 
     assert site.policy[TlsPolicy].always_use_https is True
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
     assert not https_blocks
     assert "listen 443" not in rendered
     assert not _redirects(rendered)

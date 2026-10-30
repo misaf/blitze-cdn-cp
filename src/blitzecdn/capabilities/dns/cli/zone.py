@@ -13,7 +13,7 @@ from blitzecdn.capabilities.dns import DnsService, serving_document
 from blitzecdn.capabilities.dns.cli.app import domain_app
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.serving.contract import OriginPolicy
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.domain_editing import report, update
 

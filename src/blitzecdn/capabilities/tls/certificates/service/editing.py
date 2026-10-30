@@ -7,7 +7,6 @@ issued certificate or an Automatic SSL upgrade changes is TLS's decision.
 from __future__ import annotations
 
 from blitzecdn.capabilities.dns.domain import SiteChange
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.ports import SiteWriter
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
@@ -18,6 +17,7 @@ from blitzecdn.capabilities.tls.contract import (
     managed_certificate_paths,
 )
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import NotFoundError
 
 __all__ = ["SiteEditing"]

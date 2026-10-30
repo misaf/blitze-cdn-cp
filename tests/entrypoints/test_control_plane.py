@@ -34,7 +34,6 @@ from blitzecdn.capabilities.jobs import (
     SCHEDULED_JOB,
     JobQueue,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import (
     Repository,
@@ -45,6 +44,7 @@ from blitzecdn.composition import (
     worker_container,
 )
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
     ConflictError,
     DeploymentBusyError,

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from blitzecdn import __version__
 from blitzecdn.capabilities.http import cli
-from blitzecdn.capabilities.http.contract import ProtocolPolicy
+from blitzecdn.capabilities.http.contract import HeaderPolicy, ProtocolPolicy
 from blitzecdn.core.features import (
     CliCommandGroup,
     Feature,
@@ -33,6 +33,7 @@ FEATURES = (
             ),
         ),
         site_policy=(
+            PolicyContribution(feature="http", group="headers", contract=HeaderPolicy),
             PolicyContribution(
                 feature="http", group="protocols", contract=ProtocolPolicy
             ),

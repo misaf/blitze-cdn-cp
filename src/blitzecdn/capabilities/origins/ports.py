@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.domain.site import CdnSite
 
 
 class FleetPlaybooks(Protocol):

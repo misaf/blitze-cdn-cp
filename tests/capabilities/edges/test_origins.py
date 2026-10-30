@@ -18,8 +18,9 @@ import blitzecdn.capabilities.edges.adapters.probe as origins_module
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
+from blitzecdn.core.domain.site import CdnSite
 
 
 def _site(**overrides) -> CdnSite:
@@ -188,7 +189,10 @@ def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
         origin_host="origin.example.com",
         ssl_mode=SslMode.FULL_STRICT,
     )
-    assert site.effective_origin_sni == "origin.example.com"
+    assert (
+        site.policy[OriginPolicy].effective_sni(site.origin_host)
+        == "origin.example.com"
+    )
     assert OriginProbe(settings).check(site).sni == "origin.example.com"
 
 
@@ -205,7 +209,7 @@ def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
         "origin_port": 443,
         "ssl_mode": "full_strict",
         "origin_tls_verify": True,
-        "origin_sni": site.effective_origin_sni,
+        "origin_sni": site.policy[OriginPolicy].effective_sni(site.origin_host),
     }
 
 
@@ -243,7 +247,7 @@ def test_preflight_probes_the_canonical_endpoint_and_not_every_proxy_port(
     """
     site = _site(origin_host="origin.example.com", ssl_mode=mode)
 
-    assert site.canonical_origin_scheme is scheme
+    assert site.policy[TlsPolicy].canonical_origin_scheme is scheme
     assert OriginProbe(settings).to_probe(site)["origin_port"] == port
     assert OriginProbe(settings).check(site).origin == f"origin.example.com:{port}"
 
@@ -269,7 +273,7 @@ def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings)
     site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FLEXIBLE)
     rendered = OriginProbe(settings).to_probe(site)
 
-    assert site.canonical_origin_scheme is HttpScheme.HTTP
+    assert site.policy[TlsPolicy].canonical_origin_scheme is HttpScheme.HTTP
     assert rendered["origin_port"] == 80
     assert rendered["origin_tls_verify"] is False
     # The legs preflight is silent about.

@@ -14,7 +14,6 @@ from time import monotonic
 from typing import Literal
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CERTIFICATE_WORKFLOW,
@@ -47,6 +46,7 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
 )
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
     BlitzeError,
     ConflictError,

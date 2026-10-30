@@ -24,6 +24,7 @@ from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.http.contract import (
     HttpScheme,
 )
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslMode,
@@ -57,7 +58,7 @@ def test_site_template_renders_from_real_model_output(desired_state):
 def test_the_template_sends_the_sni_the_control_plane_probed_with():
     """Both halves must resolve SNI identically, and never to a wildcard.
 
-    `OriginProbe` verifies against `CdnSite.effective_origin_sni` and the edge
+    `OriginProbe` verifies against `OriginPolicy.effective_sni` and the edge
     sends it; if they drift, a preflight pass means nothing. A wildcard
     `server_name` is legal in nginx but unmatchable in a handshake.
     """
@@ -72,7 +73,10 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
     )
-    assert site.effective_origin_sni == "origin.example.com"
+    assert (
+        site.policy[OriginPolicy].effective_sni(site.origin_host)
+        == "origin.example.com"
+    )
     rendered = render_site(site_to_ansible(site))
     assert "proxy_ssl_name origin.example.com;" in rendered
     assert "proxy_ssl_verify on;" in rendered

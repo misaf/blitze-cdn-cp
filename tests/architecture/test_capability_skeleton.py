@@ -90,3 +90,7 @@ def test_a_slice_holds_only_the_named_parts(slice_: Path) -> None:
 def test_every_nested_slice_still_exists() -> None:
     stale = sorted(name for name in NESTED_SLICES if not (SOURCE / name).exists())
     assert stale == [], f"{stale} no longer exist; remove them from this module"
+
+
+def test_shared_site_values_are_not_a_capability() -> None:
+    assert list((_CAPABILITIES / "serving").rglob("*.py")) == []

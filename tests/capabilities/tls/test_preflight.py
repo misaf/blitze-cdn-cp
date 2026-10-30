@@ -15,7 +15,6 @@ from support.control_plane import FakeEdgeStore
 
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.adapters import (
     preflight as preflight_module,
 )
@@ -26,6 +25,7 @@ from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
 )
 from blitzecdn.capabilities.tls.certificates.domain import PreflightSeverity
 from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.domain.site import CdnSite
 
 
 class FakeOriginProbe:
@@ -39,7 +39,7 @@ class FakeOriginProbe:
         return OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:443",
-            scheme=site.canonical_origin_scheme,
+            scheme=site.policy[TlsPolicy].canonical_origin_scheme,
             ssl_mode=site.policy[TlsPolicy].ssl_mode,
             reachable=self.ok,
             detail=None if self.ok else "no answer within 5s",
