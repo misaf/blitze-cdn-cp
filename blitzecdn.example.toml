@@ -43,6 +43,11 @@ origin_check_timeout_seconds = 5
 # small: the work it carries serializes on the deployment lock anyway. Default: 2.
 api_worker_threads = 2
 
+# Maximum API request body, including multipart framing, checked before parsing.
+# Oversized requests return 413. Also configurable as BLITZE_API_MAX_BODY_BYTES.
+# Default: 2097152 bytes (2 MiB). Minimum: 1 byte.
+api_max_body_bytes = 2097152
+
 # Frequency of checking deployed edges for configuration drift.
 # Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
 drift_check_interval_seconds = 3600
