@@ -3,13 +3,28 @@
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.http.contract import MaxUploadSize
+from blitzecdn.capabilities.http.contract import (
+    HeaderPolicy,
+    MaxUploadSize,
+    ProtocolPolicy,
+    SiteVisitorHeaders,
+)
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.contract import SslMode
+from blitzecdn.capabilities.tls.contract import (
+    SslMode,
+    TlsPolicy,
+    http3_requires_edge_tls,
+)
+from blitzecdn.composition import load_registry
+from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features import PolicyContribution
+from blitzecdn.core.features.resolution import resolve_policy_schema
 
 
 def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
@@ -18,16 +33,14 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     ``__module__`` is where a class was defined, so this fails if a contract is
     redefined or aliased into ``dns``.
     """
+    assert CdnSite.__module__ == "blitzecdn.core.domain.site"
+    assert SitePolicy.__module__ == "blitzecdn.core.domain.site_policy"
+    assert OriginPolicy.__module__ == "blitzecdn.capabilities.origins.contract"
     assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.contract"
     assert SslMode.__module__ == "blitzecdn.capabilities.tls.contract"
     assert SiteFirewall.__module__ == "blitzecdn.capabilities.security.contract"
     assert CacheQueryStringMode.__module__ == "blitzecdn.capabilities.cache.contract"
-    # The one that stays: no distribution could carry the ``BZ-*`` headers away,
-    # so there is no capability to reunite this contract with.
-    assert (
-        SiteVisitorHeaders.__module__
-        == "blitzecdn.capabilities.serving.contract.headers"
-    )
+    assert SiteVisitorHeaders.__module__ == "blitzecdn.capabilities.http.contract"
     assert [mode.value for mode in CompressionMode] == ["off", "gzip", "brotli"]
 
 
@@ -88,37 +101,57 @@ def test_the_upload_limit_asks_for_no_detachable_capability():
         assert requested == frozenset()
 
 
-def test_cross_capability_rules_stay_on_the_site_that_composes_them():
-    """HTTP/3 needing edge TLS reads two capabilities, so neither can own it."""
+def test_a_rule_across_contracts_is_contributed_by_the_capability_that_owns_it():
+    """HTTP/3 needing edge TLS is TLS's rule, declared against what it reads."""
+    (tls,) = (
+        item
+        for item in load_registry().policy_contributions()
+        if item.contract is TlsPolicy
+    )
+    assert http3_requires_edge_tls in tls.checks
+    assert ProtocolPolicy in tls.depends_on
+
     with pytest.raises(ValidationError, match="http3_enabled=True requires ssl_mode"):
         SitePolicy.from_settings({"http3_enabled": True})
 
     assert SitePolicy.from_settings(
-        {"http3_enabled": True, "ssl_mode": SslMode.FLEXIBLE}
-    ).protocols.http3_enabled
+        {
+            "http3_enabled": True,
+            "ssl_mode": SslMode.FLEXIBLE,
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/site.pem",
+            "certificate_key_path": "/etc/ssl/site.key",
+        }
+    )[ProtocolPolicy].http3_enabled
 
 
 def test_geoip_requirement_combines_security_and_header_policy():
-    assert SitePolicy.from_settings(
-        {"firewall": {"denied_countries": ["DE"]}}
-    ).requires_geoip
-    assert SitePolicy.from_settings(
-        {"visitor_headers": {"ip_country": True}}
-    ).requires_geoip
-    assert not SitePolicy().requires_geoip
+    assert (
+        "geoip"
+        in SitePolicy.from_settings(
+            {"firewall": {"denied_countries": ["DE"]}}
+        ).required_capabilities
+    )
+    assert (
+        "geoip"
+        in SitePolicy.from_settings(
+            {"visitor_headers": {"ip_country": True}}
+        ).required_capabilities
+    )
+    assert "geoip" not in SitePolicy().required_capabilities
 
 
 def test_the_policy_package_re_exports_only_what_it_owns():
-    """Importing another capability's contract from `serving.policy` must not work."""
-    import blitzecdn.capabilities.serving.contract as policy
+    """Core composes policy without importing concrete capability contracts."""
+    import blitzecdn.core.domain.site_policy as policy
 
     assert set(policy.__all__) == {
-        "HeaderPolicy",
-        "OriginPolicy",
-        "SiteVisitorHeaders",
         "SitePolicy",
     }
     borrowed_names = (
+        "HeaderPolicy",
+        "OriginPolicy",
+        "SiteVisitorHeaders",
         "CompressionMode",
         "SslMode",
         "SiteFirewall",
@@ -171,38 +204,90 @@ def test_named_settings_preserve_unrelated_policy_and_replace_leaf_blocks():
         changed.applying({"http3_enabled": True})
 
 
-def test_nested_capability_values_participate_without_inheritance_discovery():
-    from pydantic import Field
+class _FeaturePolicy(CapabilityPolicy):
+    feature_enabled: bool = True
 
-    from blitzecdn.core.domain.policy import CapabilityPolicy
+    @property
+    def capability_requirements(self):
+        return {"feature": ("feature_enabled",)} if self.feature_enabled else {}
 
-    class FeaturePolicy(CapabilityPolicy):
-        feature_enabled: bool = True
 
-        @property
-        def capability_requirements(self):
-            return {"feature": ("feature_enabled",)} if self.feature_enabled else {}
+@pytest.fixture
+def compose():
+    """Compose the policy with extra contributions, then restore the real one."""
+    saved = SitePolicy._schema
+    builtin = load_registry().policy_contributions()
 
-    class ExtendedPolicy(SitePolicy):
-        feature: FeaturePolicy = Field(default_factory=FeaturePolicy)
+    def with_extra(*extra: PolicyContribution) -> None:
+        SitePolicy.seal(resolve_policy_schema((*builtin, *extra)))
 
-    policy = ExtendedPolicy.from_settings({"feature_enabled": True})
-    assert policy.feature.feature_enabled
+    yield with_extra
+    SitePolicy._schema = saved
+
+
+def test_a_contributed_contract_joins_every_site_policy(compose):
+    compose(PolicyContribution(feature="toy", group="feature", contract=_FeaturePolicy))
+
+    policy = SitePolicy.from_settings({"feature_enabled": True})
+    assert policy[_FeaturePolicy].feature_enabled
     assert policy.capability_requirements["feature"] == ("feature_enabled",)
     assert (
         "feature"
         not in policy.applying({"feature_enabled": False}).required_capabilities
     )
-    assert ExtendedPolicy.model_validate_json(policy.model_dump_json()) == policy
+    assert SitePolicy.model_validate_json(policy.model_dump_json()) == policy
+    site = CdnSite(name="toy", origin_host="origin.example.com", policy=policy)
+    assert CdnSite.model_validate_json(site.model_dump_json()) == site
 
 
-def test_a_flat_setting_cannot_be_owned_by_two_nested_contracts():
-    from pydantic import Field
+def test_a_flat_setting_cannot_be_owned_by_two_contracts(compose):
+    class SecondCache(CachePolicy):
+        pass
 
-    from blitzecdn.capabilities.cache.contract import CachePolicy
+    with pytest.raises(FeatureError, match=r"'cache_enabled'.*'cache'.*'second'"):
+        compose(PolicyContribution(feature="toy", group="second", contract=SecondCache))
 
-    class AmbiguousPolicy(SitePolicy):
-        second_cache: CachePolicy = Field(default_factory=CachePolicy)
 
-    with pytest.raises(TypeError, match=r"cache_enabled.*multiple owners"):
-        AmbiguousPolicy()
+def test_a_policy_cannot_be_validated_before_it_is_composed(compose):
+    SitePolicy._schema = None
+
+    with pytest.raises(FeatureError, match="not composed yet"):
+        SitePolicy()
+    with pytest.raises(FeatureError, match="not composed yet"):
+        CdnSite(name="early", origin_host="origin.example.com")
+
+
+def test_composing_the_same_contributions_again_keeps_the_model():
+    composed = SitePolicy.composed()
+
+    load_registry()
+
+    assert SitePolicy.composed() is composed
+
+
+def test_features_contribute_only_the_policy_they_own():
+    contributions = {
+        item.contract: item for item in load_registry().policy_contributions()
+    }
+    assert contributions[HeaderPolicy].feature == "http"
+    assert contributions[HeaderPolicy].group == "headers"
+    assert contributions[OriginPolicy].feature == "origins"
+    assert contributions[OriginPolicy].group == "origin"
+    assert all(item.feature != "dns" for item in contributions.values())
+
+
+def test_a_site_can_use_a_policy_without_http_tls_or_origin_contracts(compose):
+    # Core identity and policy remain usable with an unrelated contribution.
+    SitePolicy.seal(
+        resolve_policy_schema(
+            (
+                PolicyContribution(
+                    feature="toy", group="feature", contract=_FeaturePolicy
+                ),
+            )
+        )
+    )
+    site = CdnSite(name="toy", origin_host="origin.example.com")
+    assert site.policy[_FeaturePolicy].feature_enabled
+    assert site.policy.required_capabilities == frozenset({"feature"})
+    assert CdnSite.model_validate_json(site.model_dump_json()) == site

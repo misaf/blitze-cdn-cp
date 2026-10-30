@@ -6,15 +6,14 @@ from typing import Any
 
 import pytest
 from support.contracts import (
-    _role_defaults,
+    role_defaults,
 )
 from support.edge_render import (
     ROLE_DIR,
-    _mode_site,
-    _render,
-    _role_spec,
-    _server_blocks,
-    _upstreams,
+    mode_site,
+    render_site,
+    rendered_upstreams,
+    server_blocks,
 )
 from support.paths import REPO_ROOT
 from support.policy import site_from_settings
@@ -22,6 +21,7 @@ from support.policy import site_from_settings
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
+    TlsPolicy,
 )
 
 REQUIRES_CAPABILITIES = {
@@ -50,7 +50,7 @@ def test_always_use_https_redirects_http_when_enabled():
         }
     )
 
-    rendered = _render(site_to_ansible(site))
+    rendered = render_site(site_to_ansible(site))
 
     assert "return 301 https://$host$request_uri;" in rendered
 
@@ -82,11 +82,11 @@ def test_always_use_https_redirects_every_http_listener_without_its_port():
     redirect stays scheme-only. ``$host`` carries no port, landing on 443, which a
     TLS site always serves, so it cannot loop.
     """
-    site = _mode_site(SslMode.FULL, serves_tls=True, always_use_https=True)
-    rendered = _render(site_to_ansible(site))
-    defaults = _role_defaults()
+    site = mode_site(SslMode.FULL, serves_tls=True, always_use_https=True)
+    rendered = render_site(site_to_ansible(site))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+    http_blocks, https_blocks = server_blocks(rendered, defaults)
 
     ports = runtime["listeners"]["http"] + runtime["listeners"]["https"]
     assert len(http_blocks) == len(runtime["listeners"]["http"])
@@ -98,7 +98,7 @@ def test_always_use_https_redirects_every_http_listener_without_its_port():
         for port in ports:
             assert f"https://$host:{port}" not in block
     # The HTTPS listeners still proxy, each to its own port.
-    assert _upstreams(rendered) == {
+    assert rendered_upstreams(rendered) == {
         f"https://origin.example.com:{port}" for port in runtime["listeners"]["https"]
     }
     assert len(https_blocks) == len(runtime["listeners"]["https"])
@@ -116,20 +116,20 @@ def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
     """The redirect rule is written twice, so the two are pinned together.
 
     The template gates on ``tls and always_use_https``; the control plane answers
-    ``CdnSite.redirects_http_to_https``. Checked for every mode in both the normal
+    ``TlsPolicy.redirects_http_to_https``. Checked for every mode in both the normal
     and Under Attack Mode flow.
     """
-    site = _mode_site(
+    site = mode_site(
         mode,
         serves_tls=mode is not SslMode.OFF,
         always_use_https=True,
         under_attack_mode=under_attack,
     )
-    rendered = _render(
+    rendered = render_site(
         site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=under_attack
     )
 
-    assert _redirects(rendered) is site.redirects_http_to_https
+    assert _redirects(rendered) is site.policy[TlsPolicy].redirects_http_to_https
 
 
 def test_ssl_off_ignores_always_use_https_instead_of_looping():
@@ -138,19 +138,19 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     The stored preference is kept but inert, as Cloudflare does; a cached 301 to
     a dead port would be worse.
     """
-    site = _mode_site(SslMode.OFF, serves_tls=False, always_use_https=True)
-    rendered = _render(site_to_ansible(site))
-    defaults = _role_defaults()
+    site = mode_site(SslMode.OFF, serves_tls=False, always_use_https=True)
+    rendered = render_site(site_to_ansible(site))
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+    http_blocks, https_blocks = server_blocks(rendered, defaults)
 
-    assert site.policy.tls.always_use_https is True
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].always_use_https is True
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
     assert not https_blocks
     assert "listen 443" not in rendered
     assert not _redirects(rendered)
     # Every HTTP listener still proxies, over HTTP, to its own port.
-    assert _upstreams(rendered) == {
+    assert rendered_upstreams(rendered) == {
         f"http://origin.example.com:{port}" for port in runtime["listeners"]["http"]
     }
     for block in http_blocks:
@@ -159,23 +159,25 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
 
 def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
     """The mitigation endpoints redirect with the same code as the proxy path."""
-    site = _mode_site(
+    site = mode_site(
         SslMode.FULL,
         serves_tls=True,
         always_use_https=True,
         under_attack_mode=True,
     )
-    rendered = _render(site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=True)
-    defaults = _role_defaults()
+    rendered = render_site(
+        site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=True
+    )
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    http_blocks, _ = _server_blocks(rendered, defaults)
+    http_blocks, _ = server_blocks(rendered, defaults)
 
     assert "return 308" not in rendered
     for block in http_blocks:
         assert "proxy_pass" not in block
         # challenge, verify, and the guarded fall-through, per HTTP listener.
         assert block.count("return 301 https://$host$request_uri;") == 3
-    assert _upstreams(rendered) == {
+    assert rendered_upstreams(rendered) == {
         f"https://origin.example.com:{port}" for port in runtime["listeners"]["https"]
     }
 
@@ -194,7 +196,7 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
         }
     )
 
-    rendered = _render(site_to_ansible(site))
+    rendered = render_site(site_to_ansible(site))
 
     assert "return 301 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
@@ -220,7 +222,7 @@ def _under_attack_site(*, enabled: bool = True) -> dict[str, Any]:
 
 
 def test_under_attack_mode_is_absent_from_the_disabled_request_flow():
-    rendered = _render(_under_attack_site(enabled=False))
+    rendered = render_site(_under_attack_site(enabled=False))
 
     assert "blitzecdn_under_attack.guard" not in rendered
     assert "X-BlitzeCDN-Mitigation challenge" not in rendered
@@ -229,9 +231,11 @@ def test_under_attack_mode_is_absent_from_the_disabled_request_flow():
 
 
 def test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https():
-    defaults = _role_defaults()
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+    rendered = render_site(
+        _under_attack_site(), blitzecdn_nginx_under_attack_enabled=True
+    )
 
     assert rendered.count("auth_request /.blitzecdn/internal/under-attack-guard;") == (
         len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
@@ -243,7 +247,9 @@ def test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https()
 
 
 def test_under_attack_reserved_endpoints_are_edge_only_and_uncached():
-    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+    rendered = render_site(
+        _under_attack_site(), blitzecdn_nginx_under_attack_enabled=True
+    )
 
     assert "location = /.blitzecdn/challenge {" in rendered
     assert "location = /.blitzecdn/challenge/verify {" in rendered
@@ -263,9 +269,11 @@ def test_under_attack_reserved_endpoints_are_edge_only_and_uncached():
 
 
 def test_acme_bypasses_under_attack_mode_in_every_server_block():
-    defaults = _role_defaults()
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
-    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+    rendered = render_site(
+        _under_attack_site(), blitzecdn_nginx_under_attack_enabled=True
+    )
     expected = len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
 
     assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected
@@ -295,21 +303,19 @@ def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     )
     del site["always_use_https"]
 
-    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["always_use_https"]
-    assert option["default"] is False
-    assert option.get("required", False) is False
+    assert TlsPolicy.model_fields["always_use_https"].default is False
 
-    rendered = _render(site)
+    rendered = render_site(site)
     assert "return 301 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
 
 
 def test_every_virtual_host_exposes_its_release_identity_without_an_origin():
     digest = "a" * 64
-    rendered = _render(
-        site_to_ansible(_mode_site("flexible", True)), blitzecdn_release_digest=digest
+    rendered = render_site(
+        site_to_ansible(mode_site("flexible", True)), blitzecdn_release_digest=digest
     )
-    http, https = _server_blocks(rendered, _role_defaults())
+    http, https = server_blocks(rendered, role_defaults())
     for block in (*http, *https):
         assert "location = /.blitzecdn/release" in block
         assert f'return 200 "{digest}\\n";' in block

@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from blitzecdn.capabilities.tls.feature import CERTIFICATES
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import certificates_operations
-from blitzecdn.core.features import CapabilityConfig
 
 
 def test_metadata_provides_required_certificates_capability() -> None:
@@ -28,20 +27,10 @@ def test_jobs_are_owned_by_the_certificate_capability() -> None:
     automatic_ssl = SimpleNamespace(
         reconcile=lambda operator: calls.append(f"scan {operator}")
     )
-    config = CertificateConfig.from_capability_config(
-        CapabilityConfig(
-            "certificates",
-            {},
-            {
-                "BLITZE_CERTBOT": "certbot",
-                "BLITZE_ACME_DEFAULT_EMAIL": "",
-                "BLITZE_ACME_CA_DOMAIN": "letsencrypt.org",
-                "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS": 3600,
-                "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS": 7200,
-                "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS": 300,
-                "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS": 86_400,
-            },
-        )
+    config = CertificateConfig(
+        reconcile_interval_seconds=3600,
+        renewal_interval_seconds=7200,
+        scan_interval_seconds=86_400,
     )
 
     operations = certificates_operations(

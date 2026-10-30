@@ -3,7 +3,7 @@
 import json
 
 from support.cli import (
-    _control,
+    cli_control,
     runner,
 )
 from support.control_plane import (
@@ -29,7 +29,7 @@ def _fleet(settings, monkeypatch, runner_double=None):
     Per test rather than in the shared helper, since roster tests assert on an
     empty fleet.
     """
-    control = _control(settings, monkeypatch, runner_double)
+    control = cli_control(settings, monkeypatch, runner_double)
     seed_edge(control)
     return control
 
@@ -142,7 +142,7 @@ def test_deploy_with_a_limit_says_the_rollout_is_unfinished(settings, monkeypatc
 
 
 def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     monkeypatch.setattr(
         control.deployments, "validate", lambda: ["playbook is missing"]
     )
@@ -178,7 +178,7 @@ def test_interactive_deploy_refuses_to_preview_an_invalid_configuration(
     settings, monkeypatch
 ):
     """The preview costs an Ansible run, so validation gates it."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     monkeypatch.setattr(
         control.deployments, "validate", lambda: ["inventory has no edges"]
     )
@@ -210,7 +210,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
 
 
 def test_rollback_changes_nothing_when_the_operator_declines(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     called = []
     monkeypatch.setattr(
         control.deployments, "rollback", lambda *a, **k: called.append(a)

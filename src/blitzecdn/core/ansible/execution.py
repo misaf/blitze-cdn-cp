@@ -200,6 +200,16 @@ class PlaybookExecutor:
             if not name.startswith("BLITZE_")
         }
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
+        # The installed controller mounts its SSH configuration under state;
+        # checkouts normally use the operator's SSH agent and user config.
+        # Common args add the optional config without replacing ansible.cfg's
+        # authentication and connection options. An explicit operator override
+        # keeps precedence, as it does for the other SSH environment settings.
+        ssh_config = self._settings.state_dir / ".ssh" / "config"
+        if ssh_config.is_file():
+            environment.setdefault(
+                "ANSIBLE_SSH_COMMON_ARGS", shlex.join(("-F", str(ssh_config)))
+            )
         # Overrides ansible.cfg's `roles_path`, which can only name directories
         # relative to itself and so cannot reach roles inside the package.
         environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(

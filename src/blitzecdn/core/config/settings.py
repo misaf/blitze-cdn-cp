@@ -149,8 +149,7 @@ class Settings(BaseSettings):
         keys = _parse_api_keys(raw) if isinstance(raw, str) else dict(raw)
         single = data.pop("api_key", None)
         if single:
-            if len(single) < 32:
-                raise ValueError("BLITZE_API_KEY must contain at least 32 characters")
+            _check_secret(single, "BLITZE_API_KEY")
             keys.setdefault("default", SecretStr(single))
         data["api_keys"] = keys
         return data
@@ -287,15 +286,29 @@ def _split(value: object, name: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+#: A generated key (`token_urlsafe`, hex) uses far more; fewer is a typed or
+#: repeated string, which length alone would admit.
+_MIN_DISTINCT_SECRET_CHARACTERS = 8
+
+
+def _check_secret(secret: str, variable: str) -> None:
+    """Refuse a secret too short or too uniform to have been generated."""
+    if len(secret) < 32:
+        raise ValueError(f"{variable} secrets must contain at least 32 characters")
+    if len(set(secret)) < _MIN_DISTINCT_SECRET_CHARACTERS:
+        raise ValueError(
+            f"{variable} secrets must be randomly generated, for example with "
+            "`openssl rand -hex 32`"
+        )
+
+
 def _parse_api_keys(raw: str) -> dict[str, SecretStr]:
     keys: dict[str, SecretStr] = {}
     for entry in filter(None, (part.strip() for part in raw.split(","))):
         operator, separator, secret = entry.partition(":")
-        if not separator or not operator or len(secret) < 32:
-            raise ValueError(
-                "BLITZE_API_KEYS entries must be operator:secret with secrets "
-                "of at least 32 characters"
-            )
+        if not separator or not operator:
+            raise ValueError("BLITZE_API_KEYS entries must be operator:secret")
+        _check_secret(secret, "BLITZE_API_KEYS")
         if operator in keys:
             raise ValueError(f"duplicate API operator: {operator}")
         keys[operator] = SecretStr(secret)

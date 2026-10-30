@@ -11,7 +11,7 @@ from support.policy import (
     site_from_settings,
 )
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.dns.cli import domain_app
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -23,12 +23,13 @@ from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
+    HeaderPolicy,
     HttpScheme,
+    ProtocolPolicy,
+    SiteVisitorHeaders,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
-from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,
@@ -36,6 +37,8 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
     managed_certificate_paths,
 )
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -132,13 +135,15 @@ def test_existing_certificate_requires_complete_pair(site_payload):
 
 def test_new_sites_default_to_ssl_off(site_payload):
     site = site_from_settings(site_payload)
-    assert site.policy.tls.ssl_mode is SslMode.OFF
-    assert site.policy.tls.ssl_automatic_mode is SslAutomaticMode.AUTO
-    assert site.policy.tls.minimum_tls_version is MinimumTlsVersion.TLS_1_2
-    assert site.policy.protocols.http3_enabled is False
-    assert site.policy.cache.cache_query_string_mode is CacheQueryStringMode.INCLUDE
-    assert site.serves_tls is False
-    assert site.canonical_origin_scheme is HttpScheme.HTTP
+    assert site.policy[TlsPolicy].ssl_mode is SslMode.OFF
+    assert site.policy[TlsPolicy].ssl_automatic_mode is SslAutomaticMode.AUTO
+    assert site.policy[TlsPolicy].minimum_tls_version is MinimumTlsVersion.TLS_1_2
+    assert site.policy[ProtocolPolicy].http3_enabled is False
+    assert (
+        site.policy[CachePolicy].cache_query_string_mode is CacheQueryStringMode.INCLUDE
+    )
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
+    assert site.policy[TlsPolicy].canonical_origin_scheme is HttpScheme.HTTP
 
 
 def test_http3_requires_edge_tls(site_payload):
@@ -157,8 +162,8 @@ def test_http3_accepts_tls_with_a_tls_1_2_tcp_minimum(site_payload):
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
     site = site_from_settings(site_payload)
-    assert site.policy.protocols.http3_enabled is True
-    assert site.policy.tls.minimum_tls_version is MinimumTlsVersion.TLS_1_2
+    assert site.policy[ProtocolPolicy].http3_enabled is True
+    assert site.policy[TlsPolicy].minimum_tls_version is MinimumTlsVersion.TLS_1_2
 
 
 @pytest.mark.parametrize("mode", ["flexible", "full", "full_strict"])
@@ -176,8 +181,8 @@ def test_off_keeps_an_installed_certificate_available(site_payload):
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
     site = site_from_settings(site_payload)
-    assert site.policy.tls.certificate_mode == "existing"
-    assert site.serves_tls is False
+    assert site.policy[TlsPolicy].certificate_mode == "existing"
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
 
 
 #: The whole SSL-mode x visitor-protocol x listener-port matrix. Off has no HTTPS
@@ -294,8 +299,8 @@ def test_the_canonical_endpoint_is_the_one_preflight_probes(
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
     site = site_from_settings(payload)
-    assert site.canonical_visitor_scheme is visitor
-    assert site.canonical_origin_scheme is origin
+    assert site.policy[TlsPolicy].canonical_visitor_scheme is visitor
+    assert site.policy[TlsPolicy].canonical_origin_scheme is origin
 
 
 def _tls_payload(site_payload, mode, **extra):
@@ -314,7 +319,7 @@ def _tls_payload(site_payload, mode, **extra):
 @pytest.mark.parametrize("mode", [SslMode.FLEXIBLE, SslMode.FULL, SslMode.FULL_STRICT])
 def test_always_use_https_redirects_once_the_site_serves_tls(site_payload, mode):
     site = site_from_settings(_tls_payload(site_payload, mode, always_use_https=True))
-    assert site.redirects_http_to_https is True
+    assert site.policy[TlsPolicy].redirects_http_to_https is True
 
 
 def test_always_use_https_is_inert_under_ssl_off(site_payload):
@@ -326,10 +331,10 @@ def test_always_use_https_is_inert_under_ssl_off(site_payload):
     """
     site = site_from_settings(site_payload | {"always_use_https": True})
 
-    assert site.policy.tls.ssl_mode is SslMode.OFF
-    assert site.policy.tls.always_use_https is True
-    assert site.serves_tls is False
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].ssl_mode is SslMode.OFF
+    assert site.policy[TlsPolicy].always_use_https is True
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
 
 
 def test_turning_tls_on_activates_a_preference_set_while_off(site_payload):
@@ -337,20 +342,23 @@ def test_turning_tls_on_activates_a_preference_set_while_off(site_payload):
     on = site_from_settings(
         _tls_payload(site_payload, SslMode.FULL, always_use_https=True)
     )
-    assert (off.redirects_http_to_https, on.redirects_http_to_https) == (False, True)
+    assert (
+        off.policy[TlsPolicy].redirects_http_to_https,
+        on.policy[TlsPolicy].redirects_http_to_https,
+    ) == (False, True)
 
 
 def test_a_tls_site_without_always_use_https_serves_both_schemes(site_payload):
     site = site_from_settings(_tls_payload(site_payload, SslMode.FULL))
-    assert site.policy.tls.always_use_https is False
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].always_use_https is False
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
 
 
 def test_removed_origin_scheme_is_rejected(site_payload):
     site_payload["origin_scheme"] = "http"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         site_from_settings(site_payload)
-    assert "origin_scheme" not in DomainPatch.model_fields
+    assert "origin_scheme" not in DomainPatch.composed().model_fields
 
 
 @pytest.mark.parametrize(
@@ -397,7 +405,7 @@ def test_zone_and_site_share_one_certificate_path_rule(site_payload):
     """The rule belongs to the contained TLS contract used by both carriers."""
     assert Domain.model_fields["policy"].annotation is SitePolicy
     assert CdnSite.model_fields["policy"].annotation is SitePolicy
-    assert SitePolicy.model_fields["tls"].annotation is TlsPolicy
+    assert SitePolicy.composed().model_fields["tls"].annotation is TlsPolicy
 
 
 def test_managed_certificate_modes_reject_operator_chosen_paths(site_payload):
@@ -416,7 +424,10 @@ def test_managed_certificate_modes_accept_their_own_paths(site_payload):
     site_payload["certificate_key_path"] = managed_certificate_paths(
         "example-com", TEST_CERTIFICATE_VERSION
     )[1]
-    assert site_from_settings(site_payload).policy.tls.certificate_mode == "uploaded"
+    assert (
+        site_from_settings(site_payload).policy[TlsPolicy].certificate_mode
+        == "uploaded"
+    )
 
 
 def _managed_site(**overrides: object) -> dict[str, object]:
@@ -456,36 +467,34 @@ def test_site_patch_revalidates_the_whole_site():
     updated = site_from_settings(
         {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
-    assert updated.policy.cache.cache_enabled is False
+    assert updated.policy[CachePolicy].cache_enabled is False
     assert updated.origin_host == "198.51.100.10"
 
 
 def test_site_patch_covers_every_shared_policy_field():
-    """`DomainPatch` cannot inherit `SitePolicy`, so this keeps it complete.
+    """`DomainPatch` is generated from the composed policy; this holds it to that.
 
-    A missing field would be settable on creation and never changeable. A new
-    `SitePolicy` field fails here until it is added to the patch.
+    A missing field would be settable on creation and never changeable.
     """
-    assert set(SitePolicy.setting_fields()) <= set(DomainPatch.model_fields), (
-        "DomainPatch is missing "
-        f"{sorted(set(SitePolicy.setting_fields()) - set(DomainPatch.model_fields))}. "
-        "Add the field to DomainPatch as an optional defaulting to None."
+    missing = set(SitePolicy.setting_fields()) - set(
+        DomainPatch.composed().model_fields
     )
+    assert not missing, f"DomainPatch is missing {sorted(missing)}"
 
 
 def test_the_patch_cannot_reach_the_field_dns_owns():
     """`server_names` and `origin_host` are maintained from the records, so a patch
     has no word for them.
     """
-    assert "server_names" not in DomainPatch.model_fields
-    assert "origin_host" not in DomainPatch.model_fields
+    assert "server_names" not in DomainPatch.composed().model_fields
+    assert "origin_host" not in DomainPatch.composed().model_fields
 
 
 def test_every_patchable_policy_field_is_optional():
     """An inherited required field would arrive here with a default and apply
     itself on every unrelated patch."""
     for name in SitePolicy.setting_fields():
-        assert DomainPatch.model_fields[name].default is None, (
+        assert DomainPatch.composed().model_fields[name].default is None, (
             f"DomainPatch.{name} must default to None so an unset field means "
             "'leave alone' rather than 'reset to this value'"
         )
@@ -495,9 +504,9 @@ def test_under_attack_mode_defaults_off_and_is_patchable():
     assert SitePolicy().security.under_attack_mode is False
     assert DomainPatch(under_attack_mode=True).under_attack_mode is True
     assert (
-        site_from_settings(
-            _managed_site(under_attack_mode=True)
-        ).policy.security.under_attack_mode
+        site_from_settings(_managed_site(under_attack_mode=True))
+        .policy[SecurityPolicy]
+        .under_attack_mode
         is True
     )
 
@@ -510,10 +519,10 @@ def test_visitor_headers_default_to_the_address_and_not_the_country(site_payload
     """
     site = site_from_settings(site_payload)
 
-    assert site.policy.headers.visitor_headers == SiteVisitorHeaders()
-    assert site.policy.headers.visitor_headers.connecting_ip is True
-    assert site.policy.headers.visitor_headers.ip_country is False
-    assert site.policy.requires_geoip is False
+    assert site.policy[HeaderPolicy].visitor_headers == SiteVisitorHeaders()
+    assert site.policy[HeaderPolicy].visitor_headers.connecting_ip is True
+    assert site.policy[HeaderPolicy].visitor_headers.ip_country is False
+    assert "geoip" not in site.policy.required_capabilities
 
 
 def test_visitor_headers_reject_a_field_they_do_not_declare(site_payload):
@@ -529,18 +538,18 @@ def test_ip_country_requires_geoip_on_its_own(site_payload):
     Composed in one property that mirrors the edge role's validation.
     """
     site = site_from_settings(site_payload | {"visitor_headers": {"ip_country": True}})
-    assert site.policy.headers.visitor_headers.requires_geoip is True
-    assert site.policy.security.firewall.requires_geoip is False
-    assert site.policy.requires_geoip is True
+    assert site.policy[HeaderPolicy].visitor_headers.requires_geoip is True
+    assert site.policy[SecurityPolicy].firewall.requires_geoip is False
+    assert "geoip" in site.policy.required_capabilities
 
 
 def test_country_firewall_rules_still_require_geoip_by_themselves(site_payload):
     """The original consumer must not have been displaced by the new one."""
     for rules in ({"denied_countries": ["RU"]}, {"allowed_countries": ["DE"]}):
         site = site_from_settings(site_payload | {"firewall": rules})
-        assert site.policy.security.firewall.requires_geoip is True
-        assert site.policy.headers.visitor_headers.requires_geoip is False
-        assert site.policy.requires_geoip is True
+        assert site.policy[SecurityPolicy].firewall.requires_geoip is True
+        assert site.policy[HeaderPolicy].visitor_headers.requires_geoip is False
+        assert "geoip" in site.policy.required_capabilities
 
 
 def test_every_country_setting_requests_the_geoip_capability(site_payload):
@@ -576,7 +585,7 @@ def test_an_ordinary_site_requests_no_geoip_capability(site_payload):
         }
     )
 
-    assert site.policy.requires_geoip is False
+    assert "geoip" not in site.policy.required_capabilities
     assert site.policy.required_capabilities == frozenset({"security"})
 
 
@@ -594,10 +603,11 @@ def test_capability_requirements_name_the_settings_that_asked(site_payload):
         }
     )
 
+    # In the order the contracts compose, which is their features' names.
     assert site.policy.capability_requirements["geoip"] == (
+        "visitor_headers.ip_country",
         "firewall.allowed_countries",
         "firewall.denied_countries",
-        "visitor_headers.ip_country",
     )
     assert site.policy.capability_requirements["compression"] == ("compression",)
     assert site.policy.capability_requirements["security"] == ("firewall",)
@@ -615,9 +625,8 @@ def test_a_disabled_site_names_no_capability_and_no_setting(site_payload):
 
     assert site.policy.capability_requirements == {}
     assert site.policy.required_capabilities == frozenset()
-    # `requires_geoip` is the *edge role's* question and is deliberately not
-    # gated on `enabled`: the role asks it of whatever it was handed.
-    assert site.policy.requires_geoip is True
+    # The value is kept, so enabling the site asks for GeoIP again.
+    assert site.policy[HeaderPolicy].visitor_headers.requires_geoip is True
 
 
 def test_a_patch_replaces_the_whole_visitor_header_block():
@@ -631,8 +640,8 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
         {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
 
-    assert updated.policy.headers.visitor_headers.connecting_ip is True
-    assert updated.policy.headers.visitor_headers.ip_country is False
+    assert updated.policy[HeaderPolicy].visitor_headers.connecting_ip is True
+    assert updated.policy[HeaderPolicy].visitor_headers.ip_country is False
 
 
 def _inputs_of(**policy: object) -> ReleaseInputs:
@@ -660,9 +669,9 @@ def test_visitor_headers_survive_an_inputs_round_trip():
         _inputs_of(visitor_headers={"connecting_ip": False, "ip_country": True})
     )
 
-    assert site.policy.headers.visitor_headers.connecting_ip is False
-    assert site.policy.headers.visitor_headers.ip_country is True
-    assert site.policy.requires_geoip is True
+    assert site.policy[HeaderPolicy].visitor_headers.connecting_ip is False
+    assert site.policy[HeaderPolicy].visitor_headers.ip_country is True
+    assert "geoip" in site.policy.required_capabilities
 
 
 def test_http3_survives_an_inputs_round_trip():
@@ -675,7 +684,7 @@ def test_http3_survives_an_inputs_round_trip():
             certificate_key_path="/etc/ssl/private/edge.key",
         )
     )
-    assert site.policy.protocols.http3_enabled is True
+    assert site.policy[ProtocolPolicy].http3_enabled is True
 
 
 def test_http3_changes_input_identity_only_when_the_value_changes():
@@ -701,7 +710,7 @@ def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():
 #: Site settings an operator cannot reach from `blitzecdn site`, and why.
 #:
 #: The three certificate fields move together under
-#: `CdnSite.validate_certificate_pair`, and `uploaded` and `requested` are owned
+#: `TlsPolicy.validate_certificate_pair`, and `uploaded` and `requested` are owned
 #: by the upload and request endpoints.
 _SET_ELSEWHERE = frozenset(
     {"certificate_mode", "certificate_path", "certificate_key_path"}
@@ -734,13 +743,15 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 named.add(node.value)
 
-    unreachable = sorted(set(DomainPatch.model_fields) - named - _SET_ELSEWHERE)
+    unreachable = sorted(
+        set(DomainPatch.composed().model_fields) - named - _SET_ELSEWHERE
+    )
     assert unreachable == [], (
         f"no `blitzecdn domain` command mentions {unreachable}. Add one, or add "
         "the field to _SET_ELSEWHERE with the reason it is not an operator's "
         "to set."
     )
-    assert set(DomainPatch.model_fields) >= _SET_ELSEWHERE, (
+    assert set(DomainPatch.composed().model_fields) >= _SET_ELSEWHERE, (
         "_SET_ELSEWHERE names a field that no longer exists"
     )
 

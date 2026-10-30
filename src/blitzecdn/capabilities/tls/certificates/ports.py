@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -10,10 +10,9 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.capabilities.dns.domain import DnsRecord
+from blitzecdn.capabilities.dns.domain import DnsRecord, SiteChange
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
@@ -25,8 +24,17 @@ from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
+
+
+class SiteWriter(Protocol):
+    """DNS's one write to the zone or rule behind a host; see `HostService`."""
+
+    def change_site(
+        self, site_name: str, decide: Callable[[CdnSite], SiteChange | None]
+    ) -> CdnSite | None: ...
 
 
 class SiteEditor(Protocol):
@@ -115,6 +123,7 @@ __all__ = [
     "ReleaseHistory",
     "SiteEditor",
     "SiteReader",
+    "SiteWriter",
     "UnitOfWork",
     "WorkflowCoordinator",
     "WorkflowProgress",

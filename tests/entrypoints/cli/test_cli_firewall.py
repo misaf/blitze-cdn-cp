@@ -3,8 +3,8 @@
 import json
 
 from support.cli import (
-    _seed_site,
     runner,
+    seed_cli_site,
 )
 from support.control_plane import (
     FakeRunner,
@@ -27,7 +27,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
-    _seed_site(control, "api", "198.51.100.20")
+    seed_cli_site(control, "api", "198.51.100.20")
 
     first = runner.invoke(
         cli.app,

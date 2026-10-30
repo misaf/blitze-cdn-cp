@@ -15,9 +15,9 @@ from blitzecdn.capabilities.releases.domain import (
     ReleaseFinding,
     ReleaseInputs,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.pagination import PageResult
+from blitzecdn.core.domain.site import CdnSite
 
 __all__ = [
     "CanonicalState",

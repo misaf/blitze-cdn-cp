@@ -18,3 +18,11 @@ class OriginPolicy(CapabilityPolicy):
     @classmethod
     def validate_optional_host(cls, value: str | None) -> str | None:
         return hostname(value) if value is not None else None
+
+    def effective_sni(self, origin_host: str) -> str:
+        """Explicit SNI, then the request host, then the origin address.
+
+        Host overrides are validated without wildcards: a literal wildcard
+        does not name an origin certificate. The edge uses this same order.
+        """
+        return self.origin_sni or self.origin_request_host or origin_host

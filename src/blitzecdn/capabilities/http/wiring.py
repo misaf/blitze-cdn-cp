@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from blitzecdn.core.features import FeatureRendering, FleetStateContribution
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
 
 def baseline_listeners(_sites: tuple[CdnSite, ...]) -> FleetStateContribution:

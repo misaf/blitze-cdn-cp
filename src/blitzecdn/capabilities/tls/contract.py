@@ -7,11 +7,17 @@ Pure values; issuance and the Automatic SSL/TLS scan live in
 import re
 from collections.abc import Mapping
 from enum import StrEnum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
+from blitzecdn.capabilities.http.contract import (
+    DEFAULT_PORTS,
+    HttpScheme,
+    ProtocolPolicy,
+)
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.features.types import PolicyView
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
@@ -154,10 +160,33 @@ class TlsPolicy(CapabilityPolicy):
     ssl_mode: SslMode = SslMode.OFF
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
-    always_use_https: bool = False
+    always_use_https: bool = Field(
+        default=False,
+        description="Redirect visitor HTTP requests to HTTPS while TLS is active.",
+    )
     certificate_mode: CertificateMode = CertificateMode.DISABLED
     certificate_path: str | None = None
     certificate_key_path: str | None = None
+
+    @property
+    def canonical_visitor_scheme(self) -> HttpScheme:
+        """The strongest visitor transport this TLS policy enables."""
+        return HttpScheme.HTTPS if self.ssl_mode.serves_tls else HttpScheme.HTTP
+
+    @property
+    def canonical_origin_scheme(self) -> HttpScheme:
+        """Origin transport for a visitor using the default public port.
+
+        Probes use this endpoint; Flexible mode can use a different origin
+        transport for visitors on alternate HTTPS ports.
+        """
+        scheme = self.canonical_visitor_scheme
+        return self.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
+
+    @property
+    def redirects_http_to_https(self) -> bool:
+        """A redirect needs an active HTTPS listener, even when requested."""
+        return self.ssl_mode.serves_tls and self.always_use_https
 
     @field_validator("certificate_path", "certificate_key_path")
     @classmethod
@@ -185,6 +214,32 @@ class TlsPolicy(CapabilityPolicy):
             )
         return value
 
+    @model_validator(mode="after")
+    def validate_certificate_pair(self) -> Self:
+        """Keep certificate mode and both paths consistent; clear all three together.
+
+        Whether a managed path is the right one is
+        :func:`managed_certificate_belongs_to_site`: a zone yields several hosts
+        and cannot tell which this is.
+        """
+        supplied = (
+            self.certificate_path is not None or self.certificate_key_path is not None
+        )
+        if self.certificate_mode is not CertificateMode.DISABLED and not (
+            self.certificate_path and self.certificate_key_path
+        ):
+            raise ValueError("TLS certificate modes require both certificate paths")
+        if self.certificate_mode is CertificateMode.DISABLED and supplied:
+            raise ValueError("certificate paths require certificate_mode='existing'")
+        if (
+            self.ssl_mode.serves_tls
+            and self.certificate_mode is CertificateMode.DISABLED
+        ):
+            raise ValueError(
+                f"ssl_mode={self.ssl_mode.value!r} requires an active edge certificate"
+            )
+        return self
+
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """The certificate capabilities this policy requests.
@@ -203,3 +258,29 @@ class TlsPolicy(CapabilityPolicy):
         ):
             return {"certificates": ("ssl_automatic_mode",)}
         return {}
+
+
+def http3_requires_edge_tls(policy: PolicyView) -> None:
+    """HTTP/3 is QUIC, and QUIC carries TLS: there is no plaintext HTTP/3."""
+    if (
+        policy[ProtocolPolicy].http3_enabled
+        and not policy[TlsPolicy].ssl_mode.serves_tls
+    ):
+        raise ValueError("http3_enabled=True requires ssl_mode to serve edge TLS")
+
+
+def managed_certificate_belongs_to_site(site: str, policy: PolicyView) -> None:
+    """Managed material lives at exact version paths under the host's own name."""
+    tls = policy[TlsPolicy]
+    if not tls.certificate_mode.issuer_owned:
+        return
+    try:
+        CertificateVersion.from_paths(
+            site, tls.certificate_path or "", tls.certificate_key_path or ""
+        )
+    except ValueError as error:
+        raise ValueError(
+            f"certificate_mode={tls.certificate_mode.value!r} is set by the "
+            "certificate upload and request endpoints, which own the paths "
+            f"for exact versions under {MANAGED_TLS_ROOT}/<site>/"
+        ) from error

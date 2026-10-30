@@ -2,63 +2,55 @@
 # BlitzeCDN installer: the bootstrap that gets a host to where Ansible and the
 # stdlib helpers under src/blitzecdn/host/ can do the rest.
 #
-#   (no arguments)  build the virtualenv and install the pinned collections
 #   standalone      provision this whole server as control plane and edge, from
 #                   the published control-plane image: no Python package is
 #                   installed on the host, and nothing is fetched from PyPI
-#   update/upgrade  move an installed host onto a newer release
+#   update          move an installed host onto a newer release
 #   --uninstall     remove every BlitzeCDN artifact
-#   --fresh         uninstall, then reinstall the running release
+#
+# A server needs only this file. Its release is the image tag below, and the
+# installation puts a copy of the release's own installer on the host as
+# blitzecdn-install, which every later update and uninstall runs.
 set -Eeuo pipefail
 
-readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
+readonly INSTALLER_COMMAND=/usr/local/sbin/blitzecdn-install
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
-# Relative to the checkout. The role default is the one place the release pins
-# its image, and is read at run time so an update pulls the release it has just
-# checked out rather than the one this script came from.
-readonly CONTROL_PLANE_IMAGE_PIN=src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml
+# The control-plane image this release installs, moved with the version by
+# `just release-version`. The image tag is the release: an update reads the
+# installed one back from the Compose project and moves it forward.
+readonly CONTROL_PLANE_IMAGE=ghcr.io/misaf/blitzecdn-control-plane:6.1.0
 # `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`, for a source build.
 readonly CONTROL_PLANE_DOCKERFILE=src/blitzecdn/assets/docker/control-plane/Dockerfile
 readonly CONTROL_PLANE_SOURCE_TAG=blitzecdn-control-plane:local
-# Where the image carries the checkout it was built from, playbooks included.
+# Where the image carries the tree it was built from, playbooks included.
 readonly IMAGE_ANSIBLE_DIR=/opt/blitzecdn/src/blitzecdn/assets/ansible
-# Captured before dispatch, so the removal paths can re-exec a private copy.
-original_args=("$@")
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage_root() {
   cat <<'EOF'
-Usage: ./install.sh [SUBCOMMAND] [OPTIONS]
+Usage: ./install.sh SUBCOMMAND [OPTIONS]
 
-Install BlitzeCDN.
+Manage a BlitzeCDN server.
 
 Subcommands:
-  (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
   update      Move an installed server onto a newer release, keeping its state
-  upgrade     Cross to the next major release line, keeping its state
   help        Show this message
 
 Whole-host operations:
   --uninstall Remove every BlitzeCDN artifact and stop there
-  --fresh     Uninstall, then reinstall like a brand-new server
 
-Run './install.sh SUBCOMMAND --help' for the options of a subcommand.
+Run './install.sh SUBCOMMAND --help' for the options of a subcommand. On an
+installed server the same commands are `sudo blitzecdn-install SUBCOMMAND`.
 
-Environment for the no-argument form:
-  BLITZECDN_PYTHON     Python interpreter to build .venv with (default python3)
-  BLITZECDN_DEV=1      Install -e '.[dev]' instead of a plain wheel
-  BLITZECDN_WRAPPER_DIR
-                       Where to put the `blitzecdn` command (default ~/.local/bin)
-  BLITZECDN_USER_WRAPPER=0
-                       Do not put `blitzecdn` on PATH; use .venv/bin/blitzecdn
+For local development, install Python 3.12+, uv and just, then run:
+  just install
+  uv run blitzecdn setup
+See README.md for the local development workflow.
 
-The no-argument form installs a `blitzecdn` command that pins this checkout as
-the project directory, so it can be run from any working directory.
-
-Environment for standalone, update and upgrade:
+Environment for standalone and update:
 EOF
   usage_image_environment
 }
@@ -67,14 +59,15 @@ EOF
 usage_image_environment() {
   cat <<'EOF'
   BLITZECDN_CONTROL_PLANE_IMAGE
-                       Run this image instead of the one the release pins, for
-                       example the pin with @sha256:DIGEST added, or a mirror
+                       Run this image instead of the one the release names, for
+                       example with @sha256:DIGEST added, or from a mirror. Its
+                       tag must be the release version.
   BLITZECDN_CONTROL_PLANE_ARCHIVE
                        Load the image from this `docker save` archive instead
                        of pulling it, for a host without registry access
   BLITZECDN_CONTROL_PLANE_BUILD=1
-                       Build the image from this checkout instead of pulling
-                       it; the build itself needs Docker Hub and PyPI
+                       standalone only: build the image from the source
+                       checkout this script is in; needs Docker Hub and PyPI
 EOF
 }
 
@@ -99,132 +92,6 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# mktemp, registered for cleanup. Only for callers in this shell: a `$(...)`
-# caller runs in a subshell the registration does not survive.
-temp_path() {
-  local path
-  path=$(mktemp "$@")
-  cleanup_paths+=("${path}")
-  printf '%s\n' "${path}"
-}
-
-# Stop treating a path as this run's to delete, once it becomes the real thing.
-unregister_path() {
-  local keep=$1 path remaining=()
-  for path in ${cleanup_paths[@]+"${cleanup_paths[@]}"}; do
-    [[ ${path} == "${keep}" ]] || remaining+=("${path}")
-  done
-  cleanup_paths=(${remaining[@]+"${remaining[@]}"})
-}
-
-# The pinned uv release and each build's checksum, kept in this repository so
-# the download is checked against what this release was tested with. Refresh
-# with `just uv-pin VERSION`. macOS builds exist for controller-only checkouts.
-UV_VERSION="0.12.3"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_x86_64_unknown_linux_gnu="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_aarch64_unknown_linux_gnu="bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_x86_64_apple_darwin="4c9f52262a14da336e4a42ed24992d12d0c956acde87619e4611d321dffa602b"
-# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
-UV_SHA256_aarch64_apple_darwin="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"
-
-# Print the SHA-256 of a file: `sha256sum` on servers, `shasum` on macOS.
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    die 1 "error: need sha256sum or shasum to verify the uv download"
-  fi
-}
-
-# Print the path to a usable uv: the operator's own if at least the pinned
-# version, otherwise the pinned build unpacked into .state/bin.
-ensure_uv() {
-  local existing
-  if existing="$(command -v uv 2>/dev/null)" && [[ -x "${existing}" ]]; then
-    local have
-    have="$("${existing}" --version 2>/dev/null | awk '{print $2}')"
-    if [[ -n "${have}" ]] &&
-      [[ "$(printf '%s\n%s\n' "${UV_VERSION}" "${have}" | sort -V | head -1)" == "${UV_VERSION}" ]]; then
-      printf '%s\n' "${existing}"
-      return 0
-    fi
-  fi
-
-  local vendored=".state/bin/uv"
-  if [[ -x "${vendored}" ]] &&
-    [[ "$("${vendored}" --version 2>/dev/null | awk '{print $2}')" == "${UV_VERSION}" ]]; then
-    printf '%s\n' "${PWD}/${vendored}"
-    return 0
-  fi
-
-  # Both halves of the target triple: the OS as well as the architecture.
-  local system machine platform architecture target pin expected
-  system="$(uname -s)"
-  machine="$(uname -m)"
-  case "${system}" in
-    Linux) platform="unknown-linux-gnu" ;;
-    Darwin) platform="apple-darwin" ;;
-    *)
-      die 1 "error: no pinned uv build for ${system}; install uv ${UV_VERSION} or newer and rerun"
-      ;;
-  esac
-  case "${machine}" in
-    x86_64 | amd64) architecture="x86_64" ;;
-    aarch64 | arm64) architecture="aarch64" ;;
-    *)
-      die 1 "error: no pinned uv build for ${machine}; install uv ${UV_VERSION} or newer and rerun"
-      ;;
-  esac
-  target="${architecture}-${platform}"
-  pin="UV_SHA256_${target//-/_}"
-  expected="${!pin-}"
-  [[ -n "${expected}" ]] ||
-    die 1 "error: no pinned checksum for ${target}; install uv ${UV_VERSION} or newer and rerun"
-
-  command -v curl >/dev/null 2>&1 ||
-    die 1 "error: curl is required to download uv; install it and rerun"
-
-  # Cleaned up here: this runs in a `$(...)` subshell.
-  local archive
-  archive="$(mktemp)"
-
-  # stderr: stdout is this function's return value.
-  echo "Downloading uv ${UV_VERSION} (${target})..." >&2
-  if ! curl -fsSL --proto '=https' --tlsv1.2 \
-    --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
-    -o "${archive}" \
-    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"; then
-    rm -f -- "${archive}"
-    die 1 "error: could not download uv ${UV_VERSION}"
-  fi
-
-  local actual
-  actual="$(sha256_of "${archive}")"
-  if [[ "${actual}" != "${expected}" ]]; then
-    rm -f -- "${archive}"
-    die 1 \
-      "error: the uv download does not match its pinned checksum" \
-      "       expected ${expected}" \
-      "       received ${actual}" \
-      "       Refusing to run it. Retry, and if it persists, do not proceed."
-  fi
-
-  mkdir -p .state/bin
-  if ! tar -xzf "${archive}" -C .state/bin --strip-components=1 \
-    "uv-${target}/uv"; then
-    rm -f -- "${archive}"
-    die 1 "error: could not unpack uv ${UV_VERSION}"
-  fi
-  rm -f -- "${archive}"
-  chmod 0755 "${vendored}"
-  printf '%s\n' "${PWD}/${vendored}"
-}
-
 # Guard a privileged subcommand. One line, which the test sandbox neutralises.
 require_root() {
   [[ ${EUID} -eq 0 ]] || die 1 "error: run this ${1:-installer} with sudo"
@@ -238,19 +105,16 @@ parsed_email=''
 parsed_deploy=0
 parsed_allow_empty_sites=0
 parsed_no_backup=0
+parsed_major=0
 parsed_public_addresses=()
 parsed_allowed_ips=()
-parsed_forward_args=()
 
 # Every subcommand: name, usage function, the sudo label (empty when root is
 # not needed), and the options it takes.
 readonly COMMAND_TABLE='
-install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
-update|usage_update|updater|--yes --no-backup --allowed-ips
-upgrade|usage_upgrade|updater|--yes --no-backup --allowed-ips
+update|usage_update|updater|--yes --no-backup --major --allowed-ips
 uninstall|usage_uninstall|uninstaller|--yes
-fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips --yes
 '
 
 # Print one field of one command's row. Fields: 2 usage, 3 root label, 4 options.
@@ -282,11 +146,6 @@ reject_option() {
 parse_options() {
   local command=$1 usage=$2
   shift 2
-  if [[ ${command} == install && $# -gt 0 ]]; then
-    echo "error: the default install takes no arguments: $*" >&2
-    usage_root >&2
-    exit 2
-  fi
   while [[ $# -gt 0 ]]; do
     local option=$1
     case "${option}" in
@@ -294,17 +153,15 @@ parse_options() {
         "${usage}"
         exit 0
         ;;
-      --yes|--deploy|--allow-empty-sites|--no-backup)
+      --yes|--deploy|--allow-empty-sites|--no-backup|--major)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         case "${option}" in
           --yes) parsed_yes=1 ;;
           --deploy) parsed_deploy=1 ;;
           --allow-empty-sites) parsed_allow_empty_sites=1 ;;
           --no-backup) parsed_no_backup=1 ;;
+          --major) parsed_major=1 ;;
         esac
-        if [[ ${command} == fresh && ${option} != --yes ]]; then
-          parsed_forward_args+=("${option}")
-        fi
         shift
         ;;
       --admin-cidr|--email|--public-address|--allowed-ips)
@@ -316,9 +173,6 @@ parse_options() {
           --public-address) parsed_public_addresses+=("$2") ;;
           --allowed-ips) parsed_allowed_ips+=("$2") ;;
         esac
-        if [[ ${command} == fresh ]]; then
-          parsed_forward_args+=("${option}" "$2")
-        fi
         shift 2
         ;;
       *) reject_option "${option}" "${usage}" ;;
@@ -326,30 +180,22 @@ parse_options() {
   done
 }
 
-# Re-exec this script from a private copy in /tmp, once. The removal paths
-# delete the directory this file lives in, and a shell reads its script lazily.
-reexec_from_private_copy() {
-  local guard=$1 label=$2
-  if [[ ${!guard:-0} == 1 ]]; then
-    # Registered rather than trapped, so the shared EXIT handler stays.
-    cleanup_paths+=("$0")
-    return 0
-  fi
-  local copy
-  copy=$(mktemp "/tmp/blitzecdn-${label}.XXXXXX")
-  install -m 0700 -- "$0" "${copy}"
-  exec env "${guard}=1" "${copy}" "${original_args[@]}"
+# Run one of the `blitzecdn.host` helpers in a control-plane image. The host
+# has no copy of them: this script is the only BlitzeCDN file it is given.
+# The host's network, so a registry lookup sees what the host sees.
+run_image_helper() {
+  local image=$1 module=$2
+  shift 2
+  docker run --rm --network=host --entrypoint python "${image}" \
+    -I -m "${module}" "$@"
 }
 
-# Git against the installation checkout, which root does not own.
-repo_git() {
-  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" "$@"
-}
-
-# Validate operator input with the stdlib helper, run by the host's own
-# interpreter before the virtualenv exists.
+# Validate operator input in the image that is about to act on it, before the
+# host is converged.
 check_inputs() {
-  python3 -I "${script_dir}/src/blitzecdn/host/install_inputs.py" "$@" || exit 2
+  local image=$1
+  shift
+  run_image_helper "${image}" blitzecdn.host.install_inputs "$@" || exit 2
 }
 
 # Run the post-bootstrap entry point in the control-plane image.
@@ -388,8 +234,8 @@ edge_platform_supported() {
 # Refuse a standalone installation this host cannot finish, before apt.
 #
 # The control-plane role accepts Debian 13+ and Ubuntu 24.04+, the edge play
-# only Ubuntu 26.04, and a standalone host is both. `update` and `upgrade`
-# converge the control plane alone, so they do not call this.
+# only Ubuntu 26.04, and a standalone host is both. `update` converges the
+# control plane alone, so it does not call this.
 # shellcheck disable=SC1091 # /etc/os-release is the host's, not this repository's
 require_edge_platform() {
   [[ -r /etc/os-release ]] ||
@@ -400,18 +246,19 @@ require_edge_platform() {
   edge_platform_supported "${id}" "${version}" || die 1 \
     "error: a standalone installation requires Ubuntu 26.04 LTS; this host is ${id:-unknown} ${version:-unknown}" \
     "A standalone server is its own edge, and edges for this release require Ubuntu 26.04." \
-    "To use this host as a controller only, run ./install.sh with no arguments and register a separate Ubuntu 26.04 edge."
+    "For a controller checkout, follow README.md: just install, then uv run blitzecdn setup; register a separate Ubuntu 26.04 edge."
 }
 
-# Validate `--allowed-ips` and print the single comma-separated value the role
-# takes; empty when the flag was not given. Called before anything changes.
+# Validate `--allowed-ips` in the given image and print the single
+# comma-separated value the role takes; empty when the flag was not given.
+# Called before anything changes.
 allowed_ips_value() {
-  local joined='' entry
+  local image=$1 joined='' entry
   for entry in ${parsed_allowed_ips[@]+"${parsed_allowed_ips[@]}"}; do
     joined="${joined:+${joined},}${entry}"
   done
   if [[ -n ${joined} ]]; then
-    check_inputs allowed-ips "${joined}"
+    check_inputs "${image}" allowed-ips "${joined}" >&2
   fi
   printf '%s' "${joined}"
 }
@@ -435,9 +282,27 @@ installed_control_plane_image() {
   printf '%s\n' "${image}"
 }
 
+# An image reference without its digest, split at the tag. The tag is the
+# release version; the repository is where the next release is pulled from.
+image_repository() {
+  local reference=${1%%@*}
+  case ${reference##*/} in
+    *:*) printf '%s\n' "${reference%:*}" ;;
+    *) printf '%s\n' "${reference}" ;;
+  esac
+}
+
+image_version() {
+  local reference=${1%%@*}
+  case ${reference##*/} in
+    *:*) printf '%s\n' "${reference##*:}" ;;
+    *) return 1 ;;
+  esac
+}
+
 # Ansible performs all system teardown, from the installed image, and must
-# succeed before the installer removes the image and the checkout. The image
-# goes afterwards because the play runs in a container of it.
+# succeed before the installer removes the image. The image goes afterwards
+# because the play runs in a container of it.
 converge_uninstall() {
   local image
   image=$(installed_control_plane_image) || die 1 \
@@ -451,65 +316,42 @@ converge_uninstall() {
   local image_id
   image_id=$(docker image inspect --format '{{.Id}}' "${image}")
 
-  # Returned rather than aborting under `set -e`: both callers test it.
-  local status=0
-  run_playbook "${image}" uninstall.yml || status=$?
-  if [[ ${status} -eq 0 ]]; then
-    docker image rm --force "${image_id}" >/dev/null 2>&1 || true
-  fi
-  return "${status}"
-}
-
-remove_installation_directory() {
-  rm -rf -- "${INSTALL_DIR}"
-}
-
-# Hand application-specific wrapper generation to the installed runtime.
-handoff_user_wrapper() {
-  [[ "${BLITZECDN_USER_WRAPPER:-1}" != 0 ]] || return 0
-  local wrapper_dir="${BLITZECDN_WRAPPER_DIR:-${HOME:-}/.local/bin}"
-  if [[ -z ${BLITZECDN_WRAPPER_DIR:-} && -z ${HOME:-} ]]; then
-    echo "warning: HOME is unset; skipping the ${script_dir}/.venv/bin/blitzecdn shortcut" >&2
-    return 0
-  fi
-  .venv/bin/python -m blitzecdn.entrypoints.install_handoff wrapper \
-    --project-dir "${script_dir}" --wrapper-dir "${wrapper_dir}"
-  case ":${PATH}:" in
-    *":${wrapper_dir}:"*) echo "Run 'blitzecdn' from any directory." ;;
-    *)
-      local login_rc=.profile
-      if [[ ${SHELL##*/} == zsh ]]; then
-        login_rc=.zprofile
-      fi
-      echo "${wrapper_dir}/blitzecdn is not on your PATH yet. Add it with:"
-      echo "  echo 'export PATH=\"${wrapper_dir}:\${PATH}\"' >> \"\${HOME}\"/${login_rc}"
-      ;;
-  esac
+  run_playbook "${image}" uninstall.yml ||
+    die 1 "error: teardown failed; inspect and repair any partially removed host state, then rerun --uninstall"
+  docker image rm --force "${image_id}" >/dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------
 # Docker and the control-plane image — what a server needs before Ansible
 # ---------------------------------------------------------------------------
 
-# The Docker repository and daemon configuration, byte for byte what the
-# blitzecdn_docker role renders from docker.sources.j2 and daemon.json.j2 with
-# its defaults. They have to agree: the play runs inside a container on this
-# engine, so a converge that rewrote either would restart the daemon under the
-# Ansible doing it. A test renders the templates and compares.
+# The Docker packages, repository and daemon configuration, copied from the
+# blitzecdn_docker role by `just installer-sync`. They have to agree: the play
+# runs inside a container on this engine, so a converge that rewrote either
+# file would restart the daemon under the Ansible doing it.
+# >>> generated by `just installer-sync` from roles/blitzecdn_docker; edit the role, not this block
+DOCKER_KEYRING=/etc/apt/keyrings/docker.asc
+DOCKER_SOURCES_FILE=/etc/apt/sources.list.d/docker.sources
+DOCKER_DAEMON_CONFIG_FILE=/etc/docker/daemon.json
+DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+
+# templates/docker.sources.j2, for: ID VERSION_CODENAME ARCHITECTURE
 docker_sources() {
-  local id=$1 codename=$2 architecture=$3
-  printf '%s\n' \
-    '# Managed by BlitzeCDN. Local edits are overwritten.' \
-    'Types: deb' \
-    "URIs: https://download.docker.com/linux/${id}" \
-    "Suites: ${codename}" \
-    'Components: stable' \
-    "Architectures: ${architecture}" \
-    'Signed-By: /etc/apt/keyrings/docker.asc'
+  local repository_url="https://download.docker.com/linux/$1" codename=$2 architecture=$3
+  cat <<BLITZECDN_EOF
+# Managed by BlitzeCDN. Local edits are overwritten.
+Types: deb
+URIs: ${repository_url}
+Suites: ${codename}
+Components: stable
+Architectures: ${architecture}
+Signed-By: ${DOCKER_KEYRING}
+BLITZECDN_EOF
 }
 
+# files/daemon.json
 docker_daemon_json() {
-  cat <<'EOF'
+  cat <<'BLITZECDN_EOF'
 {
   "log-driver": "json-file",
   "log-opts": {
@@ -518,8 +360,9 @@ docker_daemon_json() {
   },
   "live-restore": true
 }
-EOF
+BLITZECDN_EOF
 }
+# <<< end of the generated blitzecdn_docker block
 
 # Write one root-owned 0644 file from stdin, reporting through the status
 # whether its content changed. Mode and owner are converged too: the role's
@@ -548,8 +391,9 @@ ensure_docker() {
   codename=$(. /etc/os-release && printf %s "${VERSION_CODENAME:-}")
   architecture=$(dpkg --print-architecture)
 
-  install -d -o root -g root -m 0755 /etc/apt/keyrings /etc/docker
-  if [[ ! -s /etc/apt/keyrings/docker.asc ]]; then
+  install -d -o root -g root -m 0755 "${DOCKER_KEYRING%/*}" \
+    "${DOCKER_DAEMON_CONFIG_FILE%/*}"
+  if [[ ! -s ${DOCKER_KEYRING} ]]; then
     local key
     key=$(mktemp)
     cleanup_paths+=("${key}")
@@ -557,33 +401,24 @@ ensure_docker() {
       --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
       -o "${key}" "https://download.docker.com/linux/${id}/gpg" ||
       die 1 "error: could not download Docker's apt signing key"
-    install -o root -g root -m 0644 "${key}" /etc/apt/keyrings/docker.asc
+    install -o root -g root -m 0644 "${key}" "${DOCKER_KEYRING}"
   fi
   # Redirected rather than piped, so the helper runs in this shell and its
   # scratch file is cleaned up with the rest.
-  converge_host_file /etc/apt/sources.list.d/docker.sources \
+  converge_host_file "${DOCKER_SOURCES_FILE}" \
     < <(docker_sources "${id}" "${codename}" "${architecture}") || true
   local daemon_changed=0
-  if converge_host_file /etc/docker/daemon.json < <(docker_daemon_json); then
+  if converge_host_file "${DOCKER_DAEMON_CONFIG_FILE}" < <(docker_daemon_json); then
     daemon_changed=1
   fi
 
   apt-get update
-  apt-get install -y docker-ce docker-ce-cli containerd.io \
-    docker-buildx-plugin docker-compose-plugin
+  apt-get install -y "${DOCKER_PACKAGES[@]}"
   if [[ ${daemon_changed} -eq 1 ]]; then
     systemctl restart docker
   fi
   systemctl enable --now docker
   docker info >/dev/null || die 1 "error: Docker Engine is installed but does not answer"
-}
-
-# The reference this checkout's release pins.
-pinned_control_plane_image() {
-  local pin="${script_dir}/${CONTROL_PLANE_IMAGE_PIN}" image
-  image=$(sed -n 's/^blitzecdn_controlplane_image: *//p' "${pin}" | head -n 1)
-  [[ -n ${image} ]] || die 1 "error: no control-plane image is pinned in ${pin}"
-  printf '%s\n' "${image}"
 }
 
 # Pull an image, retrying the way the uv download does: a registry that drops
@@ -606,27 +441,26 @@ resolve_image_digest() {
     printf '%s\n' "${image}"
     return 0
   fi
-  repository=${image}
-  case ${image##*/} in
-    *:*) repository=${image%:*} ;;
-  esac
+  repository=$(image_repository "${image}")
   # shellcheck disable=SC2016 # a Go template, not a shell expansion
   digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image}" |
     awk -v prefix="${repository}@" 'index($0, prefix) == 1 { print substr($0, length(prefix)); exit }')
   printf '%s\n' "${image}${digest}"
 }
 
-# Make the control-plane image this release runs available to the local engine
-# and print the reference to run it by. Progress goes to stderr: stdout is the
-# return value.
+# Make a control-plane image available to the local engine and print the
+# reference to run it by. Progress goes to stderr: stdout is the return value.
 #
 # Pulled from the registry by default. BLITZECDN_CONTROL_PLANE_ARCHIVE loads it
 # from a `docker save` archive instead, and BLITZECDN_CONTROL_PLANE_BUILD=1
-# builds it from this checkout — the fallback when no published image can be
-# reached, at the price of needing Docker Hub and PyPI for the build.
+# builds it from the source checkout this script is in — the fallback when no
+# published image can be reached, at the price of needing Docker Hub and PyPI.
 obtain_control_plane_image() {
-  local image
+  local image=$1
   if [[ ${BLITZECDN_CONTROL_PLANE_BUILD:-0} == 1 ]]; then
+    [[ -f ${script_dir}/${CONTROL_PLANE_DOCKERFILE} ]] || die 2 \
+      "error: BLITZECDN_CONTROL_PLANE_BUILD=1 builds from a source checkout;" \
+      "run the install.sh inside a clone of the release instead of a lone copy"
     image=${CONTROL_PLANE_SOURCE_TAG}
     echo "Building ${image} from ${script_dir}..." >&2
     docker build --pull --file "${script_dir}/${CONTROL_PLANE_DOCKERFILE}" \
@@ -636,10 +470,6 @@ obtain_control_plane_image() {
     return 0
   fi
 
-  image=${BLITZECDN_CONTROL_PLANE_IMAGE:-}
-  if [[ -z ${image} ]]; then
-    image=$(pinned_control_plane_image) || exit 1
-  fi
   if [[ -n ${BLITZECDN_CONTROL_PLANE_ARCHIVE:-} ]]; then
     echo "Loading the control-plane image from ${BLITZECDN_CONTROL_PLANE_ARCHIVE}..." >&2
     docker load --input "${BLITZECDN_CONTROL_PLANE_ARCHIVE}" >&2 ||
@@ -651,70 +481,9 @@ obtain_control_plane_image() {
     echo "Pulling ${image}..." >&2
     pull_image "${image}" || die 1 \
       "error: could not pull the control-plane image ${image}" \
-      "Retry, load it with BLITZECDN_CONTROL_PLANE_ARCHIVE, or build it from this" \
-      "checkout with BLITZECDN_CONTROL_PLANE_BUILD=1."
+      "Retry, or load it with BLITZECDN_CONTROL_PLANE_ARCHIVE."
   fi
   resolve_image_digest "${image}"
-}
-
-# ---------------------------------------------------------------------------
-# (no arguments) — virtualenv and collections
-# ---------------------------------------------------------------------------
-
-# Build the virtualenv a controller checkout runs the CLI from. A server never
-# runs this: everything there runs from the control-plane image.
-bootstrap_runtime() {
-  cd -- "${script_dir}"
-
-  local python_command="${BLITZECDN_PYTHON:-python3}"
-  command -v "${python_command}" >/dev/null 2>&1 ||
-    die 1 "error: ${python_command} was not found; install Python 3.12 or newer"
-
-  "${python_command}" -c '
-import sys
-if sys.version_info[:2] < (3, 12):
-    raise SystemExit("error: BlitzeCDN requires Python 3.12 or newer")
-'
-
-  local uv
-  uv="$(ensure_uv)"
-
-  if [[ -e .venv && ! -x .venv/bin/python ]]; then
-    local invalid_venv
-    invalid_venv=".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)"
-    echo "warning: .venv is incomplete; preserving it as ${invalid_venv}" >&2
-    mv -- .venv "${invalid_venv}"
-  fi
-
-  # Exactly what uv.lock describes; --frozen refuses a lockfile that does not
-  # match pyproject.toml. BLITZECDN_DEV=1 adds the dev tooling, editable.
-  local -a sync_flags=(--frozen --python "${python_command}")
-  if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-    "${uv}" sync "${sync_flags[@]}"
-  else
-    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
-  fi
-
-  [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
-    die 1 "error: uv created an incomplete .venv; rerun with --fresh"
-  [[ -x .venv/bin/blitzecdn ]] ||
-    die 1 "error: uv did not install the local BlitzeCDN CLI"
-
-  # Third-party collections, inside the checkout. Exported because ansible.cfg
-  # cannot name a path outside the package; deploys set the same variable.
-  local collections_path=.state/collections
-  export ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg
-  export ANSIBLE_COLLECTIONS_PATH="${collections_path}"
-  .venv/bin/ansible-galaxy collection install \
-    -r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"
-}
-
-cmd_install() {
-  bootstrap_runtime
-  .venv/bin/blitzecdn setup
-  handoff_user_wrapper
-  echo
-  echo "Installation complete. Run commands with .venv/bin/blitzecdn"
 }
 
 # ---------------------------------------------------------------------------
@@ -747,10 +516,30 @@ EOF
   cat <<'EOF'
 
 Everything runs from the release's published control-plane image, which this
-pulls from ghcr.io; the host gets Docker Engine and no Python packages. The
-checkout must be /opt/blitzecdn, where `update` moves it between releases.
-Re-running the installer preserves the API key, inventory, and state.
+pulls from ghcr.io; the host gets Docker Engine and no Python packages, and
+needs no copy of the source. Fetch this script for the release to install:
+
+  curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
+
+The installation leaves that release's installer on the host as
+blitzecdn-install. Re-running standalone repairs the release that is installed
+and preserves the API key, inventory, and state; moving to another release is
+`update`.
 EOF
+}
+
+# A standalone run converges the release this script names. On a host that
+# already runs another release that would be an update, or a downgrade no
+# migration can undo, so it is refused.
+require_same_release() {
+  local image=$1 installed current wanted
+  installed=$(installed_control_plane_image) || return 0
+  current=$(image_version "${installed}") || return 0
+  wanted=$(image_version "${image}") || return 0
+  [[ ${current} == "${wanted}" || ${current} == local || ${wanted} == local ]] ||
+    die 1 "error: this host runs ${current}, and this installer installs ${wanted}; nothing was changed" \
+      "Move between releases with 'sudo ${INSTALLER_COMMAND##*/} update', or repair the" \
+      "installed release with 'sudo ${INSTALLER_COMMAND##*/} standalone ...'."
 }
 
 cmd_standalone() {
@@ -758,28 +547,25 @@ cmd_standalone() {
   [[ -n ${parsed_email} ]] || die 2 "error: --email is required"
   require_edge_platform
 
-  [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
-    die 1 "error: clone or copy this release to ${INSTALL_DIR}, then run the installer there"
-  cd -- "${script_dir}"
+  local image=${BLITZECDN_CONTROL_PLANE_IMAGE:-${CONTROL_PLANE_IMAGE}}
+  require_same_release "${image}"
 
   # The least this host needs before Ansible can run: an interpreter for the
-  # input checks and for the play's modules, curl and CA certificates to fetch
-  # Docker's signing key, and git for the release checkout. Everything else
-  # belongs to the control-plane role.
+  # play's modules, and curl and CA certificates to fetch Docker's signing key.
+  # Everything else belongs to the control-plane role.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y ca-certificates curl git python3
-
-  # Validated as soon as there is an interpreter, before the host converges.
-  check_inputs standalone "${parsed_admin_cidr}" "${parsed_email}"
-  local allowed_ips
-  allowed_ips=$(allowed_ips_value)
+  apt-get install -y ca-certificates curl python3
 
   # The engine, then the image: Ansible, its collections and the application
   # all come from the image, so nothing is installed from PyPI.
   ensure_docker
-  local image
-  image=$(obtain_control_plane_image) || exit 1
+  image=$(obtain_control_plane_image "${image}") || exit 1
+
+  # Validated by the image about to act on them, before the host converges.
+  check_inputs "${image}" standalone "${parsed_admin_cidr}" "${parsed_email}"
+  local allowed_ips
+  allowed_ips=$(allowed_ips_value "${image}")
 
   # The access list lands in the environment file the API and the firewall
   # convergence both read, so they agree from the first boot.
@@ -809,32 +595,39 @@ cmd_standalone() {
     echo "HTTP. Prefer the tunnel above when sending API credentials."
   fi
   echo "Status:  docker compose --file ${CONTROL_PLANE_COMPOSE_FILE} ps"
+  echo "Update:  sudo ${INSTALLER_COMMAND##*/} update"
 }
 
 # ---------------------------------------------------------------------------
-# update / upgrade — move an installed host onto a newer release
+# update — move an installed host onto a newer release
 # ---------------------------------------------------------------------------
 
 usage_update() {
   cat <<'EOF'
-Usage: sudo ./install.sh update [OPTIONS]
+Usage: sudo blitzecdn-install update [OPTIONS]
 
 Move this installation onto the newest release of its own major line and leave
-its state intact: fetch the code, pull the release's control-plane image,
-migrate state, and recreate the Compose services on the new release.
+its state intact: pull the release's control-plane image, migrate state, and
+recreate the Compose services on it.
 
-There is nothing to choose. The release line comes from the installed version,
-the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
-never crosses a major version and never moves backwards. It leaves the checkout
-detached at that tag, so a later --fresh reinstalls the exact release that was
-running. Crossing to the next major is `./install.sh upgrade`.
+There is nothing to choose. The release line comes from the installed image's
+version, the target is the newest MAJOR.MINOR.PATCH image tag published in that
+line, and an update never crosses a major version and never moves backwards.
+
+With --major it crosses to the next major line instead, one line at a time: a
+v6 host moves to the newest v7, never straight to v8. That is refused until the
+host is on the newest release of its own line, where that line's deprecation
+notices were published; run a plain update first, and check inventories,
+playbooks and scripts against the target's release notes.
 
 The database, the certificates, the inventory, and the API credentials in
-/etc/blitzecdn all survive; --fresh is the destructive counterpart.
+/etc/blitzecdn all survive.
 
 Options:
+  --major      Cross to the next major line; takes a full backup and asks
+               you to type the target version
   --yes        Do not ask for confirmation
-  --no-backup  Skip the database backup taken before anything changes
+  --no-backup  Skip the backup taken before anything changes
   --allowed-ips LIST
                Repoint the API access list while updating; comma-separated or
                repeated. Omitted, this update does not touch it.
@@ -845,69 +638,25 @@ EOF
   usage_image_environment
   cat <<'EOF'
 
-The checkout must be /opt/blitzecdn, must have the upstream origin, and must
-have no local modifications. The persistent containers are stopped while the
-schema and immutable image are replaced.
+BLITZECDN_CONTROL_PLANE_IMAGE names the target instead of asking the registry;
+it is still refused unless it moves forward within the line, or to the next
+line with --major. The persistent containers are stopped while the schema and
+immutable image are replaced.
 EOF
 }
 
-usage_upgrade() {
-  cat <<'EOF'
-Usage: ./install.sh upgrade [OPTIONS]
-
-Cross this server onto the next major release line, one line at a time: a v3
-host upgrades to the newest v4, never straight to v5.
-
-It refuses unless the host is already on the newest release of its own line,
-where that line's deprecation notices were published. Run `update` first, and
-check inventories, playbooks and scripts against the target's release notes.
-
-Everything `update` preserves, this preserves. It takes a full backup rather
-than the database alone, and asks you to type the target version.
-
-Options:
-  --yes        Do not ask for confirmation
-  --no-backup  Skip the backup taken before anything changes
-  --allowed-ips LIST
-               Repoint the API access list while upgrading; comma-separated or
-               repeated. Omitted, this upgrade does not touch it.
-
-Environment:
-EOF
-  usage_image_environment
-}
-
-# Check the checkout, fetch, and choose the target with `install_release.py`.
-# Prints the plan as key=value lines; status 1 is a refusal it has already
-# explained, and 3 an update with nothing to do.
-release_plan() {
-  python3 -I "${INSTALL_DIR}/src/blitzecdn/host/install_release.py" "$1" \
-    --repository "${INSTALL_DIR}"
-}
-
-# Print one value of a key=value plan.
-plan_field() {
-  local key=$1 plan=$2 line
-  while IFS= read -r line; do
-    if [[ ${line%%=*} == "${key}" ]]; then
-      printf '%s\n' "${line#*=}"
-      return 0
-    fi
-  done <<<"${plan}"
-  return 1
-}
-
-# An update inside a line asks y/N. An upgrade crosses a compatibility boundary
-# and wants the target typed, so the operator has read where they are going.
+# An update inside a line asks y/N. A major move crosses a compatibility
+# boundary and wants the target typed, so the operator has read where they are
+# going.
 confirm_release_move() {
-  local mode="$1" assume_yes="$2" current="$3" target="$4" commits="$5"
-  if [[ ${mode} == update ]]; then
+  local assume_yes="$1" current="$2" target="$3"
+  if [[ ${parsed_major} -eq 0 ]]; then
     cat >&2 <<EOF
 
 Updating the BlitzeCDN control plane on this host:
 
   from  ${current}
-  to    ${target}   (${commits} commits)
+  to    ${target}
 
 The containers are stopped, the schema is migrated, and they are recreated on
 the new image. State is preserved; a migration is not reversible.
@@ -915,10 +664,10 @@ EOF
   else
     cat >&2 <<EOF
 
-Upgrading the BlitzeCDN control plane across a major release line:
+Moving the BlitzeCDN control plane across a major release line:
 
   from  ${current}
-  to    ${target}   (${commits} commits)
+  to    ${target}
 
 A major release is allowed to remove things this host may depend on: Ansible
 variables and role names an inventory sets, CLI commands a script runs, and API
@@ -931,7 +680,7 @@ EOF
   fi
   [[ ${assume_yes} == 1 ]] && return 0
   local answer
-  if [[ ${mode} == update ]]; then
+  if [[ ${parsed_major} -eq 0 ]]; then
     read -r -p "Continue? [y/N]: " answer
     [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
   else
@@ -940,40 +689,52 @@ EOF
   fi
 }
 
-# The shared body of `update` and `upgrade`. Every refusal happens before the
-# backup; the services keep running until the role stops them, after the
-# target's image is in place.
-move_release() {
-  local mode=$1
-  [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
-    die 1 "error: run the ${mode}r from the installation at ${INSTALL_DIR}"
-  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
-    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to ${mode} from" \
-    "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
-  cd -- "${script_dir}"
+# Every refusal happens before the backup; the services keep running until
+# the role stops them, after the target's image is in place.
+cmd_update() {
+  [[ ${BLITZECDN_CONTROL_PLANE_BUILD:-0} != 1 ]] || die 2 \
+    "error: update moves between published releases; BLITZECDN_CONTROL_PLANE_BUILD=1 is for standalone"
+
+  local installed current
+  installed=$(installed_control_plane_image) || die 1 \
+    "error: no installation found: ${CONTROL_PLANE_COMPOSE_FILE} names no control-plane image" \
+    "Install this server with 'standalone' first."
+  docker image inspect "${installed}" >/dev/null 2>&1 || die 1 \
+    "error: the installed control-plane image ${installed} is missing; nothing was changed" \
+    "Load it again, or repair with '${INSTALLER_COMMAND##*/} standalone', then rerun update."
+  current=$(image_version "${installed}") || die 1 \
+    "error: the installed image ${installed} names no release version; nothing was changed"
 
   # Empty when the flag was not given, which leaves the installed list alone.
   local allowed_ips
-  allowed_ips=$(allowed_ips_value)
+  allowed_ips=$(allowed_ips_value "${installed}")
 
-  local plan status=0 target current commits
-  plan=$(release_plan "${mode}") || status=$?
-  if [[ ${status} -eq 3 ]]; then
-    printf '%s\n' "${plan}"
+  # The target, chosen by the installed release's own code: the registry's
+  # tags, or the image the operator named, checked for direction either way.
+  local selection=("${current}") named=${BLITZECDN_CONTROL_PLANE_IMAGE:-} target
+  if [[ ${parsed_major} -eq 1 ]]; then
+    selection+=(--major)
+  fi
+  if [[ -n ${named} ]]; then
+    local named_version
+    named_version=$(image_version "${named}") || die 2 \
+      "error: BLITZECDN_CONTROL_PLANE_IMAGE must be tagged with its release version: ${named}"
+    selection+=(--target "${named_version}")
+  fi
+  target=$(run_image_helper "${installed}" blitzecdn.host.image_releases "${selection[@]}") || exit 1
+  if [[ ${target} == "${current}" ]]; then
+    echo "Already on ${current}; nothing to update."
     return 0
   fi
-  [[ ${status} -eq 0 ]] || exit 1
-  target=$(plan_field target "${plan}")
-  current=$(plan_field current "${plan}")
-  commits=$(plan_field commits "${plan}")
+  local image=${named:-$(image_repository "${installed}"):${target}}
 
-  confirm_release_move "${mode}" "${parsed_yes}" "${current}" "${target}" "${commits}"
+  confirm_release_move "${parsed_yes}" "${current}" "${target}"
 
   # An update backs up the database, the one thing it can damage; a major may
-  # move more, so an upgrade backs up everything. Through the wrapper, as the
-  # image's account; VACUUM INTO is safe against a serving controller.
+  # move more, so it backs up everything. Through the wrapper, as the image's
+  # account; VACUUM INTO is safe against a serving controller.
   local backup_label="the database backup" backup_args=(backup create --only database)
-  if [[ ${mode} == upgrade ]]; then
+  if [[ ${parsed_major} -eq 1 ]]; then
     backup_label="the backup"
     backup_args=(backup create)
   fi
@@ -985,56 +746,37 @@ move_release() {
       die 1 "error: ${backup_label} failed; nothing was changed" \
         "Fix the failure, or rerun with --no-backup if the data is expendable."
   else
-    echo "warning: ${CLI_WRAPPER} is missing; skipping ${backup_label}" >&2
+    die 1 "error: ${CLI_WRAPPER} is missing, so ${backup_label} cannot be taken; nothing was changed" \
+      "Repair with '${INSTALLER_COMMAND##*/} standalone', or rerun with --no-backup if the data is expendable."
   fi
 
-  # Detached at the tag: never a merge, pull, reset or force.
-  echo "Checking out ${target}..."
-  repo_git checkout --quiet "${target}" ||
-    die 1 "error: could not check out ${target}; the services were not stopped —" \
-      "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
-
-  # The same steps as standalone, with the target's own pin: the checkout now
-  # names the image to pull. The play runs inside that image, and the role
-  # stops the services, migrates, recreates them on it and waits until both
-  # are healthy.
+  # The same steps as standalone, with the target's image. The play runs
+  # inside that image, and the role stops the services, migrates, recreates
+  # them on it, replaces this installer with the target's, and waits until
+  # both services are healthy.
   ensure_docker
-  local image
-  image=$(obtain_control_plane_image) || die 1 \
-    "error: the services were not stopped and still run ${current};" \
-    "fix the cause and rerun, or restore with 'git -C ${INSTALL_DIR} checkout ${current}'"
+  image=$(obtain_control_plane_image "${image}") || die 1 \
+    "error: the services were not stopped and still run ${current}; fix the cause and rerun"
   converge_control_plane "${image}" \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
-  if [[ ${mode} == update ]]; then
-    echo "Updated to ${target}; the API and worker are healthy."
-  else
-    echo "Upgraded to ${target}; the API and worker are healthy."
-  fi
-}
-
-cmd_update() {
-  move_release update
-}
-
-cmd_upgrade() {
-  move_release upgrade
+  echo "Updated to ${target}; the API and worker are healthy."
 }
 
 # ---------------------------------------------------------------------------
-# uninstall / fresh — remove every artifact, or wipe and rebuild clean
+# uninstall — remove every artifact
 # ---------------------------------------------------------------------------
 
-# Everything the two removal paths delete, read by the help and by the
-# confirmation, so the prompt cannot understate what is about to happen.
+# Everything an uninstall deletes, read by the help and by the confirmation,
+# so the prompt cannot understate what is about to happen.
 removal_manifest() {
   cat <<'EOF'
-  - the installation directory /opt/blitzecdn and everything in it: source,
-    .venv, .env, and .state (database, certificates, collections, locks, logs)
   - the control-plane Compose project, its image, and BlitzeCDN host timers
   - /etc/blitzecdn and the API credentials it holds
-  - the /usr/local/bin/blitzecdn command
+  - /var/lib/blitzecdn: the database, certificates, keys, and the rest of the
+    control plane's state
+  - the /usr/local/bin/blitzecdn and /usr/local/sbin/blitzecdn-install commands
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy
   - the deploy account and its home
   - the edge-managed nginx sites, certificates, cache, and drop-ins this host
@@ -1044,7 +786,7 @@ EOF
 
 usage_uninstall() {
   cat <<'EOF'
-Usage: sudo ./install.sh --uninstall [OPTIONS]
+Usage: sudo blitzecdn-install --uninstall [OPTIONS]
 
 Remove every BlitzeCDN artifact from this host and stop there, leaving the
 system packages it had and nothing BlitzeCDN wrote.
@@ -1058,114 +800,34 @@ EOF
   removal_manifest
   cat <<'EOF'
 
+Kept: the backups in /var/backups/blitzecdn. Take one first with
+`sudo blitzecdn backup create` if the state matters.
+
 Nothing outside those paths is changed and no packages are removed. The
 installed control-plane image must still be present: the Ansible in it
-performs all system teardown. The installer then removes the image and its own
-checkout from a private copy.
-EOF
-}
-
-usage_fresh() {
-  cat <<'EOF'
-Usage: sudo ./install.sh --fresh [OPTIONS] [STANDALONE OPTIONS]
-
-Uninstall BlitzeCDN completely, then install it again exactly as a brand-new
-server is installed: clone the running release from origin and run the
-standalone installer. The standalone options pass through unchanged:
-
-  --admin-cidr CIDR  Network allowed to administer SSH
-  --email ADDRESS    Default ACME account email
-  --public-address ADDRESS
-                     Public edge IP or hostname; repeat when needed
-  --allowed-ips LIST Client IPv4 addresses or CIDRs allowed to reach the API
-  --deploy           Run the initial edge deployment (default: prepare only)
-  --allow-empty-sites
-                     Permit --deploy to remove every previously managed site
-
-Options:
-  --yes        Do not ask for confirmation before uninstalling
-  -h, --help   Show this help
-
-The current checkout must be a Git clone whose origin is the upstream
-repository, so the rebuild reinstalls the exact release that is running. Run
---uninstall instead to remove BlitzeCDN without installing it again.
+performs all system teardown. To reinstall from a clean state afterwards,
+fetch install.sh for the release you want and run its standalone command.
 EOF
 }
 
 confirm_destructive() {
-  local assume_yes="$1" mode="$2"
+  local assume_yes="$1"
   [[ ${assume_yes} == 1 ]] && return 0
   echo >&2 "This removes every BlitzeCDN artifact on this host and cannot be undone:"
   echo >&2
   removal_manifest >&2
-  if [[ ${mode} == fresh ]]; then
-    echo >&2 "Afterwards it re-clones the current release and reinstalls it."
-  fi
   local answer
   read -r -p "Continue? [y/N]: " answer
   [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
 }
 
 cmd_uninstall() {
-  reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC uninstall
-
-  confirm_destructive "${parsed_yes}" uninstall
+  confirm_destructive "${parsed_yes}"
   converge_uninstall
-  remove_installation_directory
 
   echo
   echo "BlitzeCDN has been removed. No packages were removed and nothing outside"
   echo "the paths listed in the confirmation was changed."
-}
-
-cmd_fresh() {
-  reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC fresh
-
-  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
-    "error: ${INSTALL_DIR} is not a Git checkout; nothing to reinstall from" \
-    "Run --uninstall instead, or clone the release to ${INSTALL_DIR} first."
-
-  # The origin and the running release, read before the teardown deletes the
-  # checkout: a tag or the release branch by name, anything else by commit.
-  local source remote_url revision named_revision
-  source=$(release_plan source) || exit 1
-  remote_url=$(plan_field origin "${source}")
-  revision=$(plan_field revision "${source}")
-  named_revision=$(plan_field named "${source}")
-
-  # Before the confirmation: a rebuild that cannot reinstall is a deletion.
-  require_edge_platform
-
-  confirm_destructive "${parsed_yes}" fresh
-
-  # Stage the replacement before destroying anything, beside the final path so
-  # the handoff is a rename. Registered, so every refusal removes it.
-  local staging
-  staging=$(temp_path -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
-  if [[ ${named_revision} -eq 1 ]]; then
-    git clone --branch "${revision}" "${remote_url}" "${staging}" ||
-      die 1 "error: could not stage release ${revision}; the current installation was not changed"
-  else
-    if ! git clone "${remote_url}" "${staging}" ||
-      ! git -C "${staging}" checkout --detach "${revision}"; then
-      die 1 "error: could not stage commit ${revision}; the current installation was not changed"
-    fi
-  fi
-  [[ -x ${staging}/install.sh ]] ||
-    die 1 "error: staged release has no executable install.sh; the current installation was not changed"
-
-  converge_uninstall ||
-    die 1 "error: teardown failed; the current checkout remains, but inspect and repair any partially removed host state before retrying"
-  remove_installation_directory
-  # From here the staged clone is the only copy of the release.
-  unregister_path "${staging}"
-  mv -- "${staging}" "${INSTALL_DIR}" ||
-    die 1 "error: teardown succeeded but the staged release remains at ${staging}; move it to ${INSTALL_DIR} and rerun standalone"
-
-  echo
-  echo "Reinstalling the running release from a clean state..."
-  "${INSTALL_DIR}/install.sh" standalone \
-    ${parsed_forward_args[@]+"${parsed_forward_args[@]}"}
 }
 
 # ---------------------------------------------------------------------------
@@ -1173,27 +835,30 @@ cmd_fresh() {
 # ---------------------------------------------------------------------------
 
 main() {
-  local subcommand=install
-  if [[ $# -gt 0 ]]; then
-    case "$1" in
-      standalone|update|upgrade|install)
-        subcommand=$1
-        shift
-        ;;
-      --uninstall)
-        subcommand=uninstall
-        shift
-        ;;
-      --fresh)
-        subcommand=fresh
-        shift
-        ;;
-      help|-h|--help)
-        usage_root
-        exit 0
-        ;;
-    esac
+  if [[ $# -eq 0 ]]; then
+    usage_root
+    return 0
   fi
+  local subcommand
+  case "$1" in
+    standalone|update)
+      subcommand=$1
+      shift
+      ;;
+    --uninstall)
+      subcommand=uninstall
+      shift
+      ;;
+    help|-h|--help)
+      usage_root
+      exit 0
+      ;;
+    *)
+      echo "error: unknown subcommand: $1" >&2
+      usage_root >&2
+      return 2
+      ;;
+  esac
 
   local usage root_label
   usage=$(command_field "${subcommand}" 2)

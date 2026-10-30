@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from support.control_plane import API_HEADERS, control_plane_app
 
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():
     """A setting an operator can set but never see would fail nowhere else.
 
-    The published zone restates the fields rather than importing from `dns`; this
-    keeps the copy complete on both bodies.
+    The published zone is generated from the composed policy; this holds the
+    generation to it on both bodies.
     """
-    published = set(DomainModel.model_fields)
+    published = set(DomainModel.composed().model_fields)
     missing = (set(SitePolicy.setting_fields()) | {"name"}) - published
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = set(SitePolicy.setting_fields()) - set(DomainPatchModel.model_fields)
+    patchable = set(DomainPatchModel.composed().model_fields)
+    unpatchable = set(SitePolicy.setting_fields()) - patchable
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 
@@ -130,6 +132,91 @@ def test_an_override_the_zone_would_refuse_is_refused_on_the_rule(settings):
             headers=API_HEADERS,
         )
         assert response.status_code == 422
+
+
+#: Each acceptable to the rule one setting at a time, and refused by the zone
+#: they land on: a contract's field validator, and a cross-contract rule.
+_UNSERVABLE_OVERRIDES = pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"certificate_path": "relative/cert.pem"}, "certificate_path"),
+        ({"http3_enabled": True}, "http3_enabled"),
+    ],
+    ids=["contract-field-validator", "cross-contract-rule"],
+)
+
+
+@_UNSERVABLE_OVERRIDES
+def test_a_rule_its_zone_could_not_serve_is_refused_on_create(
+    settings, overrides, field
+):
+    """The 422 a zone patch that breaks a cross-field rule gets."""
+    with TestClient(control_plane_app(settings)) as client:
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        response = client.post(
+            "/v3/domains/example.com/rules",
+            json={"name": "r", "overrides": overrides},
+            headers=API_HEADERS,
+        )
+        assert response.status_code == 422
+        assert field in response.text
+        listed = client.get("/v3/domains/example.com/rules", headers=API_HEADERS)
+        assert listed.json()["items"] == []
+
+
+@_UNSERVABLE_OVERRIDES
+def test_a_rule_its_zone_could_not_serve_is_refused_on_patch(
+    settings, overrides, field
+):
+    with TestClient(control_plane_app(settings)) as client:
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post(
+            "/v3/domains/example.com/rules",
+            json={"name": "r", "overrides": {"cache_enabled": False}},
+            headers=API_HEADERS,
+        )
+        response = client.patch(
+            "/v3/domains/example.com/rules/r",
+            json={"overrides": overrides},
+            headers=API_HEADERS,
+        )
+        assert response.status_code == 422
+        assert field in response.text
+        stored = client.get("/v3/domains/example.com/rules/r", headers=API_HEADERS)
+        # The published rule echoes every setting, an unset one as null.
+        assert stored.json()["overrides"]["cache_enabled"] is False
+        assert stored.json()["overrides"][field] is None
+
+
+def test_a_zone_patch_that_would_break_a_stored_rule_is_a_conflict(settings):
+    """The patch is valid alone; what it collides with is the rule, so 409."""
+    with TestClient(control_plane_app(settings)) as client:
+        client.post(
+            "/v3/domains",
+            json={
+                "name": "example.com",
+                "ssl_mode": "full",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/blitzecdn/tls/example.com/fullchain.pem",
+                "certificate_key_path": "/etc/blitzecdn/tls/example.com/privkey.pem",
+            },
+            headers=API_HEADERS,
+        )
+        assert (
+            client.post(
+                "/v3/domains/example.com/rules",
+                json={"name": "h3", "overrides": {"http3_enabled": True}},
+                headers=API_HEADERS,
+            ).status_code
+            == 201
+        )
+        response = client.patch(
+            "/v3/domains/example.com",
+            json={"ssl_mode": "off"},
+            headers=API_HEADERS,
+        )
+        assert response.status_code == 409
+        assert "'h3'" in response.text
 
 
 def test_a_rule_naming_a_hostname_outside_its_zone_is_refused(settings):

@@ -1,13 +1,14 @@
 """How a zone reaches its origin, and what repointing a record moves."""
 
 from support.cli import (
-    _control,
+    cli_control,
     runner,
 )
 from support.control_plane import (
     seed_site,
 )
 
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.entrypoints.cli import main as cli
 
 
@@ -16,7 +17,7 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 ):
     """`domain origin` is about *as whom* the edge reaches the origin, so the
     origin itself — the record's value — is left untouched."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     before = control.sites.get_site("example-com").origin_host
 
@@ -35,8 +36,8 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert site.policy.origin.origin_request_host == "shared.example.net"
-    assert site.policy.origin.origin_sni == "tls.example.net"
+    assert site.policy[OriginPolicy].origin_request_host == "shared.example.net"
+    assert site.policy[OriginPolicy].origin_sni == "tls.example.net"
     assert site.origin_host == before
 
 
@@ -46,7 +47,7 @@ def test_repointing_a_record_moves_the_sites_origin(settings, monkeypatch):
 
     The origin travels with the hostname, so nothing else in the zone moves.
     """
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     assert control.sites.get_site("example-com").origin_host == "198.51.100.10"
 
@@ -58,11 +59,11 @@ def test_repointing_a_record_moves_the_sites_origin(settings, monkeypatch):
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
     assert site.origin_host == "203.0.113.40"
-    assert site.policy.origin.origin_request_host is None
+    assert site.policy[OriginPolicy].origin_request_host is None
 
 
 def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(cli.app, ["domain", "origin", "example.com"])
@@ -73,14 +74,14 @@ def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
 
 def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):
     """A setting an operator can turn on and never off is one they cannot undo."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     runner.invoke(
         cli.app,
         ["domain", "origin", "example.com", "--request-host", "shared.example.net"],
     )
     assert (
-        control.sites.get_site("example-com").policy.origin.origin_request_host
+        control.sites.get_site("example-com").policy[OriginPolicy].origin_request_host
         is not None
     )
 
@@ -90,13 +91,14 @@ def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert (
-        control.sites.get_site("example-com").policy.origin.origin_request_host is None
+        control.sites.get_site("example-com").policy[OriginPolicy].origin_request_host
+        is None
     )
 
 
 def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatch):
     """The distinction the patch is built through a dict to preserve."""
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     runner.invoke(
         cli.app,
@@ -115,12 +117,12 @@ def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatc
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert site.policy.origin.origin_sni is None
-    assert site.policy.origin.origin_request_host == "shared.example.net"
+    assert site.policy[OriginPolicy].origin_sni is None
+    assert site.policy[OriginPolicy].origin_request_host == "shared.example.net"
 
 
 def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
+    control = cli_control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
@@ -136,4 +138,4 @@ def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeyp
     )
 
     assert result.exit_code != 0
-    assert control.sites.get_site("example-com").policy.origin.origin_sni is None
+    assert control.sites.get_site("example-com").policy[OriginPolicy].origin_sni is None

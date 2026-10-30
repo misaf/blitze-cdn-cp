@@ -23,6 +23,9 @@ uv run blitzecdn setup       # Migrate the local database; create .env if absent
 uv run blitzecdn --help
 ```
 
+`install.sh` manages server lifecycle operations. Running it without arguments
+shows help; for local development use the commands above.
+
 `setup` preserves existing configuration. For a fresh checkout it creates a local
 API credential in `.env` with mode `0600`. Keep that file private. Optional
 controller settings are documented in
@@ -71,6 +74,14 @@ is handled by `install.sh` and the bundled control-plane Ansible roles.
 | `src/blitzecdn/host/` | Host-side runtime integration |
 | `src/blitzecdn/assets/` | Packaged migrations, shared Ansible automation, and Docker build assets |
 | `tests/` | Capability, delivery, architecture, contract, journey, and platform checks |
+
+Shared site identity lives in `core/domain/site.py`; `SitePolicy` in
+`core/domain/site_policy.py` composes the contracts contributed by features.
+These models import no capability. HTTP owns visitor headers, origins owns
+origin request identity, and TLS owns transport and redirect decisions.
+Composition binds their contributions before sites are validated. A caller
+reads a contract through `site.policy[Contract]` and asks that contract for
+its behavior, rather than making the shared site model know each capability.
 
 Each capability contains only the parts it needs:
 
@@ -160,11 +171,23 @@ collaborator, and implement I/O in an adapter. Add only the parts the change
 needs. Shared infrastructure belongs in core when it is independent of any
 capability.
 
+Capabilities are built into the application and shipped together. External
+plugins and a public Python SDK are not supported; feature contribution types
+are internal composition interfaces.
+
 For a new capability, follow the skeleton and dependency rules in
 `tests/architecture/`, declare contributions in `feature.py`, and register it in
 [composition/roster.py](src/blitzecdn/composition/roster.py). Bind concrete
 dependencies in composition and the capability's `wiring.py`. Keep API and CLI
 handlers thin and test their shared behavior through the service.
+
+A per-site setting belongs to a capability's contract: a `CapabilityPolicy`
+model in its `contract.py`, contributed as a `PolicyContribution` in
+`Feature.site_policy`. The site policy, the zone and rule patches, and the
+`/v3/domains` and `/v3/hosts` schemas are composed from those contributions
+when the registry loads, so the setting needs no edit in `dns` or core.
+A rule that reads another contract is a contributed check with that contract in
+`depends_on`; contracts are read as `policy[TlsPolicy]`.
 
 Persisted schema changes need an Alembic migration under
 `src/blitzecdn/assets/migrations/`; `just db-revision "description"` generates a

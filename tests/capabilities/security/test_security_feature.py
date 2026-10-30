@@ -11,8 +11,8 @@ from blitzecdn.capabilities.security.settings import (
     SecurityConfig,
 )
 from blitzecdn.capabilities.security.wiring import security_rendering
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.features import ValidationIssue, resolve_capability_environment
 
@@ -50,7 +50,7 @@ def _checks(secret: str):
         Path("/nonexistent"),
     )
     rendering = security_rendering(
-        config=SecurityConfig.from_capability_config(resolved.for_feature("security"))
+        config=resolved.for_feature("security").as_model(SecurityConfig)
     )
     assert rendering.deployment_checks is not None
     checks = rendering.deployment_checks

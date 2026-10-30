@@ -1,18 +1,18 @@
 """Cross-role wiring: the firewall registry, and the daemon's own configuration."""
 
+import json
+
 import yaml
 from support.contracts import (
     DOCKER_ROLE_DIR,
     STACK_ROLE_DIR,
-    _role,
-    ansible_bool,
-    jinja2,
+    role_path,
 )
 from support.paths import CORE_ANSIBLE
 
 
 def test_http3_uses_the_firewall_registry_for_udp_443():
-    role = _role("blitzecdn_firewall")
+    role = role_path("blitzecdn_firewall")
     tasks = (role / "tasks/main.yml").read_text(encoding="utf-8")
     play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
 
@@ -47,17 +47,9 @@ def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
 
 def test_docker_daemon_configuration_uses_only_supported_directives():
     """A JSON pseudo-comment is a real key that makes dockerd refuse to start."""
-    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    environment.filters["bool"] = ansible_bool
-    rendered = environment.from_string(
-        (DOCKER_ROLE_DIR / "templates/daemon.json.j2").read_text(encoding="utf-8")
-    ).render(
-        blitzecdn_docker_log_driver="json-file",
-        blitzecdn_docker_log_max_size="32m",
-        blitzecdn_docker_log_max_file=3,
-        blitzecdn_docker_live_restore=True,
+    configuration = json.loads(
+        (DOCKER_ROLE_DIR / "files/daemon.json").read_text(encoding="utf-8")
     )
-    configuration = yaml.safe_load(rendered)
 
     assert set(configuration) == {"log-driver", "log-opts", "live-restore"}
 
@@ -69,7 +61,8 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
         for task in tasks[0]["block"]
         if task["name"] == "Configure the Docker daemon"
     )
-    assert configure["ansible.builtin.template"]["validate"] == (
+    assert configure["ansible.builtin.copy"]["src"] == "daemon.json"
+    assert configure["ansible.builtin.copy"]["validate"] == (
         "/usr/bin/dockerd --validate --config-file %s"
     )
 
@@ -84,7 +77,7 @@ def test_staging_writes_a_candidate_and_cannot_start_the_runtime():
         role for role in play["roles"] if role["role"] == "blitzecdn_edge_stack"
     ]
     transaction = yaml.safe_load(
-        (_role("blitzecdn_config_release") / "tasks/main.yml").read_text()
+        (role_path("blitzecdn_config_release") / "tasks/main.yml").read_text()
     )
     assert [
         (task["ansible.builtin.import_tasks"], task["tags"]) for task in transaction

@@ -9,9 +9,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import CertificateVersion
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def _document(values: Mapping[str, Any]) -> dict[str, Any]:

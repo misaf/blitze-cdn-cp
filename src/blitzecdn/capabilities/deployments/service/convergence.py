@@ -42,6 +42,9 @@ from blitzecdn.capabilities.deployments.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.deployments.service import reporting
+from blitzecdn.capabilities.deployments.service import (
+    requirements as requirement_policy,
+)
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutOutcome
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
@@ -229,21 +232,20 @@ class DeploymentService:
     def converge_requirements(self, operator: str) -> Deployment | None:
         """Queue one fleet deployment for pending requirements, or ``None`` if none.
 
-        A requirement clears only when a deployment succeeds, so an already queued fleet
-        deployment is returned rather than a second queued.
+        A requirement clears only when a deployment that can satisfy it succeeds, so an
+        already queued one is returned rather than a second queued.
         """
-        if not self.persistence.requirements.pending(
+        requested_at = self.persistence.requirements.requested_at(
             DeploymentRequirementKind.CERTIFICATES
-        ):
+        )
+        if requested_at is None:
             return None
         with self.execution.runner.lock():
-            for waiting in self.persistence.deployments.queued_deployments():
-                if (
-                    not waiting.check_mode
-                    and waiting.host_limit is None
-                    and waiting.rollback_of is None
-                ):
-                    return waiting
+            waiting = requirement_policy.queued_to_satisfy(
+                self.persistence.deployments.queued_deployments(), requested_at
+            )
+            if waiting is not None:
+                return waiting
             return self._queue(operator, check=False, enqueue=True)
 
     def rollback(
@@ -557,10 +559,8 @@ class DeploymentService:
                     target_status, now=self.clock(), result=run, error=outcome.error
                 ),
             )
-            if target_status is DeploymentStatus.SUCCEEDED and not check:
-                self.persistence.requirements.clear(
-                    DeploymentRequirementKind.CERTIFICATES
-                )
+            if target_status is DeploymentStatus.SUCCEEDED:
+                requirement_policy.settle(self.persistence.requirements, deployment)
             self.events.record(
                 domain_event(
                     operator,

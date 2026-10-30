@@ -41,7 +41,6 @@ readonly ACME_DOMAIN=cdn.example.com
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
-archive=$(mktemp -t blitzecdn-source-XXXXXX).tgz
 image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
 
@@ -55,7 +54,7 @@ cleanup() {
     # container engine's images, and a runner that keeps them keeps gigabytes.
     docker rm -f -v "${container}" >/dev/null 2>&1 || true
   fi
-  rm -f -- "${archive}" "${image_archive}" "${pebble_config}"
+  rm -f -- "${image_archive}" "${pebble_config}"
 }
 trap cleanup EXIT
 
@@ -96,31 +95,17 @@ done
 [[ ${state} == running || ${state} == degraded ]] ||
   fail "systemd never came up in ${IMAGE} (last state: ${state:-unknown})"
 
-say "Copying the working tree to /opt/blitzecdn"
-# The working tree, not a clone, so CI tests the commit under review, without
-# runtime state, caches, local configuration or host metadata. macOS tar would
-# otherwise add AppleDouble `._*.py` files, which Alembic reads as revisions.
-COPYFILE_DISABLE=1 tar \
-  --exclude=.venv --exclude='.venv.invalid.*' \
-  --exclude=.state --exclude=.git --exclude=.ansible --exclude=.cache \
-  --exclude=.env --exclude=blitzecdn.toml --exclude=.codex \
-  --exclude=dist --exclude='*.egg-info' \
-  --exclude=.mypy_cache --exclude=.pytest_cache --exclude=.ruff_cache \
-  --exclude=.hypothesis --exclude=.coverage --exclude=coverage.xml \
-  --exclude=htmlcov --exclude=.DS_Store --exclude='._*' \
-  --exclude='*.pyc' --exclude=__pycache__ \
-  -czf "${archive}" -C "${project_dir}" . 2>/dev/null
-in_container 'mkdir -p /opt/blitzecdn'
-# Not /tmp: newer images mount a tmpfs over it, hiding what docker cp put there.
-docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
-in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
+say "Copying the installer to the host"
+# The one file an operator downloads: a server is given no source tree, and
+# everything else comes from the control-plane image.
+docker cp "${project_dir}/install.sh" "${container}:/root/install.sh" >/dev/null
+in_container 'chmod 0755 /root/install.sh'
 
 say "Building the control-plane image this host will install"
 # From the working tree, under the reference the release pins, and handed to
 # the installer as an archive: the commit under review is what gets installed,
 # and the installer's own pull is the one step this harness does not exercise.
-pinned_image=$(sed -n 's/^blitzecdn_controlplane_image: *//p' \
-  "${project_dir}/src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml")
+pinned_image=$(sed -n 's/^readonly CONTROL_PLANE_IMAGE=//p' "${project_dir}/install.sh")
 [[ -n ${pinned_image} ]] || fail "no control-plane image is pinned"
 if [[ -n ${CONTROL_PLANE_IMAGE_ARCHIVE:-} ]]; then
   docker load --input "${CONTROL_PLANE_IMAGE_ARCHIVE}" >/dev/null ||
@@ -143,21 +128,17 @@ in_container 'printf "0.0.0.0 pypi.org files.pythonhosted.org\n:: pypi.org files
   fail "could not cut this host off from PyPI"
 
 say "Installing"
-if ! in_container "cd /opt/blitzecdn && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
-  # Preserve the evidence before the EXIT trap removes the disposable host.
-  # This catches corrupt source/package copies that otherwise surface only as
-  # an opaque import error several layers inside the installer.
-  # The expansions belong to the container shell.
-  # shellcheck disable=SC2016
-  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_core.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_core.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
-  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_core.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_core.py' || true
+if ! in_container "cd / && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar /root/install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
   fail "install failed on ${IMAGE}"
 fi
 
 say "Checking what the installation produced"
-# Everything came from the image: no virtualenv, no uv, no Galaxy collections.
-in_container 'test ! -e /opt/blitzecdn/.venv && test ! -e /opt/blitzecdn/.state' ||
-  fail "the installer built host tooling in the checkout"
+# Everything came from the image: no source tree, no virtualenv, no uv, no
+# Galaxy collections, and no Git.
+in_container 'test ! -e /opt/blitzecdn' ||
+  fail "the installer left a source tree on the host"
+in_container 'cmp -s /root/install.sh /usr/local/sbin/blitzecdn-install' ||
+  fail "the host's blitzecdn-install is not the installer of the release it runs"
 in_container '! command -v uv >/dev/null' || fail "the installer put uv on this host"
 in_container "docker inspect -f '{{.Config.Image}}' blitzecdn-api | grep -qF '${pinned_image}'" ||
   fail "the API does not run the image the installer was given"
@@ -191,8 +172,7 @@ in_container 'docker exec blitzecdn-api python -c "import sqlite3; p=\"/opt/blit
   fail "SQLite could not create and write WAL state as the application identity"
 in_container 'test -f /var/lib/blitzecdn/permission-test.db && rm -f /var/lib/blitzecdn/permission-test.db*' ||
   fail "SQLite permission test did not write into persistent state"
-# From / rather than the checkout: the wrapper exists to make that work.
-in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
+in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
 say "Checking the API access list the installer was given"
@@ -630,7 +610,7 @@ in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps 
 say "Repointing the API access list"
 # The environment file is written once, so on an existing host the access list
 # is converged rather than seeded.
-in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
+in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
   fail "the installer could not repoint the API access list"
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "the access list was not repointed"
@@ -641,29 +621,30 @@ in_container 'grep -q "^BLITZE_API_KEYS=operator:" /etc/blitzecdn/blitzecdn.env'
   fail "repointing the access list disturbed the API credential"
 
 say "Re-running the installer"
-in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
+in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"
 # Omitting the flag leaves the access list exactly as the operator left it.
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "a run without --allowed-ips changed the access list"
 
-say "Checking the updater refuses a checkout it cannot verify"
-# The working tree has no .git, so `update` must refuse, and a host serving
-# before the refusal still serves after it. The happy path needs a real clone
-# and fetch.
-in_container 'cd /opt/blitzecdn && ./install.sh update --yes' &&
-  fail "update ran against a checkout with no origin"
+say "Checking the updater refuses a release it may not move to"
+# Named rather than read from the registry, so the refusal does not depend on
+# what is published: 0.0.1 is behind any release line. A host serving before
+# the refusal still serves after it. The happy path needs a published release
+# newer than the one under review.
+in_container "BLITZECDN_CONTROL_PLANE_IMAGE=${pinned_image%:*}:0.0.1 blitzecdn-install update --yes" &&
+  fail "update moved to a release outside its line"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "a refused update stopped the API"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "a refused update stopped the worker"
 
 say "Uninstalling"
-in_container 'cd /opt/blitzecdn && ./install.sh --uninstall --yes' ||
+in_container 'blitzecdn-install --uninstall --yes' ||
   fail "uninstall failed on ${IMAGE}"
 
 say "Checking the host is clean"
-for path in /opt/blitzecdn /etc/blitzecdn /usr/local/bin/blitzecdn \
+for path in /etc/blitzecdn /usr/local/bin/blitzecdn /usr/local/sbin/blitzecdn-install \
   /etc/sudoers.d/blitzecdn-deploy /var/lib/blitzecdn /home/deploy; do
   in_container "test ! -e ${path}" || fail "${path} survived the uninstall"
 done

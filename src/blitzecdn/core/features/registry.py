@@ -31,6 +31,7 @@ from blitzecdn.core.features.types import (
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
+    PolicyContribution,
     ScheduledJob,
     Site,
     SiteStateContribution,
@@ -147,6 +148,14 @@ class FeatureRegistry:
         """Every feature's static Nginx resources."""
         return tuple(item for feature in self.features for item in feature.nginx)
 
+    def policy_contributions(self) -> tuple[PolicyContribution, ...]:
+        """Every feature's site-policy contracts, in registration order.
+
+        Ownership and dependencies are decided in
+        :mod:`blitzecdn.core.features.resolution`.
+        """
+        return tuple(item for feature in self.features for item in feature.site_policy)
+
     # --- binding -----------------------------------------------------------
 
     def bind_rendering[S: Site](
@@ -200,7 +209,7 @@ class FeatureRegistry:
                     f"capability {capability!r} is not installed, and this "
                     f"site's {', '.join(requested[capability])} "
                     f"{'request' if len(requested[capability]) > 1 else 'requests'}"
-                    " it; install a feature that provides it or disable the "
+                    " it; upgrade to a controller that provides it or disable the "
                     "site setting that requests it"
                 ),
             )

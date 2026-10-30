@@ -1,5 +1,6 @@
 ---
 blitzecdn_uninstall_cli_wrapper: /usr/local/bin/blitzecdn
+blitzecdn_uninstall_installer: /usr/local/sbin/blitzecdn-install
 blitzecdn_uninstall_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_uninstall_state_dir: /var/lib/blitzecdn
 blitzecdn_uninstall_deploy_user: deploy

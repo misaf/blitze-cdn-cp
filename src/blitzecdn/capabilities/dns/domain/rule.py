@@ -41,7 +41,7 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
     An empty mapping is refused: it would shadow every later rule while changing
     nothing.
     """
-    unknown = sorted(set(value) - set(DomainPatch.model_fields))
+    unknown = sorted(set(value) - set(DomainPatch.composed().model_fields))
     if unknown:
         raise ValueError(
             "a rule can only override zone settings; these are not: "
@@ -55,7 +55,10 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
             "a rule must override at least one setting; one that overrides "
             "nothing would still match, and shadow every rule after it"
         )
-    # Raises for a value the zone would refuse, with pydantic's own message.
+    # Raises for a value the zone would refuse, with pydantic's own message. One
+    # setting at a time: validators that need neighbouring settings, and the
+    # cross-contract rules, need the zone too, so ``RuleService`` asks them of the
+    # merge before storing.
     DomainPatch.model_validate(dict(value))
     # Who may set ``certificate_mode`` is ``RuleService``'s question: this also runs
     # on rehydrated rules, including the issuer's.
