@@ -10,9 +10,9 @@ from blitzecdn.capabilities.compression.contract import (
     CompressionMode,
     CompressionPolicy,
 )
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: compression settings, so they ship with the capability that owns them.
