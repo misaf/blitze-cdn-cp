@@ -176,8 +176,7 @@ def test_cross_capability_imports_use_contract_modules():
                 continue
             # HTTP representation reuse belongs to delivery. Concrete
             # runtime implementations are wired only in the composition root.
-            # And a command editing a zone's policy changes it through dns.
-            published = parts[1:] in (["api", "models"], ["cli", "editing"])
+            published = parts[1:] == ["api", "models"]
             if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES and not (
                 published and _is_entry(path)
             ):
