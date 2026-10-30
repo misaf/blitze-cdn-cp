@@ -177,7 +177,6 @@ def test_host_wrapper_passes_the_empty_sites_override_only_when_set():
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
-    config = (CORE_ANSIBLE / "ansible.cfg").read_text(encoding="utf-8")
     tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
     probe = next(
         task
@@ -187,11 +186,20 @@ def test_container_ssh_uses_the_mounted_controller_configuration():
     )
     controller_config = "/opt/blitzecdn/.state/.ssh/config"
 
-    assert f"ssh_args = -F {controller_config} " in config
     argv = probe["ansible.builtin.command"]["argv"]
-    assert argv[argv.index("-F") + 1] == (
-        "{{ blitzecdn_controlplane_install_dir }}/.state/.ssh/config"
+    assert argv[argv.index("-F") + 1] == controller_config
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)  # noqa: S701
+    config = environment.from_string(
+        (ROLE / "templates/ssh_config.j2").read_text(encoding="utf-8")
+    ).render(blitzecdn_controlplane_install_dir="/custom/image/project")
+    container_state = next(
+        mount.split(":")[1]
+        for mount in _compose()["services"]["blitzecdn-cli"]["volumes"]
+        if mount.startswith("/var/lib/blitzecdn:")
     )
+    assert controller_config == f"{container_state}/.ssh/config"
+    assert f"IdentityFile {container_state}/id_ed25519" in config
+    assert f"UserKnownHostsFile {container_state}/.ssh/known_hosts" in config
 
 
 def test_upgrade_recreates_containers_and_uninstall_removes_the_project():
