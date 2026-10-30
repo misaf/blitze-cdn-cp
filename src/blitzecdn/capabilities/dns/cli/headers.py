@@ -8,10 +8,10 @@ import typer
 
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.app import domain_app
-from blitzecdn.capabilities.dns.cli.editing import report
 from blitzecdn.capabilities.serving.contract import HeaderPolicy
 from blitzecdn.capabilities.serving.domain import EditVisitorHeaders
 from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.domain_editing import report
 
 
 @domain_app.command("visitor-headers")

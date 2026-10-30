@@ -6,10 +6,10 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import MaxUploadSize
 from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: http settings, so they ship with the capability that owns them.

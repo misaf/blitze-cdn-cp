@@ -1,14 +1,13 @@
 """What a command editing one zone's policy calls, whichever capability ships it.
 
-Published to other capabilities' commands as `api.models` is to their routes.
+Zone writes go through the DNS service; output uses its public projection.
 """
 
 from __future__ import annotations
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.adapters.documents import serving_document
+from blitzecdn.capabilities.dns import DnsService, serving_document
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, PatchPolicy
 from blitzecdn.entrypoints.cli import common
 
