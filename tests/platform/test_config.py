@@ -269,3 +269,27 @@ def test_an_entry_with_host_bits_offers_both_readings(tmp_path):
 
     assert "203.0.113.0/24" in str(failure.value)
     assert "203.0.113.8/32" in str(failure.value)
+
+
+def test_api_body_limit_sources(tmp_path):
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes
+        == 2_097_152
+    )
+    (tmp_path / "blitzecdn.toml").write_text("[blitzecdn]\napi_max_body_bytes = 4096\n")
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes == 4096
+    )
+    configured = Settings.from_environment(
+        {"BLITZE_API_MAX_BODY_BYTES": "8192"}, project_dir=tmp_path
+    )
+    assert configured.api_max_body_bytes == 8192
+    assert "BLITZE_API_MAX_BODY_BYTES" not in configured.capability_environment
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid"])
+def test_invalid_api_body_limit_fails_configuration(tmp_path, value):
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment(
+            {"BLITZE_API_MAX_BODY_BYTES": value}, project_dir=tmp_path
+        )

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
             "drift_check_interval_seconds",
             "worker_poll_seconds",
             "api_worker_threads",
+            "api_max_body_bytes",
             "allowed_ips",
             "api_keys",
         }
@@ -130,6 +131,9 @@ class Settings(BaseSettings):
     #: server's so a renewal sweep cannot starve `/health`. Small, because the
     #: work serialises on the deployment lock anyway.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
+    #: Total HTTP body budget, including multipart framing. The default fits a
+    #: 1 MiB certificate chain and 256 KiB private key with framing overhead.
+    api_max_body_bytes: int = Field(default=2_097_152, ge=1)
     #: Public API client IPv4 addresses/CIDRs. Empty keeps the API on loopback.
     allowed_ips: Annotated[tuple[str, ...], NoDecode] = ()
     allow_empty_sites: bool = False
