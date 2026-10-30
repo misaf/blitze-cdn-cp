@@ -25,7 +25,7 @@ from blitzecdn.capabilities.releases.domain import (
     explain,
 )
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["compile_release"]
 

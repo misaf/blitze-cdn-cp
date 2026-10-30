@@ -53,7 +53,6 @@ from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.releases.wiring import build_release_service
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
@@ -86,6 +85,7 @@ from blitzecdn.composition.roster import (
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.features import FeatureRegistry, Operations, Rendering
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 

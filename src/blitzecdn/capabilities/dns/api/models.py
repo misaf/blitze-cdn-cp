@@ -22,9 +22,9 @@ from blitzecdn.capabilities.dns.domain import ResolvedPolicy as DomainResolvedPo
 from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
 from blitzecdn.capabilities.dns.domain.patch import setting_annotation
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
 from blitzecdn.core.domain.composed import ComposedModel
+from blitzecdn.core.domain.site import CdnSite as DomainCdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.entrypoints.api.models import Model
 from blitzecdn.entrypoints.api.requests import PatchValue
 

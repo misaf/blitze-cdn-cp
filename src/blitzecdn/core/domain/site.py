@@ -6,11 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.contract import OriginPolicy, SitePolicy
-from blitzecdn.capabilities.tls.contract import (
-    TlsPolicy,
-)
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.domain.validation import HOST_NAME, hostname
 
 
@@ -70,49 +66,3 @@ class CdnSite(BaseModel):
         default server. ``enabled`` stays a separate switch.
         """
         return bool(self.server_names)
-
-    @property
-    def effective_origin_sni(self) -> str:
-        """The name sent as SNI when the origin is reached over HTTPS.
-
-        Never a wildcard: a literal ``*.example.com`` matches no certificate. Falls back
-        to ``origin_host``; ``origin_sni`` overrides. ``site.conf.j2`` computes
-        ``proxy_ssl_name`` identically, or preflight would verify the wrong name.
-        """
-        return (
-            self.policy[OriginPolicy].origin_sni
-            or self.policy[OriginPolicy].origin_request_host
-            or self.origin_host
-        )
-
-    @property
-    def serves_tls(self) -> bool:
-        """Whether this site answers on 443."""
-        return self.policy[TlsPolicy].ssl_mode.serves_tls
-
-    @property
-    def canonical_visitor_scheme(self) -> HttpScheme:
-        """The strongest scheme a visitor can reach this site on."""
-        return HttpScheme.HTTPS if self.serves_tls else HttpScheme.HTTP
-
-    @property
-    def canonical_origin_scheme(self) -> HttpScheme:
-        """The origin scheme for a canonical visitor, which is what preflight probes.
-
-        See :class:`blitzecdn.capabilities.edges.adapters.probe.OriginProbe` for why
-        only this endpoint, and what Flexible means for alternate ports.
-        """
-        scheme = self.canonical_visitor_scheme
-        return self.policy[TlsPolicy].ssl_mode.origin_scheme_for(
-            scheme, DEFAULT_PORTS[scheme]
-        )
-
-    @property
-    def redirects_http_to_https(self) -> bool:
-        """Whether the HTTP listeners redirect instead of proxying.
-
-        ``always_use_https`` is inert while ``ssl_mode`` is off, as with Cloudflare:
-        there is no HTTPS listener to send anyone to, and the preference applies again
-        once TLS is on. ``site.conf.j2`` gates on the same condition, under test.
-        """
-        return self.serves_tls and self.policy[TlsPolicy].always_use_https

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType, Rule
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 

@@ -16,8 +16,8 @@ from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.dns.api.models import CdnSite as CdnSiteModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.composition import Repository
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,

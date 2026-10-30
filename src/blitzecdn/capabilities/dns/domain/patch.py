@@ -13,9 +13,9 @@ from typing import Annotated, Any, Self
 from pydantic import ConfigDict
 from pydantic.fields import FieldInfo
 
-from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.core.domain.composed import ComposedModel
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 __all__ = ["DomainPatch", "reject_issuer_owned_certificate", "setting_annotation"]
 

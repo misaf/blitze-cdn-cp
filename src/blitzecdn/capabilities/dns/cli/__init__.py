@@ -1,13 +1,12 @@
 """`domain`, `record`, `rule` and `dns` — the zone editor's command groups.
 
-dns founds `domain` but ships only the zone commands and visitor headers; a
+dns founds `domain` but ships only the zone commands; a
 command editing another capability's contract is contributed by it.
 `DOMAIN_ORDER` is the whole group's `--help` order, and a command missing from
 it stops the CLI from starting.
 """
 
 from blitzecdn.capabilities.dns.cli import (  # noqa: F401 - registration
-    headers,
     record,
     rule,
     zone,

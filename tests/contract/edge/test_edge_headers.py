@@ -11,7 +11,7 @@ from support.edge_render import (
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.serving.contract import SiteVisitorHeaders
+from blitzecdn.capabilities.http.contract import SiteVisitorHeaders
 
 REQUIRES_CAPABILITIES = {
     "test_ip_country_reads_the_variable_the_capability_defines": ("geoip",),

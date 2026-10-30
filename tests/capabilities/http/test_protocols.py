@@ -15,9 +15,9 @@ from blitzecdn.capabilities.http.contract import (
 )
 from blitzecdn.capabilities.http.feature import FEATURES
 from blitzecdn.capabilities.http.wiring import baseline_listeners
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import managed_certificate_paths
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 (FEATURE,) = FEATURES
 

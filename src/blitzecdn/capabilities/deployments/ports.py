@@ -17,11 +17,11 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.dns.domain import Rule
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
