@@ -42,6 +42,29 @@ older than one day. Corrupt or unreadable records are counted explicitly.
 Worker records contain identifiers and timing only, with mode `0600`. They are
 ephemeral and are not part of application backups. No schema migration is needed.
 
+## Edge configuration retention
+
+After a verified deployment commits on an edge, the configuration helper prunes
+completed release trees under `/etc/blitzecdn/releases`. It keeps the active
+release, its immediate predecessor, and two additional completed releases by
+default. Set the Ansible variable `blitzecdn_config_release_keep_older` to a
+nonnegative integer to change the extra count; zero still keeps the active
+release and its predecessor. Older releases retained by the controller can be
+staged again when an operator requests a rollback.
+
+Pending transactions protect both their candidate and previous release. Staged
+candidates and transactions whose rollback can still be replayed are also kept.
+Completed journals are collected with their trees, so their old predecessor
+references do not retain the entire history. All helper mutations share an
+edge-local file lock. Check mode does not collect anything.
+
+Collection runs only after the commit is durable. Filesystem failures or malformed
+journals defer collection with a warning in the Ansible task's stderr; the
+deployment stays committed and a later commit retries cleanup. Trees without a
+transaction journal, including abandoned staging attempts, are preserved because
+they cannot safely be distinguished from an in-progress stage. This retention
+does not remove external TLS material, runtime data, logs, or container images.
+
 ## Prometheus
 
 The existing authenticated `GET /metrics` endpoint retains its edge, site and
