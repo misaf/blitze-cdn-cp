@@ -7,5 +7,7 @@
       - commit
       - "{{ blitzecdn_config_release_root }}"
       - "{{ blitzecdn_release_digest }}"
+      - --keep-older
+      - "{{ blitzecdn_config_release_keep_older }}"
   changed_when: true
   when: not ansible_check_mode
