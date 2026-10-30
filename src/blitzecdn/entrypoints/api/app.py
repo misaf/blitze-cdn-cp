@@ -17,6 +17,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
 from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
+from blitzecdn.entrypoints.api.body_limit import RequestBodyLimitMiddleware
 from blitzecdn.entrypoints.api.validation import (
     VALIDATION_RESPONSE,
     ValidationErrorResponse,
@@ -81,8 +82,12 @@ def create_app(
     )
     application.state.settings = resolved
     # A scope per request over the container the lifespan builds; routes take
-    # services as ``FromDishka[...]``. Added first, so the IP check wraps it.
+    # services as ``FromDishka[...]``. The IP gate wraps the body limit, which
+    # in turn wraps the request container and routing.
     application.add_middleware(SyncContainerMiddleware)
+    application.add_middleware(
+        RequestBodyLimitMiddleware, max_bytes=resolved.api_max_body_bytes
+    )
     if resolved.allowed_ips:
         application.add_middleware(
             AllowedIPsMiddleware, allowed_ips=resolved.allowed_ips
