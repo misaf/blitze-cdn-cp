@@ -20,3 +20,10 @@ argument_specs:
         type: path
         default: /etc/blitzecdn/configuration-release.py
         description: Location of the edge-local durable activation helper.
+      blitzecdn_config_release_keep_older:
+        type: int
+        default: 2
+        description: >-
+          Number of additional completed releases to retain beyond the active
+          release and its predecessor. Must be nonnegative; zero keeps only
+          those releases and any trees required by unfinished transactions.
