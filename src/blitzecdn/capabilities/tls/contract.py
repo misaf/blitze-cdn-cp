@@ -160,7 +160,10 @@ class TlsPolicy(CapabilityPolicy):
     ssl_mode: SslMode = SslMode.OFF
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
-    always_use_https: bool = False
+    always_use_https: bool = Field(
+        default=False,
+        description="Redirect visitor HTTP requests to HTTPS while TLS is active.",
+    )
     certificate_mode: CertificateMode = CertificateMode.DISABLED
     certificate_path: str | None = None
     certificate_key_path: str | None = None

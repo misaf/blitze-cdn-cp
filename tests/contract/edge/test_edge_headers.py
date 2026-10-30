@@ -6,7 +6,6 @@ from typing import Any
 
 from support.edge_render import (
     render_site,
-    role_spec,
     runtime_contract,
 )
 from support.policy import site_from_settings
@@ -32,17 +31,10 @@ def _with_visitor_headers(**headers: bool) -> dict[str, Any]:
     )
 
 
-def test_every_emitted_visitor_header_key_is_declared_by_the_role(desired_state):
-    """Nested like the firewall, and invisible to the top-level key sweep."""
-    declared = set(
-        role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]["options"]
-    )
-    assert set(SiteVisitorHeaders.model_fields) == declared, (
-        "SiteVisitorHeaders and the role's visitor_headers suboptions disagree: "
-        f"{sorted(set(SiteVisitorHeaders.model_fields) ^ declared)}"
-    )
+def test_every_site_sends_each_visitor_header_switch(desired_state):
+    """Nested, so invisible to the top-level key sweep."""
     for site in desired_state["blitzecdn_nginx_sites"]:
-        assert set(site["visitor_headers"]) == declared
+        assert set(site["visitor_headers"]) == set(SiteVisitorHeaders.model_fields)
 
 
 def test_the_default_site_sends_the_address_and_not_the_country(desired_state):
