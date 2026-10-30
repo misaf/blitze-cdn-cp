@@ -14,19 +14,22 @@ from support.edge_render import (
     ROLE_DIR,
     defaults_of,
     render_site,
-    role_spec,
 )
 from support.paths import REPO_ROOT
 from support.policy import site_from_settings
 
 import blitzecdn
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.compression.contract import CompressionMode
+from blitzecdn.capabilities.compression.contract import (
+    CompressionMode,
+    CompressionPolicy,
+)
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
+    ProtocolPolicy,
 )
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
@@ -233,13 +236,13 @@ def test_the_pinned_edge_image_names_this_release():
 
 
 def test_missing_compression_preserves_pre_upgrade_behavior():
-    """With the setting absent, the role's default matches the domain's: brotli on."""
+    """With the setting absent, the template's default is the contract's: brotli."""
     site = _compressed(CompressionMode.BROTLI)
     del site["compression"]
 
-    option = role_spec()["blitzecdn_nginx_sites"]["options"]["compression"]
-    assert option["default"] == "brotli"
-    assert option.get("required", False) is False
+    assert CompressionPolicy.model_fields["compression"].default is (
+        CompressionMode.BROTLI
+    )
 
     assert "gzip on;" in render_site(site)
 
@@ -285,9 +288,7 @@ def test_the_upload_limit_covers_every_listener_a_site_serves(size):
 
 
 def test_missing_max_upload_size_preserves_pre_upgrade_behavior():
-    """With the setting absent, the role's default matches the domain's."""
-    option = role_spec()["blitzecdn_nginx_sites"]["options"]["max_upload_size"]
-    assert option["default"] == MaxUploadSize.SMALL.value
-    assert option.get("required", False) is False
+    """With the setting absent, the template's default is the contract's."""
+    assert ProtocolPolicy.model_fields["max_upload_size"].default is MaxUploadSize.SMALL
 
     assert "client_max_body_size 100m;" in render_site(_uploads(None))

@@ -15,14 +15,15 @@ from blitzecdn.capabilities.serving.contract import SitePolicy
 def test_the_api_carries_every_zone_field_the_zone_has():
     """A setting an operator can set but never see would fail nowhere else.
 
-    The published zone restates the fields rather than importing from `dns`; this
-    keeps the copy complete on both bodies.
+    The published zone is generated from the composed policy; this holds the
+    generation to it on both bodies.
     """
-    published = set(DomainModel.model_fields)
+    published = set(DomainModel.composed().model_fields)
     missing = (set(SitePolicy.setting_fields()) | {"name"}) - published
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = set(SitePolicy.setting_fields()) - set(DomainPatchModel.model_fields)
+    patchable = set(DomainPatchModel.composed().model_fields)
+    unpatchable = set(SitePolicy.setting_fields()) - patchable
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 

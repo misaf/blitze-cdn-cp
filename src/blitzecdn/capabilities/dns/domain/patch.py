@@ -1,30 +1,23 @@
 """Partial zone policy updates, also used to validate rule overrides.
 
-Unset fields are untouched; the merged zone is validated as a whole. Drift
-between the zone and this model is refused at import.
+Unset fields are untouched; the merged zone is validated as a whole. The fields
+are the composed policy's flat settings, each optional, so a contributed
+setting is patchable the moment its contract is registered.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from types import UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from pydantic.fields import FieldInfo
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.http.contract import MaxUploadSize
-from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.contract import (
-    CertificateMode,
-    MinimumTlsVersion,
-    SslAutomaticMode,
-    SslMode,
-)
+from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.capabilities.tls.contract import CertificateMode
+from blitzecdn.core.domain.composed import ComposedModel
 
-__all__ = ["DomainPatch", "reject_issuer_owned_certificate"]
+__all__ = ["DomainPatch", "reject_issuer_owned_certificate", "setting_annotation"]
 
 
 def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
@@ -48,84 +41,38 @@ def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
         )
 
 
-class DomainPatch(BaseModel):
-    """A partial update to a zone: every field optional, unset means untouched.
+def setting_annotation(field: FieldInfo) -> Any:
+    """A setting's type with its constraints, such as ``ge=0``, kept.
 
-    Fields are written out, not generated with ``create_model``, so mypy checks
-    every access; ``_assert_patch_covers_settings`` refuses drift at import.
+    A patch is validated on its own before it is merged, and a rule's overrides
+    are stored without the merged policy being validated again, so a patch that
+    took the bare type would accept a value the contract refuses.
+    """
+    if not field.metadata:
+        return field.annotation
+    return Annotated[field.annotation, *field.metadata]
+
+
+class DomainPatch(ComposedModel):
+    """A partial update to a zone: every setting optional, unset means untouched.
+
+    Blocks such as ``firewall`` and ``visitor_headers`` replace wholesale:
+    ``{"firewall": {}}`` clears every rule, and ``{"visitor_headers": {}}``
+    restores the defaults rather than keeping the current switches.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    ssl_mode: SslMode | None = None
-    ssl_automatic_mode: SslAutomaticMode | None = None
-    minimum_tls_version: MinimumTlsVersion | None = None
-    http3_enabled: bool | None = None
-    max_upload_size: MaxUploadSize | None = None
-    always_use_https: bool | None = None
-    under_attack_mode: bool | None = None
-    origin_request_host: str | None = None
-    origin_sni: str | None = None
-    enabled: bool | None = None
-    certificate_mode: CertificateMode | None = None
-    certificate_path: str | None = None
-    certificate_key_path: str | None = None
-    cache_enabled: bool | None = None
-    cache_query_string_mode: CacheQueryStringMode | None = None
-    cache_valid_success: str | None = None
-    cache_valid_not_found: str | None = None
-    compression: CompressionMode | None = None
-    # Replaces the block wholesale; see the note on SecurityPolicy.firewall. Send
-    # {"firewall": {}} to clear every rule.
-    firewall: SiteFirewall | None = None
-    # Replaced wholesale as well. Sending {"visitor_headers": {}} restores the
-    # defaults rather than leaving the current switches in place.
-    visitor_headers: SiteVisitorHeaders | None = None
+    @classmethod
+    def composition_source(cls) -> object:
+        return SitePolicy.policy_schema()
 
-
-def _without_none(annotation: object) -> object:
-    """``T`` from ``T | None`` on both sides, so optional zone fields compare."""
-    if get_origin(annotation) is not UnionType and get_origin(annotation) is not Union:
-        return annotation
-    arms = [arm for arm in get_args(annotation) if arm is not type(None)]
-    return arms[0] if len(arms) == 1 else annotation
-
-
-def _assert_patch_covers_settings() -> None:
-    """Refuse to import if a zone setting cannot be patched, or patched wrongly.
-
-    Checks each setting is present, optional, and of a type the zone accepts —
-    failures that would otherwise appear only when an operator first tries.
-    """
-    patchable = set(SitePolicy.setting_fields())
-    missing = sorted(patchable - set(DomainPatch.model_fields))
-    if missing:
-        raise RuntimeError(
-            "DomainPatch is missing Domain fields: "
-            + ", ".join(missing)
-            + ". Add them as optional, defaulting to None, or an operator can "
-            "set them once and never change them."
+    @classmethod
+    def compose(cls, source: Any) -> type[Self]:
+        # `source` is the schema `setting_fields` reads.
+        return cls.compose_fields(
+            {
+                name: (setting_annotation(field) | None, None)
+                for name, field in SitePolicy.setting_fields().items()
+            }
         )
-    required = sorted(
-        name for name in patchable if DomainPatch.model_fields[name].default is not None
-    )
-    if required:
-        raise RuntimeError(
-            "DomainPatch fields must default to None so an unset field means "
-            "'untouched'; these do not: " + ", ".join(required)
-        )
-    mistyped = sorted(
-        f"{name} (zone stores {SitePolicy.setting_fields()[name].annotation}, patch "
-        f"takes {DomainPatch.model_fields[name].annotation})"
-        for name in patchable
-        if _without_none(DomainPatch.model_fields[name].annotation)
-        != _without_none(SitePolicy.setting_fields()[name].annotation)
-    )
-    if mistyped:
-        raise RuntimeError(
-            "every DomainPatch field must accept exactly what the zone stores, "
-            "widened only with None; these do not: " + ", ".join(mistyped)
-        )
-
-
-_assert_patch_covers_settings()

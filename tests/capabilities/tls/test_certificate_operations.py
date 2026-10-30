@@ -33,7 +33,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
-from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
+from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode, TlsPolicy
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
@@ -109,9 +109,10 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     )
     assert uploaded.source == "uploaded"
     assert (
-        control.sites.get_site("example-com").policy.tls.certificate_mode == "uploaded"
+        control.sites.get_site("example-com").policy[TlsPolicy].certificate_mode
+        == "uploaded"
     )
-    assert control.sites.get_site("example-com").policy.tls.ssl_mode == "off"
+    assert control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode == "off"
 
     control.dns.update_domain(
         "example.com", PatchPolicy.from_patch(DomainPatch(ssl_mode="full")), "alice"
@@ -123,9 +124,10 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     assert requested.source == "acme"
     assert control.certificates.certificate("example-com") == requested
     assert (
-        control.sites.get_site("example-com").policy.tls.certificate_mode == "requested"
+        control.sites.get_site("example-com").policy[TlsPolicy].certificate_mode
+        == "requested"
     )
-    assert control.sites.get_site("example-com").policy.tls.ssl_mode == "full"
+    assert control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode == "full"
 
     result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -270,8 +272,8 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
     assert result.deployment is not None
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
     site = control.sites.get_site("example-com")
-    assert site.policy.tls.ssl_mode is expected
-    assert site.policy.tls.ssl_automatic_mode is SslAutomaticMode.AUTO
+    assert site.policy[TlsPolicy].ssl_mode is expected
+    assert site.policy[TlsPolicy].ssl_automatic_mode is SslAutomaticMode.AUTO
     event = next(
         event
         for event in repository.audit_log.list_audit_events(20)
@@ -300,7 +302,10 @@ def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
     result = control.automatic_ssl.reconcile("scheduler")
 
     assert result.upgraded == {"example-com": SslMode.FLEXIBLE}
-    assert control.sites.get_site("example-com").policy.tls.ssl_mode is SslMode.FLEXIBLE
+    assert (
+        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode
+        is SslMode.FLEXIBLE
+    )
 
 
 def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
@@ -313,7 +318,9 @@ def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
     assert result.scanned == ()
     assert result.upgraded == {}
     assert runner.playbooks == []
-    assert control.sites.get_site("example-com").policy.tls.ssl_mode is SslMode.OFF
+    assert (
+        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode is SslMode.OFF
+    )
 
 
 def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
@@ -341,7 +348,9 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
     assert result.upgraded == {}
     assert "example-com" in result.skipped
     assert result.deployment is None
-    assert control.sites.get_site("example-com").policy.tls.ssl_mode is SslMode.FULL
+    assert (
+        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode is SslMode.FULL
+    )
 
 
 def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(
@@ -373,8 +382,11 @@ def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(
     assert control.deployments.converge_requirements("timer").id == (
         result.deployment.id
     )
-    assert control.sites.get_site(site_name).policy.tls.certificate_mode == "requested"
-    assert control.sites.get_site(site_name).policy.tls.ssl_mode == "off"
+    assert (
+        control.sites.get_site(site_name).policy[TlsPolicy].certificate_mode
+        == "requested"
+    )
+    assert control.sites.get_site(site_name).policy[TlsPolicy].ssl_mode == "off"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):

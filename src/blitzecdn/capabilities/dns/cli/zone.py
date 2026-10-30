@@ -15,6 +15,7 @@ from blitzecdn.capabilities.dns.cli.app import domain_app
 from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.serving.contract import OriginPolicy
 from blitzecdn.entrypoints.cli import common
 
 
@@ -139,7 +140,9 @@ def domain_origin(
         raise typer.BadParameter("give at least one of --request-host or --sni")
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
-    identity = zone.policy.origin.origin_request_host or "the visitor's Host header"
+    identity = (
+        zone.policy[OriginPolicy].origin_request_host or "the visitor's Host header"
+    )
     report(
         zone,
         f"{zone.name} reaches its origin as {identity}.",
@@ -161,7 +164,7 @@ def domain_enable(
     stops being converged. Unproxying the records instead would change what DNS
     answers with, which is a different decision.
     """
-    zone = update(name, DomainPatch(enabled=on))
+    zone = update(name, DomainPatch.model_validate({"enabled": on}))
     report(
         zone,
         f"{zone.name} is now {'enabled' if on else 'disabled'}.",

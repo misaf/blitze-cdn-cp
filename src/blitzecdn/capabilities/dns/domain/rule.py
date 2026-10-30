@@ -41,7 +41,7 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
     An empty mapping is refused: it would shadow every later rule while changing
     nothing.
     """
-    unknown = sorted(set(value) - set(DomainPatch.model_fields))
+    unknown = sorted(set(value) - set(DomainPatch.composed().model_fields))
     if unknown:
         raise ValueError(
             "a rule can only override zone settings; these are not: "
