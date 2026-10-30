@@ -171,6 +171,10 @@ collaborator, and implement I/O in an adapter. Add only the parts the change
 needs. Shared infrastructure belongs in core when it is independent of any
 capability.
 
+Capabilities are built into the application and shipped together. External
+plugins and a public Python SDK are not supported; feature contribution types
+are internal composition interfaces.
+
 For a new capability, follow the skeleton and dependency rules in
 `tests/architecture/`, declare contributions in `feature.py`, and register it in
 [composition/roster.py](src/blitzecdn/composition/roster.py). Bind concrete

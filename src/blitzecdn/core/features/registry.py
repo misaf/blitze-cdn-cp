@@ -209,7 +209,7 @@ class FeatureRegistry:
                     f"capability {capability!r} is not installed, and this "
                     f"site's {', '.join(requested[capability])} "
                     f"{'request' if len(requested[capability]) > 1 else 'requests'}"
-                    " it; install a feature that provides it or disable the "
+                    " it; upgrade to a controller that provides it or disable the "
                     "site setting that requests it"
                 ),
             )
