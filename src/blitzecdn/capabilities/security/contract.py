@@ -283,12 +283,37 @@ COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 class SiteFirewall(OmittedWhenEmpty):
     """Per-hostname request filtering applied by Nginx; omitted when empty."""
 
-    allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_methods: tuple[str, ...] = Field(default=(), max_length=20)
-    denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
+    allow_sources: tuple[str, ...] = Field(
+        default=(),
+        max_length=200,
+        description=(
+            "CIDR networks exempted from deny_sources, matched first. Not an "
+            "allowlist on its own: without a deny entry covering everything "
+            "else, the site stays open."
+        ),
+    )
+    deny_sources: tuple[str, ...] = Field(
+        default=(), max_length=200, description="CIDR networks answered with 403."
+    )
+    allowed_countries: tuple[str, ...] = Field(
+        default=(),
+        max_length=250,
+        description=(
+            "ISO 3166-1 alpha-2 codes; every other country gets a 403. Needs the "
+            "geoip capability."
+        ),
+    )
+    denied_countries: tuple[str, ...] = Field(
+        default=(),
+        max_length=250,
+        description="ISO 3166-1 alpha-2 codes answered with 403. Needs geoip.",
+    )
+    denied_methods: tuple[str, ...] = Field(
+        default=(), max_length=20, description="HTTP methods answered with 405."
+    )
+    denied_paths: tuple[str, ...] = Field(
+        default=(), max_length=100, description="URI prefixes answered with 403."
+    )
 
     def replacing(self, lists: Mapping[str, Sequence[str]]) -> SiteFirewall:
         """This firewall with the named lists replaced and the rest kept.
@@ -386,9 +411,21 @@ class SecurityPolicy(CapabilityPolicy):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    under_attack_mode: bool = False
+    under_attack_mode: bool = Field(
+        default=False,
+        description=(
+            "Require a signed BlitzeCDN browser clearance before cache or origin "
+            "processing."
+        ),
+    )
     # The block is replaced wholesale when patched.
-    firewall: SiteFirewall = SiteFirewall()
+    firewall: SiteFirewall = Field(
+        default=SiteFirewall(),
+        description=(
+            "Per-hostname request filtering. Empty serves everyone. Never applied "
+            "to /.well-known/acme-challenge/, so no rule can block renewal."
+        ),
+    )
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
