@@ -9,7 +9,7 @@ limit uses a core nginx directive and requests nothing.
 from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
 
@@ -44,9 +44,17 @@ class ProtocolPolicy(CapabilityPolicy):
 
     # QUIC always negotiates TLS 1.3. This does not change the minimum TLS
     # version accepted by the site's parallel TCP listeners.
-    http3_enabled: bool = False
+    http3_enabled: bool = Field(
+        default=False, description="Offer visitor HTTP/3 over QUIC on UDP/443."
+    )
 
-    max_upload_size: MaxUploadSize = MaxUploadSize.SMALL
+    max_upload_size: MaxUploadSize = Field(
+        default=MaxUploadSize.SMALL,
+        description=(
+            "Largest visitor request body this site accepts. A larger body is "
+            "refused at the edge with 413 before the origin is contacted."
+        ),
+    )
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:

@@ -4,8 +4,9 @@ A feature has three parts, bound at three different times, because their
 dependencies exist at three different times:
 
 * :class:`Feature` is a declaration. Routes, commands, Ansible roles,
-  configuration and Nginx resources are known before any adapter exists, so
-  the CLI tree, the API and the role search path can be assembled from them.
+  configuration, Nginx resources and site-policy contracts are known before
+  any adapter exists, so the CLI tree, the API, the role search path and the
+  site policy can be assembled from them.
 * :class:`FeatureRendering` feeds the release compiler. It may depend on
   configuration and adapters but never on a service, because what a site
   renders to must not change with what a service happens to hold.
@@ -27,6 +28,7 @@ from blitzecdn.core.features.types.ansible import AnsibleContribution
 from blitzecdn.core.features.types.configuration import ConfigurationContribution
 from blitzecdn.core.features.types.identity import FeatureMetadata
 from blitzecdn.core.features.types.nginx import NginxContribution
+from blitzecdn.core.features.types.policy import PolicyContribution
 from blitzecdn.core.features.types.runtime import (
     CliCommandGroup,
     HealthCheck,
@@ -85,6 +87,7 @@ class Feature:
     ansible: tuple[AnsibleContribution, ...] = ()
     configuration: tuple[ConfigurationContribution, ...] = ()
     nginx: tuple[NginxContribution, ...] = ()
+    site_policy: tuple[PolicyContribution, ...] = ()
 
     @property
     def name(self) -> str:

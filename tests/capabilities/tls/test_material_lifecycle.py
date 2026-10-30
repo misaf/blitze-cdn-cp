@@ -11,6 +11,7 @@ from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
 from blitzecdn.capabilities.tls.contract import (
     CertificateVersion,
+    TlsPolicy,
     managed_certificate_paths,
 )
 from blitzecdn.core.exceptions import ConfigurationError
@@ -37,7 +38,7 @@ def test_compilation_replays_canonical_versions_after_metadata_moves(
     assert first.version != second.version
     assert captured.inputs.digest != control.releases.inputs().digest
     assert (
-        original_site.policy.tls.certificate_path
+        original_site.policy[TlsPolicy].certificate_path
         == managed_certificate_paths(first.site, first.version)[0]
     )
     service = control.releases
@@ -299,7 +300,7 @@ def test_deployment_history_keeps_material_and_rollback_restores_its_version(
     assert restored.status is DeploymentStatus.SUCCEEDED
     assert control.releases.inputs().digest == original_digest
     assert (
-        control.sites.get_site(first.site).policy.tls.certificate_path
+        control.sites.get_site(first.site).policy[TlsPolicy].certificate_path
         == managed_certificate_paths(first.site, first.version)[0]
     )
     assert (

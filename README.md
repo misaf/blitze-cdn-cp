@@ -169,6 +169,14 @@ For a new capability, follow the skeleton and dependency rules in
 dependencies in composition and the capability's `wiring.py`. Keep API and CLI
 handlers thin and test their shared behavior through the service.
 
+A per-site setting belongs to a capability's contract: a `CapabilityPolicy`
+model in its `contract.py`, contributed as a `PolicyContribution` in
+`Feature.site_policy`. The site policy, the zone and rule patches, and the
+`/v3/domains` and `/v3/hosts` schemas are composed from those contributions
+when the registry loads, so the setting needs no edit in `dns` or `serving`.
+A rule that reads another contract is a contributed check with that contract in
+`depends_on`; contracts are read as `policy[TlsPolicy]`.
+
 Persisted schema changes need an Alembic migration under
 `src/blitzecdn/assets/migrations/`; `just db-revision "description"` generates a
 candidate for review. Apply migrations with controller services stopped using

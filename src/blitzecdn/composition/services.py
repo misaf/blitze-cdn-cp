@@ -56,6 +56,7 @@ from blitzecdn.capabilities.releases.wiring import build_release_service
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator as CertificateWorkflows,
 )
@@ -64,6 +65,7 @@ from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
+    build_site_editor,
 )
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
@@ -144,13 +146,18 @@ class ServiceProvider(Provider):
         )
 
     @provide
-    def site_editor(self, repository: Repository) -> HostService:
+    def hosts(self, repository: Repository) -> HostService:
         return build_host_service(
             zones=repository.zones,
             rules=repository.rules,
             events=repository.audit_log,
             uow=repository,
         )
+
+    @provide
+    def site_editor(self, hosts: HostService) -> SiteEditor:
+        # DNS writes where a host's policy comes from; TLS decides what it writes.
+        return build_site_editor(writer=hosts)
 
     @provide
     def rules(self, repository: Repository) -> RuleService:
@@ -356,7 +363,8 @@ class ServiceProvider(Provider):
         config: CertificateConfig,
         store: CertificateStore,
         releases: ReleaseService,
-        site_editor: HostService,
+        hosts: HostService,
+        site_editor: SiteEditor,
         edges: EdgeStorePort,
         origin_probe: OriginProbePort,
         runner: FleetRunner,
@@ -369,7 +377,7 @@ class ServiceProvider(Provider):
             config=config,
             store=store,
             releases=releases,
-            sites=site_editor,
+            sites=hosts,
             edges=edges,
             origin_probe=origin_probe,
             requirements=repository.deployment_requirements,
@@ -388,13 +396,14 @@ class ServiceProvider(Provider):
     @provide
     def automatic_ssl(
         self,
-        site_editor: HostService,
+        hosts: HostService,
+        site_editor: SiteEditor,
         runner: FleetRunner,
         origin_probe: OriginProbePort,
         deployments: DeploymentService,
     ) -> AutomaticSslService:
         return build_automatic_ssl_service(
-            sites=site_editor,
+            sites=hosts,
             origin_checks=OriginCheckPlaybook(runner),
             origin_probe=origin_probe,
             site_editor=site_editor,

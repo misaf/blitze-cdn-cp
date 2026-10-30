@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.security.settings import SECRET_VARIABLE, SecurityConfig
 from blitzecdn.core.features import FeatureRendering, Severity, ValidationIssue
 
@@ -16,7 +17,7 @@ def security_rendering(*, config: SecurityConfig) -> FeatureRendering[CdnSite]:
     """Refuse an enabled site asking for Under Attack Mode when no secret is set."""
 
     def checks(site: CdnSite) -> Sequence[ValidationIssue]:
-        if not site.policy.enabled or not site.policy.security.under_attack_mode:
+        if not site.policy.enabled or not site.policy[SecurityPolicy].under_attack_mode:
             return ()
         if config.challenge_available:
             return ()
