@@ -34,7 +34,6 @@ from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import (
     AnsibleContribution,
-    CapabilityConfig,
     CliCommandGroup,
     Feature,
     FeatureMetadata,
@@ -72,14 +71,6 @@ _CAPABILITY_FEATURES = tuple(
 def baseline() -> FeatureRegistry:
     """The capability features this application ships, without edge providers."""
     return FeatureRegistry(load_features(_CAPABILITY_FEATURES))
-
-
-def _capability_config(**values: object) -> SimpleNamespace:
-    """A `ResolvedCapabilityEnvironment` double scoped the way the real one is."""
-    resolved = {"BLITZE_" + name.upper(): value for name, value in values.items()}
-    return SimpleNamespace(
-        for_feature=lambda _name: CapabilityConfig("certificates", {}, resolved)
-    )
 
 
 def site(**overrides: object) -> CdnSite:
@@ -391,6 +382,7 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     assert "firewall.denied_countries" in geoip
     assert "visitor_headers.ip_country" in geoip
     assert "is not installed" in geoip
+    assert "upgrade to a controller that provides it" in geoip
     # The other token the same site asks for is reported separately rather than
     # folded in, so detaching either capability is legible on its own.
     assert any("'security'" in message for message in messages)
@@ -492,16 +484,10 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(baseline):
 
 
 def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
-    config = CertificateConfig.from_capability_config(
-        _capability_config(
-            certbot="certbot",
-            acme_default_email="",
-            acme_ca_domain="letsencrypt.org",
-            certificate_reconcile_interval_seconds=0,
-            certificate_renewal_interval_seconds=0,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=0,
-        ).for_feature("certificates")
+    config = CertificateConfig(
+        reconcile_interval_seconds=0,
+        renewal_interval_seconds=0,
+        scan_interval_seconds=0,
     )
     operations = baseline.bind_operations(
         (

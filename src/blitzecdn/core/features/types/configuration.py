@@ -8,12 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, cast
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, SecretStr
-
-if TYPE_CHECKING:
-    from blitzecdn.core.features.resolution.configuration import CapabilityConfig
 
 __all__ = [
     "CapabilitySetting",
@@ -29,7 +26,7 @@ class ConfigurationModel(BaseModel):
 
     Fields use their existing ``BLITZE_*`` name as an alias. Pydantic owns
     defaults, validation and normalization; declarations remain available to
-    introspection, backup portability checks and older extensions.
+    introspection and backup portability checks.
     """
 
     model_config = ConfigDict(
@@ -84,11 +81,6 @@ class ConfigurationModel(BaseModel):
             settings=tuple(settings),
             model=cls,
         )
-
-    @classmethod
-    def from_capability_config(cls, config: CapabilityConfig) -> Self:
-        """Compatibility for callers already holding a scoped configuration."""
-        return config.as_model(cls)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +164,8 @@ class ConfigurationContribution:
     """
 
     feature: str
+    #: The owning Pydantic model validates every configuration contribution.
+    model: type[ConfigurationModel]
     #: Secrets. Only these are copied into Ansible's subprocess environment,
     #: they remain ``SecretStr`` throughout, and they never travel through argv
     #: or desired state.
@@ -179,6 +173,3 @@ class ConfigurationContribution:
     #: Non-secrets. Resolved to the declared type and handed back through
     #: :class:`~blitzecdn.core.features.resolution.CapabilityConfig`.
     settings: tuple[CapabilitySetting, ...] = ()
-    #: Built-ins validate once through their owning Pydantic model. Extensions
-    #: may continue declaring individual settings and environment keys.
-    model: type[ConfigurationModel] | None = None
