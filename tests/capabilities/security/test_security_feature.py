@@ -50,7 +50,7 @@ def _checks(secret: str):
         Path("/nonexistent"),
     )
     rendering = security_rendering(
-        config=SecurityConfig.from_capability_config(resolved.for_feature("security"))
+        config=resolved.for_feature("security").as_model(SecurityConfig)
     )
     assert rendering.deployment_checks is not None
     checks = rendering.deployment_checks

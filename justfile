@@ -329,11 +329,10 @@ check: lock-check lint types shell-lint test ansible-check docker-lint audit bui
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #
 # Run this only when a change to a *public* surface is intended: the HTTP
-# routes and schemas, the CLI commands, the plugin hooks and contribution
-# types, the published SDK symbols, the Ansible roles and variables, or the
-# database schema. Everything in those files is something outside this
-# repository can bind to — an operator's inventory, a third-party wheel, an API
-# client — and after the first release changing one is a version decision
+# routes and schemas, the CLI commands, the Ansible roles and variables, or
+# the database schema. Everything in those files is something outside this
+# repository can bind to — an operator's inventory or an API client — and
+# after the first release changing one is a version decision
 # rather than a refresh.
 #
 # Deliberately not a `--update` flag on the tests: a flag is one keystroke away
