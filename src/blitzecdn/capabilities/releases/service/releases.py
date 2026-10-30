@@ -26,9 +26,9 @@ from blitzecdn.capabilities.releases.ports import (
 )
 from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.pagination import PageResult
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.ports import UnitOfWork
 

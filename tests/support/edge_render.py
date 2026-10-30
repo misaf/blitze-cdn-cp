@@ -19,11 +19,11 @@ import yaml
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 from blitzecdn.composition import Repository, load_registry
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_nginx_resources
 

@@ -7,9 +7,9 @@ defined.
 import time
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import Repository
+from blitzecdn.core.domain.site import CdnSite
 from support.control_plane import ControlPlane, seed_site
 
 

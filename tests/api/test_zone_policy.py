@@ -9,7 +9,7 @@ from support.control_plane import API_HEADERS, control_plane_app
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():

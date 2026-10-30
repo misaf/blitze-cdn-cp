@@ -19,7 +19,6 @@ import dns.rdatatype
 import dns.resolver
 
 from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
     PreflightCheck,
@@ -27,6 +26,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     PreflightSeverity,
 )
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 
 #: CAA tags we understand. A wildcard order consults ``issuewild``, falling
 #: back to ``issue`` only when the RRset has no ``issuewild`` (RFC 8659).

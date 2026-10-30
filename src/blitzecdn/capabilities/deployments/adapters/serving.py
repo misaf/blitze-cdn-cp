@@ -17,7 +17,8 @@ from typing import Any
 from cryptography import x509
 
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["ServingProbe", "ServingResult"]
 
@@ -87,7 +88,7 @@ class ServingProbe:
 
         Not resolved through DNS, which may not point at this edge yet.
         """
-        scheme = HttpScheme.HTTPS if site.serves_tls else HttpScheme.HTTP
+        scheme = site.policy[TlsPolicy].canonical_visitor_scheme
         port = DEFAULT_PORTS[scheme]
         try:
             connection = self._connection(scheme, address, port, hostname)

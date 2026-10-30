@@ -56,7 +56,7 @@ from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
 
 #: The installed distribution's version, read from metadata.

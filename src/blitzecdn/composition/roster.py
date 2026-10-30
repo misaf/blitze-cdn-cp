@@ -17,8 +17,6 @@ from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERIN
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
@@ -31,6 +29,8 @@ from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.capabilities.traffic.wiring import traffic_operations
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.features import (
     Feature,
     FeatureOperations,
@@ -134,7 +134,7 @@ def _traffic_operations(inputs: OperationInputs) -> FeatureOperations:
 #: order-independent, so reordering rows changes no edge.
 ROSTER: tuple[RosterEntry, ...] = (
     # The capability contracts first: nothing they contribute depends on
-    # another capability being registered, and `dns` composes their policy.
+    # another capability being registered, and core composes their policy.
     RosterEntry(
         "blitzecdn.capabilities.http.feature",
         rendering=lambda _inputs: HTTP_RENDERING,

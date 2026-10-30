@@ -45,7 +45,6 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
@@ -72,6 +71,7 @@ from blitzecdn.core.domain.runs import (
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.features import (
     FeatureRegistry,

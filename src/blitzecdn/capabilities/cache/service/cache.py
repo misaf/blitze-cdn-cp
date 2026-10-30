@@ -19,10 +19,10 @@ from blitzecdn.capabilities.cache.domain import (
 )
 from blitzecdn.capabilities.cache.ports import CacheRunner
 from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.runs import HostRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import EventRecorder
@@ -147,7 +147,7 @@ class CacheService:
             if owner is None:
                 unknown.add(entry.host)
                 continue
-            served = HttpScheme.HTTPS if owner.serves_tls else HttpScheme.HTTP
+            served = owner.policy[TlsPolicy].canonical_visitor_scheme
             if entry.scheme is not served:
                 mismatched.add(
                     f"{entry.scheme.value}://{entry.host}{entry.uri} "

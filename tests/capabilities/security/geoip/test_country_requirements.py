@@ -7,9 +7,9 @@ country settings against the real registry.
 import pytest
 
 from blitzecdn.capabilities.security.geoip.feature import FEATURES
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import load_registry
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 (FEATURE,) = FEATURES
 

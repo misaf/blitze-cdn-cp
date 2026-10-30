@@ -23,17 +23,13 @@ from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
+    HeaderPolicy,
     HttpScheme,
     ProtocolPolicy,
+    SiteVisitorHeaders,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
-from blitzecdn.capabilities.serving.contract import (
-    HeaderPolicy,
-    SitePolicy,
-    SiteVisitorHeaders,
-)
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,
@@ -41,6 +37,8 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
     managed_certificate_paths,
 )
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -144,8 +142,8 @@ def test_new_sites_default_to_ssl_off(site_payload):
     assert (
         site.policy[CachePolicy].cache_query_string_mode is CacheQueryStringMode.INCLUDE
     )
-    assert site.serves_tls is False
-    assert site.canonical_origin_scheme is HttpScheme.HTTP
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
+    assert site.policy[TlsPolicy].canonical_origin_scheme is HttpScheme.HTTP
 
 
 def test_http3_requires_edge_tls(site_payload):
@@ -184,7 +182,7 @@ def test_off_keeps_an_installed_certificate_available(site_payload):
     }
     site = site_from_settings(site_payload)
     assert site.policy[TlsPolicy].certificate_mode == "existing"
-    assert site.serves_tls is False
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
 
 
 #: The whole SSL-mode x visitor-protocol x listener-port matrix. Off has no HTTPS
@@ -301,8 +299,8 @@ def test_the_canonical_endpoint_is_the_one_preflight_probes(
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
     site = site_from_settings(payload)
-    assert site.canonical_visitor_scheme is visitor
-    assert site.canonical_origin_scheme is origin
+    assert site.policy[TlsPolicy].canonical_visitor_scheme is visitor
+    assert site.policy[TlsPolicy].canonical_origin_scheme is origin
 
 
 def _tls_payload(site_payload, mode, **extra):
@@ -321,7 +319,7 @@ def _tls_payload(site_payload, mode, **extra):
 @pytest.mark.parametrize("mode", [SslMode.FLEXIBLE, SslMode.FULL, SslMode.FULL_STRICT])
 def test_always_use_https_redirects_once_the_site_serves_tls(site_payload, mode):
     site = site_from_settings(_tls_payload(site_payload, mode, always_use_https=True))
-    assert site.redirects_http_to_https is True
+    assert site.policy[TlsPolicy].redirects_http_to_https is True
 
 
 def test_always_use_https_is_inert_under_ssl_off(site_payload):
@@ -335,8 +333,8 @@ def test_always_use_https_is_inert_under_ssl_off(site_payload):
 
     assert site.policy[TlsPolicy].ssl_mode is SslMode.OFF
     assert site.policy[TlsPolicy].always_use_https is True
-    assert site.serves_tls is False
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].ssl_mode.serves_tls is False
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
 
 
 def test_turning_tls_on_activates_a_preference_set_while_off(site_payload):
@@ -344,13 +342,16 @@ def test_turning_tls_on_activates_a_preference_set_while_off(site_payload):
     on = site_from_settings(
         _tls_payload(site_payload, SslMode.FULL, always_use_https=True)
     )
-    assert (off.redirects_http_to_https, on.redirects_http_to_https) == (False, True)
+    assert (
+        off.policy[TlsPolicy].redirects_http_to_https,
+        on.policy[TlsPolicy].redirects_http_to_https,
+    ) == (False, True)
 
 
 def test_a_tls_site_without_always_use_https_serves_both_schemes(site_payload):
     site = site_from_settings(_tls_payload(site_payload, SslMode.FULL))
     assert site.policy[TlsPolicy].always_use_https is False
-    assert site.redirects_http_to_https is False
+    assert site.policy[TlsPolicy].redirects_http_to_https is False
 
 
 def test_removed_origin_scheme_is_rejected(site_payload):

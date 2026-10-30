@@ -87,7 +87,7 @@ def test_release_inputs_store_composed_policy_and_refuse_retired_schema(
 
     from blitzecdn.capabilities.dns.domain import Domain
     from blitzecdn.capabilities.releases.domain import ReleaseInputs
-    from blitzecdn.capabilities.serving.contract import SitePolicy
+    from blitzecdn.core.domain.site_policy import SitePolicy
 
     inputs = ReleaseInputs.of(
         [Domain(name="example.com", policy=SitePolicy(cache={"cache_enabled": False}))],

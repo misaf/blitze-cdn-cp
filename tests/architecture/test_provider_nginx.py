@@ -7,8 +7,8 @@ from pathlib import Path
 
 from support.paths import SOURCE
 
+from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.capabilities.security.contract import SecurityPolicy
-from blitzecdn.capabilities.serving.contract import HeaderPolicy
 
 # --- the firewall belongs to the security capability, not to core -----------
 
@@ -105,7 +105,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     `OmittedWhenEmpty`) never pruned.
     """
     from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
     from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
     source = (SOURCE / "capabilities/dns/adapters/ansible.py").read_text(

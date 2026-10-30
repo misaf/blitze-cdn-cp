@@ -10,7 +10,7 @@ from blitzecdn.capabilities.security.settings import SECRET_VARIABLE, SecurityCo
 from blitzecdn.core.features import FeatureRendering, Severity, ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
 
 def security_rendering(*, config: SecurityConfig) -> FeatureRendering[CdnSite]:

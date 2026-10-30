@@ -10,7 +10,7 @@ from support.control_plane import (
     seed_site,
 )
 
-from blitzecdn.capabilities.serving.contract import HeaderPolicy
+from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.entrypoints.cli import main as cli
 
 
