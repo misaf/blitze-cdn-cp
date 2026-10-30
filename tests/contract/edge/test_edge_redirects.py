@@ -13,7 +13,6 @@ from support.edge_render import (
     mode_site,
     render_site,
     rendered_upstreams,
-    role_spec,
     server_blocks,
 )
 from support.paths import REPO_ROOT
@@ -22,6 +21,7 @@ from support.policy import site_from_settings
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
+    TlsPolicy,
 )
 
 REQUIRES_CAPABILITIES = {
@@ -144,7 +144,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, https_blocks = server_blocks(rendered, defaults)
 
-    assert site.policy.tls.always_use_https is True
+    assert site.policy[TlsPolicy].always_use_https is True
     assert site.redirects_http_to_https is False
     assert not https_blocks
     assert "listen 443" not in rendered
@@ -303,9 +303,7 @@ def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     )
     del site["always_use_https"]
 
-    option = role_spec()["blitzecdn_nginx_sites"]["options"]["always_use_https"]
-    assert option["default"] is False
-    assert option.get("required", False) is False
+    assert TlsPolicy.model_fields["always_use_https"].default is False
 
     rendered = render_site(site)
     assert "return 301 https://$host$request_uri;" not in rendered

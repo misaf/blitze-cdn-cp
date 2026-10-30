@@ -28,6 +28,7 @@ from blitzecdn.composition.roster import (
     BUILTIN_FEATURES,
     ROSTER,
     RosterEntry,
+    compose_registry,
     load_registry,
 )
 from blitzecdn.composition.services import ServiceProvider
@@ -47,6 +48,7 @@ __all__ = [
     "WorkerProvider",
     "api_container",
     "cli_container",
+    "compose_registry",
     "handoff_container",
     "load_registry",
     "migrate_database",

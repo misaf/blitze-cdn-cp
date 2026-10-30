@@ -7,12 +7,15 @@ from pydantic import ValidationError
 from support.control_plane import FakeRunner, build_application, seed_record, seed_site
 from support.policy import TEST_CERTIFICATE_VERSION
 
+from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy, Rule
 from blitzecdn.capabilities.dns.service import HostService
+from blitzecdn.capabilities.tls.certificates.service import SiteEditing
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,
+    TlsPolicy,
 )
 from blitzecdn.core.exceptions import NotFoundError
 
@@ -28,13 +31,13 @@ def control(settings):
 
 def test_host_reads_follow_canonical_edits(control):
     assert isinstance(control.sites, HostService)
-    assert control.sites is control.site_editor
+    assert control.sites is control.hosts
     assert not hasattr(control.dns, "list_sites")
     site = seed_site(control)
     control.dns.update_domain(
         "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
     )
-    assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
+    assert control.sites.get_site(site.name).policy[CachePolicy].cache_enabled is False
     control.dns.delete_domain("example.com", "alice")
     assert control.sites.list_sites() == []
     with pytest.raises(NotFoundError):
@@ -96,8 +99,8 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
     updated = control.site_editor.activate_managed_certificate(
         target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
     )
-    assert updated.policy.tls.certificate_mode is CertificateMode.REQUESTED
-    assert updated.policy.tls.certificate_path.endswith(
+    assert updated.policy[TlsPolicy].certificate_mode is CertificateMode.REQUESTED
+    assert updated.policy[TlsPolicy].certificate_path.endswith(
         f"/{target.name}/fullchain-{TEST_CERTIFICATE_VERSION.certificate_digest}.pem"
     )
     if rule_owned:
@@ -108,7 +111,7 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
         )
     else:
         assert (
-            control.dns.get_domain("example.com").policy.tls.certificate_mode
+            control.dns.get_domain("example.com").policy[TlsPolicy].certificate_mode
             is CertificateMode.REQUESTED
         )
 
@@ -122,7 +125,7 @@ def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
     updated = control.site_editor.apply_automatic_ssl_upgrade(
         target.name, SslMode.FULL, "scheduler"
     )
-    assert updated.policy.tls.ssl_mode is SslMode.FULL
+    assert updated.policy[TlsPolicy].ssl_mode is SslMode.FULL
     assert control.sites.get_site(original.name) == original
     assert (
         control.site_editor.apply_automatic_ssl_upgrade(
@@ -146,7 +149,7 @@ def _bypass_the_editor(control, **changes):
         zone.model_copy(
             update={
                 "policy": zone.policy.model_copy(
-                    update={"tls": zone.policy.tls.model_copy(update=changes)}
+                    update={"tls": zone.policy[TlsPolicy].model_copy(update=changes)}
                 )
             }
         )
@@ -249,7 +252,7 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
         site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
     )
     site = control.sites.get_site(site.name)
-    assert site.policy.tls.ssl_automatic_mode is not SslAutomaticMode.CUSTOM
+    assert site.policy[TlsPolicy].ssl_automatic_mode is not SslAutomaticMode.CUSTOM
 
     def opt_out():
         zone = control.dns.get_domain("example.com")
@@ -262,16 +265,18 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
             )
         )
 
-    editor = HostService(
-        zones=control.dns.zones,
-        rules=control.rules.rules,
-        events=control.events,
-        uow=_InterferingUnitOfWork(control.transactions, opt_out),
+    editor = SiteEditing(
+        writer=HostService(
+            zones=control.dns.zones,
+            rules=control.rules.rules,
+            events=control.events,
+            uow=_InterferingUnitOfWork(control.transactions, opt_out),
+        )
     )
     assert editor.apply_automatic_ssl_upgrade(site.name, SslMode.FULL, "scan") is None
     assert (
-        control.sites.get_site(site.name).policy.tls.ssl_mode
-        is site.policy.tls.ssl_mode
+        control.sites.get_site(site.name).policy[TlsPolicy].ssl_mode
+        is site.policy[TlsPolicy].ssl_mode
     )
 
 
@@ -283,7 +288,7 @@ def test_rule_writeback_validates_what_it_stores(control):
     """
     site = seed_site(control, name="rule-host", record="api")
     with pytest.raises(ValidationError):
-        control.site_editor._apply_to_source(site, {"certificate_mode": "nonsense"})
+        control.hosts._apply_to_source(site, {"certificate_mode": "nonsense"})
     assert (
         "certificate_mode" not in control.rules.get_rule("example.com", "api").overrides
     )

@@ -17,6 +17,7 @@ from typing import Any
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.config import Settings
 
 
@@ -43,8 +44,8 @@ class OriginProbe:
             "name": site.name,
             "origin_host": site.origin_host,
             "origin_port": DEFAULT_PORTS[site.canonical_origin_scheme],
-            "ssl_mode": site.policy.tls.ssl_mode.value,
-            "origin_tls_verify": site.policy.tls.ssl_mode.verifies_origin,
+            "ssl_mode": site.policy[TlsPolicy].ssl_mode.value,
+            "origin_tls_verify": site.policy[TlsPolicy].ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
         }
 
@@ -59,7 +60,7 @@ class OriginProbe:
             site=site.name,
             origin=f"{site.origin_host}:{port}",
             scheme=scheme,
-            ssl_mode=site.policy.tls.ssl_mode,
+            ssl_mode=site.policy[TlsPolicy].ssl_mode,
             sni=sni if scheme is HttpScheme.HTTPS else None,
         )
 
@@ -107,7 +108,7 @@ class OriginProbe:
                 connection,
                 sni,
                 timeout,
-                verify=site.policy.tls.ssl_mode.verifies_origin,
+                verify=site.policy[TlsPolicy].ssl_mode.verifies_origin,
             )
         finally:
             with suppress(OSError):

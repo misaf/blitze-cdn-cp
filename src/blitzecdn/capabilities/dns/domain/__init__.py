@@ -4,9 +4,8 @@ Shared serving policy lives in `serving`, so compilation and execution consume
 it without importing DNS lifecycle concerns.
 """
 
+from blitzecdn.capabilities.dns.domain.changes import SiteChange
 from blitzecdn.capabilities.dns.domain.commands import (
-    EditFirewall,
-    EditVisitorHeaders,
     PatchPolicy,
     PolicyCommand,
 )
@@ -43,8 +42,6 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
-    "EditFirewall",
-    "EditVisitorHeaders",
     "PatchPolicy",
     "PolicyCommand",
     "PublicationMode",
@@ -53,6 +50,7 @@ __all__ = [
     "ResolvedPolicy",
     "Rule",
     "RulePatch",
+    "SiteChange",
     "UnservableHost",
     "derive_hosts",
     "merge_overrides",

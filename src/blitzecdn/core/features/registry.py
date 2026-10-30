@@ -31,6 +31,7 @@ from blitzecdn.core.features.types import (
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
+    PolicyContribution,
     ScheduledJob,
     Site,
     SiteStateContribution,
@@ -146,6 +147,14 @@ class FeatureRegistry:
     def nginx_contributions(self) -> tuple[NginxContribution, ...]:
         """Every feature's static Nginx resources."""
         return tuple(item for feature in self.features for item in feature.nginx)
+
+    def policy_contributions(self) -> tuple[PolicyContribution, ...]:
+        """Every feature's site-policy contracts, in registration order.
+
+        Ownership and dependencies are decided in
+        :mod:`blitzecdn.core.features.resolution`.
+        """
+        return tuple(item for feature in self.features for item in feature.site_policy)
 
     # --- binding -----------------------------------------------------------
 

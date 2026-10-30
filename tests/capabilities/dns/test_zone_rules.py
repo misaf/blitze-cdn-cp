@@ -8,7 +8,11 @@ import pytest
 from support.control_plane import FakeRunner, build_application, seed_site
 from support.policy import TEST_CERTIFICATE_VERSION
 
-from blitzecdn.capabilities.compression.contract import CompressionMode
+from blitzecdn.capabilities.cache.contract import CachePolicy
+from blitzecdn.capabilities.compression.contract import (
+    CompressionMode,
+    CompressionPolicy,
+)
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
@@ -19,7 +23,7 @@ from blitzecdn.capabilities.dns.domain import (
 )
 from blitzecdn.capabilities.dns.service import DnsService, RuleService
 from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
+from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode, TlsPolicy
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
@@ -39,8 +43,8 @@ def test_a_zone_is_delegable_before_anything_is_served_from_it():
     Each proxied hostname names its own origin on its record.
     """
     zone = Domain(name="example.com")
-    assert zone.policy.cache.cache_enabled
-    assert not zone.policy.tls.ssl_mode.serves_tls
+    assert zone.policy[CachePolicy].cache_enabled
+    assert not zone.policy[TlsPolicy].ssl_mode.serves_tls
 
 
 def test_a_zone_refuses_what_a_site_refused(settings):
@@ -69,8 +73,8 @@ def test_the_zone_policy_is_stored_and_read_back_whole(settings):
     )
 
     stored = repository.zones.get_domain("example.com")
-    assert stored.policy.cache.cache_valid_success == "1h"
-    assert stored.policy.compression.compression.value == "gzip"
+    assert stored.policy[CachePolicy].cache_valid_success == "1h"
+    assert stored.policy[CompressionPolicy].compression.value == "gzip"
 
 
 def test_a_zone_patch_merges_rather_than_replaces(settings):
@@ -91,8 +95,8 @@ def test_a_zone_patch_merges_rather_than_replaces(settings):
         "tester",
     )
 
-    assert not updated.policy.cache.cache_enabled
-    assert updated.policy.cache.cache_valid_success == "1h"
+    assert not updated.policy[CachePolicy].cache_enabled
+    assert updated.policy[CachePolicy].cache_valid_success == "1h"
 
 
 def test_a_zone_patch_that_would_break_a_pair_is_refused(settings):
@@ -152,7 +156,7 @@ def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
         ),
         "tester",
     )
-    assert zone.policy.tls.certificate_mode is CertificateMode.EXISTING
+    assert zone.policy[TlsPolicy].certificate_mode is CertificateMode.EXISTING
 
 
 # -- A rule is an override, not a policy -----------------------------------
@@ -183,7 +187,7 @@ def test_a_rule_cannot_claim_a_controller_managed_certificate(settings):
 def test_a_rule_the_issuer_wrote_still_reads_back(settings):
     """A rule the issuer wrote still reads back.
 
-    `HostService.activate_managed_certificate` records an issued certificate as a
+    `SiteEditing.activate_managed_certificate` records an issued certificate as a
     rule override, so the store legitimately holds that mode.
     """
     repository = Repository(settings.database_path)
@@ -288,7 +292,7 @@ def test_a_hostname_with_no_rule_is_served_by_its_zone():
     )
     resolved = resolve_policy(zone, [], "www.example.com")
     assert resolved.rule is None
-    assert resolved.policy.policy.cache.cache_valid_success == "1h"
+    assert resolved.policy.policy[CachePolicy].cache_valid_success == "1h"
 
 
 def test_the_first_matching_rule_wins_and_the_rest_are_not_merged():
@@ -320,10 +324,10 @@ def test_the_first_matching_rule_wins_and_the_rest_are_not_merged():
     resolved = resolve_policy(zone, rules, "api.example.com")
 
     assert resolved.rule == "narrow"
-    assert not resolved.policy.policy.cache.cache_enabled
+    assert not resolved.policy.policy[CachePolicy].cache_enabled
     # `wide` matched too and did not apply: its 1h is absent, and the zone's
     # own value is what stands.
-    assert resolved.policy.policy.cache.cache_valid_success == "10m"
+    assert resolved.policy.policy[CachePolicy].cache_valid_success == "10m"
 
 
 def test_resolution_does_not_depend_on_the_order_it_is_handed():
@@ -676,8 +680,8 @@ def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
     )
 
     zone = control.dns.get_domain("example.com")
-    assert zone.policy.compression.compression is CompressionMode.GZIP
-    assert zone.policy.cache.cache_enabled is False
+    assert zone.policy[CompressionPolicy].compression is CompressionMode.GZIP
+    assert zone.policy[CachePolicy].cache_enabled is False
 
 
 def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settings):
