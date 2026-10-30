@@ -7,11 +7,11 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: security settings, so they ship with the capability that owns them.

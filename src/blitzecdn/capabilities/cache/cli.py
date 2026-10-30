@@ -10,11 +10,11 @@ import typer
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import CacheStatsReport, PurgeEntry
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses from the edges."
