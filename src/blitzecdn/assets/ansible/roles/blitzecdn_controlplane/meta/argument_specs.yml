@@ -6,7 +6,7 @@ argument_specs:
       - >-
         Owns every piece of Linux state a standalone installation needs. The
         deployment account, explicit container-state ownership, the sudo rule,
-        loopback SSH trust, CLI wrapper, configuration, and Docker Compose
+        loopback SSH trust, CLI wrapper, installer, configuration, and Docker Compose
         project.
       - >-
         Runs from the standalone installer, inside the control-plane image,
@@ -31,6 +31,12 @@ argument_specs:
       blitzecdn_controlplane_systemd_dir: {type: path, required: true}
       blitzecdn_controlplane_deploy_user: {type: str, required: true}
       blitzecdn_controlplane_cli_wrapper: {type: path, required: true}
+      blitzecdn_controlplane_installer:
+        type: path
+        required: true
+        description: >-
+          Where the image's own install.sh is installed on the host, so later
+          updates and the uninstall run the installed release's installer.
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}
       blitzecdn_controlplane_compose_file: {type: path, required: true}
       blitzecdn_controlplane_compose_project: {type: str, required: true}

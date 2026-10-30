@@ -69,12 +69,12 @@ _STRATEGIES_OWNED_BY_A_CAPABILITY = {
     "http2": "http",
     "http3": "http",
     "letsencrypt": "tls",
-    "origin": "sites",
+    "origin": "origins",
     "protocols": "http",
     "quic": "http",
     "ssl": "tls",
     "under_attack": "security",
-    "visitor_headers": "sites",
+    "visitor_headers": "http",
 }
 
 
@@ -176,8 +176,7 @@ def test_cross_capability_imports_use_contract_modules():
                 continue
             # HTTP representation reuse belongs to delivery. Concrete
             # runtime implementations are wired only in the composition root.
-            # And a command editing a zone's policy changes it through dns.
-            published = parts[1:] in (["api", "models"], ["cli", "editing"])
+            published = parts[1:] == ["api", "models"]
             if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES and not (
                 published and _is_entry(path)
             ):
@@ -376,16 +375,16 @@ def test_domain_models_do_not_render_adapter_documents():
 #: Which capability may know that another exists, enforced both ways: an
 #: undeclared edge fails, and so does a declared edge nothing uses.
 #:
-#: DNS owns zones, records, rules and their projection; shared serving values
-#: belong to serving. A capability whose contract a zone carries depends on dns
-#: for its `blitzecdn domain` commands.
+#: DNS owns zones, records, rules and their projection. Shared site identity
+#: and policy belong to core. A capability whose contract a zone carries depends
+#: on dns for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     "traffic": set(),
     "backup": set(),
-    "origins": {"edges", "jobs", "serving"},
-    "cache": {"dns", "jobs", "serving"},
+    "origins": {"edges", "jobs"},
+    "cache": {"dns", "jobs"},
     "compression": {"dns"},
-    "deployments": {"dns", "edges", "releases", "serving", "workflows"},
+    "deployments": {"dns", "edges", "releases", "workflows"},
     # Readiness and metrics read the state these own.
     # `backup` for the last-backup record the status report and metrics carry.
     "diagnostics": {
@@ -397,16 +396,15 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
         "tls",
         "workflows",
     },
-    "dns": {"serving"},
-    "edges": {"jobs", "serving"},
+    "dns": set(),
+    "edges": {"jobs"},
     "hardening": set(),
-    "http": {"dns", "serving"},
+    "http": {"dns"},
     "jobs": set(),
     "maintenance": {"deployments"},
-    "releases": {"dns", "edges", "serving"},
+    "releases": {"dns", "edges"},
     "resolver": set(),
-    "security": {"dns", "serving"},
-    "serving": set(),
+    "security": {"dns"},
     # `releases` because certificate collection keeps every version a retained
     # release still names.
     "tls": {
@@ -415,29 +413,27 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
         "edges",
         "origins",
         "releases",
-        "serving",
         "workflows",
     },
     "workflows": set(),
 }
 
-# Policy composition is independent of implementation dependencies: serving
-# composes the individual contracts and dns consumes it.
+# Policy composition is independent of implementation dependencies: core
+# composes contributed contracts without naming their capabilities.
 ALLOWED_CONTRACT_DEPENDENCIES = {
     "traffic": set(),
     "backup": set(),
     "origins": set(),
-    "cache": {"http"},
+    "cache": {"http", "tls"},
     "compression": set(),
-    "deployments": {"http"},
+    "deployments": {"http", "tls"},
     "diagnostics": set(),
-    "dns": {"cache", "compression", "http", "security", "serving", "tls"},
-    "edges": {"http", "tls"},
+    "dns": {"origins", "tls"},
+    "edges": {"http", "origins", "tls"},
     "http": set(),
     "maintenance": set(),
-    "releases": {"serving"},
+    "releases": set(),
     "security": set(),
-    "serving": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
     "workflows": set(),
 }

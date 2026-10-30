@@ -13,11 +13,11 @@ from support.control_plane import (
 )
 
 from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.dns.api.models import CdnSite as CdnSiteModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
-from blitzecdn.capabilities.dns.api.models import ZonePolicy as ZonePolicyModel
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.composition import Repository
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
@@ -50,12 +50,14 @@ def _zone(client, **policy):
 def test_the_api_carries_every_policy_field_the_domain_has():
     """A setting an operator can set but never see would fail nowhere else.
 
-    A field added to `SitePolicy` is expected here and in the patch body.
+    A contributed setting is expected on a host and in the patch body.
     """
-    missing = set(SitePolicy.setting_fields()) - set(ZonePolicyModel.model_fields)
+    published = set(CdnSiteModel.composed().model_fields)
+    missing = set(SitePolicy.setting_fields()) - published
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = set(SitePolicy.setting_fields()) - set(DomainPatchModel.model_fields)
+    patchable = set(DomainPatchModel.composed().model_fields)
+    unpatchable = set(SitePolicy.setting_fields()) - patchable
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 

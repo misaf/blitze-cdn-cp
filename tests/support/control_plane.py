@@ -45,9 +45,9 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.composition import (
@@ -71,6 +71,7 @@ from blitzecdn.core.domain.runs import (
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.features import (
     FeatureRegistry,
@@ -798,7 +799,7 @@ class ControlPlane:
     job_scheduler = _Resolved(JobScheduler)
     job_runner = _Resolved(JobRunner)
     dns = _Resolved(DnsService)
-    site_editor = _Resolved(HostService)
+    hosts = _Resolved(HostService)
     rules = _Resolved(RuleService)
     rendering = _Resolved(Rendering[CdnSite])
     releases = _Resolved(ReleaseService)
@@ -822,6 +823,10 @@ class ControlPlane:
     @property
     def sites(self) -> SiteReader:
         return cast(SiteReader, self.container.get(SiteReader))
+
+    @property
+    def site_editor(self) -> SiteEditor:
+        return cast(SiteEditor, self.container.get(SiteEditor))
 
     @property
     def audit(self) -> AuditTrail:

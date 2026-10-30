@@ -19,12 +19,12 @@ failure-threshold: warning
 ignored:
   # Pin versions in apt-get install.
   #
-  # Deliberate, and not laziness. The four packages are `ca-certificates`,
-  # `certbot`, `git` and `openssh-client` from Debian bookworm, whose point
-  # release is what actually decides those versions — the base image tag is
-  # the pin. Naming versions here would break the build on every security
-  # update Debian ships and pin nothing that `python:3.13-slim-bookworm` has
-  # not already pinned.
+  # The four packages are `ca-certificates`, `certbot`, `git` and
+  # `openssh-client` from Debian trixie. Resolve them from the current apt
+  # repositories so rebuilds receive security updates without requiring
+  # package-version edits. The Python image digest pins the base filesystem;
+  # it does not pin packages installed by the subsequent apt-get update.
+  # These builds therefore do not promise identical apt packages over time.
   - DL3008
   # Pin versions in apk add.
   #

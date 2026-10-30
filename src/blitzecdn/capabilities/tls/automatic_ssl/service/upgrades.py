@@ -9,7 +9,6 @@ from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.edges.ports import OriginProbe
 from blitzecdn.capabilities.origins.domain import OriginReport, edge_origins
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
@@ -17,7 +16,9 @@ from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,
+    TlsPolicy,
 )
+from blitzecdn.core.domain.site import CdnSite
 
 
 class AutomaticSslService:
@@ -48,9 +49,9 @@ class AutomaticSslService:
             site
             for site in self.sites.list_sites()
             if site.policy.enabled
-            and site.policy.tls.ssl_automatic_mode is SslAutomaticMode.AUTO
-            and site.policy.tls.certificate_mode is not CertificateMode.DISABLED
-            and site.policy.tls.ssl_mode is not SslMode.FULL_STRICT
+            and site.policy[TlsPolicy].ssl_automatic_mode is SslAutomaticMode.AUTO
+            and site.policy[TlsPolicy].certificate_mode is not CertificateMode.DISABLED
+            and site.policy[TlsPolicy].ssl_mode is not SslMode.FULL_STRICT
         ]
         scanned = tuple(site.name for site in candidates)
         if not candidates:
@@ -82,7 +83,7 @@ class AutomaticSslService:
         strict_checks = _checks_by_site(strict)
         for site in candidates:
             recommendation, reason = _recommend(
-                site.policy.tls.ssl_mode,
+                site.policy[TlsPolicy].ssl_mode,
                 current_checks.get(site.name, {}),
                 strict_checks.get(site.name, {}),
             )
@@ -95,7 +96,7 @@ class AutomaticSslService:
             if applied is None:
                 skipped[site.name] = "policy changed while the scan was running"
                 continue
-            upgraded[site.name] = applied.policy.tls.ssl_mode
+            upgraded[site.name] = applied.policy[TlsPolicy].ssl_mode
 
         deployment = self.deployments.deploy(operator) if upgraded else None
         return SslAutomaticReconciliation(

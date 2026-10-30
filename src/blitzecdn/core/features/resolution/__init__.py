@@ -1,9 +1,9 @@
 """Fold what the features contribute into the process-wide values core owns.
 
 A role name resolves against one search path, a play slot runs one ordered
-list, an edge loads one `load_module` list, a fragment name and a `BLITZE_*`
-variable each have one owner — none of these can belong to a single
-capability, so core composes them, one module per kind.
+list, an edge loads one `load_module` list, a fragment name, a `BLITZE_*`
+variable and a site-policy setting each have one owner — none of these can
+belong to a single capability, so core composes them, one module per kind.
 
 The rules are shared. Contributions are ordered by feature name, never by
 registration order, so the same features always resolve the same value. A
@@ -33,18 +33,26 @@ from blitzecdn.core.features.resolution.nginx import (
     ResolvedNginxResource,
     resolve_nginx_resources,
 )
+from blitzecdn.core.features.resolution.policy import (
+    RESERVED_POLICY_NAMES,
+    ResolvedPolicySchema,
+    resolve_policy_schema,
+)
 
 __all__ = [
+    "RESERVED_POLICY_NAMES",
     "CapabilityConfig",
     "ResolvedCapabilityEnvironment",
     "ResolvedEdgeModule",
     "ResolvedNginxResource",
+    "ResolvedPolicySchema",
     "resolve_capability_environment",
     "resolve_edge_capability_roles",
     "resolve_edge_modules",
     "resolve_feature_configuration",
     "resolve_host_capability_roles",
     "resolve_nginx_resources",
+    "resolve_policy_schema",
     "resolve_role_search_path",
     "resolve_teardown_capability_roles",
 ]

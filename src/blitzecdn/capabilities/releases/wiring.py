@@ -14,7 +14,7 @@ from blitzecdn.capabilities.releases.ports import (
     StateContributors,
 )
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.validation import matches_edge_limit
 from blitzecdn.core.features import Severity, ValidationIssue
 from blitzecdn.core.ports import UnitOfWork

@@ -57,26 +57,14 @@ lock:
 lock-check:
     uv lock --check
 
-# Repin the uv that install.sh downloads, refreshing its checksums together.
+# Copy the blitzecdn_docker role's packages, apt source and daemon.json into
+# install.sh's generated block.
 #
-# The version and the hashes have to move as one. Bumping the version alone
-# leaves install.sh comparing a new download against an old hash and refusing
-# to run, which looks exactly like the tampering the check exists to catch.
-uv-pin version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-                  x86_64-apple-darwin aarch64-apple-darwin; do
-        sum=$(curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/astral-sh/uv/releases/download/{{version}}/uv-${triple}.tar.gz.sha256" \
-            | awk '{print $1}')
-        [[ -n "${sum}" ]] || { echo "no checksum for ${triple}" >&2; exit 1; }
-        name="UV_SHA256_${triple//-/_}"
-        sed -i.bak -E "s|^${name}=.*|${name}=\"${sum}\"|" install.sh
-    done
-    sed -i.bak -E 's|^UV_VERSION=.*|UV_VERSION="{{version}}"|' install.sh
-    rm -f install.sh.bak
-    echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
+# The installer is downloaded on its own and has to install Docker before the
+# image that runs the role exists, so it carries a copy. Edit the role, then run
+# this; the suite fails while the copy is stale.
+installer-sync:
+    uv run python tests/installer_sync.py
 
 # Move the application version, both edge image pins and the control-plane
 # image pin together. Publishing the corresponding images remains an explicit
@@ -114,6 +102,11 @@ release-version version:
         ),
         "src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml": (
             r"(?m)^(blitzecdn_controlplane_image: .*blitzecdn-control-plane):\S+$",
+            r"\1:%s" % version,
+        ),
+        # The release a downloaded install.sh installs.
+        "install.sh": (
+            r"(?m)^(readonly CONTROL_PLANE_IMAGE=.*blitzecdn-control-plane):\S+$",
             r"\1:%s" % version,
         ),
     }
@@ -336,11 +329,10 @@ check: lock-check lint types shell-lint test ansible-check docker-lint audit bui
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #
 # Run this only when a change to a *public* surface is intended: the HTTP
-# routes and schemas, the CLI commands, the plugin hooks and contribution
-# types, the published SDK symbols, the Ansible roles and variables, or the
-# database schema. Everything in those files is something outside this
-# repository can bind to — an operator's inventory, a third-party wheel, an API
-# client — and after the first release changing one is a version decision
+# routes and schemas, the CLI commands, the Ansible roles and variables, or
+# the database schema. Everything in those files is something outside this
+# repository can bind to — an operator's inventory or an API client — and
+# after the first release changing one is a version decision
 # rather than a refresh.
 #
 # Deliberately not a `--update` flag on the tests: a flag is one keystroke away
@@ -368,7 +360,7 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests ansible -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # Build and install the single wheel in a fresh environment outside the checkout.
 test-installation *args:

@@ -6,14 +6,13 @@ exposes every domain field.
 
 from __future__ import annotations
 
+from copy import copy
 from enum import StrEnum
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast, get_args
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.dns.adapters.documents import serving_document
+from blitzecdn.capabilities.dns import serving_document
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
 from blitzecdn.capabilities.dns.domain import DomainPatch as DomainDomainPatch
@@ -22,61 +21,45 @@ from blitzecdn.capabilities.dns.domain import RecordType as DomainRecordType
 from blitzecdn.capabilities.dns.domain import ResolvedPolicy as DomainResolvedPolicy
 from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
-from blitzecdn.capabilities.http.contract import MaxUploadSize
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
-from blitzecdn.capabilities.tls.contract import (
-    CertificateMode,
-    MinimumTlsVersion,
-    SslAutomaticMode,
-    SslMode,
-)
+from blitzecdn.capabilities.dns.domain.patch import setting_annotation
+from blitzecdn.core.domain.composed import ComposedModel
+from blitzecdn.core.domain.site import CdnSite as DomainCdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.entrypoints.api.models import Model
 from blitzecdn.entrypoints.api.requests import PatchValue
 
 
-class ZoneFirewall(Model):
-    allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_methods: tuple[str, ...] = Field(default=(), max_length=20)
-    denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
+def _policy_fields() -> dict[str, tuple[Any, Any]]:
+    """The zone's settings as the API publishes them: their own defaults."""
+    return {
+        name: (field.annotation, copy(field))
+        for name, field in SitePolicy.setting_fields().items()
+    }
 
 
-class ZoneVisitorHeaders(Model):
-    """The ``BZ-*`` headers the edge writes on the request to the origin."""
-
-    connecting_ip: bool = True
-    ip_country: bool = False
-
-
-class ZonePolicy(Model):
-    """How every hostname in a zone is served, unless a rule says otherwise."""
-
-    ssl_mode: SslMode = SslMode.OFF
-    ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
-    minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
-    http3_enabled: bool = False
-    max_upload_size: MaxUploadSize = MaxUploadSize.SMALL
-    always_use_https: bool = False
-    under_attack_mode: bool = False
-    origin_request_host: str | None = None
-    origin_sni: str | None = None
-    enabled: bool = True
-    certificate_mode: CertificateMode = CertificateMode.DISABLED
-    certificate_path: str | None = None
-    certificate_key_path: str | None = None
-    cache_enabled: bool = True
-    cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
-    cache_valid_success: str = "10m"
-    cache_valid_not_found: str = "1m"
-    compression: CompressionMode = CompressionMode.BROTLI
-    firewall: ZoneFirewall = Field(default_factory=ZoneFirewall)
-    visitor_headers: ZoneVisitorHeaders = Field(default_factory=ZoneVisitorHeaders)
+def _patch_fields() -> dict[str, tuple[Any, Any]]:
+    """Every setting optional. Null clears a nullable one and is refused otherwise."""
+    fields: dict[str, tuple[Any, Any]] = {}
+    for name, field in SitePolicy.setting_fields().items():
+        bare = field.annotation
+        block = isinstance(bare, type) and issubclass(bare, BaseModel)
+        description = (
+            "Omit to keep the current block. A supplied object replaces all of "
+            "it, omitted fields taking their defaults, so {} restores every "
+            "default. Null is invalid."
+            if block
+            else field.description
+        )
+        nullable = type(None) in get_args(bare)
+        kind = setting_annotation(field)
+        fields[name] = (
+            kind if nullable else cast(Any, PatchValue)[kind],
+            Field(default=None, description=description),
+        )
+    return fields
 
 
-class Domain(ZonePolicy):
+class Domain(Model, ComposedModel):
     """A delegated zone and its serving policy.
 
     On creation, omitted policy fields use the documented defaults. Records
@@ -84,6 +67,14 @@ class Domain(ZonePolicy):
     """
 
     name: str
+
+    @classmethod
+    def composition_source(cls) -> object:
+        return SitePolicy.policy_schema()
+
+    @classmethod
+    def compose(cls, source: Any) -> type[Self]:
+        return cls.compose_fields(_policy_fields())
 
     @model_validator(mode="after")
     def valid_domain(self) -> Self:
@@ -101,7 +92,7 @@ class Domain(ZonePolicy):
         return cls.model_validate(serving_document(value))
 
 
-class DomainPatch(Model):
+class DomainPatch(Model, ComposedModel):
     """Omitted fields stay unchanged; null is not a request to restore a default.
 
     Null clears nullable fields such as origin_sni; other fields reject null.
@@ -109,38 +100,13 @@ class DomainPatch(Model):
     for omitted nested fields.
     """
 
-    ssl_mode: PatchValue[SslMode] = None
-    ssl_automatic_mode: PatchValue[SslAutomaticMode] = None
-    minimum_tls_version: PatchValue[MinimumTlsVersion] = None
-    http3_enabled: PatchValue[bool] = None
-    max_upload_size: PatchValue[MaxUploadSize] = None
-    always_use_https: PatchValue[bool] = None
-    under_attack_mode: PatchValue[bool] = None
-    origin_request_host: str | None = None
-    origin_sni: str | None = None
-    enabled: PatchValue[bool] = None
-    certificate_mode: PatchValue[CertificateMode] = None
-    certificate_path: str | None = None
-    certificate_key_path: str | None = None
-    cache_enabled: PatchValue[bool] = None
-    cache_query_string_mode: PatchValue[CacheQueryStringMode] = None
-    cache_valid_success: PatchValue[str] = None
-    cache_valid_not_found: PatchValue[str] = None
-    compression: PatchValue[CompressionMode] = None
-    firewall: PatchValue[ZoneFirewall] = Field(
-        default=None,
-        description=(
-            "Omit to preserve all rules. A supplied object replaces every list; "
-            "{} clears all rules. Null is invalid."
-        ),
-    )
-    visitor_headers: PatchValue[ZoneVisitorHeaders] = Field(
-        default=None,
-        description=(
-            "Omit to preserve both switches. A supplied object replaces both; "
-            "{} restores their defaults. Null is invalid."
-        ),
-    )
+    @classmethod
+    def composition_source(cls) -> object:
+        return SitePolicy.policy_schema()
+
+    @classmethod
+    def compose(cls, source: Any) -> type[Self]:
+        return cls.compose_fields(_patch_fields())
 
     def to_domain(self) -> DomainDomainPatch:
         return DomainDomainPatch.model_validate(self.model_dump(exclude_unset=True))
@@ -209,12 +175,20 @@ class RecordPatch(Model):
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class CdnSite(ZonePolicy):
+class CdnSite(Model, ComposedModel):
     """One virtual host: a derived ``name`` and the hostnames resolving to it."""
 
     name: str
     server_names: tuple[str, ...]
     origin_host: str
+
+    @classmethod
+    def composition_source(cls) -> object:
+        return SitePolicy.policy_schema()
+
+    @classmethod
+    def compose(cls, source: Any) -> type[Self]:
+        return cls.compose_fields(_policy_fields())
 
     @classmethod
     def from_domain(cls, value: DomainCdnSite) -> Self:
@@ -310,7 +284,4 @@ __all__ = [
     "Rule",
     "RuleCreate",
     "RulePatch",
-    "ZoneFirewall",
-    "ZonePolicy",
-    "ZoneVisitorHeaders",
 ]

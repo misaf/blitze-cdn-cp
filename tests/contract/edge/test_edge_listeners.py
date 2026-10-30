@@ -6,18 +6,18 @@ from typing import Any
 
 import yaml
 from support.contracts import (
-    _role_defaults,
+    role_defaults,
 )
 from support.control_plane import build_application
 from support.edge_render import (
-    _contract,
-    _defaults_of,
-    _mode_site,
-    _nginx_environment,
-    _nginx_resources,
-    _render,
-    _role,
-    _seed_site,
+    defaults_of,
+    mode_site,
+    nginx_environment,
+    nginx_resources,
+    render_site,
+    role_path,
+    runtime_contract,
+    seed_site,
 )
 from support.policy import site_from_settings
 
@@ -51,22 +51,22 @@ def test_public_ports_match_cloudflare_and_the_firewall():
     http_ports = [80, 8080, 8880, 2052, 2082, 2086, 2095]
     https_ports = [443, 2053, 2083, 2087, 2096, 8443]
 
-    assert _contract("listeners", "http") == http_ports
-    assert _contract("listeners", "https") == https_ports
-    assert _contract("listeners", "http3") is False
+    assert runtime_contract("listeners", "http") == http_ports
+    assert runtime_contract("listeners", "https") == https_ports
+    assert runtime_contract("listeners", "http3") is False
     # The domain holds the second copy, because Flexible's origin scheme depends on
     # which set a listener belongs to.
     assert list(HTTP_PROXY_PORTS) == http_ports
     assert list(HTTPS_PROXY_PORTS) == https_ports
-    firewall = _defaults_of(_role("blitzecdn_firewall"))
+    firewall = defaults_of(role_path("blitzecdn_firewall"))
     assert "blitzecdn_firewall_http_ports" not in firewall
     assert "blitzecdn_firewall_http3_enabled" not in firewall
 
 
 def test_default_server_claims_every_public_listener():
     """Unknown hostnames must not fall through to a customer site on any port."""
-    environment = _nginx_environment()
-    defaults = _role_defaults()
+    environment = nginx_environment()
+    defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     rendered = environment.get_template("default.conf.j2").render(**defaults)
 
@@ -97,7 +97,7 @@ def _http3_site(name: str = "quic") -> dict[str, Any]:
 
 
 def test_http3_is_additive_and_limited_to_udp_443():
-    rendered = _render(_http3_site())
+    rendered = render_site(_http3_site())
 
     assert "listen 443 ssl;" in rendered
     assert "http2 on;" in rendered
@@ -110,7 +110,7 @@ def test_http3_is_additive_and_limited_to_udp_443():
 
 
 def test_http3_alt_svc_is_in_the_proxy_location_header_set():
-    rendered = _render(_http3_site())
+    rendered = render_site(_http3_site())
     assert rendered.count("add_header Alt-Svc") == 1
     assert "add_header Alt-Svc 'h3=\":443\"; ma=86400' always;" in rendered
     location = rendered[rendered.index("location / {") :]
@@ -120,17 +120,17 @@ def test_http3_alt_svc_is_in_the_proxy_location_header_set():
 def test_http3_disabled_emits_neither_quic_nor_alt_svc():
     site = _http3_site()
     site["http3_enabled"] = False
-    rendered = _render(site)
+    rendered = render_site(site)
     assert "listen 443 quic" not in rendered
     assert "Alt-Svc" not in rendered
 
 
 def test_default_server_owns_reuseport_once_for_many_http3_sites():
-    defaults = _role_defaults(blitzecdn_edge_http3_enabled=True)
-    defaults["blitzecdn_nginx_resources"] = _nginx_resources()
-    environment = _nginx_environment()
+    defaults = role_defaults(blitzecdn_edge_http3_enabled=True)
+    defaults["blitzecdn_nginx_resources"] = nginx_resources()
+    environment = nginx_environment()
     catch_all = environment.get_template("default.conf.j2").render(**defaults)
-    sites = "".join(_render(_http3_site(name)) for name in ("alpha", "bravo"))
+    sites = "".join(render_site(_http3_site(name)) for name in ("alpha", "bravo"))
 
     assert catch_all.count("quic reuseport default_server") == 2
     assert "reuseport" not in sites
@@ -143,8 +143,8 @@ def test_first_http3_site_owns_reuseport_without_a_catch_all():
         "blitzecdn_nginx_default_server": False,
         "blitzecdn_nginx_http3_listener_owner": "alpha",
     }
-    alpha = _render(_http3_site("alpha"), **overrides)
-    bravo = _render(_http3_site("bravo"), **overrides)
+    alpha = render_site(_http3_site("alpha"), **overrides)
+    bravo = render_site(_http3_site("bravo"), **overrides)
 
     assert alpha.count("quic reuseport;") == 2
     assert "reuseport" not in bravo
@@ -163,7 +163,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     for name in ("zeta", "alpha"):
-        _seed_site(
+        seed_site(
             repository,
             name=f"{name}-example-com",
             label=name,
@@ -186,7 +186,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
 
 def test_http3_alt_svc_follows_the_listener_not_the_origin():
     """Alt-Svc advertises the edge's own :443 on the :443 listener only."""
-    site = _mode_site(SslMode.FLEXIBLE, serves_tls=True, http3_enabled=True)
-    rendered = _render(site_to_ansible(site))
+    site = mode_site(SslMode.FLEXIBLE, serves_tls=True, http3_enabled=True)
+    rendered = render_site(site_to_ansible(site))
     assert "http://origin.example.com:80" in rendered
     assert rendered.count("add_header Alt-Svc 'h3=\":443\"; ma=86400' always;") == 1

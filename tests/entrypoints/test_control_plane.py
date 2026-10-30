@@ -18,6 +18,7 @@ from support.control_plane import (
     seed_site,
 )
 
+from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -33,7 +34,6 @@ from blitzecdn.capabilities.jobs import (
     SCHEDULED_JOB,
     JobQueue,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import (
     Repository,
@@ -44,6 +44,7 @@ from blitzecdn.composition import (
     worker_container,
 )
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
     ConflictError,
     DeploymentBusyError,
@@ -218,7 +219,7 @@ def test_crud_validate_and_successful_deploy(settings):
         PatchPolicy.from_patch(DomainPatch(cache_enabled=False, compression="off")),
         "alice",
     )
-    assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
+    assert control.sites.get_site(site.name).policy[CachePolicy].cache_enabled is False
     assert control.deployments.validate() == []
     result = control.deployments.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -370,7 +371,7 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
     hosts = {site.name: site for site in control.sites.list_sites()}
     assert hosts["example-com"].server_names == ("www.example.com",)
     assert hosts["example-com--api"].server_names == ("api.example.com",)
-    assert hosts["example-com--api"].policy.cache.cache_enabled is False
+    assert hosts["example-com--api"].policy[CachePolicy].cache_enabled is False
     assert control.dns.validation_errors() == []
 
 
@@ -467,7 +468,7 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
     restored = control.sites.get_site(original.name)
     assert restored.origin_host == original.origin_host
     assert restored.server_names == ("cdn.example.com",)
-    assert restored.policy.cache.cache_enabled is True
+    assert restored.policy[CachePolicy].cache_enabled is True
     assert control.dns.validation_errors() == []
 
 
@@ -498,7 +499,10 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     assert "rollback.applied" not in actions
     # Only the original deployment may have announced success.
     assert actions.count("deployment.succeeded") == 1
-    assert original.policy.cache.cache_enabled != current.policy.cache.cache_enabled
+    assert (
+        original.policy[CachePolicy].cache_enabled
+        != current.policy[CachePolicy].cache_enabled
+    )
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):

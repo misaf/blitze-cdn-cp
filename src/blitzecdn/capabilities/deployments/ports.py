@@ -17,11 +17,11 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.dns.domain import Rule
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
@@ -47,9 +47,13 @@ class DeploymentRequirements(Protocol):
 
     def require(self, kind: DeploymentRequirementKind) -> None: ...
 
-    def clear(self, kind: DeploymentRequirementKind) -> None: ...
+    def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
+        """Clear ``kind`` only if it was requested at or before ``through``."""
+        ...
 
     def pending(self, kind: DeploymentRequirementKind) -> bool: ...
+
+    def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None: ...
 
 
 class DeploymentStore(Protocol):

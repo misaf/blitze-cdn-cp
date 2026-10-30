@@ -1,3 +1,4 @@
+import configparser
 import shlex
 import shutil
 import subprocess
@@ -229,6 +230,60 @@ def test_each_run_uses_an_isolated_ssh_control_path(settings, monkeypatch):
 
     assert len(set(control_paths)) == 2
     assert all(not Path(path).exists() for path in control_paths)
+
+
+@pytest.mark.parametrize("has_config", [False, True])
+def test_ssh_configuration_follows_state_without_replacing_connection_options(
+    tmp_path, monkeypatch, has_config
+):
+    monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+    monkeypatch.delenv("ANSIBLE_SSH_COMMON_ARGS", raising=False)
+    settings = Settings.from_environment(
+        {}, project_dir=tmp_path / "controller's files"
+    )
+    config = settings.state_dir / ".ssh/config"
+    if has_config:
+        config.parent.mkdir(parents=True)
+        config.write_text("Host *\n    ConnectTimeout 3\n", encoding="utf-8")
+    environment = ansible_execution.PlaybookExecutor(settings)._environment()
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(environment["ANSIBLE_CONFIG"])
+    arguments = shlex.split(parser["ssh_connection"]["ssh_args"])
+    arguments += shlex.split(environment.get("ANSIBLE_SSH_COMMON_ARGS", ""))
+    assert ("-F" in arguments) is has_config
+    if has_config:
+        assert arguments[arguments.index("-F") + 1] == str(config)
+    for option in (
+        "ControlMaster=auto",
+        "ControlPersist=60s",
+        "ServerAliveInterval=15",
+        "ServerAliveCountMax=3",
+        "PreferredAuthentications=publickey",
+        "PasswordAuthentication=no",
+        "KbdInteractiveAuthentication=no",
+        "BatchMode=yes",
+    ):
+        assert option in arguments
+    # OpenSSH parses the effective configuration without making a connection.
+    if ssh := shutil.which("ssh"):
+        result = subprocess.run(  # noqa: S603 - fixed local config inspection
+            [ssh, "-G", *arguments, "127.0.0.1"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_explicit_ssh_environment_overrides_are_preserved(settings, monkeypatch):
+    config = settings.state_dir / ".ssh/config"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("Host *\n", encoding="utf-8")
+    monkeypatch.setenv("ANSIBLE_SSH_ARGS", "-o ControlMaster=no")
+    monkeypatch.setenv("ANSIBLE_SSH_COMMON_ARGS", "-F /operator/ssh.conf")
+    environment = ansible_execution.PlaybookExecutor(settings)._environment()
+    assert environment["ANSIBLE_SSH_ARGS"] == "-o ControlMaster=no"
+    assert environment["ANSIBLE_SSH_COMMON_ARGS"] == "-F /operator/ssh.conf"
 
 
 def test_runner_maps_its_timeout_status_to_the_domain(settings, monkeypatch):
@@ -559,7 +614,7 @@ def test_the_controllers_own_credentials_are_never_forwarded(settings):
     configured = Settings.from_environment(
         {
             "BLITZE_PROJECT_DIR": str(settings.project_dir),
-            "BLITZE_API_KEY": "k" * 40,
+            "BLITZE_API_KEY": "0123456789abcdef" * 3,
             "BLITZE_MAXMIND_LICENSE_KEY": "SENTINELKEY",
         }
     )

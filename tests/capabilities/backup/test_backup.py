@@ -102,7 +102,7 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
             "[blitzecdn]\n", encoding="utf-8"
         )
         (settings.project_dir / ".env").write_text(
-            f"BLITZE_API_KEYS=operator:{'k' * 32}\n", encoding="utf-8"
+            f"BLITZE_API_KEYS=operator:{'0123456789abcdef' * 2}\n", encoding="utf-8"
         )
         settings.state_dir.mkdir(parents=True, exist_ok=True)
         (settings.state_dir / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
@@ -1443,7 +1443,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
 def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_path):
     settings.environment_path.write_text(
         "BLITZE_API_KEYS=old:"
-        + "o" * 32
+        + "0123456789abcdef" * 2
         + "\nBLITZE_DATABASE_PATH=/old/controller.db\n",
         encoding="utf-8",
     )
@@ -1467,7 +1467,7 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     fresh.project_dir.mkdir()
     fresh.environment_path.write_text(
         "BLITZE_API_KEYS=fresh:"
-        + "f" * 32
+        + "fedcba9876543210" * 2
         + "\nBLITZE_DATABASE_PATH=/fresh/controller.db\n",
         encoding="utf-8",
     )

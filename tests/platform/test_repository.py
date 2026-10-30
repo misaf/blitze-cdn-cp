@@ -18,8 +18,10 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -217,15 +219,15 @@ def test_visitor_headers_survive_persistence_and_compilation(
     )
 
     (stored,) = _hosts(repository)
-    assert stored.policy.headers.visitor_headers.connecting_ip is False
-    assert stored.policy.headers.visitor_headers.ip_country is True
+    assert stored.policy[HeaderPolicy].visitor_headers.connecting_ip is False
+    assert stored.policy[HeaderPolicy].visitor_headers.ip_country is True
 
     (compiled,) = _release(repository).sites
     assert (
-        compiled.site.policy.headers.visitor_headers
-        == stored.policy.headers.visitor_headers
+        compiled.site.policy[HeaderPolicy].visitor_headers
+        == stored.policy[HeaderPolicy].visitor_headers
     )
-    assert compiled.site.policy.requires_geoip is True
+    assert "geoip" in compiled.site.policy.required_capabilities
 
 
 def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
@@ -235,8 +237,11 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    assert _hosts(repository)[0].policy.security.under_attack_mode is True
-    assert _release(repository).sites[0].site.policy.security.under_attack_mode is True
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is True
+    assert (
+        _release(repository).sites[0].site.policy[SecurityPolicy].under_attack_mode
+        is True
+    )
 
     connection = sqlite3.connect(settings.database_path)
     try:
@@ -247,7 +252,7 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
         connection.commit()
     finally:
         connection.close()
-    assert _hosts(repository)[0].policy.security.under_attack_mode is False
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is False
 
 
 def test_deployment_transitions_releases_and_recovery(
@@ -413,9 +418,26 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 
     reopened = Repository(settings.database_path)
     assert reopened.deployment_requirements.pending(kind)
-    reopened.deployment_requirements.clear(kind)
+    reopened.deployment_requirements.clear(kind, through=datetime.now(UTC))
     assert not reopened.deployment_requirements.pending(kind)
     reopened.close()
+
+
+def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
+    """Clearing is bounded, so material newer than a deployment stays owed."""
+    kind = DeploymentRequirementKind.CERTIFICATES
+    repository = Repository(settings.database_path)
+    before = datetime.now(UTC)
+    repository.deployment_requirements.require(kind)
+
+    repository.deployment_requirements.clear(kind, through=before)
+    assert repository.deployment_requirements.pending(kind)
+
+    requested_at = repository.deployment_requirements.requested_at(kind)
+    assert requested_at is not None
+    repository.deployment_requirements.clear(kind, through=requested_at)
+    assert repository.deployment_requirements.requested_at(kind) is None
+    repository.close()
 
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):

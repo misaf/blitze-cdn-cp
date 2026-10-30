@@ -1,11 +1,11 @@
 import pytest
 import yaml
-from support.application import _seed_proxied_record
+from support.application import seed_proxied_record
 from support.certificates import (
     FakePreflight,
-    _proxied_site_with_certificate,
-    _RecordingIssuer,
+    RecordingIssuer,
     certificate_control_plane,
+    proxied_site_with_certificate,
 )
 from support.control_plane import (
     FakeEdgeStore,
@@ -28,7 +28,7 @@ from blitzecdn.core.exceptions import ConflictError
 
 def _preflight_control(settings, certificate_pair, failures=()):
     """The control plane these cases share, with the CA and the checks faked."""
-    issuer = _RecordingIssuer(certificate_pair)
+    issuer = RecordingIssuer(certificate_pair)
     preflight = FakePreflight(failures)
     control = certificate_control_plane(
         settings, runner=FakeRunner(), issuer=issuer, preflight=preflight
@@ -39,7 +39,7 @@ def _preflight_control(settings, certificate_pair, failures=()):
 def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificate_pair):
     """The rate limit is the thing being protected: no CA request at all."""
     control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     with pytest.raises(ConflictError, match="preflight failed"):
         control.certificates.request_certificate(
@@ -53,7 +53,7 @@ def test_the_refusal_names_the_failed_check_and_the_way_past_it(
     settings, certificate_pair
 ):
     control, _, _, _ = _preflight_control(settings, certificate_pair, ("caa",))
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     with pytest.raises(ConflictError) as raised:
         control.certificates.request_certificate(
@@ -68,7 +68,7 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
     control, repository, issuer, _ = _preflight_control(
         settings, certificate_pair, ("dns", "deployed")
     )
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     info = control.certificates.request_certificate(
         "example-com", "alice", "ops@example.com", skip_preflight=True
@@ -103,7 +103,7 @@ def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
 ):
     """A renewal that cannot validate has to reach the timer's exit code."""
     control, _, issuer, preflight = _preflight_control(settings, certificate_pair)
-    _proxied_site_with_certificate(control, None, certificate_pair, days=3)
+    proxied_site_with_certificate(control, None, certificate_pair, days=3)
     control.certificates.request_certificate("example-com", "alice", "ops@example.com")
     issuer.issued.clear()
     preflight.failures = ("dns",)
@@ -119,7 +119,7 @@ def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
 def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair):
     """Check mode proved the play parses; no edge is serving the vhost."""
     control, _, _, _ = _preflight_control(settings, certificate_pair)
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     # Two runs, so the fake runner needs a result for each.
     control.runner.results.append(ansible_run(host_run("edge-a")))
@@ -135,7 +135,7 @@ def test_a_site_absent_from_the_last_deployment_is_not_deployed(
     settings, certificate_pair
 ):
     control, _, _, _ = _preflight_control(settings, certificate_pair)
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
     control.deployments.deploy("alice")
 
     assert control.deployments.site_is_deployed("example-com") is True
@@ -146,7 +146,7 @@ def test_certificate_preflight_reports_without_contacting_a_ca(
     settings, certificate_pair
 ):
     control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     report = control.certificates.certificate_preflight("example-com")
 
@@ -164,7 +164,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner()
     control = build_application(settings=settings, repository=repository, runner=fake)
-    _seed_proxied_record(control)
+    seed_proxied_record(control)
 
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
     settings.generated_vars_path.write_text("in-flight deploy\n", encoding="utf-8")

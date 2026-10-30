@@ -7,14 +7,14 @@ from urllib.parse import urlsplit
 
 import typer
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import CacheStatsReport, PurgeEntry
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses from the edges."
@@ -220,9 +220,9 @@ def domain_cache(
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
     state = (
-        f"caching 2xx for {zone.policy.cache.cache_valid_success} and 404 for "
-        f"{zone.policy.cache.cache_valid_not_found}"
-        if zone.policy.cache.cache_enabled
+        f"caching 2xx for {zone.policy[CachePolicy].cache_valid_success} and 404 for "
+        f"{zone.policy[CachePolicy].cache_valid_not_found}"
+        if zone.policy[CachePolicy].cache_enabled
         else "not caching"
     )
     report(zone, f"{zone.name} is now {state}.", json_output=json_output)
@@ -240,10 +240,10 @@ def domain_cache_query_string(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether query strings distinguish cached responses."""
-    zone = update(name, DomainPatch(cache_query_string_mode=mode))
+    zone = update(name, DomainPatch.model_validate({"cache_query_string_mode": mode}))
     report(
         zone,
         f"{zone.name} cache query-string mode is now "
-        f"{zone.policy.cache.cache_query_string_mode.value!r}.",
+        f"{zone.policy[CachePolicy].cache_query_string_mode.value!r}.",
         json_output=json_output,
     )

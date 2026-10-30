@@ -1,7 +1,7 @@
-"""Validate the installer's operator inputs before anything is installed.
+"""Validate the installer's operator inputs before the host is converged.
 
-Run by the host's ``python3 -I`` from the checkout, before the virtualenv
-exists, so standard library only. ``allowed-ips`` restates the rules
+Run by `install.sh` in the control-plane image it is about to converge with,
+as ``python -I``, so standard library only. ``allowed-ips`` restates the rules
 ``Settings.validate_allowed_ips`` enforces; a test holds the two together.
 Exit 1 with one message on stderr refuses.
 """

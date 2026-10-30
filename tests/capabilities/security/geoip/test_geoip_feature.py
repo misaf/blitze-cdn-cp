@@ -9,12 +9,12 @@ from support.control_plane import build_application
 
 from blitzecdn.capabilities.security.geoip import __version__
 from blitzecdn.capabilities.security.geoip.feature import FEATURES
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
     load_registry,
 )
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.features import FeatureMetadata
 
 (FEATURE,) = FEATURES
