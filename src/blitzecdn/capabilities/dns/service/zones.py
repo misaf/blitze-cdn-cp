@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 from blitzecdn.capabilities.dns.domain import (
     PUBLICATION,
     DnsPublication,
@@ -10,6 +12,7 @@ from blitzecdn.capabilities.dns.domain import (
     PolicyCommand,
     RecordPatch,
     RecordType,
+    merge_overrides,
     reject_issuer_owned_certificate,
     unservable_hosts,
 )
@@ -20,7 +23,7 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.core.domain.events import domain_event
-from blitzecdn.core.exceptions import NotFoundError
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 class DnsService:
@@ -63,6 +66,12 @@ class DnsService:
         Intent is resolved against the stored zone inside the transaction, and the
         merged zone is validated whole, so cross-field rules (HTTP/3 needing TLS, a
         certificate mode and its paths) hold.
+
+        So is every rule in the zone merged onto the result, and an edit that would
+        leave one unservable is refused, naming it. ``RuleService`` refuses such a
+        rule when it is written; accepting the zone edit instead would make the
+        rule's hostnames drop out of ``derive_hosts`` with nothing said until
+        ``blitzecdn validate`` ran. The operator changes or removes the rule first.
         """
         with self.uow.transaction():
             # Read inside the boundary and write against what was read, so a concurrent
@@ -71,6 +80,7 @@ class DnsService:
             changes = command.changes(current.policy)
             reject_issuer_owned_certificate(changes)
             updated = Domain(name=current.name, policy=current.policy.applying(changes))
+            self._refuse_breaking_a_rule(updated)
             saved = self.zones.replace_domain(updated, expected=current)
             self.events.record(
                 domain_event(
@@ -82,6 +92,22 @@ class DnsService:
                 )
             )
         return saved
+
+    def _refuse_breaking_a_rule(self, zone: Domain) -> None:
+        """Raise ``ConflictError`` for the first stored rule this zone cannot carry.
+
+        A conflict, not a 422: the edit is valid on its own, and what it collides
+        with is a rule already stored.
+        """
+        for rule in self.rules.list_rules(zone.name):
+            try:
+                merge_overrides(zone, rule.overrides)
+            except ValidationError as exc:
+                reasons = "; ".join(error["msg"] for error in exc.errors())
+                raise ConflictError(
+                    f"this change would make rule {rule.name!r} in {zone.name!r} "
+                    f"unservable ({reasons}); change or delete the rule first"
+                ) from exc
 
     def delete_domain(self, name: str, operator: str) -> None:
         """Remove a zone with its records and rules; its hosts go with them."""
