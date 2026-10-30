@@ -21,6 +21,7 @@ from blitzecdn.capabilities.dns.domain import RecordType as DomainRecordType
 from blitzecdn.capabilities.dns.domain import ResolvedPolicy as DomainResolvedPolicy
 from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
+from blitzecdn.capabilities.dns.domain.patch import setting_annotation
 from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
 from blitzecdn.core.domain.composed import ComposedModel
@@ -40,8 +41,8 @@ def _patch_fields() -> dict[str, tuple[Any, Any]]:
     """Every setting optional. Null clears a nullable one and is refused otherwise."""
     fields: dict[str, tuple[Any, Any]] = {}
     for name, field in SitePolicy.setting_fields().items():
-        kind = cast(Any, field.annotation)
-        block = isinstance(kind, type) and issubclass(kind, BaseModel)
+        bare = field.annotation
+        block = isinstance(bare, type) and issubclass(bare, BaseModel)
         description = (
             "Omit to keep the current block. A supplied object replaces all of "
             "it, omitted fields taking their defaults, so {} restores every "
@@ -49,7 +50,8 @@ def _patch_fields() -> dict[str, tuple[Any, Any]]:
             if block
             else field.description
         )
-        nullable = type(None) in get_args(kind)
+        nullable = type(None) in get_args(bare)
+        kind = setting_annotation(field)
         fields[name] = (
             kind if nullable else cast(Any, PatchValue)[kind],
             Field(default=None, description=description),
