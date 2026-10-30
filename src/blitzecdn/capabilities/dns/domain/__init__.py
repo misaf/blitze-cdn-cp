@@ -31,6 +31,7 @@ from blitzecdn.capabilities.dns.domain.record import (
 )
 from blitzecdn.capabilities.dns.domain.resolution import (
     ResolvedPolicy,
+    merge_overrides,
     resolve_policy,
 )
 from blitzecdn.capabilities.dns.domain.rule import Rule, RulePatch
@@ -54,6 +55,7 @@ __all__ = [
     "RulePatch",
     "UnservableHost",
     "derive_hosts",
+    "merge_overrides",
     "reject_issuer_owned_certificate",
     "resolve_policy",
     "unservable_hosts",
