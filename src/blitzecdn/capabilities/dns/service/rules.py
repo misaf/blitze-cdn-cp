@@ -6,6 +6,7 @@ from blitzecdn.capabilities.dns.domain import (
     ResolvedPolicy,
     Rule,
     RulePatch,
+    merge_overrides,
     reject_issuer_owned_certificate,
     resolve_policy,
 )
@@ -51,9 +52,14 @@ class RuleService:
         )
 
     def create_rule(self, rule: Rule, operator: str) -> Rule:
-        self.zones.get_domain(rule.domain)
+        """Store a rule whose overrides make a policy its zone could serve.
+
+        Checked against the zone as stored inside the write boundary, so a zone
+        edit landing between the check and the insert cannot slip past it.
+        """
         reject_issuer_owned_certificate(rule.overrides)
         with self.uow.transaction():
+            self._refuse_an_unservable_merge(rule)
             created = self.rules.create_rule(rule)
             self.events.record(
                 domain_event(
@@ -79,6 +85,9 @@ class RuleService:
             # Read and written under one boundary, since the issuer writes rules too.
             current = self.rules.get_rule(domain, name)
             updated = Rule.model_validate({**current.model_dump(), **changes})
+            # Asked of the whole rule, not only of a patch that touches ``overrides``:
+            # the zone may have moved since the rule was written.
+            self._refuse_an_unservable_merge(updated)
             saved = self.rules.replace_rule(updated, expected=current)
             self.events.record(
                 domain_event(
@@ -90,6 +99,21 @@ class RuleService:
                 )
             )
         return saved
+
+    def _refuse_an_unservable_merge(self, rule: Rule) -> None:
+        """Raise unless the rule's overrides, merged onto its zone, still validate.
+
+        ``Rule`` checks each override against what its setting takes, but not the
+        contract validators that need neighbouring settings or the cross-contract
+        rules, since those need the zone. A rule that fails them would be stored,
+        and every hostname it matches would then drop out of ``derive_hosts``.
+        Disabled rules are checked too: a disabled rule is policy waiting to be
+        switched on, and the error belongs to the edit that wrote it.
+
+        Raises pydantic's ``ValidationError``, the 422 a zone patch that breaks a
+        cross-field rule gets, and ``NotFoundError`` for a zone we do not serve.
+        """
+        merge_overrides(self.zones.get_domain(rule.domain), rule.overrides)
 
     def delete_rule(self, domain: str, name: str, operator: str) -> None:
         with self.uow.transaction():

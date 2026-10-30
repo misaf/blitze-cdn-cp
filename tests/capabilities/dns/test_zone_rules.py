@@ -443,6 +443,129 @@ def test_a_patch_replaces_the_overrides_rather_than_merging_them(settings):
     assert dict(updated.overrides) == {"cache_valid_success": "5m"}
 
 
+#: Overrides each acceptable to `Rule` one setting at a time, and refused by the
+#: zone they land on: a contract's field validator, and a cross-contract rule.
+_UNSERVABLE_OVERRIDES = pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"certificate_path": "relative/cert.pem"}, "must be absolute"),
+        ({"http3_enabled": True}, "http3_enabled=True requires ssl_mode"),
+    ],
+    ids=["contract-field-validator", "cross-contract-rule"],
+)
+
+
+@_UNSERVABLE_OVERRIDES
+def test_a_rule_its_zone_could_not_serve_is_refused_on_create(
+    settings, overrides, reason
+):
+    """Stored, it would drop every hostname it matches out of `derive_hosts`."""
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+
+    with pytest.raises(ValueError, match=reason):
+        control.rules.create_rule(
+            Rule(domain="example.com", name="r", overrides=overrides), "tester"
+        )
+
+    assert control.rules.list_rules("example.com") == []
+
+
+@_UNSERVABLE_OVERRIDES
+def test_a_rule_its_zone_could_not_serve_is_refused_on_patch(
+    settings, overrides, reason
+):
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+    original = control.rules.create_rule(
+        Rule(domain="example.com", name="r", overrides={"cache_enabled": False}),
+        "tester",
+    )
+
+    with pytest.raises(ValueError, match=reason):
+        control.rules.update_rule(
+            "example.com", "r", RulePatch(overrides=overrides), "tester"
+        )
+
+    assert control.rules.get_rule("example.com", "r") == original
+
+
+def test_a_disabled_rule_is_still_checked_against_its_zone(settings):
+    """Switching it on later would otherwise be the edit that breaks the hosts."""
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+
+    with pytest.raises(ValueError, match="http3_enabled=True requires ssl_mode"):
+        control.rules.create_rule(
+            Rule(
+                domain="example.com",
+                name="r",
+                overrides={"http3_enabled": True},
+                enabled=False,
+            ),
+            "tester",
+        )
+
+
+def _zone_serving_tls(control):
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+    control.dns.update_domain(
+        "example.com",
+        PatchPolicy.from_patch(
+            DomainPatch(
+                ssl_mode=SslMode.FULL,
+                certificate_mode=CertificateMode.EXISTING,
+                certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
+                certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+            )
+        ),
+        "tester",
+    )
+
+
+def test_a_rule_the_zone_can_serve_is_stored(settings):
+    """The same override is fine where the zone supplies what it needs."""
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    _zone_serving_tls(control)
+
+    control.rules.create_rule(
+        Rule(domain="example.com", name="r", overrides={"http3_enabled": True}),
+        "tester",
+    )
+
+    resolved = control.rules.resolve("example.com", "www.example.com")
+    assert resolved.policy.policy.protocols.http3_enabled
+
+
+def test_a_zone_edit_that_would_break_a_stored_rule_is_refused(settings):
+    """Refused, naming the rule, rather than left for `blitzecdn validate` to find.
+
+    Accepted, the rule's hostnames would leave the derived host list on the next
+    deploy with no error at the edit that caused it.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    _zone_serving_tls(control)
+    control.rules.create_rule(
+        Rule(domain="example.com", name="h3", overrides={"http3_enabled": True}),
+        "tester",
+    )
+    before = control.dns.get_domain("example.com")
+
+    with pytest.raises(ConflictError, match=r"rule 'h3'.*http3_enabled=True requires"):
+        control.dns.update_domain(
+            "example.com",
+            PatchPolicy.from_patch(DomainPatch(ssl_mode=SslMode.OFF)),
+            "tester",
+        )
+
+    assert control.dns.get_domain("example.com") == before
+
+
 def test_deleting_a_zone_takes_its_rules_with_it(settings):
     """They are overrides on a policy that no longer exists."""
     repository = Repository(settings.database_path)

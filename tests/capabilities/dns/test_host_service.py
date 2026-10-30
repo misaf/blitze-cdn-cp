@@ -200,20 +200,20 @@ def test_the_refused_host_is_named_by_validation_rather_than_left_silent(control
 def test_a_rule_that_contradicts_its_zone_darkens_only_its_own_hostnames(control):
     """The other failure point: resolution, before any group has a name.
 
-    Rule overrides are validated field by field, so a combination contradicting
-    only the zone is storable and refused when merged. The rule's hostname goes
-    dark and is named; the zone's keep serving.
+    The editors refuse such a rule, and a zone edit that would make one, but
+    state also arrives by restore and by rollback, so it is written to the store
+    here, past `RuleService`. The rule's hostname goes dark and is named; the
+    zone's keep serving.
     """
     seed_site(control)
     seed_record(control, name="api")
-    control.rules.create_rule(
+    control.rules.rules.create_rule(
         Rule(
             domain="example.com",
             name="api",
             match="api.example.com",
             overrides={"http3_enabled": True},
-        ),
-        "alice",
+        )
     )
 
     assert [site.name for site in control.sites.list_sites()] == ["example-com"]
