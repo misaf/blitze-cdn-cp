@@ -2,7 +2,7 @@
 
 `SitePolicy` names no contract. The fields come from
 :class:`~blitzecdn.core.features.PolicyContribution`, fixed once by
-:meth:`~blitzecdn.capabilities.serving.contract.SitePolicy.seal` when the
+:meth:`~blitzecdn.core.domain.site_policy.SitePolicy.seal` when the
 registry loads, and a contract is read with ``policy[TlsPolicy]``. The class is
 a :class:`~blitzecdn.core.domain.composed.ComposedModel`, so a field, body or
 response can name it at import time, before the registry exists.
@@ -17,9 +17,8 @@ from pydantic import ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
 
 from blitzecdn.core.domain.composed import ComposedModel
-from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.policy import CapabilityPolicy, ResolvedPolicySchema
 from blitzecdn.core.exceptions import FeatureError
-from blitzecdn.core.features.resolution import ResolvedPolicySchema
 
 __all__ = ["SitePolicy"]
 

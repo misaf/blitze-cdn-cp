@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import pytest
 from dishka import Provider, Scope, decorate
 
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     PreflightCheck,
@@ -31,6 +30,7 @@ from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
 from blitzecdn.composition import FleetRunner, Repository
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ExecutionError
 from support.control_plane import (
     ControlPlane,

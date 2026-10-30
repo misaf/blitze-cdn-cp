@@ -24,7 +24,7 @@ from blitzecdn.capabilities.dns.domain.record import DnsRecord
 from blitzecdn.capabilities.dns.domain.resolution import resolve_policy
 from blitzecdn.capabilities.dns.domain.rule import Rule
 from blitzecdn.capabilities.dns.domain.zone import Domain
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 
 __all__ = [
     "UnservableHost",

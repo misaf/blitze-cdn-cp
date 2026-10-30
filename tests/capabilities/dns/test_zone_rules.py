@@ -22,9 +22,9 @@ from blitzecdn.capabilities.dns.domain import (
     resolve_policy,
 )
 from blitzecdn.capabilities.dns.service import DnsService, RuleService
-from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode, TlsPolicy
 from blitzecdn.composition import Repository
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 

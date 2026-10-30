@@ -16,9 +16,10 @@ from typing import Any
 
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 
 
 class OriginProbe:
@@ -43,18 +44,20 @@ class OriginProbe:
         return {
             "name": site.name,
             "origin_host": site.origin_host,
-            "origin_port": DEFAULT_PORTS[site.canonical_origin_scheme],
+            "origin_port": DEFAULT_PORTS[
+                site.policy[TlsPolicy].canonical_origin_scheme
+            ],
             "ssl_mode": site.policy[TlsPolicy].ssl_mode.value,
             "origin_tls_verify": site.policy[TlsPolicy].ssl_mode.verifies_origin,
-            "origin_sni": site.effective_origin_sni,
+            "origin_sni": site.policy[OriginPolicy].effective_sni(site.origin_host),
         }
 
     def check(self, site: CdnSite) -> OriginCheck:
-        scheme = site.canonical_origin_scheme
+        scheme = site.policy[TlsPolicy].canonical_origin_scheme
         port = DEFAULT_PORTS[scheme]
         # The name the edge will put in the TLS handshake; probing with a
         # different one would verify a certificate the edge never asks for.
-        sni = site.effective_origin_sni
+        sni = site.policy[OriginPolicy].effective_sni(site.origin_host)
         timeout = self._settings.origin_check_timeout_seconds
         result = OriginCheck(
             site=site.name,

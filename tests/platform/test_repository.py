@@ -18,10 +18,10 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.security.contract import SecurityPolicy
-from blitzecdn.capabilities.serving.contract import HeaderPolicy
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,

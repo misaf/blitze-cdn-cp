@@ -7,39 +7,16 @@ stored or edited value land in whichever contract was composed last.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable
 
-from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.policy import CapabilityPolicy, ResolvedPolicySchema
 from blitzecdn.core.exceptions import FeatureError
-from blitzecdn.core.features.types import PolicyCheck, PolicyContribution, SiteCheck
+from blitzecdn.core.features.types import PolicyContribution
 
 __all__ = ["RESERVED_POLICY_NAMES", "ResolvedPolicySchema", "resolve_policy_schema"]
 
 #: Names the site policy keeps for itself, as a group and as a flat setting.
 RESERVED_POLICY_NAMES = frozenset({"enabled"})
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedPolicySchema:
-    """Every contributed contract by group, and which group owns each setting."""
-
-    #: In feature-name order, so the same features always compose one policy.
-    groups: Mapping[str, type[CapabilityPolicy]]
-    #: Flat setting name to the group whose contract declares it.
-    setting_owners: Mapping[str, str]
-    checks: tuple[PolicyCheck, ...]
-    site_checks: tuple[SiteCheck, ...]
-
-    def group_of(self, contract: type[CapabilityPolicy]) -> str:
-        """The group a contract is stored under."""
-        for group, registered in self.groups.items():
-            if registered is contract:
-                return group
-        raise FeatureError(
-            f"{contract.__name__} is not part of the site policy; the feature "
-            "that owns it has to contribute it as a `PolicyContribution`"
-        )
 
 
 def resolve_policy_schema(

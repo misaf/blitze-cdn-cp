@@ -17,7 +17,6 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
 
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
@@ -28,6 +27,7 @@ from blitzecdn.capabilities.tls.contract import (
     managed_certificate_paths,
 )
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes

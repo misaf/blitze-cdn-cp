@@ -6,7 +6,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from blitzecdn.capabilities.serving.contract import HeaderPolicy, SiteVisitorHeaders
+from blitzecdn.capabilities.http.contract import HeaderPolicy, SiteVisitorHeaders
 from blitzecdn.core.features.types import PolicyView
 
 __all__ = ["EditVisitorHeaders"]

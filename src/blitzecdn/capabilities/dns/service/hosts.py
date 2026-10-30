@@ -16,7 +16,7 @@ from blitzecdn.capabilities.dns.ports import (
     UnitOfWork,
     ZoneStore,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import NotFoundError
 
 

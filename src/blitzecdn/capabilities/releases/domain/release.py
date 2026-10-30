@@ -17,8 +17,8 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from blitzecdn.capabilities.releases.domain.explanation import HostExplanation
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.documents import canonical_document, read_document
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError
 
 __all__ = [

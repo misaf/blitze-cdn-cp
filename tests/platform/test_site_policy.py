@@ -5,10 +5,14 @@ from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.http.contract import MaxUploadSize, ProtocolPolicy
+from blitzecdn.capabilities.http.contract import (
+    HeaderPolicy,
+    MaxUploadSize,
+    ProtocolPolicy,
+    SiteVisitorHeaders,
+)
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
     TlsPolicy,
@@ -16,6 +20,8 @@ from blitzecdn.capabilities.tls.contract import (
 )
 from blitzecdn.composition import load_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import PolicyContribution
 from blitzecdn.core.features.resolution import resolve_policy_schema
@@ -27,16 +33,14 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     ``__module__`` is where a class was defined, so this fails if a contract is
     redefined or aliased into ``dns``.
     """
+    assert CdnSite.__module__ == "blitzecdn.core.domain.site"
+    assert SitePolicy.__module__ == "blitzecdn.core.domain.site_policy"
+    assert OriginPolicy.__module__ == "blitzecdn.capabilities.origins.contract"
     assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.contract"
     assert SslMode.__module__ == "blitzecdn.capabilities.tls.contract"
     assert SiteFirewall.__module__ == "blitzecdn.capabilities.security.contract"
     assert CacheQueryStringMode.__module__ == "blitzecdn.capabilities.cache.contract"
-    # The one that stays: no distribution could carry the ``BZ-*`` headers away,
-    # so there is no capability to reunite this contract with.
-    assert (
-        SiteVisitorHeaders.__module__
-        == "blitzecdn.capabilities.serving.contract.headers"
-    )
+    assert SiteVisitorHeaders.__module__ == "blitzecdn.capabilities.http.contract"
     assert [mode.value for mode in CompressionMode] == ["off", "gzip", "brotli"]
 
 
@@ -138,16 +142,16 @@ def test_geoip_requirement_combines_security_and_header_policy():
 
 
 def test_the_policy_package_re_exports_only_what_it_owns():
-    """Importing another capability's contract from `serving.policy` must not work."""
-    import blitzecdn.capabilities.serving.contract as policy
+    """Core composes policy without importing concrete capability contracts."""
+    import blitzecdn.core.domain.site_policy as policy
 
     assert set(policy.__all__) == {
-        "HeaderPolicy",
-        "OriginPolicy",
-        "SiteVisitorHeaders",
         "SitePolicy",
     }
     borrowed_names = (
+        "HeaderPolicy",
+        "OriginPolicy",
+        "SiteVisitorHeaders",
         "CompressionMode",
         "SslMode",
         "SiteFirewall",
@@ -259,3 +263,31 @@ def test_composing_the_same_contributions_again_keeps_the_model():
     load_registry()
 
     assert SitePolicy.composed() is composed
+
+
+def test_features_contribute_only_the_policy_they_own():
+    contributions = {
+        item.contract: item for item in load_registry().policy_contributions()
+    }
+    assert contributions[HeaderPolicy].feature == "http"
+    assert contributions[HeaderPolicy].group == "headers"
+    assert contributions[OriginPolicy].feature == "origins"
+    assert contributions[OriginPolicy].group == "origin"
+    assert all(item.feature != "dns" for item in contributions.values())
+
+
+def test_a_site_can_use_a_policy_without_http_tls_or_origin_contracts(compose):
+    # Core identity and policy remain usable with an unrelated contribution.
+    SitePolicy.seal(
+        resolve_policy_schema(
+            (
+                PolicyContribution(
+                    feature="toy", group="feature", contract=_FeaturePolicy
+                ),
+            )
+        )
+    )
+    site = CdnSite(name="toy", origin_host="origin.example.com")
+    assert site.policy[_FeaturePolicy].feature_enabled
+    assert site.policy.required_capabilities == frozenset({"feature"})
+    assert CdnSite.model_validate_json(site.model_dump_json()) == site

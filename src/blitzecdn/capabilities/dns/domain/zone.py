@@ -10,7 +10,7 @@ import ipaddress
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blitzecdn.capabilities.serving.contract import SitePolicy
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.domain.validation import hostname
 
 __all__ = ["Domain"]

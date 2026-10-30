@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from support.edge_render import role_spec
 
+from blitzecdn.capabilities.http.contract import SiteVisitorHeaders
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 #: What a site is, beside its policy.
 _IDENTITY = frozenset({"name", "server_names", "origin_host"})

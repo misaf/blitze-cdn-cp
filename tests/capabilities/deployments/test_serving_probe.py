@@ -25,7 +25,7 @@ from blitzecdn.capabilities.deployments.adapters.serving import (
     ServingProbe,
     _certificate_covers,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 
 
 class _Recorder(http.server.BaseHTTPRequestHandler):
