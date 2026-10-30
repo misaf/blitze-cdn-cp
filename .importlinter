@@ -107,6 +107,16 @@ forbidden_modules =
     blitzecdn.**.persistence
 allow_indirect_imports = True
 
+[importlinter:contract:cli-adapters]
+name = CLI code uses public contracts, never private adapters
+type = forbidden
+source_modules =
+    blitzecdn.entrypoints.cli
+    blitzecdn.capabilities.**.cli
+forbidden_modules =
+    blitzecdn.**.adapters
+allow_indirect_imports = True
+
 [importlinter:contract:core-below-capabilities]
 name = Core imports no capability and not the composition root
 type = forbidden

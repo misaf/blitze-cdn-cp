@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal, Self, cast, get_args
 
 from pydantic import BaseModel, Field, model_validator
 
-from blitzecdn.capabilities.dns.adapters.documents import serving_document
+from blitzecdn.capabilities.dns import serving_document
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
 from blitzecdn.capabilities.dns.domain import DomainPatch as DomainDomainPatch
