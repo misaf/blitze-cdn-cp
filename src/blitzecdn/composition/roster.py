@@ -6,7 +6,7 @@ row's builders call the capability's own `wiring.py` with named arguments.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
@@ -32,6 +32,7 @@ from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.capabilities.traffic.wiring import traffic_operations
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
+    Feature,
     FeatureOperations,
     FeatureRegistry,
     FeatureRendering,
@@ -50,6 +51,7 @@ __all__ = [
     "RosterEntry",
     "bind_operations",
     "bind_renderings",
+    "compose_registry",
     "load_registry",
 ]
 
@@ -186,10 +188,18 @@ BUILTIN_FEATURES: tuple[str, ...] = tuple(entry.module for entry in ROSTER)
 def load_registry() -> FeatureRegistry:
     """Every built-in feature's declarations, and the site policy they compose.
 
-    Any failure is fatal. Composing the policy here, before any process builds
-    a service, is what lets every model that carries one be declared at import.
+    Any failure is fatal.
     """
-    registry = FeatureRegistry(load_features(BUILTIN_FEATURES))
+    return compose_registry(load_features(BUILTIN_FEATURES))
+
+
+def compose_registry(features: Sequence[Feature]) -> FeatureRegistry:
+    """A registry of ``features``, with the site policy composed from them.
+
+    Composing the policy here, before any process builds a service, is what
+    lets every model that carries one be declared at import.
+    """
+    registry = FeatureRegistry(features)
     SitePolicy.seal(resolve_policy_schema(registry.policy_contributions()))
     return registry
 
