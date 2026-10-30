@@ -8,15 +8,16 @@ setting is patchable the moment its contract is registered.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Self, cast
+from typing import Annotated, Any, Self
 
 from pydantic import ConfigDict
+from pydantic.fields import FieldInfo
 
 from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.core.domain.composed import ComposedModel
 
-__all__ = ["DomainPatch", "reject_issuer_owned_certificate"]
+__all__ = ["DomainPatch", "reject_issuer_owned_certificate", "setting_annotation"]
 
 
 def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
@@ -40,6 +41,18 @@ def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
         )
 
 
+def setting_annotation(field: FieldInfo) -> Any:
+    """A setting's type with its constraints, such as ``ge=0``, kept.
+
+    A patch is validated on its own before it is merged, and a rule's overrides
+    are stored without the merged policy being validated again, so a patch that
+    took the bare type would accept a value the contract refuses.
+    """
+    if not field.metadata:
+        return field.annotation
+    return Annotated[field.annotation, *field.metadata]
+
+
 class DomainPatch(ComposedModel):
     """A partial update to a zone: every setting optional, unset means untouched.
 
@@ -59,7 +72,7 @@ class DomainPatch(ComposedModel):
         # `source` is the schema `setting_fields` reads.
         return cls.compose_fields(
             {
-                name: (cast(Any, field.annotation) | None, None)
+                name: (setting_annotation(field) | None, None)
                 for name, field in SitePolicy.setting_fields().items()
             }
         )

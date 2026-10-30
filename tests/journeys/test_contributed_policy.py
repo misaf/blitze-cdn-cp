@@ -110,6 +110,21 @@ def test_a_zone_patch_and_a_rule_override_accept_the_setting(registry):
         )
 
 
+def test_a_patch_keeps_the_contract_constraint(registry):
+    """A rule's overrides are stored after only the patch has validated them."""
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        DomainPatch.model_validate({"rate_limit": -1})
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        Rule.model_validate(
+            {
+                "domain": "example.com",
+                "name": "api",
+                "match": "api.example.com",
+                "overrides": {"rate_limit": -1},
+            }
+        )
+
+
 def test_the_edge_document_carries_the_setting(registry):
     site = CdnSite(
         name="example-com",
@@ -141,6 +156,16 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
             "/v3/domains/example.com", json={"rate_limit": -1}, headers=API_HEADERS
         )
         assert refused.status_code == 422
+        rule = client.post(
+            "/v3/domains/example.com/rules",
+            json={
+                "name": "api",
+                "match": "api.example.com",
+                "overrides": {"rate_limit": -1},
+            },
+            headers=API_HEADERS,
+        )
+        assert rule.status_code == 422, rule.text
 
         seed_site_over_http(client, rate_limit=30)
         hosts = client.get("/v3/hosts", headers=API_HEADERS).json()["items"]
@@ -148,7 +173,7 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
 
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
         for name in ("Domain", "DomainPatch", "CdnSite"):
-            assert "rate_limit" in schemas[name]["properties"], name
+            assert schemas[name]["properties"]["rate_limit"]["minimum"] == 0, name
 
 
 def test_a_site_asking_for_an_absent_capability_is_refused_by_name():
