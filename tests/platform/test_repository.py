@@ -20,6 +20,8 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.security.contract import SecurityPolicy
+from blitzecdn.capabilities.serving.contract import HeaderPolicy
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -217,15 +219,15 @@ def test_visitor_headers_survive_persistence_and_compilation(
     )
 
     (stored,) = _hosts(repository)
-    assert stored.policy.headers.visitor_headers.connecting_ip is False
-    assert stored.policy.headers.visitor_headers.ip_country is True
+    assert stored.policy[HeaderPolicy].visitor_headers.connecting_ip is False
+    assert stored.policy[HeaderPolicy].visitor_headers.ip_country is True
 
     (compiled,) = _release(repository).sites
     assert (
-        compiled.site.policy.headers.visitor_headers
-        == stored.policy.headers.visitor_headers
+        compiled.site.policy[HeaderPolicy].visitor_headers
+        == stored.policy[HeaderPolicy].visitor_headers
     )
-    assert compiled.site.policy.requires_geoip is True
+    assert "geoip" in compiled.site.policy.required_capabilities
 
 
 def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
@@ -235,8 +237,11 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    assert _hosts(repository)[0].policy.security.under_attack_mode is True
-    assert _release(repository).sites[0].site.policy.security.under_attack_mode is True
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is True
+    assert (
+        _release(repository).sites[0].site.policy[SecurityPolicy].under_attack_mode
+        is True
+    )
 
     connection = sqlite3.connect(settings.database_path)
     try:
@@ -247,7 +252,7 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
         connection.commit()
     finally:
         connection.close()
-    assert _hosts(repository)[0].policy.security.under_attack_mode is False
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is False
 
 
 def test_deployment_transitions_releases_and_recovery(

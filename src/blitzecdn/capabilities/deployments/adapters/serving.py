@@ -87,9 +87,7 @@ class ServingProbe:
 
         Not resolved through DNS, which may not point at this edge yet.
         """
-        scheme = (
-            HttpScheme.HTTPS if site.policy.tls.ssl_mode.serves_tls else HttpScheme.HTTP
-        )
+        scheme = HttpScheme.HTTPS if site.serves_tls else HttpScheme.HTTP
         port = DEFAULT_PORTS[scheme]
         try:
             connection = self._connection(scheme, address, port, hostname)

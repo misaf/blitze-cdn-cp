@@ -5,10 +5,10 @@ from support.cli import cli_control, runner
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,
-    EditFirewall,
-    EditVisitorHeaders,
     PatchPolicy,
 )
+from blitzecdn.capabilities.security.domain import EditFirewall
+from blitzecdn.capabilities.serving.domain import EditVisitorHeaders
 from blitzecdn.entrypoints.cli import main as cli
 
 

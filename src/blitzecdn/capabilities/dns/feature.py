@@ -5,7 +5,13 @@ from __future__ import annotations
 from blitzecdn import __version__
 from blitzecdn.capabilities.dns import cli
 from blitzecdn.capabilities.dns.api import routes
-from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
+from blitzecdn.capabilities.serving.contract import HeaderPolicy, OriginPolicy
+from blitzecdn.core.features import (
+    CliCommandGroup,
+    Feature,
+    FeatureMetadata,
+    PolicyContribution,
+)
 
 FEATURES = (
     Feature(
@@ -25,6 +31,10 @@ FEATURES = (
             CliCommandGroup(feature="dns", name="record", app=cli.record_app),
             CliCommandGroup(feature="dns", name="rule", app=cli.rule_app),
             CliCommandGroup(feature="dns", name="dns", app=cli.dns_app),
+        ),
+        site_policy=(
+            PolicyContribution(feature="dns", group="origin", contract=OriginPolicy),
+            PolicyContribution(feature="dns", group="headers", contract=HeaderPolicy),
         ),
     ),
 )

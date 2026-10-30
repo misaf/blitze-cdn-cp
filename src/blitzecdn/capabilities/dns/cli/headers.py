@@ -9,7 +9,8 @@ import typer
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.app import domain_app
 from blitzecdn.capabilities.dns.cli.editing import report
-from blitzecdn.capabilities.dns.domain import EditVisitorHeaders
+from blitzecdn.capabilities.serving.contract import HeaderPolicy
+from blitzecdn.capabilities.serving.domain import EditVisitorHeaders
 from blitzecdn.entrypoints.cli import common
 
 
@@ -64,8 +65,11 @@ def domain_visitor_headers(
     sent = [
         header
         for header, on in (
-            ("BZ-Connecting-IP", zone.policy.headers.visitor_headers.connecting_ip),
-            ("BZ-IPCountry", zone.policy.headers.visitor_headers.ip_country),
+            (
+                "BZ-Connecting-IP",
+                zone.policy[HeaderPolicy].visitor_headers.connecting_ip,
+            ),
+            ("BZ-IPCountry", zone.policy[HeaderPolicy].visitor_headers.ip_country),
         )
         if on
     ]

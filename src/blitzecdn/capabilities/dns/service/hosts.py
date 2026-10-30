@@ -1,14 +1,14 @@
-"""Derived virtual hosts, and certificate and automatic SSL writeback.
+"""Derived virtual hosts, and writeback to the zone or rule behind one.
 
 Writes read inside the transaction they write in.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import Domain, Rule, derive_hosts
+from blitzecdn.capabilities.dns.domain import Domain, Rule, SiteChange, derive_hosts
 from blitzecdn.capabilities.dns.domain.hosts import host_source
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
@@ -17,14 +17,6 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.contract import (
-    CertificateMode,
-    CertificateVersion,
-    SslAutomaticMode,
-    SslMode,
-    managed_certificate_paths,
-)
-from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import NotFoundError
 
 
@@ -61,49 +53,25 @@ class HostService:
                 return site
         raise NotFoundError(f"CDN site {name!r} does not exist")
 
-    # -- The one write an issuer owns ----------------------------------
+    # -- Writes another capability owns ---------------------------------
 
-    def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
-    ) -> CdnSite:
-        """Record a managed certificate on the zone or rule that produced this host."""
-        certificate_path, certificate_key_path = managed_certificate_paths(
-            site.name, version
-        )
-        changes = {
-            "certificate_mode": mode,
-            "certificate_path": certificate_path,
-            "certificate_key_path": certificate_key_path,
-        }
-        with self.uow.transaction():
-            self._apply_to_source(site, changes)
-        return self.get_site(site.name)
-
-    def apply_automatic_ssl_upgrade(
-        self, site_name: str, target: SslMode, operator: str
+    def change_site(
+        self, site_name: str, decide: Callable[[CdnSite], SiteChange | None]
     ) -> CdnSite | None:
-        """Persist an upgrade only while the host remains enrolled in Auto.
+        """Write what ``decide`` asks of a host, judged on the host as stored now.
 
-        The scan ran long before this, so both guards are re-checked inside the
-        ``BEGIN IMMEDIATE`` transaction: an operator who opts out or picks a stronger
-        mode meanwhile wins.
+        ``decide`` runs inside the ``BEGIN IMMEDIATE`` transaction that writes,
+        so a guard it applies cannot be overtaken by an edit made meanwhile.
+        ``None`` from it writes nothing and returns ``None``.
         """
         with self.uow.transaction():
             current = self.get_site(site_name)
-            if current.policy.tls.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
+            change = decide(current)
+            if change is None:
                 return None
-            if target.security_rank <= current.policy.tls.ssl_mode.security_rank:
-                return None
-            self._apply_to_source(current, {"ssl_mode": target})
-            self.events.record(
-                domain_event(
-                    operator,
-                    "ssl.automatic.upgraded",
-                    "site",
-                    site_name,
-                    {"from": current.policy.tls.ssl_mode.value, "to": target.value},
-                )
-            )
+            self._apply_to_source(current, change.settings)
+            if change.event is not None:
+                self.events.record(change.event)
         return self.get_site(site_name)
 
     def _apply_to_source(self, site: CdnSite, changes: Mapping[str, Any]) -> None:

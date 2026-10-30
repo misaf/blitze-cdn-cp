@@ -87,7 +87,7 @@ blitzecdn	schema	CdnSite.certificate_mode	CertificateMode optional
 blitzecdn	schema	CdnSite.certificate_path	string|null optional
 blitzecdn	schema	CdnSite.compression	CompressionMode optional
 blitzecdn	schema	CdnSite.enabled	boolean optional
-blitzecdn	schema	CdnSite.firewall	ZoneFirewall optional
+blitzecdn	schema	CdnSite.firewall	SiteFirewall optional
 blitzecdn	schema	CdnSite.http3_enabled	boolean optional
 blitzecdn	schema	CdnSite.max_upload_size	MaxUploadSize optional
 blitzecdn	schema	CdnSite.minimum_tls_version	MinimumTlsVersion optional
@@ -99,7 +99,7 @@ blitzecdn	schema	CdnSite.server_names	array[string] required
 blitzecdn	schema	CdnSite.ssl_automatic_mode	SslAutomaticMode optional
 blitzecdn	schema	CdnSite.ssl_mode	SslMode optional
 blitzecdn	schema	CdnSite.under_attack_mode	boolean optional
-blitzecdn	schema	CdnSite.visitor_headers	ZoneVisitorHeaders optional
+blitzecdn	schema	CdnSite.visitor_headers	SiteVisitorHeaders optional
 blitzecdn	schema	CertificateInfo.certificate_digest	string required
 blitzecdn	schema	CertificateInfo.domains	array[string] required
 blitzecdn	schema	CertificateInfo.email	string|null optional
@@ -176,7 +176,7 @@ blitzecdn	schema	Domain.certificate_mode	CertificateMode optional
 blitzecdn	schema	Domain.certificate_path	string|null optional
 blitzecdn	schema	Domain.compression	CompressionMode optional
 blitzecdn	schema	Domain.enabled	boolean optional
-blitzecdn	schema	Domain.firewall	ZoneFirewall optional
+blitzecdn	schema	Domain.firewall	SiteFirewall optional
 blitzecdn	schema	Domain.http3_enabled	boolean optional
 blitzecdn	schema	Domain.max_upload_size	MaxUploadSize optional
 blitzecdn	schema	Domain.minimum_tls_version	MinimumTlsVersion optional
@@ -186,7 +186,7 @@ blitzecdn	schema	Domain.origin_sni	string|null optional
 blitzecdn	schema	Domain.ssl_automatic_mode	SslAutomaticMode optional
 blitzecdn	schema	Domain.ssl_mode	SslMode optional
 blitzecdn	schema	Domain.under_attack_mode	boolean optional
-blitzecdn	schema	Domain.visitor_headers	ZoneVisitorHeaders optional
+blitzecdn	schema	Domain.visitor_headers	SiteVisitorHeaders optional
 blitzecdn	schema	DomainPatch.always_use_https	boolean optional
 blitzecdn	schema	DomainPatch.cache_enabled	boolean optional
 blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode optional
@@ -197,7 +197,7 @@ blitzecdn	schema	DomainPatch.certificate_mode	CertificateMode optional
 blitzecdn	schema	DomainPatch.certificate_path	string|null optional
 blitzecdn	schema	DomainPatch.compression	CompressionMode optional
 blitzecdn	schema	DomainPatch.enabled	boolean optional
-blitzecdn	schema	DomainPatch.firewall	ZoneFirewall optional
+blitzecdn	schema	DomainPatch.firewall	SiteFirewall optional
 blitzecdn	schema	DomainPatch.http3_enabled	boolean optional
 blitzecdn	schema	DomainPatch.max_upload_size	MaxUploadSize optional
 blitzecdn	schema	DomainPatch.minimum_tls_version	MinimumTlsVersion optional
@@ -206,7 +206,7 @@ blitzecdn	schema	DomainPatch.origin_sni	string|null optional
 blitzecdn	schema	DomainPatch.ssl_automatic_mode	SslAutomaticMode optional
 blitzecdn	schema	DomainPatch.ssl_mode	SslMode optional
 blitzecdn	schema	DomainPatch.under_attack_mode	boolean optional
-blitzecdn	schema	DomainPatch.visitor_headers	ZoneVisitorHeaders optional
+blitzecdn	schema	DomainPatch.visitor_headers	SiteVisitorHeaders optional
 blitzecdn	schema	DriftReport.checked_at	string required
 blitzecdn	schema	DriftReport.deployment_id	string required
 blitzecdn	schema	DriftReport.host_limit	string|null optional
@@ -387,6 +387,14 @@ blitzecdn	schema	SettingSource.origin	SettingOrigin required
 blitzecdn	schema	SettingSource.rule	string|null optional
 blitzecdn	schema	SettingSource.setting	string required
 blitzecdn	schema	SettingSource.value	any required
+blitzecdn	schema	SiteFirewall.allow_sources	array[string] optional
+blitzecdn	schema	SiteFirewall.allowed_countries	array[string] optional
+blitzecdn	schema	SiteFirewall.denied_countries	array[string] optional
+blitzecdn	schema	SiteFirewall.denied_methods	array[string] optional
+blitzecdn	schema	SiteFirewall.denied_paths	array[string] optional
+blitzecdn	schema	SiteFirewall.deny_sources	array[string] optional
+blitzecdn	schema	SiteVisitorHeaders.connecting_ip	boolean optional
+blitzecdn	schema	SiteVisitorHeaders.ip_country	boolean optional
 blitzecdn	schema	SslAutomaticReconciliation.deployment	Deployment|null optional
 blitzecdn	schema	SslAutomaticReconciliation.scanned	array[string] optional
 blitzecdn	schema	SslAutomaticReconciliation.skipped	object optional
@@ -432,11 +440,3 @@ blitzecdn	schema	WorkflowStatistics.duration_seconds_sum	number optional
 blitzecdn	schema	WorkflowStep.completed_at	string required
 blitzecdn	schema	WorkflowStep.details	object optional
 blitzecdn	schema	WorkflowStep.name	string required
-blitzecdn	schema	ZoneFirewall.allow_sources	array[string] optional
-blitzecdn	schema	ZoneFirewall.allowed_countries	array[string] optional
-blitzecdn	schema	ZoneFirewall.denied_countries	array[string] optional
-blitzecdn	schema	ZoneFirewall.denied_methods	array[string] optional
-blitzecdn	schema	ZoneFirewall.denied_paths	array[string] optional
-blitzecdn	schema	ZoneFirewall.deny_sources	array[string] optional
-blitzecdn	schema	ZoneVisitorHeaders.connecting_ip	boolean optional
-blitzecdn	schema	ZoneVisitorHeaders.ip_country	boolean optional

@@ -1,65 +1,93 @@
-"""Compose serving policy independently of DNS storage and lifecycle."""
+"""Compose serving policy from the contracts the features contribute.
+
+`SitePolicy` names no contract. The fields come from
+:class:`~blitzecdn.core.features.PolicyContribution`, fixed once by
+:meth:`~blitzecdn.capabilities.serving.contract.SitePolicy.seal` when the
+registry loads, and a contract is read with ``policy[TlsPolicy]``. The class is
+a :class:`~blitzecdn.core.domain.composed.ComposedModel`, so a field, body or
+response can name it at import time, before the registry exists.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, Self
+from typing import Any, ClassVar, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
 
-from blitzecdn.capabilities.cache.contract import CachePolicy
-from blitzecdn.capabilities.compression.contract import CompressionPolicy
-from blitzecdn.capabilities.http.contract import ProtocolPolicy
-from blitzecdn.capabilities.security.contract import SecurityPolicy
-from blitzecdn.capabilities.serving.contract.headers import HeaderPolicy
-from blitzecdn.capabilities.serving.contract.origin import OriginPolicy
-from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.domain.composed import ComposedModel
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.resolution import ResolvedPolicySchema
+
+__all__ = ["SitePolicy"]
 
 
-class SitePolicy(BaseModel):
+class SitePolicy(ComposedModel):
     """One serving policy composed from independently validated contracts.
 
-    Each contract is a named field, not a base class. Flat settings are only an
+    Each contract is a field named by its group. Flat settings are only an
     edit and edge-document format, never the stored shape.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    _schema: ClassVar[ResolvedPolicySchema | None] = None
+
     enabled: bool = True
-    tls: TlsPolicy = Field(default_factory=TlsPolicy)
-    protocols: ProtocolPolicy = Field(default_factory=ProtocolPolicy)
-    origin: OriginPolicy = Field(default_factory=OriginPolicy)
-    cache: CachePolicy = Field(default_factory=CachePolicy)
-    compression: CompressionPolicy = Field(default_factory=CompressionPolicy)
-    security: SecurityPolicy = Field(default_factory=SecurityPolicy)
-    headers: HeaderPolicy = Field(default_factory=HeaderPolicy)
+
+    # --- composition ---------------------------------------------------------
+
+    @classmethod
+    def seal(cls, schema: ResolvedPolicySchema) -> None:
+        """Compose the policy from ``schema``; an equal schema keeps the model."""
+        if SitePolicy._schema != schema:
+            SitePolicy._schema = schema
+
+    @staticmethod
+    def policy_schema() -> ResolvedPolicySchema:
+        """The contributions this policy is composed from."""
+        if SitePolicy._schema is None:
+            raise FeatureError(
+                "the site policy is not composed yet: load the feature registry "
+                "(`blitzecdn.composition.load_registry`) before validating a "
+                "policy; the test suite does so in tests/conftest.py"
+            )
+        return SitePolicy._schema
+
+    @classmethod
+    def composition_source(cls) -> object:
+        return SitePolicy.policy_schema()
+
+    @classmethod
+    def compose(cls, source: Any) -> type[Self]:
+        schema = cast(ResolvedPolicySchema, source)
+        return cls.compose_fields(
+            {
+                group: (contract, Field(default_factory=contract))
+                for group, contract in schema.groups.items()
+            }
+        )
+
+    def __getitem__[P: CapabilityPolicy](self, contract: type[P]) -> P:
+        """The contributed contract of type ``contract``."""
+        # Validation put an instance of the group's contract there.
+        return cast(P, getattr(self, SitePolicy.policy_schema().group_of(contract)))
+
+    # --- the flat format -----------------------------------------------------
 
     @classmethod
     def component_types(cls) -> Mapping[str, type[CapabilityPolicy]]:
-        """The declared contract fields, read from the model itself."""
-        components: dict[str, type[CapabilityPolicy]] = {}
-        for name, field in cls.model_fields.items():
-            if name == "enabled":
-                continue
-            contract = field.annotation
-            if not isinstance(contract, type) or not issubclass(
-                contract, CapabilityPolicy
-            ):
-                raise TypeError(f"policy component {name!r} must be a CapabilityPolicy")
-            components[name] = contract
-        return components
+        """Every contributed contract, by group."""
+        return SitePolicy.policy_schema().groups
 
     @classmethod
     def setting_fields(cls) -> Mapping[str, FieldInfo]:
-        """Field definitions of the flat editing/edge format, checked unique."""
-        fields = {"enabled": cls.model_fields["enabled"]}
+        """Field definitions of the flat editing/edge format."""
+        fields = {"enabled": SitePolicy.model_fields["enabled"]}
         for contract in cls.component_types().values():
-            for name, field in contract.model_fields.items():
-                if name in fields:
-                    raise TypeError(f"serving setting {name!r} has multiple owners")
-                fields[name] = field
+            fields.update(contract.model_fields)
         return fields
 
     @classmethod
@@ -81,11 +109,14 @@ class SitePolicy(BaseModel):
                 document[group] = values
         return cls.model_validate(document)
 
+    def components(self) -> Mapping[str, CapabilityPolicy]:
+        """Every contract this policy holds, by group."""
+        return {group: getattr(self, group) for group in self.component_types()}
+
     def settings(self, *, mode: Literal["json", "python"] = "python") -> dict[str, Any]:
         """Project policy into flat command/edge settings, never persistence."""
         document: dict[str, Any] = {"enabled": self.enabled}
-        for name in self.component_types():
-            component: CapabilityPolicy = getattr(self, name)
+        for component in self.components().values():
             document.update(
                 component.model_dump(mode="json")
                 if mode == "json"
@@ -109,8 +140,7 @@ class SitePolicy(BaseModel):
         if not self.enabled:
             return {}
         requested: dict[str, list[str]] = {}
-        for name in self.component_types():
-            component: CapabilityPolicy = getattr(self, name)
+        for component in self.components().values():
             for token, settings in component.capability_requirements.items():
                 requested.setdefault(token, []).extend(settings)
         return {name: tuple(settings) for name, settings in requested.items()}
@@ -119,20 +149,14 @@ class SitePolicy(BaseModel):
     def required_capabilities(self) -> frozenset[str]:
         return frozenset(self.capability_requirements)
 
-    @model_validator(mode="after")
-    def validate_setting_ownership(self) -> Self:
-        self.setting_fields()
-        return self
+    def validate_for_site(self, name: str) -> None:
+        """The contributed rules that need the host's name; raises ``ValueError``."""
+        for check in SitePolicy.policy_schema().site_checks:
+            check(name, self)
 
     @model_validator(mode="after")
-    def validate_http3_requires_edge_tls(self) -> Self:
-        if self.protocols.http3_enabled and not self.tls.ssl_mode.serves_tls:
-            raise ValueError("http3_enabled=True requires ssl_mode to serve edge TLS")
+    def validate_contributed_checks(self) -> Self:
+        if self.__composed__:
+            for check in SitePolicy.policy_schema().checks:
+                check(self)
         return self
-
-    @property
-    def requires_geoip(self) -> bool:
-        return (
-            self.security.firewall.requires_geoip
-            or self.headers.visitor_headers.requires_geoip
-        )

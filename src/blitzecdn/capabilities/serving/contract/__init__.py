@@ -7,4 +7,9 @@ from blitzecdn.capabilities.serving.contract.headers import (
 from blitzecdn.capabilities.serving.contract.origin import OriginPolicy
 from blitzecdn.capabilities.serving.contract.site import SitePolicy
 
-__all__ = ["HeaderPolicy", "OriginPolicy", "SitePolicy", "SiteVisitorHeaders"]
+__all__ = [
+    "HeaderPolicy",
+    "OriginPolicy",
+    "SitePolicy",
+    "SiteVisitorHeaders",
+]
