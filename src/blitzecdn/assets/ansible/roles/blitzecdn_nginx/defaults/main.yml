@@ -103,17 +103,15 @@ blitzecdn_nginx_hsts_max_age: 31536000
 
 # Observability.
 #
-# The generic access log records a contributed X-Cache-Status response header
-# when present; without the cache capability that field is simply empty. The
-# status endpoint exposes connection and request totals independently.
-# Each configured hostname also writes domains/<hostname>.access.log and
-# domains/<hostname>.error.log under the runtime log root. Wildcards use
-# _wildcard in place of *. Hostname access files use the derived _json format;
-# error files retain Nginx text. Hostname archives rotate independently.
+# Each configured hostname writes domains/<hostname>.access.log and
+# domains/<hostname>.error.log under the runtime log root; wildcards use
+# _wildcard in place of *. These are the only request logs: access files are
+# JSON Lines, and record a contributed X-Cache-Status response header when
+# present (empty without the cache capability). Error files retain Nginx text
+# and are also copied to Docker stderr. The status endpoint exposes connection
+# and request totals independently.
 blitzecdn_nginx_access_log_enabled: true
-blitzecdn_nginx_access_log_path: >-
-  {{ blitzecdn_edge_runtime.paths.logs }}/blitzecdn-access.log
-blitzecdn_nginx_log_format_name: blitzecdn
+blitzecdn_nginx_log_format_name: blitzecdn_json
 
 # Where the status endpoint listens is blitzecdn_edge_runtime.status: the
 # Compose healthcheck, health.yml and blitzecdn_cache_stats all read the same

@@ -88,7 +88,7 @@ def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
     control, _ = _stats_control(
         settings,
         _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
-        host_run("edge-b", failure="collect-cache-stats.sh returned 1"),
+        host_run("edge-b", failure="collect_cache_stats.py returned 1"),
     )
 
     report = control.cache.cache_stats("alice")

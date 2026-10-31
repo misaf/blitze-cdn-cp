@@ -431,16 +431,19 @@ def test_the_edge_image_deletes_nothing_it_inherited():
     )
 
 
-def test_nginx_logs_to_persistent_files_and_docker_streams():
-    """Docker logs supplement the retained files consumed by edge tooling."""
+def test_nginx_logs_requests_to_files_and_errors_to_docker():
+    """Docker carries errors only; every request is written once, to its file."""
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
     site = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
 
     assert "error_log  /dev/stderr notice;" in dockerfile
     assert "access_log  /dev/stdout  main;" in dockerfile
+    assert site.count("error_log /dev/stderr warn;") == 2
+    assert "/dev/stdout" not in site
     assert (
-        site.count("access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};") == 2
+        site.count("access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/") == 2
     )
-    assert "access_log {{ blitzecdn_nginx_access_log_path }}" in site
+    # Per server block: the hostname file, or off when access logging is disabled.
+    assert site.count("\n    access_log ") == 4
     assert 'max-size: "32m"' in COMPOSE_TEMPLATE
     assert 'max-file: "3"' in COMPOSE_TEMPLATE

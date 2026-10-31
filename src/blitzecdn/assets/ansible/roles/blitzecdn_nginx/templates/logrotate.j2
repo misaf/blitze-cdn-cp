@@ -1,4 +1,7 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
+# The global error log takes startup errors and those raised before Nginx has
+# selected a hostname; it lives in the same mount and needs the same bound.
+{{ blitzecdn_edge_runtime.paths.logs }}/error.log
 {{ blitzecdn_edge_runtime.paths.logs }}/domains/*.log {
     daily
     maxsize 100M

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, role_defaults, runtime_defaults
+from support.contracts import PROJECT_DIR, runtime_defaults
 
 from blitzecdn.capabilities.cache import ansible
 
@@ -36,7 +36,7 @@ def test_the_roles_this_capability_ships_are_where_it_says_they_are():
         "blitzecdn_cache_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
-    assert (STATS_ROLE_DIR / "files/collect-cache-stats.sh").is_file()
+    assert (STATS_ROLE_DIR / "files/collect_cache_stats.py").is_file()
 
 
 def test_the_plays_this_capability_runs_ship_with_it():
@@ -88,8 +88,8 @@ def test_purge_role_agrees_with_the_capability_owned_nginx_resource():
 def test_stats_role_reads_the_log_the_nginx_role_writes():
     stats = _defaults_of(STATS_ROLE_DIR)
     assert (
-        stats["blitzecdn_cache_stats_access_log_path"]
-        == role_defaults()["blitzecdn_nginx_access_log_path"]
+        stats["blitzecdn_cache_stats_log_directory"]
+        == _contract_value("paths", "logs") + "/domains"
     )
     assert stats["blitzecdn_cache_stats_status_address"] == _contract_value(
         "status", "address"

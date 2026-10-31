@@ -2,9 +2,10 @@
 - name: Count recent requests by site and cache outcome
   ansible.builtin.script:
     cmd: >-
-      collect-cache-stats.sh
-      {{ blitzecdn_cache_stats_access_log_path | quote }}
+      collect_cache_stats.py
+      {{ blitzecdn_cache_stats_log_directory | quote }}
       {{ blitzecdn_cache_stats_max_lines | int }}
+    executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
   register: blitzecdn_cache_stats_counts
   changed_when: false
   check_mode: false
@@ -61,7 +62,7 @@
       # timestamp that reads as local time on one machine and UTC on another is
       # worse than none when comparing edges.
       collected_at: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
-      access_log_lines_read: "{{ blitzecdn_cache_stats_max_lines | int }}"
+      access_log_lines_per_site: "{{ blitzecdn_cache_stats_max_lines | int }}"
       nginx_reachable: "{{ blitzecdn_cache_stats_status.status | default(0) == 200 }}"
       connections: "{{ _totals if _totals else {} }}"
       cache: "{{ blitzecdn_cache_stats_counts.stdout | default('[]') | from_json }}"
