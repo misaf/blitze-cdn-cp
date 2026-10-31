@@ -17,6 +17,9 @@ FEATURES = (
         api_routers=(routes.router,),
         cli_commands=(
             CliCommandGroup(feature="deployments", name=None, app=cli.deployment_app),
+            CliCommandGroup(
+                feature="deployments", name="deployment", app=cli.deployment_queries_app
+            ),
         ),
     ),
 )

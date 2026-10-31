@@ -20,7 +20,7 @@ app = typer.Typer(
     help="""Securely manage BlitzeCDN edge desired state.
 
     You do not create virtual hosts. Register a zone with 'domain add', add a
-    record with 'record add --proxied', and the edge site is derived from it —
+    record with 'record add --proxy', and the edge site is derived from it —
     unproxy the record and the site is gone. Per-hostname settings (origin,
     caching, TLS, firewall) live on the record.
 
