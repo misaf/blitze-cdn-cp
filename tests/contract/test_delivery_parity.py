@@ -145,16 +145,17 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     # -- Deployments -------------------------------------------------------
     ("blitzecdn", "deploy", "POST /v3/deployments", ""),
-    ("blitzecdn", "status", "GET /v3/deployments", ""),
-    ("blitzecdn", "status", "GET /v3/deployments/{deployment_id}", ""),
+    ("blitzecdn", "deployment status", "GET /v3/deployments", ""),
+    ("blitzecdn", "deployment status", "GET /v3/deployments/{deployment_id}", ""),
     (
         "blitzecdn",
-        "status",
+        "deployment status",
         "GET /v3/deployments/{deployment_id}/targets",
-        "how far each edge got. `blitzecdn status <id>` prints it beneath the "
-        "deployment, because an operator asking about a run wants the per-edge "
-        "answer in the same breath; a client polling a rollout wants to fetch "
-        "just the progress without re-reading the deployment each time.",
+        "how far each edge got. `blitzecdn deployment status <id>` prints it "
+        "beneath the deployment, because an operator asking about a run wants "
+        "the per-edge answer in the same breath; a client polling a rollout "
+        "wants to fetch just the progress without re-reading the deployment "
+        "each time.",
     ),
     ("blitzecdn", "rollback", "POST /v3/rollbacks", ""),
     ("blitzecdn", "drift", "POST /v3/drift", ""),
@@ -255,7 +256,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "nothing to poll.",
     ),
     ("blitzecdn", "cache purge", "POST /v3/cache/purge", ""),
-    ("blitzecdn", "stats", "POST /v3/cache/stats", ""),
+    ("blitzecdn", "cache stats", "POST /v3/cache/stats", ""),
     ("blitzecdn", "origin check", "POST /v3/origins/check", ""),
     (
         "blitzecdn",

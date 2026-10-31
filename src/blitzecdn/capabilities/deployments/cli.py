@@ -1,4 +1,4 @@
-"""Convergence commands: validate, plan, deploy, rollback, drift, status."""
+"""Convergence verbs and deployment history queries."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from blitzecdn.entrypoints.cli.common import ExitCode
 
 #: Root-level verbs: `blitzecdn deploy`, not `blitzecdn deployment deploy`.
 deployment_app = typer.Typer()
+
+deployment_queries_app = typer.Typer(
+    no_args_is_help=True, help="Inspect deployment history and per-edge progress."
+)
 
 Wait = Annotated[
     int,
@@ -205,7 +209,7 @@ def drift(
         raise typer.Exit(ExitCode.DRIFT_DETECTED)
 
 
-@deployment_app.command()
+@deployment_queries_app.command()
 def status(
     deployment_id: Annotated[str | None, typer.Argument()] = None,
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,

@@ -190,7 +190,7 @@ def cert_reconcile(
         json_output=json_output,
         note=(
             f"Queued deployment {deployment.id}; "
-            f"follow it with 'blitzecdn status {deployment.id}'."
+            f"follow it with 'blitzecdn deployment status {deployment.id}'."
             if deployment is not None
             else None
         ),
