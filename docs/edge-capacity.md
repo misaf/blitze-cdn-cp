@@ -9,7 +9,7 @@ Edge capacity is controlled at several layers. The defaults are:
 | `blitzecdn_nginx_listen_backlog` | 16384 | Public TCP listener backlog |
 | `net.core.somaxconn` | 16384 | Host ceiling for the listener backlog |
 | `net.ipv4.tcp_max_syn_backlog` | 16384 | Pending TCP handshakes |
-| `net.core.netdev_max_backlog` | 16384 | Input packet backlog |
+| `net.core.netdev_max_backlog` | 16384 | Input packet backlog, when exposed by the host |
 | `net.ipv4.ip_local_port_range` | 32768–65535 | Automatic outgoing source ports |
 
 `worker_connections` must remain below `nofile`, leaving descriptors for logs,
@@ -22,6 +22,10 @@ The host must support the requested process limit through `fs.nr_open` and have
 sufficient system-wide file capacity through `fs.file-max`. BlitzeCDN does not
 replace these with fixed values that could lower a host's existing capacity.
 Measure `fs.file-nr` and worker `/proc/<pid>/limits` on the actual Linux edge.
+
+Some container network namespaces do not expose `net.core.netdev_max_backlog`.
+The role reports and skips that setting when its `/proc/sys` entry is absent.
+Other requested kernel settings still fail if unavailable or rejected.
 
 The kernel role runs on the host; the serving container uses host networking.
 Do not move these network sysctls into Compose. Linux also applies
