@@ -5,9 +5,15 @@
 blitzecdn_kernel_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 
 # Replaced wholesale, not merged, when overridden in inventory. Setting one key
-# in group_vars drops the other four; restate the full dict.
+# in group_vars drops the other settings; restate the full dict. Removed keys
+# are restored to their saved baseline, then removed from the managed drop-in.
+# BBR/fq and TIME_WAIT policy remain opt-in. No fixed fs.file-max/nr_open:
+# lowering a host's existing limits can reduce capacity for other workloads.
 blitzecdn_kernel_sysctl:
   net.core.somaxconn: 16384
+  net.ipv4.tcp_max_syn_backlog: 16384
+  net.core.netdev_max_backlog: 16384
+  net.ipv4.ip_local_port_range: "32768 65535"
   net.ipv4.tcp_syncookies: 1
   net.ipv4.tcp_keepalive_time: 90
   net.ipv4.tcp_keepalive_intvl: 30

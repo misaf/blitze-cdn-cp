@@ -1,4 +1,14 @@
 ---
+- name: Require connection capacity below the process file limit
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_worker_connections | int > 0
+      - blitzecdn_nginx_worker_connections | int < blitzecdn_edge_runtime.nofile | int
+      - blitzecdn_nginx_listen_backlog | int > 0
+    fail_msg: >-
+      worker_connections must be positive and below the edge nofile limit,
+      leaving file descriptors for logs, cache files and listeners. Backlog must be positive.
+
 # Host state the release's configuration depends on. The configuration tree
 # itself is rendered on the controller, stored with the release, and staged by
 # blitzecdn_config_release: this role writes nothing into it. Its templates and

@@ -34,6 +34,9 @@
 # cannot disagree with itself.
 blitzecdn_edge_http3_enabled: false
 
+# Shared by the serving container and Nginx workers, including config probes.
+blitzecdn_edge_nofile: 65536
+
 # The fleet value is composed in inventory/group_vars/blitzecdn_edges from
 # blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
 # below is only the standalone fallback for a playbook that runs these roles
@@ -52,6 +55,7 @@ blitzecdn_edge_runtime:
   # any use for it, and a contract member with one reader is a variable that
   # escaped its owner.
   container: blitzecdn-edge
+  nofile: "{{ blitzecdn_edge_nofile }}"
   # Validated against by blitzecdn_nginx and served from by
   # blitzecdn_edge_stack. Validating a configuration against one image and then
   # serving it from another is exactly the drift a single value cannot produce.

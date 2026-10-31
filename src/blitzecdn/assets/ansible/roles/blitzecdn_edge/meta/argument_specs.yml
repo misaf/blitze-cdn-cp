@@ -22,6 +22,7 @@ argument_specs:
         role executes, so putting it ahead of blitzecdn_docker means a
         malformed contract fails before anything on the host has changed.
     options:
+      blitzecdn_edge_nofile: {type: int, required: true}
       blitzecdn_edge_http3_enabled:
         type: bool
         required: true
@@ -44,6 +45,7 @@ argument_specs:
           this role's defaults.
         options:
           container: {type: str, required: true}
+          nofile: {type: int, required: true}
           image:
             type: str
             required: true

@@ -1,0 +1,35 @@
+---
+- name: Read registered TCP congestion control algorithms
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, net.ipv4.tcp_available_congestion_control]
+  register: blitzecdn_kernel_algorithms
+  changed_when: false
+  check_mode: false
+
+# BBR may be built in, loaded, or available as a module. A module file alone
+# cannot establish availability, and built-in support needs no modprobe.
+- name: Load BBR when requested and not already registered
+  ansible.builtin.command:
+    argv: [/usr/sbin/modprobe, tcp_bbr]
+  when:
+    - blitzecdn_kernel_sysctl['net.ipv4.tcp_congestion_control'] == 'bbr'
+    - "'bbr' not in blitzecdn_kernel_algorithms.stdout.split()"
+    - not ansible_check_mode
+  changed_when: true
+
+- name: Re-read registered TCP congestion control algorithms
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, net.ipv4.tcp_available_congestion_control]
+  register: blitzecdn_kernel_available
+  changed_when: false
+  check_mode: false
+
+- name: Require the requested TCP congestion control algorithm
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_kernel_sysctl['net.ipv4.tcp_congestion_control']
+        in blitzecdn_kernel_available.stdout.split()
+    fail_msg: >-
+      The requested TCP congestion control algorithm is unavailable. Load its
+      kernel module before converging (also before using check mode).
