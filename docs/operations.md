@@ -141,6 +141,27 @@ A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
 then run the standalone command of the release you want.
 
+## Host commands and Compose
+
+The installed `blitzecdn` command runs disposable CLI containers through Docker
+Compose. The host requires Compose 2.30+ and `flock` (util-linux); the Docker
+installation supplies Compose and the control-plane role installs util-linux.
+No application Python environment or source checkout is needed on the host.
+
+Edit `/etc/blitzecdn/blitzecdn.env` for secrets. The wrapper and installer use
+the application's parser to generate a root-only `compose.env` beside it.
+Dollar signs are literal, shell quotes are removed once, and the first
+assignment of a name wins. Do not edit `compose.env`; Compose reads it in raw
+mode. Running a CLI command refreshes that generated file; persistent services
+still need recreation to pick up changed credentials.
+
+Backup commands support global options such as `blitzecdn --verbose backup
+create`. Restores lock out competing restores, stop the previously running
+API/worker services, publish configuration, then recreate that same service
+set and wait up to 180 seconds for health. If recovery fails, the checkpoint
+is retained and services stay stopped; retry `blitzecdn backup recover`.
+That explicit recovery also starts existing stopped API/worker containers.
+
 ## Backups
 
 An installed controller takes a full backup every day and then prunes the

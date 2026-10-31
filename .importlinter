@@ -164,7 +164,7 @@ forbidden_modules =
     blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.assets.docker
-    blitzecdn.host.host_runtime
+    blitzecdn.host.compose_files
     blitzecdn.entrypoints.install_handoff
     blitzecdn.entrypoints.worker
 allow_indirect_imports = True
@@ -192,7 +192,7 @@ source_modules =
     blitzecdn.composition
     blitzecdn.core
     blitzecdn.assets.docker
-    blitzecdn.host.host_runtime
+    blitzecdn.host.compose_files
     blitzecdn.entrypoints.install_handoff
 forbidden_modules =
     blitzecdn.entrypoints.worker
