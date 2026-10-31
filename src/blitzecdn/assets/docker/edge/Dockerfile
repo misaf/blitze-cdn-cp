@@ -113,8 +113,10 @@ RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-buil
 
 # BlitzeCDN owns the default server, not the example bundled with the image.
 # Keep the official persistent log destinations and add Docker's stdout/stderr
-# streams at the same configuration level. Managed sites declare their own
-# access logs below this level and therefore add stdout in site.conf.j2 too.
+# streams at the same configuration level, for anything running this image
+# without a controller. Managed sites declare their own access logs below this
+# level, which replace these: requests go only to the hostname file, and only
+# errors reach Docker, through stderr in site.conf.j2.
 #
 # That example server is emptied rather than deleted, and the difference
 # matters. Removing a file inherited from the base image records a whiteout in

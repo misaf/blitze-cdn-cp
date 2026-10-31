@@ -221,7 +221,7 @@ def fake_installation(root: Path) -> list[Path]:
         root / "etc/nginx/sites-enabled/example-cdn.conf",
         root / "var/cache/nginx/blitzecdn/cache-data",
         root / "etc/systemd/resolved.conf.d/blitzecdn.conf",
-        root / "var/log/nginx/blitzecdn-access.log",
+        root / "var/log/nginx/error.log",
         root / "etc/fail2ban/jail.d/blitzecdn-sshd.local",
         root / "etc/ssh/sshd_config.d/50-blitzecdn.conf",
         root / "etc/sysctl.d/60-blitzecdn.conf",

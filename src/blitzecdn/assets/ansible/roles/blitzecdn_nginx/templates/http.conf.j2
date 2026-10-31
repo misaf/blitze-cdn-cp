@@ -8,15 +8,9 @@ resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_re
 resolver_timeout {{ blitzecdn_nginx_resolver_timeout }};
 {% endif %}
 {% if blitzecdn_nginx_access_log_enabled | bool %}
+# Hostname files are JSON Lines, read by traffic accounting and cache stats.
+# They are the only request log: no aggregate file and no Docker stdout copy.
 log_format {{ blitzecdn_nginx_log_format_name }} escape=json
-    '$remote_addr $host "$request" $status $body_bytes_sent '
-    'rt=$request_time cache="$sent_http_x_cache_status" '
-    'upstream="$upstream_addr" ut="$upstream_response_time" '
-    'ref="$http_referer" ua="$http_user_agent" time="$time_iso8601"';
-
-# Hostname files are JSON Lines for reliable usage collection. Keep the
-# aggregate format above for cache diagnostics and the Docker request stream.
-log_format {{ blitzecdn_nginx_log_format_name }}_json escape=json
     '{"schema_version":1,"request_id":"$request_id","timestamp":"$time_iso8601",'
     '"hostname":"$host","server_name":"$server_name",'
     '"bytes_sent":$bytes_sent,"body_bytes_sent":$body_bytes_sent,'

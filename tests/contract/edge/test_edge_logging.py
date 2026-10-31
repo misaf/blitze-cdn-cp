@@ -37,8 +37,8 @@ def test_each_hostname_has_its_own_logs_on_every_listener(mode):
             assert f"access_log {path}.access.log blitzecdn_json;" in block
             assert f"error_log {path}.error.log warn;" in block
             assert block.count("/domains/") == 2
-            assert "access_log /var/log/nginx/blitzecdn-access.log blitzecdn;" in block
-            assert "access_log /dev/stdout blitzecdn;" in block
+            # The hostname file is the only request log; Docker gets errors only.
+            assert block.count("\n    access_log ") == 1
             assert "error_log /dev/stderr warn;" in block
             assert block.count("\n    server_name ") == 1
 
@@ -107,15 +107,13 @@ def test_log_formats_follow_the_configured_name_and_access_logging_switch():
     context["blitzecdn_nginx_log_format_name"] = "custom"
     templates = AnsibleTemplates(context)
     rendered = templates.render(ROLE_DIR / "templates/http.conf.j2")
+    assert rendered.count("log_format ") == 1
     assert "log_format custom escape=json" in rendered
-    assert "log_format custom_json escape=json" in rendered
     site = render_site(
         site_to_ansible(mode_site(SslMode.OFF, False)),
         blitzecdn_nginx_log_format_name="custom",
     )
-    assert ".access.log custom_json;" in site
-    assert "blitzecdn-access.log custom;" in site
-    assert "access_log /dev/stdout custom;" in site
+    assert ".access.log custom;" in site
     context["blitzecdn_nginx_access_log_enabled"] = False
     assert "log_format " not in AnsibleTemplates(context).render(
         ROLE_DIR / "templates/http.conf.j2"
@@ -144,7 +142,8 @@ def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
     context = role_defaults()
     context["blitzecdn_edge_runtime"]["paths"]["logs"] = "/srv/edge-logs"
     rendered = AnsibleTemplates(context).render(ROLE_DIR / "templates/logrotate.j2")
-    assert "/srv/edge-logs/domains/*.log {" in rendered
+    # The global error log shares the stanza: nothing in the mount grows unbounded.
+    assert "\n/srv/edge-logs/error.log\n/srv/edge-logs/domains/*.log {" in rendered
     for directive in (
         "daily",
         "maxsize 100M",
@@ -217,3 +216,16 @@ def test_teardown_retains_hostname_logs_unless_log_removal_is_requested():
     removal = next(t for t in tasks if t["name"] == "Remove hostname logs and archives")
     assert removal["when"] == "blitzecdn_edge_teardown_remove_logs | bool"
     assert removal["ansible.builtin.file"]["state"] == "absent"
+    error_logs = next(
+        t for t in tasks if t["name"] == "Remove the global error log and its archives"
+    )
+    assert error_logs["when"] == "blitzecdn_edge_teardown_remove_logs | bool"
+
+
+def test_teardown_log_paths_follow_the_runtime_log_root():
+    defaults = yaml.safe_load(
+        (role_path("blitzecdn_edge_teardown") / "defaults/main.yml").read_text()
+    )
+    logs = role_defaults()["blitzecdn_edge_runtime"]["paths"]["logs"]
+    assert defaults["blitzecdn_edge_teardown_domain_logs_path"] == logs + "/domains"
+    assert defaults["blitzecdn_edge_teardown_error_log_path"] == logs + "/error.log"

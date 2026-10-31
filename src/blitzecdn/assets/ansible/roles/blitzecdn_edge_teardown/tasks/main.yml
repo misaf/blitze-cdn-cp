@@ -205,9 +205,9 @@
     - "{{ blitzecdn_edge_teardown_sysctl_file }}.baseline.json"
   notify: Reapply kernel settings after edge teardown
 
-- name: Remove hostname log rotation
+- name: Remove Nginx log rotation
   ansible.builtin.file:
-    path: /etc/logrotate.d/blitzecdn-domains
+    path: /etc/logrotate.d/blitzecdn-nginx
     state: absent
 
 - name: Remove hostname logs and archives
@@ -216,10 +216,22 @@
     state: absent
   when: blitzecdn_edge_teardown_remove_logs | bool
 
-- name: Remove the access log
+- name: Find the global error log and its archives
+  ansible.builtin.find:
+    paths: "{{ blitzecdn_edge_teardown_error_log_path | dirname }}"
+    patterns:
+      - "{{ blitzecdn_edge_teardown_error_log_path | basename }}"
+      - "{{ blitzecdn_edge_teardown_error_log_path | basename }}.*"
+  register: blitzecdn_edge_teardown_error_logs
+  when: blitzecdn_edge_teardown_remove_logs | bool
+
+- name: Remove the global error log and its archives
   ansible.builtin.file:
-    path: "{{ blitzecdn_edge_teardown_access_log_path }}"
+    path: "{{ item.path }}"
     state: absent
+  loop: "{{ blitzecdn_edge_teardown_error_logs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
   when: blitzecdn_edge_teardown_remove_logs | bool
 # The report the control plane records against the decommission. Anything still
 # listed here needs a human on the host, because after the inventory entry goes
@@ -239,7 +251,7 @@
     {{
       [blitzecdn_edge_teardown_sysctl_file,
        blitzecdn_edge_teardown_sysctl_file ~ '.baseline.json',
-       '/etc/logrotate.d/blitzecdn-domains']
+       '/etc/logrotate.d/blitzecdn-nginx']
       + ([blitzecdn_edge_teardown_state_path,
           blitzecdn_edge_teardown_cache_path,
           blitzecdn_edge_teardown_acme_root,
@@ -248,7 +260,7 @@
           blitzecdn_edge_teardown_empty_root,
           blitzecdn_edge_teardown_data_path]
          if blitzecdn_edge_teardown_remove_data | bool else [])
-      + ([blitzecdn_edge_teardown_access_log_path,
+      + ([blitzecdn_edge_teardown_error_log_path,
           blitzecdn_edge_teardown_domain_logs_path]
          if blitzecdn_edge_teardown_remove_logs | bool else [])
       + (blitzecdn_edge_teardown_units.files | map(attribute='path') | list)
