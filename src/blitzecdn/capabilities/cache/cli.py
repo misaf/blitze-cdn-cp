@@ -17,12 +17,8 @@ from blitzecdn.entrypoints.cli.common import ExitCode
 from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 cache_app = typer.Typer(
-    no_args_is_help=True, help="Purge cached responses from the edges."
+    no_args_is_help=True, help="Purge cached responses and inspect cache effectiveness."
 )
-
-#: `blitzecdn stats` is a root verb, contributed by the capability whose report it
-#: reads.
-stats_app = typer.Typer()
 
 #: Joined to `blitzecdn domain`, which dns founds.
 domain_commands = typer.Typer()
@@ -103,7 +99,7 @@ def _purge_entry(value: str) -> PurgeEntry:
     return PurgeEntry(host=parsed.hostname, uri=uri, scheme=HttpScheme(parsed.scheme))
 
 
-@stats_app.command("stats")
+@cache_app.command("stats")
 def stats(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     by_site: Annotated[

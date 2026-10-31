@@ -30,8 +30,7 @@ from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
-#: Root-level verbs, like the deployment group: `blitzecdn status`, not
-#: `blitzecdn diagnostics status`.
+#: Root-level controller reports, such as `blitzecdn overview`.
 diagnostics_app = typer.Typer()
 
 #: `blitzecdn ansible ...`: what the installed capabilities contribute to the

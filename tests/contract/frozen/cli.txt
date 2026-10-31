@@ -8,6 +8,7 @@ blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
 blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cache stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn cert acme-hook	<action> type=str required
 blitzecdn	command	blitzecdn cert collect	--json type=boolean default=False
 blitzecdn	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
@@ -20,6 +21,7 @@ blitzecdn	command	blitzecdn config list	--json type=boolean default=False
 blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
 blitzecdn	command	blitzecdn config unset	<name> type=str required
 blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --wait type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn deployment status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
 blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
@@ -75,8 +77,6 @@ blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
 blitzecdn	command	blitzecdn setup
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
-blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
-blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn traffic status	<edge> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn traffic usage	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn validate	--json type=boolean default=False

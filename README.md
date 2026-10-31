@@ -59,6 +59,12 @@ Control endpoints require the `X-API-Key` header; use the secret portion of the
 `uv run blitzecdn overview`. See [operations](docs/operations.md) for status,
 metrics, worker heartbeats, and logs.
 
+Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
+deployment ID for its per-edge progress. Read cache effectiveness with
+`uv run blitzecdn cache stats` (`--by-site` adds a hostname breakdown). These
+replace the former root commands `status` and `stats`; update scripts to use
+the resource groups. Controller diagnostics remain `blitzecdn overview`.
+
 Local setup does not provision an edge. Remote operations require registered
 edges, SSH access, and appropriate host privileges. Production host installation
 is handled by `install.sh` and the bundled control-plane Ansible roles.
