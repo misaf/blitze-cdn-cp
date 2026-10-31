@@ -80,13 +80,23 @@
 {% endif %}
     }
 {% endmacro %}
+{# Socket options belong to exactly one server per address:port. #}
+{% set backlog_owner = namespace(http='', https='') %}
+{% if not blitzecdn_nginx_default_server | bool %}
+{% for candidate in blitzecdn_nginx_sites | default([item], true) %}
+{% if candidate.enabled | default(true) | bool %}
+{% if not backlog_owner.http %}{% set backlog_owner.http = candidate.name %}{% endif %}
+{% if candidate.ssl_mode != 'off' and not backlog_owner.https %}{% set backlog_owner.https = candidate.name %}{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
 {% for hostname in item.server_names %}
 {% set first_hostname = loop.first %}
 {% set log_name = hostname | replace('*', '_wildcard') %}
 {% for port in blitzecdn_edge_runtime.listeners.http %}
 server {
-    listen {{ port }};
-    listen [::]:{{ port }};
+    listen {{ port }}{% if first_hostname and item.name == backlog_owner.http %} backlog={{ blitzecdn_nginx_listen_backlog }}{% endif %};
+    listen [::]:{{ port }}{% if first_hostname and item.name == backlog_owner.http %} backlog={{ blitzecdn_nginx_listen_backlog }}{% endif %};
     server_name {{ hostname }};
     client_max_body_size {{ max_upload_size }};
     error_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/{{ log_name }}.error.log warn;
@@ -111,8 +121,8 @@ server {
 {% if tls %}
 {% for port in blitzecdn_edge_runtime.listeners.https %}
 server {
-    listen {{ port }} ssl;
-    listen [::]:{{ port }} ssl;
+    listen {{ port }} ssl{% if first_hostname and item.name == backlog_owner.https %} backlog={{ blitzecdn_nginx_listen_backlog }}{% endif %};
+    listen [::]:{{ port }} ssl{% if first_hostname and item.name == backlog_owner.https %} backlog={{ blitzecdn_nginx_listen_backlog }}{% endif %};
     http2 on;
     server_name {{ hostname }};
     client_max_body_size {{ max_upload_size }};

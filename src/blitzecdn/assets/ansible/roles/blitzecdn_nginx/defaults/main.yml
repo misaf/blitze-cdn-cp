@@ -1,4 +1,6 @@
 ---
+blitzecdn_nginx_worker_connections: 8192
+blitzecdn_nginx_listen_backlog: 16384
 blitzecdn_nginx_sites: []
 # Removing the final managed site is unusually destructive and often means a
 # new controller was pointed at an existing edge before its state was imported.

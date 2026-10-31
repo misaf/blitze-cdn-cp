@@ -24,6 +24,10 @@ services:
     # country rule to itself. Host networking also means no NAT hop per packet
     # and no publish list to keep in step with the contract's listener sets.
     network_mode: host
+    ulimits:
+      nofile:
+        soft: {{ blitzecdn_edge_runtime.nofile }}
+        hard: {{ blitzecdn_edge_runtime.nofile }}
     restart: unless-stopped
     # Reaps the zombies an Nginx master would otherwise leave behind as PID 1.
     init: true

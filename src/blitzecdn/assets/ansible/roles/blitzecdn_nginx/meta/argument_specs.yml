@@ -3,6 +3,8 @@ argument_specs:
   main:
     short_description: Converge Nginx CDN virtual hosts.
     options:
+      blitzecdn_nginx_worker_connections: {type: int, required: true}
+      blitzecdn_nginx_listen_backlog: {type: int, required: true}
       blitzecdn_nginx_sites:
         type: list
         elements: dict

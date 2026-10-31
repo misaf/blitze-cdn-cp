@@ -1,14 +1,64 @@
 ---
-# Settings land in a dedicated drop-in rather than /etc/sysctl.conf, so the role
-# owns a file it can be judged by: an operator can diff it, and backing the role
-# out means removing one file instead of unpicking edits from the distribution's
-# own config.
-#
-# sysctl_set applies each value to the running kernel and fails the task if the
-# kernel rejects it, which is the check worth having. `reload` is therefore off:
-# it re-read the whole file once per key, so a five-key dict reloaded five times
-# to reach a state sysctl_set had already established.
-- name: Apply conservative kernel settings
+# Capture values before our first write, including when adopting a host tuned by
+# an older release. This is not a guess at distribution defaults.
+- name: Look for the saved kernel baseline
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_kernel_sysctl_file }}.baseline.json"
+  register: blitzecdn_kernel_baseline_file
+
+- name: Read the saved kernel baseline
+  ansible.builtin.slurp:
+    src: "{{ blitzecdn_kernel_sysctl_file }}.baseline.json"
+  register: blitzecdn_kernel_baseline_raw
+  when: blitzecdn_kernel_baseline_file.stat.exists
+
+- name: Interpret the saved kernel baseline
+  ansible.builtin.set_fact:
+    blitzecdn_kernel_baseline: >-
+      {{ (blitzecdn_kernel_baseline_raw.content | b64decode | from_json)
+         if blitzecdn_kernel_baseline_file.stat.exists else {} }}
+
+- name: Check requested congestion control support
+  ansible.builtin.import_tasks: congestion.yml
+  when: "'net.ipv4.tcp_congestion_control' in blitzecdn_kernel_sysctl"
+
+- name: Read the current value before taking ownership of a kernel setting
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, "{{ item }}"]
+  loop: "{{ blitzecdn_kernel_sysctl.keys() | difference(blitzecdn_kernel_baseline.keys()) | sort }}"
+  register: blitzecdn_kernel_initial
+  changed_when: false
+  check_mode: false
+
+- name: Remember newly managed kernel settings
+  ansible.builtin.set_fact:
+    blitzecdn_kernel_baseline: >-
+      {{ blitzecdn_kernel_baseline | combine({item.item: item.stdout | trim}) }}
+  loop: "{{ blitzecdn_kernel_initial.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# Save before touching the live kernel: interrupted applies must not mistake
+# one of our own values for the original baseline on the next converge.
+- name: Save the kernel baseline before applying changes
+  ansible.builtin.copy:
+    content: "{{ blitzecdn_kernel_baseline | to_nice_json }}\n"
+    dest: "{{ blitzecdn_kernel_sysctl_file }}.baseline.json"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Restore kernel settings withdrawn from inventory
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "{{ blitzecdn_kernel_baseline[item] }}"
+    state: present
+    sysctl_file: "{{ blitzecdn_kernel_sysctl_file }}"
+    sysctl_set: true
+    reload: false
+  loop: "{{ blitzecdn_kernel_baseline.keys() | difference(blitzecdn_kernel_sysctl.keys()) | sort }}"
+
+- name: Apply requested kernel settings
   ansible.posix.sysctl:
     name: "{{ item.key }}"
     value: "{{ item.value }}"
@@ -19,3 +69,27 @@
   loop: "{{ blitzecdn_kernel_sysctl | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+# Own the entire drop-in: individual sysctl module calls preserve removed keys.
+- name: Write only the desired kernel settings to the drop-in
+  ansible.builtin.copy:
+    content: |
+      # Managed by BlitzeCDN. Local edits are overwritten.
+      {% for key, value in blitzecdn_kernel_sysctl | dictsort %}
+      {{ key }} = {{ value | int if value is boolean else value }}
+      {% endfor %}
+    dest: "{{ blitzecdn_kernel_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Release restored settings from the saved baseline
+  ansible.builtin.copy:
+    content: >
+      {{ blitzecdn_kernel_baseline | dict2items
+         | selectattr('key', 'in', blitzecdn_kernel_sysctl.keys())
+         | items2dict | to_nice_json }}
+    dest: "{{ blitzecdn_kernel_sysctl_file }}.baseline.json"
+    owner: root
+    group: root
+    mode: "0600"

@@ -91,6 +91,7 @@ blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_packages	type=list elements
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_python_packages	type=list elements=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_repository_url	type=str required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_http3_enabled	type=bool required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_nofile	type=int required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.container	type=str required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.image	type=str required
@@ -98,6 +99,7 @@ blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners	type=dict req
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.http	type=list elements=int required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.http3	type=bool required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.https	type=list elements=int required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.nofile	type=int required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths	type=dict required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.acme	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.cache	type=path required
@@ -203,6 +205,7 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_default_site_file	type=path r
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_enabled	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_max_age	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_http3_listener_owner	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_listen_backlog	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_format_name	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_managed_sites_file	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_module_directory	type=path required
@@ -221,6 +224,7 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_ciphers	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_stapling	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_status_allow	type=list elements=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_status_file	type=path required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_worker_connections	type=int required
 blitzecdn	variable	blitzecdn_origins.blitzecdn_origins_sites	type=list elements=dict default=[]
 blitzecdn	variable	blitzecdn_origins.blitzecdn_origins_timeout	type=int default=5
 blitzecdn	variable	blitzecdn_resolver.blitzecdn_resolver_addresses	type=list elements=str required

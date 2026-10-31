@@ -147,3 +147,6 @@ just ansible-check
 
 See the [full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
 configuration, upgrades, rollback, and recovery.
+
+Edge capacity defaults, kernel overrides, BBR, and withdrawal behavior are
+documented in [edge capacity](../../../../docs/edge-capacity.md).
