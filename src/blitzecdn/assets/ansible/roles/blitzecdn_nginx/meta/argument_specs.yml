@@ -91,9 +91,8 @@ argument_specs:
         type: bool
         required: true
         description: >-
-          Write each request and its cache outcome to hostname and aggregate
-          access logs and the container stdout stream.
-      blitzecdn_nginx_access_log_path: {type: path, required: true}
+          Write each request and its cache outcome to its hostname's JSON
+          Lines access log.
       blitzecdn_nginx_log_format_name:
         type: str
         required: true
