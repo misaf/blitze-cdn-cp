@@ -22,6 +22,8 @@
     detach: false
     cleanup: true
     network_mode: none
+    ulimits:
+      - "nofile:{{ blitzecdn_edge_runtime.nofile }}:{{ blitzecdn_edge_runtime.nofile }}"
     read_only: true
     security_opts: [no-new-privileges:true]
     # /var/lib/nginx alongside the two obvious ones because `nginx -t` is not

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 import yaml
 from support.contracts import (
     role_defaults,
@@ -71,11 +72,11 @@ def test_default_server_claims_every_public_listener():
     rendered = environment.get_template("default.conf.j2").render(**defaults)
 
     for port in runtime["listeners"]["http"]:
-        assert f"listen {port} default_server;" in rendered
-        assert f"listen [::]:{port} default_server;" in rendered
+        assert f"listen {port} default_server backlog=16384;" in rendered
+        assert f"listen [::]:{port} default_server backlog=16384;" in rendered
     for port in runtime["listeners"]["https"]:
-        assert f"listen {port} ssl default_server;" in rendered
-        assert f"listen [::]:{port} ssl default_server;" in rendered
+        assert f"listen {port} ssl default_server backlog=16384;" in rendered
+        assert f"listen [::]:{port} ssl default_server backlog=16384;" in rendered
 
 
 def _http3_site(name: str = "quic") -> dict[str, Any]:
@@ -190,3 +191,30 @@ def test_http3_alt_svc_follows_the_listener_not_the_origin():
     rendered = render_site(site_to_ansible(site))
     assert "http://origin.example.com:80" in rendered
     assert rendered.count("add_header Alt-Svc 'h3=\":443\"; ma=86400' always;") == 1
+
+
+@pytest.mark.parametrize("default_server", [False, "false"])
+def test_backlog_has_one_owner_per_socket_without_the_default_server(default_server):
+    sites = [_http3_site("disabled"), _http3_site("plain"), _http3_site("secure")]
+    sites[0]["enabled"] = False
+    sites[1]["ssl_mode"] = "off"
+    sites[2]["server_names"].append("second.example.com")
+    defaults = role_defaults()
+    defaults.update(
+        blitzecdn_nginx_default_server=default_server,
+        blitzecdn_nginx_sites=sites,
+        blitzecdn_nginx_listen_backlog=4096,
+    )
+    environment = nginx_environment()
+    rendered = "\n".join(
+        environment.get_template("site.conf.j2").render(item=site, **defaults)
+        for site in sites
+        if site["enabled"]
+    )
+    for port in defaults["blitzecdn_edge_runtime"]["listeners"]["http"]:
+        assert rendered.count(f"listen {port} backlog=4096;") == 1
+        assert rendered.count(f"listen [::]:{port} backlog=4096;") == 1
+    for port in defaults["blitzecdn_edge_runtime"]["listeners"]["https"]:
+        assert rendered.count(f"listen {port} ssl backlog=4096;") == 1
+        assert rendered.count(f"listen [::]:{port} ssl backlog=4096;") == 1
+    assert "quic backlog" not in rendered
