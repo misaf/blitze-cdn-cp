@@ -278,6 +278,35 @@
 
 # --- Compose runtime ---------------------------------------------------------
 
+# Parse once in the image, using the same literal environment format as backups.
+# Compose reads this generated file raw; dollars and quotes are credentials,
+# never interpolation syntax. The original operator file remains authoritative.
+- name: Prepare the literal Compose environment
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --network
+      - none
+      - --user
+      - "0:0"
+      - --security-opt
+      - no-new-privileges:true
+      - --volume
+      - "{{ blitzecdn_controlplane_config_dir }}:{{ blitzecdn_controlplane_config_dir }}"
+      - --entrypoint
+      - python
+      - "{{ blitzecdn_controlplane_image }}"
+      - -m
+      - blitzecdn.host.compose_files
+      - --config-dir
+      - "{{ blitzecdn_controlplane_config_dir }}"
+      - environment
+  register: blitzecdn_controlplane_compose_environment
+  changed_when: "'Updated' in blitzecdn_controlplane_compose_environment.stdout"
+  no_log: true
+
 - name: Render the control-plane Compose project
   ansible.builtin.template:
     src: compose.yml.j2
@@ -420,13 +449,12 @@
 # anything.
 - name: Read the environment the API was started with
   ansible.builtin.slurp:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+    path: "{{ blitzecdn_controlplane_config_dir }}/compose.env"
   register: blitzecdn_controlplane_environment_content
   no_log: true
 
-# The commented example the template ships does not match: the name has to
-# start the line. A quoted value is unwrapped because dotenv accepts one and an
-# operator who writes quotes should not get a rule for `"203.0.113.8/32`.
+# Read the generated environment, so duplicate assignments and shell quotes
+# have already been resolved by the same parser that supplied the API.
 - name: Compose the API rules this role manages
   ansible.builtin.set_fact:
     blitzecdn_controlplane_desired_rules: >-
