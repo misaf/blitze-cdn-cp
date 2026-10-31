@@ -133,47 +133,33 @@ def _wrapper() -> str:
     ).render(**_role_defaults())
 
 
-def test_host_wrapper_runs_the_sdk_runner_in_the_installed_image():
-    """The host needs Docker and nothing else, the CLI included."""
+def test_host_wrapper_uses_compose_and_socket_free_file_helpers():
     rendered = _wrapper()
-    image = _role_defaults()["blitzecdn_controlplane_image"]
-    assert f"--entrypoint python \\\n  {image} \\\n" in rendered
-    assert "-m blitzecdn.host.host_runtime" in rendered
-    assert '--services /etc/blitzecdn/control-plane.compose.yml -- "$@"' in rendered
+    assert "docker compose --file /etc/blitzecdn/control-plane.compose.yml" in rendered
+    assert "blitzecdn.host.compose_files" in rendered
     assert "sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES" in rendered
-    assert ".venv" not in rendered
-    assert "docker compose" not in rendered
-    tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")
-    assert "host_runtime.py" not in tasks
-
-
-def test_host_wrapper_mounts_every_host_path_the_runner_names_at_that_path():
-    """The runner asks the daemon for bind mounts by host path and publishes
-    restored files in place, so a path seen differently inside its container
-    would mount or overwrite the wrong thing.
-    """
-    rendered = _wrapper()
-    for path in ("/etc/blitzecdn", "/var/lib/blitzecdn", "/run/blitzecdn"):
-        assert f"--volume {path}:{path} " in rendered
-    assert "--volume /var/run/docker.sock:/var/run/docker.sock " in rendered
-    # Restore staging must land where the daemon can see it.
-    assert "--env TMPDIR=/run/blitzecdn " in rendered
-    assert "install -d -m 0700 /run/blitzecdn" in rendered
-    # Root for the socket and the restored files' ownership; nothing else.
-    assert "--user 0:0" in rendered
-    assert "--network none" in rendered
-    # Every file the runner publishes lives under the mounted configuration
-    # directory, so an atomic replace stays on one filesystem.
-    compose = _compose()["services"]["blitzecdn-cli"]
-    sources = [mount.split(":")[0] for mount in compose["volumes"]]
-    assert "/etc/blitzecdn/blitzecdn.toml" in sources
-    assert compose["env_file"] == ["/etc/blitzecdn/blitzecdn.env"]
+    assert "--volume /var/run/docker.sock" not in rendered
+    assert "--user 0:0" in rendered and "--network none" in rendered
+    assert "--force-recreate" in rendered and "--wait-timeout 180" in rendered
+    assert _compose()["services"]["blitzecdn-cli"]["env_file"] == [
+        {"path": "/etc/blitzecdn/compose.env", "format": "raw"}
+    ]
 
 
 def test_host_wrapper_passes_the_empty_sites_override_only_when_set():
     rendered = _wrapper()
     assert "${BLITZE_ALLOW_EMPTY_SITES+set}" in rendered
     assert "environment=(--env BLITZE_ALLOW_EMPTY_SITES)" in rendered
+
+
+def test_firewall_reads_the_same_normalized_environment_as_compose():
+    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
+    read = next(
+        task
+        for task in tasks
+        if task["name"] == "Read the environment the API was started with"
+    )
+    assert read["ansible.builtin.slurp"]["path"].endswith("/compose.env")
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
