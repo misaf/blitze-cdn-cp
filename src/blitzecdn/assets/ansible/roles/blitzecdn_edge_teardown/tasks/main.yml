@@ -189,10 +189,20 @@
 
 # The kernel drop-in alone. The SSH policy and the Fail2Ban jail are the
 # hardening capability's files, removed by its own teardown role.
+- name: Restore the saved kernel baseline before removing the drop-in
+  ansible.builtin.include_role:
+    name: blitzecdn_kernel
+  vars:
+    blitzecdn_kernel_sysctl: {}
+    blitzecdn_kernel_sysctl_file: "{{ blitzecdn_edge_teardown_sysctl_file }}"
+
 - name: Remove managed kernel settings
   ansible.builtin.file:
-    path: "{{ blitzecdn_edge_teardown_sysctl_file }}"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "{{ blitzecdn_edge_teardown_sysctl_file }}"
+    - "{{ blitzecdn_edge_teardown_sysctl_file }}.baseline.json"
   notify: Reapply kernel settings after edge teardown
 
 - name: Remove hostname log rotation
@@ -227,7 +237,9 @@
   register: blitzecdn_edge_teardown_residue
   loop: >-
     {{
-      [blitzecdn_edge_teardown_sysctl_file, '/etc/logrotate.d/blitzecdn-domains']
+      [blitzecdn_edge_teardown_sysctl_file,
+       blitzecdn_edge_teardown_sysctl_file ~ '.baseline.json',
+       '/etc/logrotate.d/blitzecdn-domains']
       + ([blitzecdn_edge_teardown_state_path,
           blitzecdn_edge_teardown_cache_path,
           blitzecdn_edge_teardown_acme_root,

@@ -1,4 +1,10 @@
 ---
+- name: Require a usable process file limit
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_edge_runtime.nofile | int >= 1024
+    fail_msg: The edge nofile limit must be at least 1024.
+
 # The argument spec above this file has already checked shape and type. What is
 # left are the relationships between the values — the combinations that are
 # well-typed and still describe an edge that cannot serve.
