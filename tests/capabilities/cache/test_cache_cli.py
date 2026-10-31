@@ -1,4 +1,4 @@
-"""`blitzecdn cache purge` and `blitzecdn stats`, as an operator types them.
+"""`blitzecdn cache purge` and `blitzecdn cache stats`, as an operator types them.
 
 Reached through the real root application, so these also hold that the
 commands are on the tree.
@@ -163,7 +163,7 @@ def test_stats_reports_the_fleet_hit_ratio(settings, monkeypatch):
         _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
     )
 
-    result = runner.invoke(cli.app, ["stats", "--json"])
+    result = runner.invoke(cli.app, ["cache", "stats", "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -180,7 +180,7 @@ def test_stats_by_site_breaks_the_numbers_down(settings, monkeypatch):
     )
 
     payload = json.loads(
-        runner.invoke(cli.app, ["stats", "--by-site", "--json"]).stdout
+        runner.invoke(cli.app, ["cache", "stats", "--by-site", "--json"]).stdout
     )
 
     assert payload["sites"][0]["site"] == "cdn.example.com"
@@ -194,7 +194,7 @@ def test_stats_says_so_when_there_is_no_cacheable_traffic_yet(settings, monkeypa
         settings, monkeypatch, _stats_runner(host_run("edge-a", ok=5, report=quiet))
     )
 
-    result = runner.invoke(cli.app, ["stats"])
+    result = runner.invoke(cli.app, ["cache", "stats"])
 
     assert result.exit_code == 0
     assert "no hit ratio yet" in result.output
@@ -210,6 +210,6 @@ def test_stats_names_an_edge_that_reported_nothing(settings, monkeypatch):
         ),
     )
 
-    result = runner.invoke(cli.app, ["stats"])
+    result = runner.invoke(cli.app, ["cache", "stats"])
 
     assert "edge-b reported nothing: unreachable" in result.output

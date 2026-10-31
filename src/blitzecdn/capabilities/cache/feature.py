@@ -35,10 +35,8 @@ FEATURES = (
             summary="Purge cached responses and read cache effectiveness.",
         ),
         api_routers=(routes.router,),
-        # `cache purge` nests; `stats` is a root verb.
         cli_commands=(
             CliCommandGroup(feature="cache", name="cache", app=cli.cache_app),
-            CliCommandGroup(feature="cache", name=None, app=cli.stats_app),
             CliCommandGroup(
                 feature="cache",
                 name="domain",

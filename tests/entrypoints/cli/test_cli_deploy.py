@@ -54,8 +54,13 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
     deployed = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight", "--json"])
     assert deployed.exit_code == 0
     deployment_id = json.loads(deployed.stdout)["id"]
-    assert runner.invoke(cli.app, ["status", deployment_id, "--json"]).exit_code == 0
-    assert runner.invoke(cli.app, ["status", "--json"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli.app, ["deployment", "status", deployment_id, "--json"]
+        ).exit_code
+        == 0
+    )
+    assert runner.invoke(cli.app, ["deployment", "status", "--json"]).exit_code == 0
     assert (
         runner.invoke(cli.app, ["rollback", deployment_id, "--yes", "--json"]).exit_code
         == 0
