@@ -193,6 +193,21 @@ in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname)
 in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
   fail "the API stopped answering on loopback"
 
+say "Isolating manual certificate operations from scheduled reconciliation"
+# This harness requests and renews certificates explicitly. The worker's first
+# reconciliation is due ten minutes after install, which can coincide with the
+# API request on a slower runner and take the same deployment lock. Disable
+# only that schedule before creating sites; keep the worker running for the
+# runtime and backup/restore checks. Production defaults remain unchanged.
+in_container 'printf "\nBLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS=0\n" >> /etc/blitzecdn/blitzecdn.env &&
+  blitzecdn --version >/dev/null &&
+  docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+    up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
+  fail "could not disable scheduled reconciliation for manual certificate checks"
+# Prove the worker reloaded the override and removed its existing schedule.
+in_container 'blitzecdn job schedules --json | python3 -c "import json, sys; assert all(s[\"name\"] != \"certificate-reconciliation\" for s in json.load(sys.stdin))"' ||
+  fail "the worker still schedules certificate reconciliation"
+
 say "Seeding the edge runtime image this host will run"
 # The edge runs from an image built from the commit under review and loaded into
 # the disposable host's engine. That needs the engine first, so its repository
