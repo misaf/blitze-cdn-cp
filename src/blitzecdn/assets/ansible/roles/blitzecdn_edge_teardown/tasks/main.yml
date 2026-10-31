@@ -207,7 +207,7 @@
 
 - name: Remove Nginx log rotation
   ansible.builtin.file:
-    path: /etc/logrotate.d/blitzecdn-domains
+    path: /etc/logrotate.d/blitzecdn-nginx
     state: absent
 
 - name: Remove hostname logs and archives
@@ -251,7 +251,7 @@
     {{
       [blitzecdn_edge_teardown_sysctl_file,
        blitzecdn_edge_teardown_sysctl_file ~ '.baseline.json',
-       '/etc/logrotate.d/blitzecdn-domains']
+       '/etc/logrotate.d/blitzecdn-nginx']
       + ([blitzecdn_edge_teardown_state_path,
           blitzecdn_edge_teardown_cache_path,
           blitzecdn_edge_teardown_acme_root,

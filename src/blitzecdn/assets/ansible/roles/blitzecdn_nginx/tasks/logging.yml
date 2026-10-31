@@ -39,7 +39,7 @@
 - name: Configure Nginx log rotation
   ansible.builtin.template:
     src: logrotate.j2
-    dest: /etc/logrotate.d/blitzecdn-domains
+    dest: /etc/logrotate.d/blitzecdn-nginx
     owner: root
     group: root
     mode: "0644"

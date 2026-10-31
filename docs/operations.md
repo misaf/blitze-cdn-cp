@@ -326,7 +326,7 @@ hostnames, while error logging remains enabled. Release identity probes continue
 to suppress access logging.
 
 The Nginx role installs `logrotate`, enables its host timer, and manages
-`/etc/logrotate.d/blitzecdn-domains`. Hostname logs and the global `error.log`
+`/etc/logrotate.d/blitzecdn-nginx`. Hostname logs and the global `error.log`
 rotate daily, or when larger than 100 MiB at a scheduled check, with up to 14
 archives per file. Older archives are compressed; compression of the newest
 archive is delayed. Rotation renames the file and asks the running container's
