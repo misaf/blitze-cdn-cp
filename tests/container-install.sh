@@ -193,6 +193,21 @@ in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname)
 in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
   fail "the API stopped answering on loopback"
 
+say "Isolating manual certificate operations from scheduled reconciliation"
+# This harness requests and renews certificates explicitly. The worker's first
+# reconciliation is due ten minutes after install, which can coincide with the
+# API request on a slower runner and take the same deployment lock. Disable
+# only that schedule before creating sites; keep the worker running for the
+# runtime and backup/restore checks. Production defaults remain unchanged.
+in_container 'printf "\nBLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS=0\n" >> /etc/blitzecdn/blitzecdn.env &&
+  blitzecdn --version >/dev/null &&
+  docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+    up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
+  fail "could not disable scheduled reconciliation for manual certificate checks"
+# Prove the worker reloaded the override and removed its existing schedule.
+in_container 'blitzecdn job schedules --json | python3 -c "import json, sys; assert all(s[\"name\"] != \"certificate-reconciliation\" for s in json.load(sys.stdin))"' ||
+  fail "the worker still schedules certificate reconciliation"
+
 say "Seeding the edge runtime image this host will run"
 # The edge runs from an image built from the commit under review and loaded into
 # the disposable host's engine. That needs the engine first, so its repository
@@ -569,10 +584,10 @@ in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*
   fail "the backup does not declare a database component"
 # /var/backups/blitzecdn is mounted at the same path on host and in the CLI
 # container, unlike the state directory, so both halves name the same file.
-in_container 'cd / && blitzecdn backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
+in_container 'cd / && blitzecdn --verbose backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
   fail "a database-only backup failed"
 in_container 'test -s /var/backups/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
-in_container 'cd / && blitzecdn backup restore /var/backups/blitzecdn/database-only.tar.gz --yes' ||
+in_container 'cd / && blitzecdn --verbose backup restore /var/backups/blitzecdn/database-only.tar.gz --yes' ||
   fail "a database-only restore failed"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "the database restore did not restart the API"
@@ -580,7 +595,13 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | gr
   fail "the database restore did not restart the worker"
 
 say "Restoring configuration and credentials from a full backup"
-in_container 'blitzecdn backup create -o /var/backups/blitzecdn/full-restore.tar.gz' ||
+# Exercise literal dollars and duplicate credentials through Compose, the
+# archive, publication, and persistent container recreation.
+# shellcheck disable=SC2016
+in_container 'sed -i "s/^BLITZE_API_KEYS=operator:/BLITZE_API_KEYS=operator:literal\$HOME-/" /etc/blitzecdn/blitzecdn.env
+  printf "BLITZE_API_KEYS=operator:ignored\n" >> /etc/blitzecdn/blitzecdn.env' ||
+  fail "could not seed the literal credential fixture"
+in_container 'blitzecdn --log-json backup create -o /var/backups/blitzecdn/full-restore.tar.gz' ||
   fail "the full backup failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | grep -q BLITZE_API_KEYS=' ||
   fail "the full backup omitted the API credentials"
@@ -593,6 +614,8 @@ in_container 'blitzecdn backup restore /var/backups/blitzecdn/full-restore.tar.g
   fail "the full restore failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | cmp -s - /etc/blitzecdn/blitzecdn.env' ||
   fail "the full restore did not recover the archived credentials"
+in_container 'docker exec blitzecdn-api python -c "import os; assert os.environ[\"BLITZE_API_KEYS\"].startswith(\"operator:literal\" + chr(36) + \"HOME-\")"' ||
+  fail "Compose did not preserve literal dollars and the first credential assignment"
 in_container 'grep -q "allow_empty_sites = false" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the full restore did not replace the host configuration"
 in_container 'docker exec blitzecdn-api python -c "import tomllib; assert not tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\"))[\"blitzecdn\"][\"allow_empty_sites\"]"' ||
@@ -603,9 +626,9 @@ in_container 'test "$(stat -c %a /etc/blitzecdn/blitzecdn.env)" = 600' ||
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "the full restore did not recover the worker"
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-api' ||
-  fail "Compose cannot discover the API recreated through the Docker SDK"
+  fail "Compose cannot discover the API recreated through Docker Compose"
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-worker' ||
-  fail "Compose cannot discover the worker recreated through the Docker SDK"
+  fail "Compose cannot discover the worker recreated through Docker Compose"
 
 say "Repointing the API access list"
 # The environment file is written once, so on an existing host the access list

@@ -1,28 +1,167 @@
 #!/usr/bin/env bash
-# Managed by BlitzeCDN. Application commands run in disposable containers.
-#
-# The runner that starts them runs in a container too, from the same image,
-# so the host needs Docker and nothing else. It talks to this host's daemon and
-# publishes restored configuration into the host's own files, so every path it
-# touches is mounted at the path it has on the host.
+# Managed by BlitzeCDN. Compose owns containers; the host coordinates restores.
 set -Eeuo pipefail
 if [[ ${EUID} -ne 0 ]]; then
   exec sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES -- "$0" "$@"
 fi
-install -d -m 0700 {{ blitzecdn_controlplane_runtime_dir | quote }}
+# Always operate on this host, regardless of the caller's Docker context.
+unset DOCKER_CONTEXT DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+export DOCKER_HOST=unix:///var/run/docker.sock
+config={{ blitzecdn_controlplane_config_dir | quote }}
+state={{ blitzecdn_controlplane_state_dir | quote }}
+runtime={{ blitzecdn_controlplane_runtime_dir | quote }}
+image={{ blitzecdn_controlplane_image | quote }}
+compose=(docker compose --file {{ blitzecdn_controlplane_compose_file | quote }}
+  --project-name {{ blitzecdn_controlplane_compose_project | quote }})
+{% raw %}
+install -d -m 0700 "$runtime"
 environment=()
 if [[ -n ${BLITZE_ALLOW_EMPTY_SITES+set} ]]; then
   environment=(--env BLITZE_ALLOW_EMPTY_SITES)
 fi
-exec docker run --rm --interactive --network none --user 0:0 \
-  --security-opt no-new-privileges:true \
-  --env TMPDIR={{ blitzecdn_controlplane_runtime_dir | quote }} \
-  ${environment[@]+"${environment[@]}"} \
-  --volume /var/run/docker.sock:/var/run/docker.sock \
-  --volume {{ (blitzecdn_controlplane_config_dir ~ ':' ~ blitzecdn_controlplane_config_dir) | quote }} \
-  --volume {{ (blitzecdn_controlplane_state_dir ~ ':' ~ blitzecdn_controlplane_state_dir) | quote }} \
-  --volume {{ (blitzecdn_controlplane_runtime_dir ~ ':' ~ blitzecdn_controlplane_runtime_dir) | quote }} \
-  --entrypoint python \
-  {{ blitzecdn_controlplane_image | quote }} \
-  -m blitzecdn.host.host_runtime \
-  --services {{ blitzecdn_controlplane_compose_file | quote }} -- "$@"
+files() {
+  docker run --rm --network none --user 0:0 \
+    --security-opt no-new-privileges:true \
+    --volume "$config:$config" --volume "$runtime:$runtime" \
+    --entrypoint python "$image" -m blitzecdn.host.compose_files \
+    --config-dir "$config" "$@"
+}
+files environment >/dev/null
+
+# These root options take no values. Leave application parsing and errors to
+# Typer, while recognizing backup commands after its supported global flags.
+command_arguments=("$@")
+while [[ -n ${command_arguments[0]+set} ]]; do
+  case ${command_arguments[0]} in
+    --verbose|-v|--log-json|--no-log-json)
+      command_arguments=("${command_arguments[@]:1}") ;;
+    --) command_arguments=("${command_arguments[@]:1}"); break ;;
+    *) break ;;
+  esac
+done
+backup=false
+restore=false
+if [[ ${command_arguments[0]:-} == backup ]]; then
+  backup=true
+  case ${command_arguments[1]:-} in restore|recover) restore=true ;; esac
+fi
+# Asking for help must never stop services, even on a restore subcommand.
+for argument in "$@"; do
+  [[ $argument != -- ]] || break
+  if [[ $argument == --help || $argument == --version ]]; then
+    backup=false
+    restore=false
+    break
+  fi
+done
+if ! "$backup"; then
+  exec "${compose[@]}" run --rm --no-deps \
+    ${environment[@]+"${environment[@]}"} blitzecdn-cli "$@"
+fi
+
+stage=
+child=
+writers=()
+discovered=false
+command_stopped=true
+checkpoint="$state/restore-recovery"
+remove_command() {
+  docker rm --force "$command_name" >/dev/null 2>&1 && return 0
+  # --rm may already have removed it. A failed daemon query is not proof that
+  # the command stopped: never run rollback or writers while it may be alive.
+  local remaining
+  remaining=$(docker ps --all --quiet --filter "name=^/${command_name}$") || return
+  [[ -z $remaining ]]
+}
+run_cli() {
+  "${compose[@]}" run --rm --no-deps -T --name "$command_name" \
+    ${environment[@]+"${environment[@]}"} \
+    --volume "$stage:/run/blitzecdn-backup" \
+    --volume "$state:/run/blitzecdn-backup/.state" \
+    --env BLITZE_PROJECT_DIR=/run/blitzecdn-backup \
+    --env BLITZE_CONFIG=/run/blitzecdn-backup/blitzecdn.toml \
+    --env BLITZE_ENVIRONMENT_PATH=/run/blitzecdn-backup/blitzecdn.env \
+    blitzecdn-cli "$@" <&0 &
+  child=$!
+  local status=0
+  wait "$child" || status=$?
+  if (( status != 0 )) && ! remove_command; then
+    command_stopped=false
+    status=1
+  fi
+  child=
+  return "$status"
+}
+finish_restore() {
+  files publish "$stage" || return
+  files environment >/dev/null || return
+  if [[ -e $checkpoint ]]; then
+    run_cli backup commit-restore || return
+    [[ ! -e $checkpoint ]] || return 1
+  fi
+}
+cleanup() {
+  local status=$?
+  trap - EXIT
+  trap '' INT TERM
+  if [[ -n $child ]]; then
+    kill -TERM "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+    if ! remove_command; then command_stopped=false; fi
+  fi
+  if ! "$command_stopped"; then
+    echo "blitzecdn: Cannot confirm $command_name stopped; services remain stopped. Remove that container before running 'blitzecdn backup recover'." >&2
+    discovered=false
+    status=1
+  fi
+  if "$discovered"; then
+    if [[ -e $checkpoint ]]; then
+      if ! { run_cli backup recover && finish_restore; }; then
+        echo "blitzecdn: Restore recovery incomplete; services remain stopped. Previous state is retained at $checkpoint; retry 'blitzecdn backup recover'." >&2
+        status=1
+        discovered=false
+      fi
+    fi
+    if "$discovered" && [[ -n ${writers[0]+set} ]]; then
+      if ! "${compose[@]}" up --detach --no-deps --force-recreate \
+        --wait --wait-timeout 180 "${writers[@]}"; then
+        echo 'blitzecdn: Control-plane restart failed; inspect docker compose ps.' >&2
+        status=1
+      fi
+    fi
+  fi
+  if [[ -n $stage ]]; then rm -rf -- "$stage"; fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if "$restore"; then
+  exec 9>"$state/.restore.lock"
+  chmod 0600 "$state/.restore.lock"
+  if ! flock --nonblock 9; then
+    echo 'blitzecdn: Another restore is already running' >&2
+    exit 1
+  fi
+  if [[ -e $checkpoint && ${command_arguments[1]} != recover ]]; then
+    echo "blitzecdn: Unfinished restore at $checkpoint; run 'blitzecdn backup recover'" >&2
+    exit 1
+  fi
+fi
+stage=$(mktemp -d "$runtime/backup-XXXXXXXX")
+command_name="blitzecdn-cli-${stage##*/}"
+files stage "$stage"
+if "$restore"; then
+  selection=(--status running)
+  if [[ ${command_arguments[1]} == recover ]]; then selection=(--all); fi
+  services=$("${compose[@]}" ps "${selection[@]}" --services blitzecdn-api blitzecdn-worker)
+  while IFS= read -r service; do
+    case $service in blitzecdn-api|blitzecdn-worker) writers+=("$service") ;; esac
+  done <<< "$services"
+  discovered=true
+  if [[ -n ${writers[0]+set} ]]; then "${compose[@]}" stop --timeout 30 "${writers[@]}"; fi
+  environment+=(--env COMPOSE_RESTORE_OFFLINE=1)
+fi
+run_cli "$@"
+if "$restore"; then finish_restore; fi
+{% endraw %}

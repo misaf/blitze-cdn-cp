@@ -1,5 +1,5 @@
-# Managed by BlitzeCDN. Compose installs services; the host SDK runner recovers
-# them after restores. Do not start Uvicorn or the worker manually in containers.
+# Managed by BlitzeCDN. Compose owns installation and restore restarts.
+# Do not start Uvicorn or the worker manually in containers.
 #
 # Three services and no message broker. Durable work is rows in the control
 # plane's own database, so the worker and the API share the state volume rather
@@ -13,7 +13,9 @@ x-blitzecdn-runtime: &blitzecdn-runtime
   # Never pulled by Compose: install.sh obtains the image before converging.
   pull_policy: never
   env_file:
-    - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.env') | to_json }}
+    # Generated with the application's parser. Requires Compose 2.30+.
+    - path: {{ (blitzecdn_controlplane_config_dir ~ '/compose.env') | to_json }}
+      format: raw
   environment:
     BLITZE_PROJECT_DIR: /opt/blitzecdn
     BLITZE_CONFIG: /opt/blitzecdn/blitzecdn.toml

@@ -38,14 +38,13 @@ blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 # that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1) passes its
 # local tag instead.
 blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.1.0
-# Where the CLI wrapper stages a restore's configuration. On the host's tmpfs,
-# and mounted at the same path into the container that runs the wrapper,
-# because the Docker daemon resolves the staging bind mount against the host.
+# Where the CLI wrapper stages backup configuration, on the host's tmpfs.
+# File helpers see this host path; application containers see /run/blitzecdn-backup.
 blitzecdn_controlplane_runtime_dir: /run/blitzecdn
 
 # python3 is absent here on purpose: the installer has already had to install
 # it, because the play's modules run under the host's own interpreter.
-blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo]
+blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo, util-linux]
 
 # Set on a first installation only. An existing environment file keeps its
 # credentials; supplying an address repoints the ACME account, and omitting it
