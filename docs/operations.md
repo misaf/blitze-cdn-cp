@@ -315,30 +315,33 @@ The [traffic capability](traffic-accounting.md) collects these records and
 persists hourly totals. Scheduling and API/CLI access are separate steps.
 Disabling access logging means there are no records to collect. Identity probes
 suppressed by `access_log off` also remain excluded.
-The existing aggregate `blitzecdn-access.log` keeps its text format for cache
-diagnostics, and requests also reach Docker stdout. Hostname errors at `warn` and above go
-to their own file and Docker stderr; startup errors or errors before Nginx has
-selected a hostname can still appear in the global `error.log`.
+Cache statistics read the newest lines of each live hostname access file, so
+every hostname gets its own sample window. These files are the only request
+log: there is no aggregate access file, and requests do not reach Docker
+stdout, so `docker logs` shows startup output and errors only. Hostname errors
+at `warn` and above go to their own file and Docker stderr; startup errors or
+errors before Nginx has selected a hostname appear in the global `error.log`.
 `blitzecdn_nginx_access_log_enabled=false` disables access logging for managed
 hostnames, while error logging remains enabled. Release identity probes continue
 to suppress access logging.
 
 The Nginx role installs `logrotate`, enables its host timer, and manages
-`/etc/logrotate.d/blitzecdn-domains`. Hostname logs rotate daily, or when larger
-than 100 MiB at a scheduled check, with up to 14 archives per file. Older archives
-are compressed; compression of the newest archive is delayed. Rotation renames
-the file and asks the running container's Nginx master to reopen logs, avoiding
-`copytruncate` and an Nginx restart. The size threshold is checked when logrotate
-runs, so it is not a hard disk quota. This policy covers hostname files; it does
-not change retention for aggregate logs or Docker streams.
+`/etc/logrotate.d/blitzecdn-nginx`. Hostname logs and the global `error.log`
+rotate daily, or when larger than 100 MiB at a scheduled check, with up to 14
+archives per file. Older archives are compressed; compression of the newest
+archive is delayed. Rotation renames the file and asks the running container's
+Nginx master to reopen logs, avoiding `copytruncate` and an Nginx restart. The
+size threshold is checked when logrotate runs, so it is not a hard disk quota.
+Docker's own stream is bounded separately by the json-file driver (3 × 32 MiB).
 
 The hostname log directory is root-owned with group `adm` and mode `0751`, so
 Nginx workers can traverse it when reopening files. Log files use mode `0640`,
 owned by the runtime worker UID with group `adm`; other users cannot read them.
 Removing a hostname leaves its logs intact. Edge teardown also retains logs by
 default and removes the rotation policy; explicitly requesting
-`blitzecdn_edge_teardown_remove_logs=true` removes hostname logs and their
-archives as well. When overriding the runtime log root, set
-`blitzecdn_edge_teardown_domain_logs_path` to the same root with `/domains`
-appended before teardown. Logs remain local to each edge; this step adds no log
+`blitzecdn_edge_teardown_remove_logs=true` removes hostname logs, the global
+`error.log` and their archives as well. When overriding the runtime log root,
+set `blitzecdn_edge_teardown_domain_logs_path` and
+`blitzecdn_edge_teardown_error_log_path` to the same root with `/domains` and
+`/error.log` appended before teardown. Logs remain local to each edge; this step adds no log
 retrieval API or cross-edge statistics.
