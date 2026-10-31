@@ -46,6 +46,7 @@ def kernel_host(tmp_path):
         json.dumps(
             {
                 "net.core.somaxconn": "4096",
+                "net.core.netdev_max_backlog": "1000",
                 "net.ipv4.tcp_syncookies": "0",
                 "net.ipv4.tcp_keepalive_time": "7200",
                 "net.ipv4.tcp_available_congestion_control": "reno cubic",
@@ -88,6 +89,9 @@ path.write_text(json.dumps(state))
         # Only host paths/ownership differ: run the shipped decisions and the
         # installed sysctl module unchanged, against our fake kernel.
         text = path.read_text().replace("/usr/sbin/", str(binary) + "/")
+        text = text.replace(
+            "/proc/sys/net/core/netdev_max_backlog", str(tmp_path / "netdev-knob")
+        )
         text = text.replace("    owner: root\n", "").replace("    group: root\n", "")
         path.write_text(text)
     dropin = tmp_path / "60-blitzecdn.conf"
@@ -130,6 +134,7 @@ path.write_text(json.dumps(state))
             env={
                 **os.environ,
                 "ANSIBLE_ROLES_PATH": str(roles),
+                "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
                 "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-local"),
                 "ANSIBLE_NOCOLOR": "1",
             },
@@ -197,3 +202,20 @@ def test_bbr_builtin_module_and_unsupported_kernel(kernel_host, registered, avai
             json.loads(state.read_text())["net.ipv4.tcp_congestion_control"] == "cubic"
         )
         assert not dropin.exists()
+
+
+@pytest.mark.parametrize("exposed", [False, True])
+def test_input_backlog_is_applied_only_when_the_namespace_exposes_it(
+    kernel_host, exposed
+):
+    run, state, dropin = kernel_host
+    if exposed:
+        (dropin.parent / "netdev-knob").touch()
+    result = run({"net.core.somaxconn": 16384, "net.core.netdev_max_backlog": 16384})
+    assert result.returncode == 0, result.stdout + result.stderr
+    values = json.loads(state.read_text())
+    assert values["net.core.somaxconn"] == "16384"
+    assert values["net.core.netdev_max_backlog"] == ("16384" if exposed else "1000")
+    assert ("net.core.netdev_max_backlog" in dropin.read_text()) == exposed
+    baseline = json.loads(Path(str(dropin) + ".baseline.json").read_text())
+    assert ("net.core.netdev_max_backlog" in baseline) == exposed

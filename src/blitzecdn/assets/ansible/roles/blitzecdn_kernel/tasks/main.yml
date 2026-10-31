@@ -1,4 +1,25 @@
 ---
+# Some network namespaces do not expose the host-wide input backlog knob.
+# Skip only this known optional setting; invalid or missing other keys fail.
+- name: Check whether the host exposes the input packet backlog
+  ansible.builtin.stat:
+    path: /proc/sys/net/core/netdev_max_backlog
+  register: blitzecdn_kernel_netdev
+
+- name: Select kernel settings available in this namespace
+  ansible.builtin.set_fact:
+    blitzecdn_kernel_effective: >-
+      {{ blitzecdn_kernel_sysctl if blitzecdn_kernel_netdev.stat.exists
+         else blitzecdn_kernel_sysctl | dict2items
+         | rejectattr('key', 'equalto', 'net.core.netdev_max_backlog') | items2dict }}
+
+- name: Report an input packet backlog unavailable in this namespace
+  ansible.builtin.debug:
+    msg: Skipping net.core.netdev_max_backlog because this namespace does not expose it.
+  when:
+    - "'net.core.netdev_max_backlog' in blitzecdn_kernel_sysctl"
+    - not blitzecdn_kernel_netdev.stat.exists
+
 # Capture values before our first write, including when adopting a host tuned by
 # an older release. This is not a guess at distribution defaults.
 - name: Look for the saved kernel baseline
@@ -20,12 +41,12 @@
 
 - name: Check requested congestion control support
   ansible.builtin.import_tasks: congestion.yml
-  when: "'net.ipv4.tcp_congestion_control' in blitzecdn_kernel_sysctl"
+  when: "'net.ipv4.tcp_congestion_control' in blitzecdn_kernel_effective"
 
 - name: Read the current value before taking ownership of a kernel setting
   ansible.builtin.command:
     argv: [/usr/sbin/sysctl, -n, "{{ item }}"]
-  loop: "{{ blitzecdn_kernel_sysctl.keys() | difference(blitzecdn_kernel_baseline.keys()) | sort }}"
+  loop: "{{ blitzecdn_kernel_effective.keys() | difference(blitzecdn_kernel_baseline.keys()) | sort }}"
   register: blitzecdn_kernel_initial
   changed_when: false
   check_mode: false
@@ -56,7 +77,7 @@
     sysctl_file: "{{ blitzecdn_kernel_sysctl_file }}"
     sysctl_set: true
     reload: false
-  loop: "{{ blitzecdn_kernel_baseline.keys() | difference(blitzecdn_kernel_sysctl.keys()) | sort }}"
+  loop: "{{ blitzecdn_kernel_baseline.keys() | difference(blitzecdn_kernel_effective.keys()) | sort }}"
 
 - name: Apply requested kernel settings
   ansible.posix.sysctl:
@@ -66,7 +87,7 @@
     sysctl_file: "{{ blitzecdn_kernel_sysctl_file }}"
     sysctl_set: true
     reload: false
-  loop: "{{ blitzecdn_kernel_sysctl | dict2items }}"
+  loop: "{{ blitzecdn_kernel_effective | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
 
@@ -75,7 +96,7 @@
   ansible.builtin.copy:
     content: |
       # Managed by BlitzeCDN. Local edits are overwritten.
-      {% for key, value in blitzecdn_kernel_sysctl | dictsort %}
+      {% for key, value in blitzecdn_kernel_effective | dictsort %}
       {{ key }} = {{ value | int if value is boolean else value }}
       {% endfor %}
     dest: "{{ blitzecdn_kernel_sysctl_file }}"
@@ -87,7 +108,7 @@
   ansible.builtin.copy:
     content: >
       {{ blitzecdn_kernel_baseline | dict2items
-         | selectattr('key', 'in', blitzecdn_kernel_sysctl.keys())
+         | selectattr('key', 'in', blitzecdn_kernel_effective.keys())
          | items2dict | to_nice_json }}
     dest: "{{ blitzecdn_kernel_sysctl_file }}.baseline.json"
     owner: root
