@@ -297,7 +297,7 @@ in_edge "! grep -q 'hostname-access-probe' /var/log/nginx/domains/site-one.test.
 in_edge "grep -q 'hostname-error-probe' /var/log/nginx/domains/site-alias.test.error.log"
 in_edge "! grep -q 'hostname-error-probe' /var/log/nginx/domains/site-one.test.error.log"
 log_identity=$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')
-in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-nginx'
+in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-domains'
 [[ "$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')" == "${log_identity}" ]] ||
   fail "rotation changed hostname log ownership or permissions"
 # Reopening happens asynchronously in the workers after the master is signalled.
@@ -472,7 +472,7 @@ in_edge 'test -d /var/cache/nginx/blitzecdn' ||
   fail "a runtime teardown destroyed the cache"
 in_edge 'test -s /var/log/nginx/domains/site-alias.test.access.log.1' ||
   fail "a runtime teardown destroyed retained hostname logs"
-in_edge '! test -e /etc/logrotate.d/blitzecdn-nginx' ||
+in_edge '! test -e /etc/logrotate.d/blitzecdn-domains' ||
   fail "a runtime teardown left the log rotation policy"
 
 say "Destroying the persistent state on request"

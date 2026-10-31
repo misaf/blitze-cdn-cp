@@ -28,15 +28,20 @@ BLOCK_BYTES = 65536
 
 def tail(path: Path, max_lines: int) -> list[bytes]:
     """The newest complete lines of a file, reading backwards from its end."""
+    # Each block is scanned and copied once, so the cost is linear in the
+    # bytes the window needs rather than quadratic in them.
     with path.open("rb") as stream:
         position = stream.seek(0, os.SEEK_END)
-        data = b""
-        while position > 0 and data.count(b"\n") <= max_lines:
+        blocks: list[bytes] = []
+        newlines = 0
+        while position > 0 and newlines <= max_lines:
             step = min(BLOCK_BYTES, position)
             position -= step
             stream.seek(position)
-            data = stream.read(step) + data
-    lines = data.split(b"\n")
+            block = stream.read(step)
+            newlines += block.count(b"\n")
+            blocks.append(block)
+    lines = b"".join(reversed(blocks)).split(b"\n")
     # The last element follows the final newline: empty, or a record nginx is
     # still writing. The first is a partial line unless the read began at 0.
     lines.pop()
