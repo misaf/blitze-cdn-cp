@@ -181,9 +181,12 @@ def cert_reconcile(
 
     Safe to schedule frequently: sites with certificates are ignored, blocked
     preflights never contact the CA, and a deployment is queued only after at
-    least one new certificate was issued. The worker converges it.
+    least one new certificate was issued. The worker converges it. Unlike the
+    scheduled run, every waiting site is checked, even one backing off.
     """
-    result = common.service(CertificateService).reconcile_certificates("cli")
+    result = common.service(CertificateService).reconcile_certificates(
+        "cli", force=True
+    )
     deployment = result.deployment
     common.emit(
         result,

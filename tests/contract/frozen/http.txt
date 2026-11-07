@@ -117,6 +117,9 @@ blitzecdn	schema	CertificateStatistics.expired	integer required
 blitzecdn	schema	CertificateStatistics.expiring	integer required
 blitzecdn	schema	CertificateStatistics.managed	integer required
 blitzecdn	schema	CertificateStatistics.next_expiry_at	string|null required
+blitzecdn	schema	CertificateStatistics.preflight_blocked	integer required
+blitzecdn	schema	CertificateStatistics.preflight_last_checked_at	string|null required
+blitzecdn	schema	CertificateStatistics.preflight_next_check_at	string|null required
 blitzecdn	schema	CertificateStatistics.renewal_due	integer required
 blitzecdn	schema	CertificateStatus.days_remaining	integer required
 blitzecdn	schema	CertificateStatus.domains	array[string] required

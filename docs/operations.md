@@ -27,7 +27,14 @@ probes and start no workers.
   and failed workflows, excluding pending/running/interrupted work.
 * **Certificates:** managed, expired, expiring within 30 whole days (including
   expired), due for ACME renewal, and earliest expiry. Uploaded certificates
-  count toward expiry alerts but cannot be renewed automatically.
+  count toward expiry alerts but cannot be renewed automatically. Also the
+  number of sites awaiting a first certificate whose last preflight blocked
+  (usually DNS not pointing at an edge yet), when one was last checked, and
+  when the soonest is checked next. Scheduled reconciliation backs off such a
+  site, doubling the wait from one reconcile interval up to a day, until the
+  site or its DNS record changes; `blitzecdn cert reconcile` and
+  `POST /v3/certificates/reconcile` check every waiting site at once. After a
+  blocking DNS failure, preflight skips the CAA lookup and the origin probe.
 * **Backups:** the last full backup's completion time, age, archive name and
   size, or all `null` when none is recorded. See [Backups](#backups).
 
@@ -88,6 +95,7 @@ deployment metrics and adds:
 | `blitzecdn_certificates_expiring` | Certificates with at most 30 whole days remaining |
 | `blitzecdn_certificates_renewal_due` | ACME certificates due for renewal |
 | `blitzecdn_certificate_next_expiry_timestamp_seconds` | Earliest expiry, or zero with no managed certificates |
+| `blitzecdn_certificates_preflight_blocked` | Sites awaiting a first certificate whose last preflight blocked |
 | `blitzecdn_backup_last_success_timestamp_seconds` | Completion time of the last full backup, or zero when none is recorded |
 | `blitzecdn_backup_last_success_size_bytes` | Size of that archive, or zero when none is recorded |
 
