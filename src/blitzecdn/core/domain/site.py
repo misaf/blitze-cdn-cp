@@ -7,7 +7,11 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.core.domain.site_policy import SitePolicy
-from blitzecdn.core.domain.validation import HOST_NAME, hostname
+from blitzecdn.core.domain.validation import (
+    HOST_NAME,
+    hostname,
+    refuse_internal_origin,
+)
 
 
 class CdnSite(BaseModel):
@@ -50,12 +54,14 @@ class CdnSite(BaseModel):
     @field_validator("origin_host")
     @classmethod
     def validate_origin(cls, value: str) -> str:
-        return hostname(value)
+        normalized = hostname(value)
+        refuse_internal_origin(normalized)
+        return normalized
 
     @model_validator(mode="after")
     def validate_contributed_site_checks(self) -> Self:
         """The rules a contract states about a host rather than about a zone."""
-        self.policy.validate_for_site(self.name)
+        self.policy.validate_for_site(self)
         return self
 
     @property

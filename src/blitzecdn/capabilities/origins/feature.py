@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from blitzecdn.capabilities.origins import __version__, ansible, cli
 from blitzecdn.capabilities.origins.api import routes
-from blitzecdn.capabilities.origins.contract import OriginPolicy
+from blitzecdn.capabilities.origins.contract import (
+    OriginPolicy,
+    private_origin_needs_opt_in,
+)
 from blitzecdn.core.features import (
     AnsibleContribution,
     CliCommandGroup,
@@ -27,7 +30,10 @@ FEATURES = (
         ),
         site_policy=(
             PolicyContribution(
-                feature="origins", group="origin", contract=OriginPolicy
+                feature="origins",
+                group="origin",
+                contract=OriginPolicy,
+                site_checks=(private_origin_needs_opt_in,),
             ),
         ),
         # The probe role, and neither slot of the edge play: this package's own

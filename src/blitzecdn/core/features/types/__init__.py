@@ -24,6 +24,7 @@ from blitzecdn.core.features.types.feature import (
 from blitzecdn.core.features.types.identity import FeatureMetadata
 from blitzecdn.core.features.types.nginx import NginxContribution
 from blitzecdn.core.features.types.policy import (
+    HostView,
     PolicyCheck,
     PolicyContribution,
     PolicyView,
@@ -59,6 +60,7 @@ __all__ = [
     "FeatureRendering",
     "FleetStateContribution",
     "HealthCheck",
+    "HostView",
     "NginxContribution",
     "PolicyCheck",
     "PolicyContribution",
