@@ -253,7 +253,7 @@ if [[ ${SUITE} != lifecycle ]]; then
   in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
     fail "could not seed a fleet setting"
   in_container 'cd / && blitzecdn domain add rollback.example.org &&
-    blitzecdn record add rollback.example.org www --value 127.0.0.1' ||
+    blitzecdn record add rollback.example.org www --value 192.0.2.11' ||
     fail "could not seed a zone"
   in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 >/dev/null' ||
     fail "could not register a second edge"
