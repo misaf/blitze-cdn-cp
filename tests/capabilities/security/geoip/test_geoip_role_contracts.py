@@ -34,9 +34,15 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
 
     Every path is an expression over `blitzecdn_edge_runtime`.
     """
-    context = runtime_defaults() | yaml.safe_load(
-        (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
-    )
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    # Where the controller keeps its databases: a controller-side `lookup` and
+    # a digest only a release supplies, so Ansible resolves them lazily.
+    for controller_side in (
+        "blitzecdn_geoip_controller_directory",
+        "blitzecdn_geoip_database_source",
+    ):
+        defaults.pop(controller_side)
+    context = runtime_defaults() | defaults
     context |= overrides
     environment = ansible_jinja()
     for _ in range(len(context)):
@@ -221,3 +227,21 @@ def test_the_role_accepts_a_site_that_asks_for_no_country_setting(tmp_path):
 
     accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
     assert accepted.returncode == 0, accepted.stdout
+
+
+def test_the_role_finds_the_pinned_file_where_the_controller_stores_it():
+    """Directory and file name agree with the store, so a digest names one file."""
+    from blitzecdn.capabilities.security.geoip.domain import database_filename
+    from blitzecdn.capabilities.security.geoip.wiring import DATABASE_DIRECTORY
+
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    directory = defaults["blitzecdn_geoip_controller_directory"]
+    assert directory == (
+        "{{ lookup('env', 'BLITZE_STATE_DIR') }}/" + DATABASE_DIRECTORY
+    )
+    source = defaults["blitzecdn_geoip_database_source"].replace(" ", "")
+    digest = "{{blitzecdn_geoip_database_sha256}}"
+    assert source == (
+        "{{blitzecdn_geoip_controller_directory}}/"
+        + database_filename("0" * 64).replace("0" * 64, digest)
+    )

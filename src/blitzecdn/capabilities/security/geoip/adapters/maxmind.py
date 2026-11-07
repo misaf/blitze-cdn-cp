@@ -64,6 +64,8 @@ class MaxMindDownload:
             with urlopen(request, timeout=self._timeout) as response:  # noqa: S310  # nosec B310
                 payload: bytes = response.read(_MAXIMUM_ARCHIVE_BYTES + 1)
         except HTTPError as exc:
+            # The error carries the response body; release it before raising.
+            exc.close()
             if exc.code in (401, 403):
                 raise ConfigurationError(
                     "MaxMind refused BLITZE_MAXMIND_ACCOUNT_ID and "

@@ -2,7 +2,7 @@ blitzecdn	command	blitzecdn ansible roles-path
 blitzecdn	command	blitzecdn ansible slots
 blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False
 blitzecdn	command	blitzecdn backup commit-restore
-blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
+blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config,geoip_databases] --output/-o type=path
 blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
 blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover

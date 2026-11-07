@@ -21,12 +21,20 @@ blitzecdn_geoip_enabled: false
 #
 # The controller downloads GeoLite2 from MaxMind once for the whole fleet —
 # edges hold no MaxMind credential and never talk to MaxMind — and every release
-# carries the controller's current file as these two fleet variables. They are
-# derived, so they have no default here: without them the controller has no
-# database yet, and the role requires one placed on the edge by hand.
+# carries the SHA-256 of the controller's current file as
+# `blitzecdn_geoip_database_sha256`. It is derived, so it has no default here:
+# without it the controller has no database yet, and the role requires one
+# placed on the edge by hand.
 #
-#   blitzecdn_geoip_database_source: controller path of the pinned file
-#   blitzecdn_geoip_database_sha256: its SHA-256
+# The file itself is found by digest under the controller's state directory,
+# which the control plane hands every run as BLITZE_STATE_DIR. Only the digest
+# is in the release, so a controller restored to another directory renders the
+# same release and can still roll back to it.
+blitzecdn_geoip_controller_directory: >-
+  {{ lookup('env', 'BLITZE_STATE_DIR') }}/geoip-databases
+blitzecdn_geoip_database_source: >-
+  {{ blitzecdn_geoip_controller_directory }}/GeoLite2-Country-{{
+  blitzecdn_geoip_database_sha256 }}.mmdb
 
 # Country is all the firewall rules and the BZ-IPCountry header need.
 # GeoLite2-City is far larger and buys nothing here.

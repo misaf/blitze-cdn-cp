@@ -29,18 +29,23 @@ argument_specs:
         description: >-
           Whether this fleet resolves visitor addresses to countries. Every
           controller ships the capability; this switches it on.
-      blitzecdn_geoip_database_source:
-        type: path
-        required: false
-        description: >-
-          The controller's copy of the database this release pins. Derived by
-          the release; absent until the controller holds a database.
       blitzecdn_geoip_database_sha256:
         type: str
         required: false
         description: >-
-          The SHA-256 of blitzecdn_geoip_database_source, checked on the
+          The SHA-256 of the database this release pins. Derived by the
+          release; absent until the controller holds a database. Checked on the
           controller before the copy and on the edge after it.
+      blitzecdn_geoip_controller_directory:
+        type: path
+        required: true
+        description: >-
+          Where the controller keeps its databases, under its state directory.
+      blitzecdn_geoip_database_source:
+        type: path
+        required: true
+        description: >-
+          The controller's copy of the pinned database, named by its digest.
       blitzecdn_geoip_edition: {type: str, required: true}
       blitzecdn_geoip_directory: {type: path, required: true}
       blitzecdn_geoip_database: {type: path, required: true}

@@ -25,12 +25,18 @@ class GeoIpDatabaseStore:
     def __init__(self, directory: Path) -> None:
         self._directory = directory
 
-    def current(self) -> GeoIpDatabase | None:
-        """The database releases ship from now on, or ``None`` before the first."""
+    def current_digest(self) -> str | None:
         pointer = self._directory / _CURRENT
         if not pointer.is_file():
             return None
-        sha256 = pointer.read_text(encoding="ascii").strip()
+        return pointer.read_text(encoding="ascii").strip()
+
+    def current(self) -> GeoIpDatabase | None:
+        """The database releases ship from now on, or ``None`` before the first."""
+        pointer = self._directory / _CURRENT
+        sha256 = self.current_digest()
+        if sha256 is None:
+            return None
         try:
             path = self._directory / database_filename(sha256)
         except ValueError as exc:

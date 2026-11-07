@@ -177,11 +177,11 @@ and no edge holds the MaxMind license key or contacts MaxMind.
 After that the `geoip-refresh` job downloads again every
 `BLITZE_GEOIP_REFRESH_INTERVAL_SECONDS` (a day by default; `0` disables it).
 A changed database is stored under the controller's state directory as
-`geoip/GeoLite2-Country-<sha256>.mmdb` and queues a fleet deployment. Each
-release pins the file by path and digest; the edge role checks the digest on
+`geoip-databases/GeoLite2-Country-<sha256>.mmdb` and queues a fleet deployment. Each
+release pins the file by digest; the edge role checks the digest on
 the controller, copies the file, and checks it again on the edge. Files a
-retained release still pins are kept, so a rollback ships the database it was
-built with.
+retained release still pins are kept, and full backups include them, so a
+rollback ships the database it was built with even on a restored controller.
 
 Without credentials, place a database at
 `/var/lib/blitzecdn/edge-data/geoip/GeoLite2-Country.mmdb` on each edge by

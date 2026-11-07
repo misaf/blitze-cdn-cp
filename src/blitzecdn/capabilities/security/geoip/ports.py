@@ -30,6 +30,10 @@ class DatabaseStore(Protocol):
 
     def current(self) -> GeoIpDatabase | None: ...
 
+    def current_digest(self) -> str | None:
+        """The digest ``current`` records, whether or not its file still exists."""
+        ...
+
     def install(self, payload: bytes) -> GeoIpDatabase:
         """Store ``payload`` under its digest and make it current."""
         ...
