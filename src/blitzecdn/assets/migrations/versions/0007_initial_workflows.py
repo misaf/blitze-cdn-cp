@@ -41,7 +41,8 @@ def upgrade() -> None:
             name="workflows_kind_check",
         ),
         sa.CheckConstraint(
-            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
+            "status IN "
+            "('pending', 'running', 'succeeded', 'failed', 'needs_review', 'reviewed')",
             name="workflows_status_check",
         ),
         sa.PrimaryKeyConstraint("id"),

@@ -168,15 +168,16 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "answer is the question a dashboard asks.",
     ),
     ("blitzecdn", "audit", "GET /v3/audit-events", ""),
+    # Both surfaces: a restart can leave work in needs_review, and the operator
+    # who finds it at a terminal has to be able to read it and sign it off.
+    ("blitzecdn", "workflow list", "GET /v3/workflows", ""),
+    ("blitzecdn", "workflow show", "GET /v3/workflows/{workflow_id}", ""),
     (
         "blitzecdn",
-        None,
-        "GET /v3/workflows",
-        "progress of an operation still running. A command *is* the operation "
-        "and prints as it goes, so it has nothing to poll; an HTTP client that "
-        "started one has only this.",
+        "workflow acknowledge",
+        "POST /v3/workflows/{workflow_id}/acknowledge",
+        "",
     ),
-    ("blitzecdn", None, "GET /v3/workflows/{workflow_id}", "see GET /v3/workflows."),
     (
         "blitzecdn",
         "plan",
