@@ -18,6 +18,9 @@ from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.tls.certificates.adapters import (
     preflight as preflight_module,
 )
+from blitzecdn.capabilities.tls.certificates.adapters.authoritative import (
+    AuthoritativeResolver,
+)
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,
     _ancestors,
@@ -369,7 +372,13 @@ def test_a_dns_block_skips_caa_and_the_origin_probe(settings, monkeypatch, site)
     def refuse_caa(self, name):
         raise AssertionError("a DNS block must not walk CAA")
 
-    monkeypatch.setattr(preflight_module, "_resolve", lambda host, resolver=None: set())
+    monkeypatch.setattr(
+        preflight_module,
+        "_resolve",
+        lambda host, resolver=None: (
+            set() if host == "www.example.com" else {"198.51.100.1"}
+        ),
+    )
     monkeypatch.setattr(CertificatePreflight, "_closest_caa", refuse_caa)
     monkeypatch.setattr(
         CertificatePreflight, "_edge_addresses", lambda self: {"203.0.113.5"}
@@ -424,6 +433,11 @@ class _FakeCaaRecord:
         self.value = value
 
 
+def _host(settings):
+    """Recursive lookups through the (patched) host resolver."""
+    return settings.model_copy(update={"preflight_dns_source": "host"})
+
+
 def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypatch):
     """RFC 8659: the nearest RRset decides; the parent's is not merged in."""
     asked: list[str] = []
@@ -442,7 +456,7 @@ def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypa
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
     found = CertificatePreflight(
-        settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+        _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
     )._closest_caa("cdn.example.com")
 
     assert found == ("example.com", [("issue", "letsencrypt.org")])
@@ -460,7 +474,7 @@ def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkey
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
     assert (
         CertificatePreflight(
-            settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+            _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
         )._closest_caa("cdn.example.com")
         is None
     )
@@ -522,14 +536,80 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
     assert recording_resolver.instances[-1].nameservers == ["1.1.1.1", "1.0.0.1"]
 
 
-def test_without_configured_servers_the_host_resolver_is_still_used(settings):
-    """Default behaviour is unchanged, so /etc/hosts keeps applying."""
+def test_by_default_addresses_come_from_authoritative_nameservers(settings):
+    """The controller's cache and split-horizon view must not stand in for the CA's."""
+    preflight = CertificatePreflight(
+        settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+    )
+    assert isinstance(preflight._address_resolver(), AuthoritativeResolver)
+    assert isinstance(preflight._resolver(), AuthoritativeResolver)
+
+
+def test_the_host_resolver_is_an_explicit_opt_in(settings):
+    """``host`` keeps ``getaddrinfo``, so /etc/hosts applies when asked for."""
     assert (
         CertificatePreflight(
-            settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+            _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
         )._address_resolver()
         is None
     )
+
+
+def test_the_dns_check_names_the_authoritative_server_that_answered(
+    settings, monkeypatch
+):
+    def answered(self, name):
+        return "ns1.example.net (192.0.2.53)"
+
+    monkeypatch.setattr(AuthoritativeResolver, "answered_by", answered)
+    monkeypatch.setattr(
+        preflight_module, "_resolve", lambda host, resolver=None: {"198.51.100.1"}
+    )
+    monkeypatch.setattr(CertificatePreflight, "_closest_caa", lambda self, name: None)
+
+    report = CertificatePreflight(
+        settings,
+        FakeEdgeStore(),
+        ca_domain="letsencrypt.org",
+        origin_probe=FakeOriginProbe(),
+    ).check(
+        CdnSite(
+            name="site",
+            server_names=("www.example.com",),
+            origin_host="origin.example.com",
+        ),
+        deployed=True,
+    )
+    detail = next(check.detail for check in report.checks if check.name == "dns")
+    assert detail == (
+        "www.example.com resolves via authoritative nameserver "
+        "ns1.example.net (192.0.2.53) to an edge"
+    )
+
+
+def test_the_dns_check_says_when_the_host_resolver_answered(settings, monkeypatch):
+    monkeypatch.setattr(
+        preflight_module,
+        "_resolve",
+        lambda host, resolver=None: (
+            set() if host == "www.example.com" else {"198.51.100.1"}
+        ),
+    )
+    report = CertificatePreflight(
+        _host(settings),
+        FakeEdgeStore(),
+        ca_domain="letsencrypt.org",
+        origin_probe=FakeOriginProbe(),
+    ).check(
+        CdnSite(
+            name="site",
+            server_names=("www.example.com",),
+            origin_host="origin.example.com",
+        ),
+        deployed=True,
+    )
+    detail = next(check.detail for check in report.checks if check.name == "dns")
+    assert "via the host resolver" in detail
 
 
 def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build):
