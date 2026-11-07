@@ -125,8 +125,27 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("kind"),
     )
 
+    op.create_table(
+        "deployment_outcomes",
+        sa.Column("kind", sa.String(), nullable=False),
+        sa.Column("last_success_at", sa.String(), nullable=True),
+        sa.Column("last_failure_at", sa.String(), nullable=True),
+        sa.Column("consecutive_failures", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "kind IN ('applied', 'drift_check')",
+            name="deployment_outcomes_kind_check",
+        ),
+        sa.CheckConstraint(
+            "consecutive_failures >= 0",
+            name="deployment_outcomes_failures_check",
+        ),
+        sa.PrimaryKeyConstraint("kind"),
+    )
+
 
 def downgrade() -> None:
+    op.drop_table("deployment_outcomes")
+
     op.drop_table("deployment_requirements")
 
     op.drop_table("deployment_targets")

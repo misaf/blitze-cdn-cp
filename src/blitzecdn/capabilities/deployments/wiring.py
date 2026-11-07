@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from blitzecdn.capabilities.deployments.ports import (
+    ConvergenceOutcomes,
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
@@ -125,6 +126,7 @@ def build_deployment_service(
     rules: RuleRestore,
     fleet_settings: SettingRestore,
     requirements: DeploymentRequirements,
+    outcomes: ConvergenceOutcomes,
     releases: Releases,
     targets: DeploymentTargets,
     edges: EdgeStore,
@@ -166,6 +168,7 @@ def build_deployment_service(
             settings=fleet_settings,
             uow=uow,
             requirements=requirements,
+            outcomes=outcomes,
         ),
         execution=DeploymentExecution(
             runner=runner,

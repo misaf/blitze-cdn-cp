@@ -10,10 +10,14 @@ from support.control_plane import (
     seed_site,
 )
 
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments.domain import (
+    ConvergenceKind,
+    DeploymentStatus,
+)
 from blitzecdn.capabilities.dns.domain import RecordType
 from blitzecdn.composition import Repository
-from blitzecdn.core.exceptions import ConflictError, ExecutionError
+from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.exceptions import ConfigurationError, ConflictError, ExecutionError
 
 
 def test_a_canary_records_its_limit_and_converges_only_that_edge(settings):
@@ -279,3 +283,78 @@ def test_converging_requirements_queues_one_deployment_and_only_when_owed(
         assert len(repository.deployments.queued_deployments()) == 1
     finally:
         control.close()
+
+
+def _health(repository, kind):
+    return next(
+        item for item in repository.deployment_outcomes.health() if item.kind is kind
+    )
+
+
+def test_failing_drift_checks_build_a_streak_a_success_resets(settings):
+    """The scheduled drift check failing silently is what this streak exposes."""
+    repository = Repository(settings.database_path)
+    failed = ansible_run(
+        host_run("edge-a", failure="boom"), status=RunStatus.FAILED, return_code=2
+    )
+    runner = FakeRunner([failed, failed, failed, _in_sync_run()])
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+
+    for _ in range(3):
+        control.deployments.check_drift("scheduler")
+
+    drift = _health(repository, ConvergenceKind.DRIFT_CHECK)
+    assert drift.consecutive_failures == 3
+    assert drift.last_success_at is None
+    assert drift.last_failure_at is not None
+    applied = _health(repository, ConvergenceKind.APPLIED)
+    assert applied.consecutive_failures == 0, "a check is not an applied run"
+
+    control.deployments.check_drift("scheduler")
+
+    drift = _health(repository, ConvergenceKind.DRIFT_CHECK)
+    assert drift.consecutive_failures == 0
+    assert drift.last_success_at is not None
+
+
+def test_a_deploy_refused_before_any_run_still_counts_as_a_failure(
+    settings, monkeypatch
+):
+    """A setting that blocks every compile leaves no deployment row to count."""
+    repository = Repository(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_site(control)
+
+    def refuse(**_):
+        raise ConfigurationError("a site setting is invalid")
+
+    monkeypatch.setattr(control.deployments.releases, "prepare", refuse)
+    for _ in range(2):
+        with pytest.raises(ConfigurationError):
+            control.deployments.deploy("alice")
+
+    assert repository.deployments.list_deployments(5) == []
+    assert _health(repository, ConvergenceKind.APPLIED).consecutive_failures == 2
+
+
+def test_a_canary_neither_raises_nor_resets_the_fleet_streak(settings):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([ansible_run(host_run("edge-a"))])
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    repository.deployment_outcomes.record(ConvergenceKind.APPLIED, succeeded=False)
+
+    control.deployments.deploy("alice", host_limit="edge-a")
+
+    applied = _health(repository, ConvergenceKind.APPLIED)
+    assert applied.consecutive_failures == 1
+    assert applied.last_success_at is None
+
+    control.deployments.deploy("alice")
+
+    assert _health(repository, ConvergenceKind.APPLIED).consecutive_failures == 0
