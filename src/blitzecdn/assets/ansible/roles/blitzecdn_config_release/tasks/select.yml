@@ -9,7 +9,6 @@
 - name: Select the candidate tree
   ansible.builtin.set_fact:
     blitzecdn_config_release_candidate: "{{ blitzecdn_config_release_root }}/{{ blitzecdn_release_digest }}"
-    blitzecdn_config_release_enabled: true
 
 # Do not change state, TLS, cache, logs, ACME, secrets or external provider data paths.
 # Only rendered configuration and executable njs resources belong to the

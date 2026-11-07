@@ -131,7 +131,6 @@ class EdgeRenderer:
         variables["blitzecdn_config_release_candidate"] = (
             f"{root}/{extra['blitzecdn_release_digest']}"
         )
-        variables["blitzecdn_config_release_enabled"] = True
         variables["blitzecdn_edge_runtime"] = AnsibleTemplates(variables).expression(
             _CANDIDATE_RUNTIME
         )

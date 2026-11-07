@@ -13,13 +13,17 @@ from typing import Any
 
 import yaml
 from support.contracts import (
-    STACK_ROLE_DIR,
     ansible_jinja,
     jinja2,
     resolve,
-    role_defaults,
     run_role_tasks,
     runtime_defaults,
+)
+from support.role_contracts import (
+    RELEASE_ROLE_DIR,
+    edge_context,
+    probe_volumes,
+    render_compose,
 )
 
 from blitzecdn.capabilities.security import ansible
@@ -68,11 +72,13 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     modules = resolved["blitzecdn_edge_runtime"]["paths"]["modules"]
     assert resolved["blitzecdn_security_under_attack_js_file"].startswith(f"{modules}/")
-    mounts = "\n".join(role_defaults()["blitzecdn_nginx_config_test_volumes"])
-    assert f"{modules}:{modules}:ro" in mounts
-
-    compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
-    assert "{{ blitzecdn_edge_runtime.paths.modules }}:" in compose
+    # The edge play binds the modules path into the release, and both
+    # containers mount the release root read-only.
+    root = edge_context()["blitzecdn_config_release_root"]
+    assert f"{root}:{root}:ro" in probe_volumes()
+    assert f"{root}:{root}:ro" in render_compose()["services"]["edge"]["volumes"]
+    select = (RELEASE_ROLE_DIR / "tasks/select.yml").read_text(encoding="utf-8")
+    assert "'modules': blitzecdn_config_release_candidate ~ '/njs'" in select
 
 
 def test_the_snippet_imports_the_module_and_includes_the_key():

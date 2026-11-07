@@ -17,10 +17,10 @@ from support.contracts import (
     ansible_jinja,
     jinja2,
     resolve,
-    role_defaults,
     run_role_tasks,
     runtime_defaults,
 )
+from support.role_contracts import probe_volumes
 
 from blitzecdn.capabilities.security.geoip import ansible
 
@@ -87,7 +87,7 @@ def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
 
 def _render_data_mounts() -> str:
     """Core's configuration-test mounts, resolved to real paths."""
-    return "\n".join(role_defaults()["blitzecdn_nginx_config_test_volumes"])
+    return "\n".join(probe_volumes())
 
 
 def test_the_snippet_defines_the_variable_the_site_template_reads():
