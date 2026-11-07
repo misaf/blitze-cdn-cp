@@ -157,6 +157,7 @@ def test_the_capability_is_off_until_an_operator_turns_it_on():
     resolved = _defaults()
     assert resolved["blitzecdn_security_under_attack_enabled"] is False
     assert resolved["blitzecdn_security_under_attack_passage_seconds"] == 1800
+    assert resolved["blitzecdn_security_under_attack_difficulty_bits"] == 16
 
 
 def _sites_with(**overrides: Any) -> list[dict[str, Any]]:
@@ -183,6 +184,21 @@ def test_the_role_refuses_under_attack_mode_without_capability_or_secret(tmp_pat
     )
     assert missing_secret.returncode != 0
     assert "BLITZE_UNDER_ATTACK_SECRET" in missing_secret.stdout
+
+
+def test_the_role_bounds_the_proof_of_work_difficulty(tmp_path):
+    """Below 8 bits is no work; above 24 strands phones on the challenge."""
+    for bits in (7, 25):
+        refused = run_role_tasks(
+            TASKS,
+            _defaults(
+                blitzecdn_nginx_sites=_sites_with(under_attack_mode=False),
+                blitzecdn_security_under_attack_difficulty_bits=bits,
+            ),
+            tmp_path,
+        )
+        assert refused.returncode != 0, bits
+        assert "blitzecdn_security_under_attack_difficulty_bits" in refused.stdout
 
 
 def test_the_role_accepts_a_fleet_that_never_asks_for_the_challenge(tmp_path):

@@ -9,6 +9,8 @@ const CHALLENGE_SECONDS = 300;
 const MAX_TARGET_BYTES = 4096;
 const MAX_TOKEN_BYTES = 6144;
 const PROOF_LIMIT = 0xffffffff;
+// Leading zero bits a proof's SHA-256 must have: about 2^bits hashes of work.
+const DIFFICULTY_BITS = {{ blitzecdn_security_under_attack_difficulty_bits | int }};
 
 // Per request: njs runs each request in its own VM, so this is set by the
 // entry point below and never outlives the request that set it.
@@ -36,6 +38,18 @@ function hmac(value) {
 
 function sha256(value) {
     return crypto.createHash('sha256').update(value).digest();
+}
+
+// True when the first `bits` bits of `hash` are zero. The challenge page runs
+// the same test, written out again in its script below.
+function meetsDifficulty(hash, bits) {
+    let index = 0;
+    for (; bits >= 8; bits -= 8, index += 1) {
+        if (hash[index] !== 0) {
+            return false;
+        }
+    }
+    return bits === 0 || (hash[index] >> (8 - bits)) === 0;
 }
 
 // Both operands are fixed-length base64url HMACs. The full loop always runs;
@@ -192,8 +206,9 @@ function challenge(r) {
         + '<body><main><h1>Checking your browser</h1><p id="status">BlitzeCDN is verifying this connection with a short cryptographic proof.</p>'
         + '<noscript>JavaScript is required while this site is in Under Attack Mode.</noscript></main>'
         + '<script nonce="' + cspNonce + '">(async()=>{const token=' + safeToken + ';const enc=new TextEncoder();'
+        + 'const meets=(hash,bits)=>{let index=0;for(;bits>=8;bits-=8,index++){if(hash[index]!==0)return false;}return bits===0||(hash[index]>>(8-bits))===0;};'
         + 'for(let proof=0;proof<=4294967295;proof++){const hash=new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(token+":"+proof)));'
-        + 'if(hash[0]===0&&hash[1]===0){const response=await fetch("/.blitzecdn/challenge/verify",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,proof})});'
+        + 'if(meets(hash,' + DIFFICULTY_BITS + ')){const response=await fetch("/.blitzecdn/challenge/verify",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,proof})});'
         + 'if(!response.ok)throw new Error("verification refused");const result=await response.json();location.assign(result.redirect);return;}}'
         + '})().catch(()=>{document.getElementById("status").textContent="The security check failed. Reload to try again.";});</script></body></html>';
     r.return(200, page);
@@ -220,7 +235,7 @@ function verify(r) {
         return;
     }
     const work = sha256(token + ':' + proof);
-    if (work[0] !== 0 || work[1] !== 0) {
+    if (!meetsDifficulty(work, DIFFICULTY_BITS)) {
         r.return(403);
         return;
     }
