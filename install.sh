@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # BlitzeCDN installer: the bootstrap that gets a host to where Ansible and the
-# stdlib helpers under src/blitzecdn/host/ can do the rest.
+# helpers the control-plane image ships under src/blitzecdn/host/ can do the rest.
 #
 #   standalone      provision this whole server as control plane and edge, from
 #                   the published control-plane image: no Python package is

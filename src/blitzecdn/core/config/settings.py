@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Self
@@ -176,35 +176,12 @@ class Settings(BaseSettings):
     @field_validator("allowed_ips", mode="before")
     @classmethod
     def validate_allowed_ips(cls, value: object) -> tuple[str, ...]:
+        """A blank string is the empty list: it returns the API to loopback."""
         if isinstance(value, str):
             value = value.split(",") if value.strip() else []
         if not isinstance(value, (list, tuple)):
             raise ValueError("allowed_ips must be a list or comma-separated IPs/CIDRs")
-        networks = []
-        for item in value:
-            if not isinstance(item, str) or not item.strip():
-                raise ValueError("allowed_ips entries must be non-empty IPs/CIDRs")
-            entry = item.strip()
-            network = ip_network(entry, strict=False)
-            # The listener binds 0.0.0.0, so an IPv6 entry could admit no one.
-            if network.version != 4:
-                raise ValueError(
-                    f"allowed_ips entry {entry!r} is IPv6; the API "
-                    "listens on IPv4 and cannot admit it"
-                )
-            # `203.0.113.8/24` is one host or 256; masking would silently admit
-            # the wider reading, so refuse and offer both.
-            try:
-                exact = ip_network(entry, strict=True)
-            except ValueError:
-                host = entry.split("/", 1)[0]
-                raise ValueError(
-                    f"allowed_ips entry {entry!r} has host bits set. Write "
-                    f"'{network}' to admit that whole range, or '{host}/32' "
-                    "to admit only that address"
-                ) from None
-            networks.append(str(exact))
-        return tuple(dict.fromkeys(networks))
+        return allowed_ip_networks(value, label="allowed_ips")
 
     @field_validator(
         "project_dir",
@@ -317,3 +294,46 @@ def _parse_api_keys(raw: str) -> dict[str, SecretStr]:
             raise ValueError(f"duplicate API operator: {operator}")
         keys[operator] = SecretStr(secret)
     return keys
+
+
+def allowed_ip_networks(entries: Sequence[object], *, label: str) -> tuple[str, ...]:
+    """The networks an ``allowed_ips`` list admits, or a refusal naming the entry.
+
+    The one statement of the rule. ``Settings`` applies it when the API reads
+    ``BLITZE_ALLOWED_IPS``; ``blitzecdn.host.install_inputs`` applies it to
+    ``--allowed-ips`` in the control-plane image before the installer converges a
+    host with that value. Two copies once held these lines, and two copies can
+    disagree: the flag could provision a server whose API then refuses to start.
+    ``label`` is the spelling the reader typed, so each refusal names it.
+
+    Deciding what an empty *string* means is the caller's: the environment reads
+    it as no list at all, the flag as a mistake. An empty *entry* is refused here.
+    """
+    networks = []
+    for item in entries:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{label} entries must be non-empty IPs/CIDRs")
+        entry = item.strip()
+        try:
+            network = ip_network(entry, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"invalid {label} entry {entry!r}: {exc}") from exc
+        # The listener binds 0.0.0.0, so an IPv6 entry could admit no one.
+        if network.version != 4:
+            raise ValueError(
+                f"{label} entry {entry!r} is IPv6; the API "
+                "listens on IPv4 and cannot admit it"
+            )
+        # `203.0.113.8/24` is one host or 256; masking would silently admit
+        # the wider reading, so refuse and offer both.
+        try:
+            exact = ip_network(entry, strict=True)
+        except ValueError:
+            host = entry.split("/", 1)[0]
+            raise ValueError(
+                f"{label} entry {entry!r} has host bits set. Write "
+                f"'{network}' to admit that whole range, or '{host}/32' "
+                "to admit only that address"
+            ) from None
+        networks.append(str(exact))
+    return tuple(dict.fromkeys(networks))
