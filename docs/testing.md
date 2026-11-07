@@ -40,7 +40,7 @@ reports that prerequisite as missing. It never reports it as ok.
 | `just ansible-check` (syntax and lint, against project-managed Ansible) | The same, plus Ansible *executing* roles on disposable hosts (install, HTTP/3 jobs) |
 | `just check-quick`, the inner-loop gate | `just check`, the full gate, including `docker-lint`, `audit` and `build` |
 | `just serve` for local API development | The test suite on Python 3.12 and 3.13 (compatibility jobs) |
-| Not on a laptop without Docker | `tests/container-install.sh` (install job) and `tests/http3-edge-integration.sh` (HTTP/3 job) |
+| Not on a laptop without Docker | `tests/container-install.sh` (install jobs, one per suite) and `tests/http3-edge-integration.sh` (HTTP/3 job) |
 
 The CI workflow calls the recipes and does not repeat their commands, so a gate
 added to the justfile is a gate CI runs. `just check` runs exactly the quality
@@ -83,7 +83,7 @@ The run keeps these artifacts for 14 days:
 | --- | --- |
 | `quality-reports` | `coverage.xml` and a JUnit report of the full suite |
 | `python-3.12-reports`, `python-3.13-reports` | A JUnit report per interpreter |
-| `install-diagnostics-N` | Failure only: the install host's journal, failed units, listeners, the BlitzeCDN file tree, and the state and logs of every container |
+| `install-diagnostics-N` | Failure only, one per install suite: the install host's journal, failed units, listeners, the BlitzeCDN file tree, and the state and logs of every container |
 | `http3-integration-diagnostics` | Failure only: the same for the edge host, plus the origin container |
 
 Download them with:
@@ -105,6 +105,11 @@ DIAGNOSTICS_DIR=.state/diagnostics bash tests/http3-edge-integration.sh
 
 ## What the integration evidence covers
 
+`tests/container-install.sh IMAGE SUITE` runs the `lifecycle` or the
+`rollback` stages after a shared install, or both with `all`, the default for a
+run by hand. CI runs each suite as its own install job, side by side, to stay
+within the job timeout.
+
 The two harnesses run on GitHub-hosted `ubuntu-latest` runners. Each one starts
 a privileged Ubuntu 26.04 container with systemd as PID 1, a real Docker Engine
 and real apt. That is container-based evidence. It is not proof of behavior on
@@ -117,6 +122,7 @@ separate machines over a real network.
 | Edge convergence through the installed control plane | install job | The local edge, the shipped roles, run through the CLI |
 | ACME issue and renewal | install job | Pebble and challenge DNS inside the host |
 | Refusing an update outside the release line | install job | `blitzecdn-install update` named at `0.0.1` |
+| Rolling back to a backup through a reinstall | install job, rollback suite | Full backup, uninstall, `standalone` again, restore; configuration, credentials, zones, edges and fleet settings compared before and after |
 | Fresh edge convergence and idempotence | HTTP/3 job | The shipped edge play, from a rendered release |
 | HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli, Under Attack Mode | HTTP/3 job | A real client on the outer Docker network |
 | Configuration reload, invalid configuration rollback | HTTP/3 job | |
@@ -129,11 +135,11 @@ separate machines over a real network.
 These are not verified anywhere yet:
 
 - **Control-plane upgrade, happy path.** The install job proves that an update
-  outside the release line is refused. It does not move a host from the
-  previous published release to the commit under test, because that needs a
-  published release older than the one under review.
-- **Control-plane rollback.** Nothing restores a host to its previous release
-  after a failed update.
+  outside the release line is refused. Nothing moves a host from the previous
+  published release to the commit under test. That can only be tested once a
+  release from this line is published: 6.1.0 to the current line is
+  intentionally unsupported, because the migration history was reset and the
+  current schema refuses a 6.1.0 database.
 - **Multi-host API → worker → edge.** In every harness the edge is either the
   control plane's own host (`edge-local`) or a play run on the edge host
   directly. Nothing covers a control plane deploying to a *separate* edge over
@@ -144,10 +150,10 @@ These are not verified anywhere yet:
 
 ### Next step for the gaps
 
-Close the first two gaps with containers. Add an upgrade stage to
-`tests/container-install.sh` that installs the previous published release
-first, then updates to the commit under test and rolls back. That runs on the
-same runners.
+Close the upgrade gap with containers once a release from this line is
+published: an upgrade suite in `tests/container-install.sh` that installs that
+release, updates to the commit under test, and then rolls back the way the
+rollback suite does. It runs on the same runners.
 
 The multi-host and real-network gaps need disposable Linux targets. The plan
 for that should be scoped as its own issue:

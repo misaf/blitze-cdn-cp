@@ -633,3 +633,25 @@ def test_the_install_harness_proves_a_renewal_changed_something():
         "authorization reuse is left at its default, so the renewal's coverage "
         "varies from run to run"
     )
+
+
+def test_ci_runs_every_install_suite_the_harness_offers():
+    """A suite CI does not name is a stage nothing runs.
+
+    `all` is the hand-run default that chains the others, so CI runs each of
+    the rest as its own job instead.
+    """
+    offered = re.search(r"^  ([a-z|]+)\) ;;$", _commands(INSTALL_HARNESS), re.MULTILINE)
+    assert offered, "the install harness no longer lists its suites"
+    suites = set(offered.group(1).split("|")) - {"all"}
+
+    workflow = yaml.safe_load(
+        (PROJECT_DIR / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    install = workflow["jobs"]["install"]
+    assert set(install["strategy"]["matrix"]["suite"]) == suites
+    assert any(
+        "container-install.sh" in step.get("run", "")
+        and "${{ matrix.suite }}" in step["run"]
+        for step in install["steps"]
+    ), "the install job does not pass its suite to the harness"

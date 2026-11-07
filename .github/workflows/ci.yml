@@ -145,24 +145,28 @@ jobs:
   #
   # A standalone host is also an edge, so it uses the release's one supported
   # fresh-edge platform rather than the control-plane-only compatibility range.
+  #
+  # The harness's suites run side by side, each on its own host: lifecycle
+  # alone takes most of the timeout, and rollback adds a second install.
   install:
-    name: Install on ${{ matrix.image }}
+    name: Install on ${{ matrix.image }} (${{ matrix.suite }})
     runs-on: ubuntu-latest
-    # A full run takes 20 to 25 minutes, most of it the edge converge and the
-    # ACME issue and renewal stages, so 25 cut passing runs off near the end.
+    # A lifecycle run takes 20 to 25 minutes, most of it the edge converge and
+    # the ACME issue and renewal stages, so 25 cut passing runs off near the end.
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         image: [ubuntu:26.04]
+        suite: [lifecycle, rollback]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # A failed run writes the host's journal, failed units and every
       # container's logs here before the host is removed.
-      - name: Install, re-install, and uninstall
+      - name: Run the ${{ matrix.suite }} suite
         env:
           DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
-        run: bash tests/container-install.sh ${{ matrix.image }}
+        run: bash tests/container-install.sh ${{ matrix.image }} ${{ matrix.suite }}
       - name: Keep the failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
