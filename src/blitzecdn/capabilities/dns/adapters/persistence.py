@@ -2,7 +2,6 @@
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col
 
 from blitzecdn.capabilities.dns.adapters.tables import DnsRecordRow, DomainRow
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
@@ -72,7 +71,7 @@ class ZoneStore:
             DnsRecordRow.domain, DnsRecordRow.name, DnsRecordRow.type
         )
         if domain is not None:
-            query = query.where(col(DnsRecordRow.domain) == domain)
+            query = query.where(DnsRecordRow.domain == domain)
         with self._db.session() as session:
             return [self._record(row) for row in session.scalars(query).all()]
 

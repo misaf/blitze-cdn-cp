@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, Index, text
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
-class JobRow(Base, table=True):
+class JobRow(Base):
     """One unit of durable background work."""
 
     __tablename__ = "jobs"
@@ -37,29 +37,29 @@ class JobRow(Base, table=True):
         Index("ix_jobs_leased_until", "leased_until"),
     )
 
-    id: str = Field(sa_column=Column(String, primary_key=True))
-    kind: str
-    payload: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
-    status: str
-    dedupe_key: str | None = None
-    attempts: int = Field(sa_column=Column(Integer, nullable=False, default=0))
-    max_attempts: int = Field(sa_column=Column(Integer, nullable=False, default=3))
-    available_at: datetime = Field(sa_type=UtcDateTime)
-    leased_until: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    leased_by: str | None = None
+    id: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column()
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column()
+    dedupe_key: Mapped[str | None] = mapped_column()
+    attempts: Mapped[int] = mapped_column(default=0)
+    max_attempts: Mapped[int] = mapped_column(default=3)
+    available_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    leased_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    leased_by: Mapped[str | None] = mapped_column()
     #: Incremented on every claim. A worker completes a job by presenting the
     #: value its claim returned; a stale worker's write matches no row.
-    fence: int = Field(sa_column=Column(Integer, nullable=False, default=0))
-    created_at: datetime = Field(
-        default_factory=utcnow, sa_type=UtcDateTime, index=True
+    fence: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, index=True
     )
-    finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
-    last_error: str | None = None
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_error: Mapped[str | None] = mapped_column()
     #: What a succeeded job's handler reported, for whoever polls for it.
-    result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
-class ScheduleRow(Base, table=True):
+class ScheduleRow(Base):
     """When one recurring job may next be enqueued, durable across outages."""
 
     __tablename__ = "job_schedules"
@@ -69,9 +69,9 @@ class ScheduleRow(Base, table=True):
         Index("ix_job_schedules_next_run_at", "next_run_at"),
     )
 
-    name: str = Field(sa_column=Column(String, primary_key=True))
-    interval_seconds: int
-    jitter_seconds: int = 0
-    lease_seconds: int
-    next_run_at: datetime = Field(sa_type=UtcDateTime)
-    last_run_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
+    name: Mapped[str] = mapped_column(primary_key=True)
+    interval_seconds: Mapped[int] = mapped_column()
+    jitter_seconds: Mapped[int] = mapped_column(default=0)
+    lease_seconds: Mapped[int] = mapped_column()
+    next_run_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    last_run_at: Mapped[datetime | None] = mapped_column(UtcDateTime)

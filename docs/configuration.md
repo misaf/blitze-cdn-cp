@@ -8,7 +8,7 @@ settings live beside their owner:
 | Certificates and Automatic SSL | `capabilities/tls/settings.py` |
 | Under Attack Mode | `capabilities/security/settings.py` |
 | MaxMind credentials | `capabilities/security/geoip/settings.py` |
-| Backup location | `capabilities/backup/settings.py` |
+| Backup location and retention | `capabilities/backup/settings.py` |
 
 These are application settings. Database-managed domain policy, cache policy,
 and other desired CDN state remain separate.
@@ -41,6 +41,10 @@ A blank non-secret capability value selects its model default. It still takes
 precedence over lower-priority sources. Zero intervals disable scheduled jobs.
 Relative capability paths resolve under the controller's state directory.
 Backup location is machine-specific and is excluded from portable restores.
+`BLITZE_BACKUP_RETAIN_COUNT` (`backup_retain_count`, default 7) is how many of
+the newest archives `blitzecdn backup prune` keeps; 0 keeps all of them. The
+daily schedule is a host timer, not an application setting; see
+[Backups](operations.md#backups).
 
 ## Adding a built-in setting
 

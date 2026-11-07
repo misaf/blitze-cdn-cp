@@ -15,9 +15,9 @@ import pytest
 from support.install import (
     BASH,
     SCRIPT,
-    _evaluate_os_gate,
-    _host_helper,
-    _run,
+    evaluate_os_gate,
+    host_helper,
+    run_script,
 )
 
 from blitzecdn.core.config.settings import Settings
@@ -54,31 +54,50 @@ def test_installer_has_valid_shell_syntax():
 # --- dispatch ----------------------------------------------------------------
 
 
-def test_default_form_takes_no_arguments():
-    """Controller-only installation has an intentionally argument-free form."""
-    result = _run("--bogus")
+def test_no_arguments_show_help_and_the_development_workflow(tmp_path):
+    result = subprocess.run(  # noqa: S603 - fixed executable and repository script
+        [BASH, str(SCRIPT)],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Usage:" in result.stdout
+    assert "just install" in result.stdout
+    assert "uv run blitzecdn setup" in result.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("argument", ["install", "--bogus", "bogus"])
+def test_unknown_subcommands_are_rejected_with_guidance(argument):
+    result = run_script(argument)
     assert result.returncode == 2
-    assert "takes no arguments" in result.stderr
+    assert "unknown subcommand" in result.stderr
+    assert "just install" in result.stderr
 
 
 def test_root_help_lists_every_subcommand():
-    result = _run("--help")
+    result = run_script("--help")
     assert result.returncode == 0
     assert "standalone" in result.stdout
     assert "update" in result.stdout
-    assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
-    assert "BLITZECDN_WRAPPER_DIR" in result.stdout
+    assert "blitzecdn-install" in result.stdout
+    for removed in ("--fresh", "upgrade"):
+        assert removed not in result.stdout
+    assert "BLITZECDN_CONTROL_PLANE_IMAGE" in result.stdout
+    assert "BLITZECDN_WRAPPER_DIR" not in result.stdout
 
 
 @pytest.mark.parametrize("form", ["help", "-h", "--help"])
 def test_every_help_form_exits_zero(form: str):
-    assert _run(form).returncode == 0
+    assert run_script(form).returncode == 0
 
 
 @pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
-    result = _run(subcommand)
+    result = run_script(subcommand)
     assert result.returncode == 1
     assert "sudo" in result.stderr
     assert result.stdout == ""
@@ -95,25 +114,24 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--public-address"),
         ("standalone", "--allowed-ips"),
         ("update", "--allowed-ips"),
-        ("upgrade", "--allowed-ips"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
-    result = _run(subcommand, option)
+    result = run_script(subcommand, option)
     assert result.returncode == 2
     assert "needs a value" in result.stderr
 
 
 def test_update_does_not_take_a_ref():
     """A server follows its own release line; `update` takes no ref."""
-    result = _run("update", "--ref", "v3.1.0")
+    result = run_script("update", "--ref", "v3.1.0")
     assert result.returncode == 2
     assert "unknown option" in result.stderr
 
 
 @pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_unknown_options_are_rejected_with_usage(subcommand: str):
-    result = _run(subcommand, "--not-an-option")
+    result = run_script(subcommand, "--not-an-option")
     assert result.returncode == 2
     assert "unknown option" in result.stderr
     assert "Usage:" in result.stderr
@@ -123,11 +141,11 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ("subcommand", "expected"),
     [
         ("standalone", ["--admin-cidr CIDR", "--email ADDRESS", "--deploy"]),
-        ("update", ["--yes", "--no-backup"]),
+        ("update", ["--yes", "--no-backup", "--major"]),
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
-    result = _run(subcommand, "--help")
+    result = run_script(subcommand, "--help")
     assert result.returncode == 0
     for fragment in expected:
         assert fragment in result.stdout
@@ -153,7 +171,7 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 )
 def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     """The gate is the role's assert now, so evaluate the expression it asserts."""
-    assert _evaluate_os_gate(distribution, version) is accepted
+    assert evaluate_os_gate(distribution, version) is accepted
 
 
 @pytest.mark.parametrize(
@@ -169,7 +187,7 @@ def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     ],
 )
 def test_admin_cidr_validation(cidr: str, accepted: bool):
-    result = _host_helper("install_inputs", "standalone", cidr, "operator@example.com")
+    result = host_helper("install_inputs", "standalone", cidr, "operator@example.com")
     assert (result.returncode == 0) is accepted
 
 
@@ -184,12 +202,12 @@ def test_admin_cidr_validation(cidr: str, accepted: bool):
     ],
 )
 def test_acme_email_validation(email: str, accepted: bool):
-    result = _host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
+    result = host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
     assert (result.returncode == 0) is accepted
 
 
 def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
-    return _host_helper("install_inputs", "allowed-ips", value)
+    return host_helper("install_inputs", "allowed-ips", value)
 
 
 @pytest.mark.parametrize(
@@ -242,7 +260,7 @@ def test_allowed_ips_is_refused_before_anything_is_installed():
 def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
     """One list, two validators, and the flag runs first.
 
-    `--allowed-ips` is checked by the host interpreter before any package exists;
+    `--allowed-ips` is checked by the image's stdlib helper before the host converges;
     `Settings` checks the same list when the API reads it. This keeps the copies
     agreeing, so the flag never provisions a server that cannot start. An empty
     environment value returns a server to loopback, but an empty flag is refused,

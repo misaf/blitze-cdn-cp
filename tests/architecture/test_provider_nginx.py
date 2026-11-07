@@ -7,6 +7,9 @@ from pathlib import Path
 
 from support.paths import SOURCE
 
+from blitzecdn.capabilities.http.contract import HeaderPolicy
+from blitzecdn.capabilities.security.contract import SecurityPolicy
+
 # --- the firewall belongs to the security capability, not to core -----------
 
 
@@ -64,17 +67,14 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: Where a firewall rule kind may still be named outside its own contract. A new
 #: entry is a decision, not an oversight:
 #:
-#: * `api/models.py` holds the published resource shapes, which restate the
-#:   fields rather than re-export the contract;
 #: * `security/cli.py` carries `blitzecdn domain firewall` beside the contract it
 #:   edits;
-#: * `dns/domain/commands.py` names the editable lists for selective firewall
+#: * `security/domain.py` names the editable lists for selective firewall
 #:   intent.
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/contract.py": None,
-    "capabilities/dns/api/models.py": None,
     "capabilities/security/cli.py": None,
-    "capabilities/dns/domain/commands.py": _firewall_rule_kinds(),
+    "capabilities/security/domain.py": _firewall_rule_kinds(),
 }
 
 
@@ -105,7 +105,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     `OmittedWhenEmpty`) never pruned.
     """
     from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
     from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
     source = (SOURCE / "capabilities/dns/adapters/ansible.py").read_text(
@@ -125,8 +125,8 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         server_names=("edge-doc.example.com",),
         origin_host="198.51.100.10",
     )
-    assert isinstance(site.policy.security.firewall, OmittedWhenEmpty)
-    assert not isinstance(site.policy.headers.visitor_headers, OmittedWhenEmpty)
+    assert isinstance(site.policy[SecurityPolicy].firewall, OmittedWhenEmpty)
+    assert not isinstance(site.policy[HeaderPolicy].visitor_headers, OmittedWhenEmpty)
 
     assert "firewall" not in site_to_ansible(site)
     assert "visitor_headers" in site_to_ansible(site)

@@ -7,19 +7,21 @@ that has no checkout — the same way every capability carries its own Ansible.
 There is no host inventory file to edit: the inventory plugin
 reads registered edges and fleet configuration from the control-plane database.
 
-Install the controller from the project root, then register and deploy an edge:
+Prepare a controller checkout from the project root with Python 3.12+, `uv` and
+`just`, then register and deploy an edge:
 
 ```bash
-BLITZECDN_DEV=1 ./install.sh
+just install
+uv run blitzecdn setup
 
-blitzecdn edge add edge-01 \
+uv run blitzecdn edge add edge-01 \
   --host 192.0.2.10 \
   --public-address 203.0.113.10 \
   --user deploy \
   --ssh-source 198.51.100.0/24
-blitzecdn validate
-blitzecdn plan
-blitzecdn deploy
+uv run blitzecdn validate
+uv run blitzecdn plan
+uv run blitzecdn deploy
 ```
 
 Use a non-root SSH user, verified host keys, and at least one trusted management
@@ -29,7 +31,7 @@ Inspect the generated inventory when troubleshooting:
 
 ```bash
 ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
-  ansible-inventory --list
+  uv run ansible-inventory --list
 ```
 
 The main entry points are:
@@ -124,9 +126,9 @@ calls, so a play run this way resolves exactly what a deployment would:
 ```bash
 ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
 ANSIBLE_LOCAL_TEMP=.state/ansible-local \
-ANSIBLE_ROLES_PATH="$(blitzecdn ansible roles-path)" \
-  ansible-playbook src/blitzecdn/assets/ansible/playbooks/edge.yml \
-  --extra-vars "$(blitzecdn ansible slots)"
+ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)" \
+  uv run ansible-playbook src/blitzecdn/assets/ansible/playbooks/edge.yml \
+  --extra-vars "$(uv run blitzecdn ansible slots)"
 ```
 
 Which slot a role belongs to is declared by the package that ships it and
@@ -145,3 +147,6 @@ just ansible-check
 
 See the [full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
 configuration, upgrades, rollback, and recovery.
+
+Edge capacity defaults, kernel overrides, BBR, and withdrawal behavior are
+documented in [edge capacity](../../../../docs/edge-capacity.md).

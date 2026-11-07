@@ -2,11 +2,12 @@
 
 from blitzecdn.capabilities.diagnostics.domain.status import (
     WORKER_STALE_SECONDS,
+    BackupStatistics,
     CertificateStatistics,
     OperationalStatus,
     WorkerStatus,
 )
-from blitzecdn.capabilities.diagnostics.ports import QueueHistory
+from blitzecdn.capabilities.diagnostics.ports import BackupHistory, QueueHistory
 from blitzecdn.capabilities.jobs.ports import WorkerHistory
 from blitzecdn.capabilities.tls.ports import CertificateHistory
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
@@ -21,12 +22,14 @@ class DiagnosticsService:
         workflows: WorkflowHistory,
         certificates: CertificateHistory,
         workers: WorkerHistory,
+        backups: BackupHistory,
         clock: Clock = system_clock,
     ) -> None:
         self.queue = queue
         self.workflows = workflows
         self.certificates = certificates
         self.workers = workers
+        self.backups = backups
         self.clock = clock
 
     def status(self) -> OperationalStatus:
@@ -50,6 +53,7 @@ class DiagnosticsService:
                 )
             )
         certificates = self.certificates.certificate_statuses()
+        backup = self.backups.latest()
         return OperationalStatus(
             observed_at=now,
             queue=self.queue.statistics(now=now),
@@ -64,5 +68,15 @@ class DiagnosticsService:
                 next_expiry_at=min(
                     (item.not_after for item in certificates), default=None
                 ),
+            ),
+            backups=BackupStatistics(
+                last_completed_at=backup.completed_at if backup else None,
+                last_age_seconds=(
+                    max(0, (now - backup.completed_at).total_seconds())
+                    if backup
+                    else None
+                ),
+                last_archive=backup.archive if backup else None,
+                last_size_bytes=backup.size_bytes if backup else None,
             ),
         )

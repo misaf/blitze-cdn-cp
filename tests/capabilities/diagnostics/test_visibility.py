@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from support.control_plane import cli_control_plane, control_plane_app
 from typer.testing import CliRunner
 
+from blitzecdn.capabilities.backup.domain import BackupComponent, BackupRecord
 from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
@@ -68,6 +69,14 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
                 certificate(90, True),
             ]
         ),
+        backups=SimpleNamespace(
+            latest=lambda: BackupRecord(
+                completed_at=now - timedelta(hours=2),
+                archive="blitzecdn-backup-2025-12-31_22-00-00Z.tar.gz",
+                size_bytes=4096,
+                components=(BackupComponent.DATABASE,),
+            )
+        ),
         clock=lambda: now,
     )
     report = diagnostics.status()
@@ -79,10 +88,15 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
     assert report.certificates.expiring == 3
     assert report.certificates.expired == 1
     assert report.certificates.renewal_due == 1
+    assert report.backups.last_age_seconds == 7200
+    assert report.backups.last_size_bytes == 4096
     metrics = operational_metrics(report)
     assert 'blitzecdn_workers{state="stale"} 1' in metrics
     assert 'blitzecdn_workflows{status="needs_review"} 1' in metrics
     assert "blitzecdn_certificates_expiring 3" in metrics
+    completed = (now - timedelta(hours=2)).timestamp()
+    assert f"blitzecdn_backup_last_success_timestamp_seconds {completed}" in metrics
+    assert "blitzecdn_backup_last_success_size_bytes 4096" in metrics
     for identifier in (
         "private-host",
         "private-job",
@@ -95,14 +109,18 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
 
 def test_status_api_requires_authentication_and_reports_an_empty_controller(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/status").status_code == 401
-        response = client.get("/v1/status", headers={"X-API-Key": "x" * 32})
+        assert client.get("/v3/status").status_code == 401
+        response = client.get("/v3/status", headers={"X-API-Key": "x" * 32})
         assert response.status_code == 200
         document = response.json()
         assert document["queue"]["ready"] == 0
         assert document["workers"] == []
         assert document["certificates"]["managed"] == 0
+        assert document["backups"]["last_completed_at"] is None
+        assert document["backups"]["last_age_seconds"] is None
         assert not (settings.state_dir / "workers").exists()
+        metrics = client.get("/metrics", headers={"X-API-Key": "x" * 32}).text
+        assert "blitzecdn_backup_last_success_timestamp_seconds 0" in metrics
 
 
 def test_status_cli_uses_the_same_service(settings, monkeypatch):

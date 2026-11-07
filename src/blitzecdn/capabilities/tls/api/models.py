@@ -53,7 +53,14 @@ class PreflightReport(Model):
 
 
 class CertificateRequest(Model):
-    email: str | None = Field(default=None, max_length=254)
+    email: str | None = Field(
+        default=None,
+        max_length=254,
+        description=(
+            "Omit or send null to use BLITZE_ACME_DEFAULT_EMAIL; "
+            "an email must be supplied or configured."
+        ),
+    )
     skip_preflight: bool = False
 
     @field_validator("email")
@@ -65,7 +72,14 @@ class CertificateRequest(Model):
 class RenewRequest(Model):
     within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
     force: bool = False
-    sites: list[str] | None = Field(default=None, min_length=1)
+    sites: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Omit or send null to consider all managed certificates. "
+            "An empty list is invalid."
+        ),
+    )
 
 
 class RenewalResult(Model):

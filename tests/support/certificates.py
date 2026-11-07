@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import pytest
 from dishka import Provider, Scope, decorate
 
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     PreflightCheck,
@@ -31,6 +30,7 @@ from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
 from blitzecdn.composition import FleetRunner, Repository
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ExecutionError
 from support.control_plane import (
     ControlPlane,
@@ -184,7 +184,7 @@ class FakePreflight:
 # --- builders the certificate and Automatic SSL suites share ----------------
 
 
-def _automatic_origin_report(
+def automatic_origin_report(
     mode: SslMode,
     *,
     reachable: bool = True,
@@ -217,7 +217,7 @@ def _automatic_origin_report(
     )
 
 
-def _seed_automatic_ssl_record(
+def seed_automatic_ssl_record(
     control: ControlPlane,
     *,
     mode: SslMode = SslMode.OFF,
@@ -233,7 +233,7 @@ def _seed_automatic_ssl_record(
     )
 
 
-class _RecordingIssuer:
+class RecordingIssuer:
     """Stands in for certbot: hands back a fresh pair and remembers the call."""
 
     def __init__(
@@ -250,7 +250,7 @@ class _RecordingIssuer:
         return self._pair((site.server_names[0],), days=90)
 
 
-def _proxied_site_with_certificate(
+def proxied_site_with_certificate(
     control: ControlPlane,
     repository: Repository,
     certificate_pair: CertificatePair,
@@ -266,15 +266,15 @@ if TYPE_CHECKING:
     # The doubles above stand in for this capability's ports; `just types` holds
     # them to those ports here.
     _preflight_is_a_preflight: Preflight = FakePreflight()
-    _issuer_is_an_issuer: Issuer = _RecordingIssuer(lambda *a, **k: (b"", b""))
+    _issuer_is_an_issuer: Issuer = RecordingIssuer(lambda *a, **k: (b"", b""))
 
 
 __all__ = [
     "FakePreflight",
-    "_RecordingIssuer",
-    "_automatic_origin_report",
-    "_proxied_site_with_certificate",
-    "_seed_automatic_ssl_record",
+    "RecordingIssuer",
+    "automatic_origin_report",
     "certificate_cli_control_plane",
     "certificate_control_plane",
+    "proxied_site_with_certificate",
+    "seed_automatic_ssl_record",
 ]

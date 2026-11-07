@@ -22,6 +22,7 @@ from blitzecdn.core.features import (
 __all__ = ["CONFIGURATION", "BackupConfig"]
 
 BACKUP_DIR: Final = "BLITZE_BACKUP_DIR"
+BACKUP_RETAIN: Final = "BLITZE_BACKUP_RETAIN_COUNT"
 
 
 #: Relative, so under the state directory in a checkout; an installed
@@ -37,6 +38,17 @@ class BackupConfig(ConfigurationModel):
         description=(
             "Where archives are written. A relative path is taken as under "
             "the controller's state directory."
+        ),
+    )
+    retain_count: int = Field(
+        default=7,
+        ge=0,
+        le=1000,
+        alias=BACKUP_RETAIN,
+        description=(
+            "Newest archives 'backup prune' keeps in the backup directory, "
+            "counting only names 'backup create' writes there. 0 keeps every "
+            "archive."
         ),
     )
 

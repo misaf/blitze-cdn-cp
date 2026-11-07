@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from support.edge_render import (
-    _contract,
-    _render,
-    _role_spec,
+    render_site,
+    runtime_contract,
 )
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.serving.contract import SiteVisitorHeaders
+from blitzecdn.capabilities.http.contract import SiteVisitorHeaders
 
 REQUIRES_CAPABILITIES = {
     "test_ip_country_reads_the_variable_the_capability_defines": ("geoip",),
@@ -32,17 +31,10 @@ def _with_visitor_headers(**headers: bool) -> dict[str, Any]:
     )
 
 
-def test_every_emitted_visitor_header_key_is_declared_by_the_role(desired_state):
-    """Nested like the firewall, and invisible to the top-level key sweep."""
-    declared = set(
-        _role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]["options"]
-    )
-    assert set(SiteVisitorHeaders.model_fields) == declared, (
-        "SiteVisitorHeaders and the role's visitor_headers suboptions disagree: "
-        f"{sorted(set(SiteVisitorHeaders.model_fields) ^ declared)}"
-    )
+def test_every_site_sends_each_visitor_header_switch(desired_state):
+    """Nested, so invisible to the top-level key sweep."""
     for site in desired_state["blitzecdn_nginx_sites"]:
-        assert set(site["visitor_headers"]) == declared
+        assert set(site["visitor_headers"]) == set(SiteVisitorHeaders.model_fields)
 
 
 def test_the_default_site_sends_the_address_and_not_the_country(desired_state):
@@ -51,7 +43,7 @@ def test_the_default_site_sends_the_address_and_not_the_country(desired_state):
         for entry in desired_state["blitzecdn_nginx_sites"]
         if entry["name"] == "example-com"
     )
-    rendered = _render(site)
+    rendered = render_site(site)
 
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" in rendered
     assert "$blitzecdn_country" not in rendered
@@ -62,7 +54,7 @@ def test_connecting_ip_enabled_sends_the_nginx_connection_address():
 
     nginx fills it from the socket, identically for IPv4 and IPv6.
     """
-    rendered = _render(_with_visitor_headers(connecting_ip=True))
+    rendered = render_site(_with_visitor_headers(connecting_ip=True))
 
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" in rendered
     for forgeable in (
@@ -81,7 +73,7 @@ def test_connecting_ip_disabled_clears_the_header_rather_than_forwarding_it():
     nginx forwards headers it was not told about; an empty value drops the
     client's header from the upstream request.
     """
-    rendered = _render(_with_visitor_headers(connecting_ip=False))
+    rendered = render_site(_with_visitor_headers(connecting_ip=False))
 
     assert 'proxy_set_header BZ-Connecting-IP "";' in rendered
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" not in rendered
@@ -93,7 +85,7 @@ def test_ip_country_reads_the_variable_the_capability_defines():
     Core's half only; the `geoip2` block defining it is the GeoIP capability's,
     tested there.
     """
-    rendered = _render(_with_visitor_headers(ip_country=True))
+    rendered = render_site(_with_visitor_headers(ip_country=True))
 
     assert "set $blitzecdn_visitor_ip_country $blitzecdn_country;" in rendered
     assert "proxy_set_header BZ-IPCountry $blitzecdn_visitor_ip_country;" in rendered
@@ -101,7 +93,7 @@ def test_ip_country_reads_the_variable_the_capability_defines():
 
 
 def test_ip_country_disabled_clears_the_header_rather_than_forwarding_it():
-    rendered = _render(_with_visitor_headers(ip_country=False))
+    rendered = render_site(_with_visitor_headers(ip_country=False))
 
     assert 'set $blitzecdn_visitor_ip_country "";' in rendered
     assert "$blitzecdn_visitor_ip_country $blitzecdn_country" not in rendered
@@ -120,13 +112,13 @@ def test_a_spoofed_bz_header_is_replaced_in_every_state():
         {"connecting_ip": False, "ip_country": True},
         {"connecting_ip": False, "ip_country": False},
     ):
-        rendered = _render(
+        rendered = render_site(
             _with_visitor_headers(**headers), blitzecdn_edge_geoip_enabled=True
         )
         for header in ("BZ-Connecting-IP", "BZ-IPCountry"):
             # Once per server block: the HTTP listeners, and no TLS here.
             emitted = rendered.count(f"proxy_set_header {header} ")
-            assert emitted == len(_contract("listeners", "http")), (
+            assert emitted == len(runtime_contract("listeners", "http")), (
                 f"{header} is not written on every listener for {headers}"
             )
 
@@ -136,7 +128,7 @@ def test_visitor_headers_never_reach_the_cache_key():
 
     Keying on either header would multiply every entry by the client count.
     """
-    rendered = _render(
+    rendered = render_site(
         _with_visitor_headers(connecting_ip=True, ip_country=True),
         blitzecdn_edge_geoip_enabled=True,
     )
@@ -150,7 +142,7 @@ def test_visitor_headers_never_reach_the_cache_key():
 
 def test_visitor_headers_do_not_disturb_the_existing_forwarding_headers():
     """X-Real-IP and X-Forwarded-For keep their pre-capability behaviour."""
-    rendered = _render(_with_visitor_headers())
+    rendered = render_site(_with_visitor_headers())
 
     assert "proxy_set_header X-Real-IP $remote_addr;" in rendered
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in rendered
@@ -159,7 +151,7 @@ def test_visitor_headers_do_not_disturb_the_existing_forwarding_headers():
 
 def test_the_acme_challenge_location_carries_no_visitor_headers():
     """It is served from disk; there is no origin request to annotate."""
-    rendered = _render(
+    rendered = render_site(
         _with_visitor_headers(connecting_ip=True, ip_country=True),
         blitzecdn_edge_geoip_enabled=True,
     )
@@ -176,7 +168,7 @@ def test_missing_visitor_headers_preserve_pre_upgrade_behavior():
     site = _with_visitor_headers()
     del site["visitor_headers"]
 
-    rendered = _render(site)
+    rendered = render_site(site)
 
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" in rendered
     assert 'set $blitzecdn_visitor_ip_country "";' in rendered

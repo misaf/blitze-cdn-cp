@@ -26,6 +26,7 @@ source_modules =
     blitzecdn.capabilities.**.contract
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -59,6 +60,7 @@ source_modules =
     blitzecdn.capabilities.**.service
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -105,6 +107,16 @@ forbidden_modules =
     blitzecdn.**.persistence
 allow_indirect_imports = True
 
+[importlinter:contract:cli-adapters]
+name = CLI code uses public contracts, never private adapters
+type = forbidden
+source_modules =
+    blitzecdn.entrypoints.cli
+    blitzecdn.capabilities.**.cli
+forbidden_modules =
+    blitzecdn.**.adapters
+allow_indirect_imports = True
+
 [importlinter:contract:core-below-capabilities]
 name = Core imports no capability and not the composition root
 type = forbidden
@@ -133,6 +145,7 @@ source_modules =
     blitzecdn.core.exceptions
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click
@@ -151,7 +164,7 @@ forbidden_modules =
     blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.assets.docker
-    blitzecdn.host.host_runtime
+    blitzecdn.host.compose_files
     blitzecdn.entrypoints.install_handoff
     blitzecdn.entrypoints.worker
 allow_indirect_imports = True
@@ -179,7 +192,7 @@ source_modules =
     blitzecdn.composition
     blitzecdn.core
     blitzecdn.assets.docker
-    blitzecdn.host.host_runtime
+    blitzecdn.host.compose_files
     blitzecdn.entrypoints.install_handoff
 forbidden_modules =
     blitzecdn.entrypoints.worker
@@ -208,6 +221,7 @@ source_modules =
     blitzecdn.capabilities.**.wiring
 forbidden_modules =
     fastapi
+    fastapi_pagination
     typer
     blitzecdn.entrypoints.api
     blitzecdn.entrypoints.cli
@@ -239,6 +253,7 @@ source_modules =
     blitzecdn.capabilities.releases.service.compiler
 forbidden_modules =
     fastapi
+    fastapi_pagination
     starlette
     typer
     click

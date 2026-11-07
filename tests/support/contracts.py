@@ -54,7 +54,7 @@ def contributed_roles() -> dict[str, Path]:
     return roles
 
 
-def _role(name: str) -> Path:
+def role_path(name: str) -> Path:
     candidate = ROLES_DIR / name
     assert candidate.is_dir(), (
         f"{name} is missing from src/blitzecdn/assets/ansible/roles/"
@@ -62,11 +62,11 @@ def _role(name: str) -> Path:
     return candidate
 
 
-ROLE_DIR = _role("blitzecdn_nginx")
+ROLE_DIR = role_path("blitzecdn_nginx")
 
 #: The role that owns the shared edge runtime contract. Every role that reads
 #: `blitzecdn_edge_runtime` needs it resolved first.
-RUNTIME_ROLE_DIR = _role("blitzecdn_edge")
+RUNTIME_ROLE_DIR = role_path("blitzecdn_edge")
 
 
 def ansible_bool(value: Any) -> bool:
@@ -80,7 +80,7 @@ def ansible_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"true", "yes", "on", "1"}
 
 
-def _ansible_jinja(**kwargs: Any) -> Any:
+def ansible_jinja(**kwargs: Any) -> Any:
     """A Jinja environment with the handful of Ansible filters the edge uses.
 
     The real templates and resolved defaults are rendered, since a contract
@@ -99,7 +99,7 @@ def _ansible_jinja(**kwargs: Any) -> Any:
     return environment
 
 
-def _resolve(value: Any, context: dict[str, Any], environment: Any) -> Any:
+def resolve(value: Any, context: dict[str, Any], environment: Any) -> Any:
     """Render every Jinja expression nested anywhere inside ``value``.
 
     Ansible evaluates defaults lazily, so a contract member written as an
@@ -111,11 +111,9 @@ def _resolve(value: Any, context: dict[str, Any], environment: Any) -> Any:
         rendered = environment.from_string(value).render(**context).strip()
         return {"True": True, "False": False}.get(rendered, rendered)
     if isinstance(value, dict):
-        return {
-            key: _resolve(item, context, environment) for key, item in value.items()
-        }
+        return {key: resolve(item, context, environment) for key, item in value.items()}
     if isinstance(value, list):
-        return [_resolve(item, context, environment) for item in value]
+        return [resolve(item, context, environment) for item in value]
     return value
 
 
@@ -139,18 +137,18 @@ def _runtime_source() -> dict[str, Any]:
 RUNTIME_INPUTS = frozenset(_runtime_source()) - {"blitzecdn_edge_runtime"}
 
 
-def _runtime_defaults(**inputs: Any) -> dict[str, Any]:
+def runtime_defaults(**inputs: Any) -> dict[str, Any]:
     """The contract as a role sees it: every expression already evaluated."""
     source = _runtime_source() | inputs
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     return source | {
-        "blitzecdn_edge_runtime": _resolve(
+        "blitzecdn_edge_runtime": resolve(
             source["blitzecdn_edge_runtime"], source, environment
         )
     }
 
 
-def _split_runtime(overrides: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def split_runtime(overrides: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Separate contract inputs from ordinary variable overrides.
 
     A contract input must be applied before the contract is composed, or
@@ -178,26 +176,26 @@ def _role_spec() -> dict[str, Any]:
     return options
 
 
-def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
+def role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
     """blitzecdn_nginx's defaults on top of the resolved runtime contract.
 
     That is the namespace the role renders from: it requires
     `blitzecdn_edge_runtime` and reads paths, listeners, the status endpoint and
     the GeoIP database from it.
     """
-    context = _runtime_defaults(**runtime_inputs) | _yaml_mapping(
+    context = runtime_defaults(**runtime_inputs) | _yaml_mapping(
         ROLE_DIR / "defaults/main.yml"
     )
     # Resolved, because Ansible resolves: a default written over the contract is a
     # real value by the time a template reads it.
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         resolved = {
             name: value
             for name, value in context.items()
             if name != "blitzecdn_edge_runtime"
         }
-        resolved = _resolve(resolved, context, environment)
+        resolved = resolve(resolved, context, environment)
         if resolved == {
             name: value
             for name, value in context.items()
@@ -208,8 +206,8 @@ def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
     return context
 
 
-STACK_ROLE_DIR = _role("blitzecdn_edge_stack")
-DOCKER_ROLE_DIR = _role("blitzecdn_docker")
+STACK_ROLE_DIR = role_path("blitzecdn_edge_stack")
+DOCKER_ROLE_DIR = role_path("blitzecdn_docker")
 
 
 def run_role_tasks(
@@ -258,7 +256,7 @@ def run_role_tasks(
     )
 
 
-def _seed_site(
+def seed_site(
     repository: Repository,
     *,
     name: str,
@@ -300,7 +298,7 @@ def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
-    _seed_site(
+    seed_site(
         repository,
         name="example-com",
         label="cdn",
@@ -314,7 +312,7 @@ def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
             "cache_valid_not_found": "1m",
         },
     )
-    _seed_site(
+    seed_site(
         repository,
         name="static-example-com",
         label="static",
@@ -350,16 +348,16 @@ __all__ = [
     "RUNTIME_ROLE_DIR",
     "STACK_ROLE_DIR",
     "_IndentedDumper",
-    "_ansible_jinja",
-    "_resolve",
-    "_role",
-    "_role_defaults",
     "_role_spec",
-    "_runtime_defaults",
-    "_seed_site",
-    "_split_runtime",
     "ansible_bool",
+    "ansible_jinja",
     "desired_state",
     "jinja2",
+    "resolve",
+    "role_defaults",
+    "role_path",
     "run_role_tasks",
+    "runtime_defaults",
+    "seed_site",
+    "split_runtime",
 ]

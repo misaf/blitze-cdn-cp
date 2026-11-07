@@ -14,13 +14,24 @@ import subprocess
 import sys
 import tarfile
 from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from support.control_plane import FakeRunner, build_application, seed_record
+from pydantic import ValidationError
+from support.control_plane import (
+    FakeRunner,
+    build_application,
+    seed_record,
+    with_capability_settings,
+)
 from typer.testing import CliRunner
 
-from blitzecdn.capabilities.backup.adapters import TarArchive, TemporaryWorkspace
+from blitzecdn.capabilities.backup.adapters import (
+    BackupStatusFile,
+    TarArchive,
+    TemporaryWorkspace,
+)
 from blitzecdn.capabilities.backup.adapters.components import (
     DATABASE_MEMBER,
     AcmeComponent,
@@ -31,14 +42,17 @@ from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 from blitzecdn.capabilities.backup.domain import (
     BACKUP_FORMAT_VERSION,
     BackupComponent,
+    BackupRecord,
     backup_filename,
+    backup_moment,
     member_component,
     parse_manifest,
     unsafe_member,
 )
 from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
 from blitzecdn.capabilities.backup.settings import BackupConfig
-from blitzecdn.capabilities.backup.wiring import build_backup_service
+from blitzecdn.capabilities.backup.wiring import BACKUP_STATUS, build_backup_service
+from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
@@ -88,7 +102,7 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
             "[blitzecdn]\n", encoding="utf-8"
         )
         (settings.project_dir / ".env").write_text(
-            f"BLITZE_API_KEYS=operator:{'k' * 32}\n", encoding="utf-8"
+            f"BLITZE_API_KEYS=operator:{'0123456789abcdef' * 2}\n", encoding="utf-8"
         )
         settings.state_dir.mkdir(parents=True, exist_ok=True)
         (settings.state_dir / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
@@ -343,6 +357,153 @@ def test_a_destination_race_never_overwrites_and_cleans_the_temporary_file(
         service.create(destination=target)
     assert target.read_bytes() == b"winner"
     assert list(target.parent.glob(f".{target.name}.*")) == []
+
+
+# --- the latest backup and retention ---------------------------------
+
+
+def _archive_named(directory: Path, moment: datetime) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / backup_filename(moment)
+    path.write_bytes(b"archive")
+    return path
+
+
+def test_an_archive_name_reads_back_as_its_moment_and_nothing_else_does():
+    moment = datetime(2026, 8, 30, 0, 15, 30, tzinfo=UTC)
+    assert backup_moment(backup_filename(moment)) == moment
+    for name in (
+        "notes.txt",
+        "blitzecdn-backup-latest.tar.gz",
+        ".blitzecdn-backup-2026-08-30_00-15-30Z.tar.gz.abc123",
+        "blitzecdn-backup-2026-08-30_00-15-30Z.tar.gz.part",
+    ):
+        assert backup_moment(name) is None
+
+
+def test_a_full_backup_is_recorded_as_the_latest(service, populated):
+    assert service.latest() is None
+    archive = service.create()
+    latest = service.latest()
+    assert latest is not None
+    assert latest.archive == archive.name
+    assert latest.size_bytes == archive.stat().st_size
+    assert set(latest.components) == set(BackupComponent)
+    status = populated.state_dir / BACKUP_STATUS
+    assert status.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_selective_backup_is_not_a_recovery_point(service):
+    service.create(only=(BackupComponent.DATABASE,))
+    assert service.latest() is None
+
+
+def test_an_unreadable_record_reads_as_no_backup(tmp_path):
+    status = tmp_path / "status.json"
+    assert BackupStatusFile(status).latest() is None
+    status.write_text("{not json", encoding="utf-8")
+    assert BackupStatusFile(status).latest() is None
+    record = BackupRecord(
+        completed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        archive="a.tar.gz",
+        size_bytes=1,
+        components=(BackupComponent.TLS,),
+    )
+    BackupStatusFile(status).record(record)
+    assert BackupStatusFile(status).latest() == record
+
+
+def test_retention_keeps_the_newest_and_touches_only_its_own_archives(
+    service, populated, tmp_path
+):
+    directory = _backup_dir(populated)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    archives = [_archive_named(directory, start + timedelta(days=n)) for n in range(4)]
+    unrelated = [directory / "notes.txt", directory / "my-copy.tar.gz"]
+    for path in unrelated:
+        path.write_text("keep", encoding="utf-8")
+    in_flight = directory / f".{archives[0].name}.tmp1234"
+    in_flight.write_bytes(b"partial")
+    outside = tmp_path / "outside.tar.gz"
+    outside.write_bytes(b"elsewhere")
+    linked = directory / backup_filename(start - timedelta(days=30))
+    linked.symlink_to(outside)
+
+    expired = service.prune(keep=2)
+
+    assert sorted(expired) == sorted(archives[:2])
+    assert [path.exists() for path in archives] == [False, False, True, True]
+    assert all(path.exists() for path in [*unrelated, in_flight, linked, outside])
+
+
+def test_retention_of_zero_keeps_every_archive(service, populated):
+    directory = _backup_dir(populated)
+    archives = [
+        _archive_named(directory, datetime(2026, 1, day, tzinfo=UTC))
+        for day in range(1, 4)
+    ]
+    assert service.prune(keep=0) == ()
+    assert all(path.exists() for path in archives)
+
+
+def test_retention_without_a_backup_directory_is_a_no_op(service):
+    assert service.prune(keep=1) == ()
+
+
+def test_a_recorded_backup_is_reported_by_the_controller(service, populated):
+    archive = service.create()
+    control = build_application(settings=populated)
+    try:
+        report = control.container.get(DiagnosticsService).status().backups
+    finally:
+        control.container.close()
+    assert report.last_archive == archive.name
+    assert report.last_size_bytes == archive.stat().st_size
+    assert report.last_age_seconds is not None
+
+
+def test_cli_prune_keeps_the_configured_newest_archives(populated, monkeypatch):
+    configured = with_capability_settings(populated, backup_retain_count=2)
+    monkeypatch.setattr(cli.common, "settings", lambda: configured)
+    directory = _backup_dir(configured)
+    archives = [
+        _archive_named(directory, datetime(2026, 1, day, tzinfo=UTC))
+        for day in range(1, 5)
+    ]
+    result = runner.invoke(cli.app, ["backup", "prune"])
+    assert result.exit_code == 0, result.output
+    assert [path.exists() for path in archives] == [False, False, True, True]
+    assert "removed 2" in result.stdout
+
+
+def test_cli_prune_keep_overrides_the_setting(cli_settings):
+    directory = _backup_dir(cli_settings)
+    archives = [
+        _archive_named(directory, datetime(2026, 1, day, tzinfo=UTC))
+        for day in range(1, 4)
+    ]
+    result = runner.invoke(cli.app, ["backup", "prune", "--keep", "1"])
+    assert result.exit_code == 0, result.output
+    assert [path.exists() for path in archives] == [False, False, True]
+    result = runner.invoke(cli.app, ["backup", "prune", "--keep", "0"])
+    assert result.exit_code == 0, result.output
+    assert "Retention is off" in result.stdout
+    assert archives[2].exists()
+
+
+def test_cli_prune_refuses_a_negative_count(cli_settings):
+    result = runner.invoke(cli.app, ["backup", "prune", "--keep", "-1"])
+    assert result.exit_code != 0
+
+
+def test_retention_defaults_to_seven_archives():
+    assert BackupConfig().retain_count == 7
+
+
+@pytest.mark.parametrize("value", [-1, 1001])
+def test_invalid_retention_configuration_is_refused(value):
+    with pytest.raises(ValidationError):
+        BackupConfig.model_validate({"BLITZE_BACKUP_RETAIN_COUNT": value})
 
 
 # --- restoring --------------------------------------------------------
@@ -1282,7 +1443,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
 def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_path):
     settings.environment_path.write_text(
         "BLITZE_API_KEYS=old:"
-        + "o" * 32
+        + "0123456789abcdef" * 2
         + "\nBLITZE_DATABASE_PATH=/old/controller.db\n",
         encoding="utf-8",
     )
@@ -1306,7 +1467,7 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     fresh.project_dir.mkdir()
     fresh.environment_path.write_text(
         "BLITZE_API_KEYS=fresh:"
-        + "f" * 32
+        + "fedcba9876543210" * 2
         + "\nBLITZE_DATABASE_PATH=/fresh/controller.db\n",
         encoding="utf-8",
     )
@@ -1370,6 +1531,7 @@ def test_a_backup_service_without_a_component_refuses_to_restore_it(
         services=_RecordingServices(),
         workspace=TemporaryWorkspace(tmp_path / "work"),
         recovery=RestoreJournal(tmp_path / "recovery"),
+        history=BackupStatusFile(tmp_path / "status.json"),
     )
     with pytest.raises(ConfigurationError, match="cannot restore: tls"):
         partial.restore(archive)

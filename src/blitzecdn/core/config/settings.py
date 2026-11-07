@@ -45,6 +45,7 @@ class Settings(BaseSettings):
             "drift_check_interval_seconds",
             "worker_poll_seconds",
             "api_worker_threads",
+            "api_max_body_bytes",
             "allowed_ips",
             "api_keys",
         }
@@ -130,6 +131,9 @@ class Settings(BaseSettings):
     #: server's so a renewal sweep cannot starve `/health`. Small, because the
     #: work serialises on the deployment lock anyway.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
+    #: Total HTTP body budget, including multipart framing. The default fits a
+    #: 1 MiB certificate chain and 256 KiB private key with framing overhead.
+    api_max_body_bytes: int = Field(default=2_097_152, ge=1)
     #: Public API client IPv4 addresses/CIDRs. Empty keeps the API on loopback.
     allowed_ips: Annotated[tuple[str, ...], NoDecode] = ()
     allow_empty_sites: bool = False
@@ -149,8 +153,7 @@ class Settings(BaseSettings):
         keys = _parse_api_keys(raw) if isinstance(raw, str) else dict(raw)
         single = data.pop("api_key", None)
         if single:
-            if len(single) < 32:
-                raise ValueError("BLITZE_API_KEY must contain at least 32 characters")
+            _check_secret(single, "BLITZE_API_KEY")
             keys.setdefault("default", SecretStr(single))
         data["api_keys"] = keys
         return data
@@ -287,15 +290,29 @@ def _split(value: object, name: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+#: A generated key (`token_urlsafe`, hex) uses far more; fewer is a typed or
+#: repeated string, which length alone would admit.
+_MIN_DISTINCT_SECRET_CHARACTERS = 8
+
+
+def _check_secret(secret: str, variable: str) -> None:
+    """Refuse a secret too short or too uniform to have been generated."""
+    if len(secret) < 32:
+        raise ValueError(f"{variable} secrets must contain at least 32 characters")
+    if len(set(secret)) < _MIN_DISTINCT_SECRET_CHARACTERS:
+        raise ValueError(
+            f"{variable} secrets must be randomly generated, for example with "
+            "`openssl rand -hex 32`"
+        )
+
+
 def _parse_api_keys(raw: str) -> dict[str, SecretStr]:
     keys: dict[str, SecretStr] = {}
     for entry in filter(None, (part.strip() for part in raw.split(","))):
         operator, separator, secret = entry.partition(":")
-        if not separator or not operator or len(secret) < 32:
-            raise ValueError(
-                "BLITZE_API_KEYS entries must be operator:secret with secrets "
-                "of at least 32 characters"
-            )
+        if not separator or not operator:
+            raise ValueError("BLITZE_API_KEYS entries must be operator:secret")
+        _check_secret(secret, "BLITZE_API_KEYS")
         if operator in keys:
             raise ValueError(f"duplicate API operator: {operator}")
         keys[operator] = SecretStr(secret)

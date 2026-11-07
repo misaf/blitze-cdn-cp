@@ -13,6 +13,8 @@ from typing import Any, NewType, cast
 from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.backup.service import BackupService
+from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
@@ -51,9 +53,9 @@ from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.releases.wiring import build_release_service
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator as CertificateWorkflows,
 )
@@ -62,7 +64,11 @@ from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import (
     build_automatic_ssl_service,
     build_certificate_service,
+    build_site_editor,
 )
+from blitzecdn.capabilities.traffic.service.collection import TrafficService
+from blitzecdn.capabilities.traffic.settings import TrafficConfig
+from blitzecdn.capabilities.traffic.wiring import build_traffic_service
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.infrastructure import (
     Adapters,
@@ -79,6 +85,7 @@ from blitzecdn.composition.roster import (
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.features import FeatureRegistry, Operations, Rendering
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 
@@ -104,6 +111,7 @@ class ServiceProvider(Provider):
         repository: Repository,
         certificates: CertificateService,
         workers: WorkerHistory,
+        backups: BackupService,
         adapters: Adapters,
     ) -> DiagnosticsService:
         return DiagnosticsService(
@@ -111,6 +119,7 @@ class ServiceProvider(Provider):
             workflows=repository.workflows,
             certificates=certificates,
             workers=workers,
+            backups=backups,
             clock=adapters.clock,
         )
 
@@ -137,13 +146,18 @@ class ServiceProvider(Provider):
         )
 
     @provide
-    def site_editor(self, repository: Repository) -> HostService:
+    def hosts(self, repository: Repository) -> HostService:
         return build_host_service(
             zones=repository.zones,
             rules=repository.rules,
             events=repository.audit_log,
             uow=repository,
         )
+
+    @provide
+    def site_editor(self, hosts: HostService) -> SiteEditor:
+        # DNS writes where a host's policy comes from; TLS decides what it writes.
+        return build_site_editor(writer=hosts)
 
     @provide
     def rules(self, repository: Repository) -> RuleService:
@@ -248,6 +262,30 @@ class ServiceProvider(Provider):
         )
 
     @provide
+    def traffic_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> TrafficConfig:
+        return capability_config.for_feature("traffic").as_model(TrafficConfig)
+
+    @provide
+    def traffic(
+        self,
+        repository: Repository,
+        runner: FleetRunner,
+        traffic_config: TrafficConfig,
+        adapters: Adapters,
+    ) -> TrafficService:
+        return build_traffic_service(
+            store=repository.traffic,
+            fleet=runner,
+            events=repository.audit_log,
+            uow=repository,
+            config=traffic_config,
+            edge_names=lambda: [edge.name for edge in repository.edges.list_edges()],
+            clock=adapters.clock,
+        )
+
+    @provide
     def cache(
         self,
         adapters: Adapters,
@@ -302,6 +340,14 @@ class ServiceProvider(Provider):
 
     # -- TLS ---------------------------------------------------------------
 
+    # -- backup opens no repository; the host timer runs it, diagnostics reads it.
+
+    @provide
+    def backups(self, settings: Settings, features: FeatureRegistry) -> BackupService:
+        return build_backup_service(
+            settings, configuration=features.configuration_contributions()
+        )
+
     @provide
     def certificate_config(
         self, capability_config: ResolvedCapabilityEnvironment
@@ -317,7 +363,8 @@ class ServiceProvider(Provider):
         config: CertificateConfig,
         store: CertificateStore,
         releases: ReleaseService,
-        site_editor: HostService,
+        hosts: HostService,
+        site_editor: SiteEditor,
         edges: EdgeStorePort,
         origin_probe: OriginProbePort,
         runner: FleetRunner,
@@ -330,7 +377,7 @@ class ServiceProvider(Provider):
             config=config,
             store=store,
             releases=releases,
-            sites=site_editor,
+            sites=hosts,
             edges=edges,
             origin_probe=origin_probe,
             requirements=repository.deployment_requirements,
@@ -349,13 +396,14 @@ class ServiceProvider(Provider):
     @provide
     def automatic_ssl(
         self,
-        site_editor: HostService,
+        hosts: HostService,
+        site_editor: SiteEditor,
         runner: FleetRunner,
         origin_probe: OriginProbePort,
         deployments: DeploymentService,
     ) -> AutomaticSslService:
         return build_automatic_ssl_service(
-            sites=site_editor,
+            sites=hosts,
             origin_checks=OriginCheckPlaybook(runner),
             origin_probe=origin_probe,
             site_editor=site_editor,
@@ -375,6 +423,8 @@ class ServiceProvider(Provider):
         automatic_ssl: AutomaticSslService,
         certificate_config: CertificateConfig,
         queue_ready: QueueReadiness,
+        traffic: TrafficService,
+        traffic_config: TrafficConfig,
     ) -> Operations:
         """Contributed jobs close over services, so they bind once every
         service exists."""
@@ -388,6 +438,9 @@ class ServiceProvider(Provider):
                     certificate_config=certificate_config,
                     read_database=lambda: repository.workflows.list_workflows(1),
                     queue_ready=queue_ready,
+                    traffic=traffic,
+                    traffic_config=traffic_config,
+                    has_edges=lambda: bool(repository.edges.list_edges()),
                 )
             )
         )

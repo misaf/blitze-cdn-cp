@@ -50,7 +50,7 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     A stored site asking for HTTP/3 must load whatever runtime is installed.
     """
     from blitzecdn.capabilities.http.contract import ProtocolPolicy
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert "http3_enabled" in CdnSite.model_fields["policy"].annotation.setting_fields()
@@ -62,9 +62,9 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
 
     A stored site asking for a country must load whatever runtime is installed.
     """
+    from blitzecdn.capabilities.http.contract import SiteVisitorHeaders
     from blitzecdn.capabilities.security.contract import SiteFirewall
-    from blitzecdn.capabilities.serving.contract.headers import SiteVisitorHeaders
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
@@ -72,14 +72,14 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
         CdnSite.model_fields["policy"].annotation.setting_fields()
     )
     assert SiteFirewall.__module__.startswith("blitzecdn.capabilities.security")
-    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.serving")
+    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.http")
 
 
 #: The two contracts allowed to name the `geoip` token, because they ask for the
 #: lookup: a country firewall rule and the `BZ-IPCountry` header.
 _GEOIP_AWARE_CONTRACTS = {
     "capabilities/security/contract.py",
-    "capabilities/serving/contract/headers.py",
+    "capabilities/http/contract.py",
 }
 
 

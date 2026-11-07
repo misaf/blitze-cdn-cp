@@ -11,17 +11,17 @@ from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
     STACK_ROLE_DIR,
-    _ansible_jinja,
-    _role,
-    _role_defaults,
+    ansible_jinja,
+    role_defaults,
+    role_path,
 )
 from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE
 from support.role_contracts import (
     COMPOSE_TEMPLATE,
-    _defaults_of,
-    _edge_context,
-    _render_compose,
+    defaults_of,
+    edge_context,
+    render_compose,
 )
 
 from blitzecdn.assets.docker import (
@@ -35,8 +35,8 @@ def test_the_container_health_check_reads_the_configured_status_endpoint():
     The address, port and path are rendered by blitzecdn_nginx, so moving the
     endpoint moves the probe.
     """
-    context = _edge_context()
-    service = _render_compose()["services"]["edge"]
+    context = edge_context()
+    service = render_compose()["services"]["edge"]
     healthcheck = service["healthcheck"]
     url = (
         f"http://{context['blitzecdn_edge_runtime']['status']['address']}"
@@ -69,7 +69,7 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     rescue path.
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
-    edge = _render_compose()["services"]["edge"]
+    edge = render_compose()["services"]["edge"]
     healthcheck = edge["healthcheck"]
 
     assert healthcheck["test"].count("CMD") == 1
@@ -123,7 +123,7 @@ def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
         control.close()
     assert "{% if" not in status_conf
 
-    assert "healthcheck" in _render_compose()["services"]["edge"]
+    assert "healthcheck" in render_compose()["services"]["edge"]
     # Read from the template: nothing guards the block, so it reaches every edge.
     # The lines above it are the probe's comment and the logging options.
     lines = COMPOSE_TEMPLATE.splitlines()
@@ -140,7 +140,7 @@ def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
 
 def test_the_health_timeout_stays_configurable():
     """Health is mandatory; how long a cold edge gets to reach it is not."""
-    defaults = _defaults_of(STACK_ROLE_DIR)
+    defaults = defaults_of(STACK_ROLE_DIR)
     assert isinstance(defaults["blitzecdn_edge_stack_health_timeout"], int)
 
     spec = yaml.safe_load(
@@ -165,9 +165,9 @@ def test_the_runtime_and_its_engine_are_not_optional():
     """
     for role, spec_defaults in (
         ("blitzecdn_edge_stack", STACK_ROLE_DIR),
-        ("blitzecdn_docker", _role("blitzecdn_docker")),
+        ("blitzecdn_docker", role_path("blitzecdn_docker")),
     ):
-        defaults = _defaults_of(spec_defaults)
+        defaults = defaults_of(spec_defaults)
         assert f"{role}_enabled" not in defaults
         spec = yaml.safe_load(
             (spec_defaults / "meta/argument_specs.yml").read_text(encoding="utf-8")
@@ -182,7 +182,7 @@ def test_the_runtime_and_its_engine_are_not_optional():
     assert "when" not in converge, converge.get("when")
     assert "rescue" in converge
     assert yaml.safe_load(
-        (_role("blitzecdn_docker") / "tasks/main.yml").read_text(encoding="utf-8")
+        (role_path("blitzecdn_docker") / "tasks/main.yml").read_text(encoding="utf-8")
     )[0].keys() == {"name", "block"}
 
 
@@ -248,12 +248,12 @@ def test_the_status_endpoint_is_loopback_only():
     The listen address binds loopback and the location's allow/deny list refuses
     anything else, so widening one alone does not expose it.
     """
-    defaults = _role_defaults()
+    defaults = role_defaults()
     assert defaults["blitzecdn_edge_runtime"]["status"]["address"] == "127.0.0.1"
     assert defaults["blitzecdn_nginx_status_allow"] == ["127.0.0.1", "::1"]
 
     status = (ROLE_DIR / "templates/status.conf.j2").read_text(encoding="utf-8")
-    rendered = _ansible_jinja().from_string(status).render(**_edge_context())
+    rendered = ansible_jinja().from_string(status).render(**edge_context())
     assert "listen 127.0.0.1:8090;" in rendered
     for allowed in ("allow 127.0.0.1;", "allow ::1;"):
         assert allowed in rendered, allowed
@@ -263,7 +263,7 @@ def test_the_status_endpoint_is_loopback_only():
 
     # The container reaches it over the host network namespace, so the probe
     # needs no published port and the endpoint stays unreachable from outside.
-    healthcheck = _render_compose()["services"]["edge"]["healthcheck"]
+    healthcheck = render_compose()["services"]["edge"]["healthcheck"]
     assert "http://127.0.0.1:8090/stub_status" in healthcheck["test"]
 
 
@@ -273,7 +273,7 @@ def test_the_edge_stops_gracefully():
     SIGTERM is Nginx's immediate shutdown. Both the signal and enough time before
     SIGKILL must hold.
     """
-    edge = _render_compose()["services"]["edge"]
+    edge = render_compose()["services"]["edge"]
     assert edge["stop_signal"] == "SIGQUIT"
     grace = str(edge["stop_grace_period"])
     assert grace.endswith("s") and int(grace[:-1]) >= 10, grace
@@ -320,7 +320,7 @@ def test_no_edge_image_reference_floats():
         assert re.search(r"(@sha256:[0-9a-f]{64}|:\d+\.\d+)", reference), reference
     # One fallback: blitzecdn_edge_runtime.image, which blitzecdn_nginx validates
     # against and blitzecdn_edge_stack serves from.
-    assert "image" not in _defaults_of(STACK_ROLE_DIR).get("blitzecdn_edge_stack", {})
+    assert "image" not in defaults_of(STACK_ROLE_DIR).get("blitzecdn_edge_stack", {})
     for role_dir in (ROLE_DIR, STACK_ROLE_DIR):
         source = (role_dir / "defaults/main.yml").read_text(encoding="utf-8")
         assert "ghcr.io/misaf/blitzecdn-edge" not in source, role_dir.name

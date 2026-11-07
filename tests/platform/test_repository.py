@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -17,8 +18,10 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -216,15 +219,15 @@ def test_visitor_headers_survive_persistence_and_compilation(
     )
 
     (stored,) = _hosts(repository)
-    assert stored.policy.headers.visitor_headers.connecting_ip is False
-    assert stored.policy.headers.visitor_headers.ip_country is True
+    assert stored.policy[HeaderPolicy].visitor_headers.connecting_ip is False
+    assert stored.policy[HeaderPolicy].visitor_headers.ip_country is True
 
     (compiled,) = _release(repository).sites
     assert (
-        compiled.site.policy.headers.visitor_headers
-        == stored.policy.headers.visitor_headers
+        compiled.site.policy[HeaderPolicy].visitor_headers
+        == stored.policy[HeaderPolicy].visitor_headers
     )
-    assert compiled.site.policy.requires_geoip is True
+    assert "geoip" in compiled.site.policy.required_capabilities
 
 
 def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
@@ -234,8 +237,11 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    assert _hosts(repository)[0].policy.security.under_attack_mode is True
-    assert _release(repository).sites[0].site.policy.security.under_attack_mode is True
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is True
+    assert (
+        _release(repository).sites[0].site.policy[SecurityPolicy].under_attack_mode
+        is True
+    )
 
     connection = sqlite3.connect(settings.database_path)
     try:
@@ -246,7 +252,7 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
         connection.commit()
     finally:
         connection.close()
-    assert _hosts(repository)[0].policy.security.under_attack_mode is False
+    assert _hosts(repository)[0].policy[SecurityPolicy].under_attack_mode is False
 
 
 def test_deployment_transitions_releases_and_recovery(
@@ -279,6 +285,41 @@ def test_deployment_transitions_releases_and_recovery(
         repository.deployments.get_deployment(deployment.id).status
         is DeploymentStatus.ABANDONED
     )
+
+
+def test_a_transition_waits_out_another_writer_instead_of_failing(
+    settings, domain_payload, record_payload, site_payload
+):
+    """Another process commits while a transition waits for the writer lock.
+
+    A transition that read first would hold a snapshot that commit made stale,
+    and SQLite fails its upgrade to a writer at once with "database is locked",
+    whatever the busy timeout. One conditional UPDATE waits and then applies.
+    """
+    repository = Repository(settings.database_path)
+    _seed(repository, domain_payload, record_payload, site_payload)
+    release = _release(repository)
+    deployment = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
+    )
+    other = sqlite3.connect(
+        settings.database_path, isolation_level=None, check_same_thread=False
+    )
+    other.execute("BEGIN IMMEDIATE")
+    other.execute(
+        "UPDATE deployments SET operator = 'bob' WHERE id = ?", (deployment.id,)
+    )
+    release_writer = threading.Timer(0.5, other.execute, ("COMMIT",))
+    release_writer.start()
+    try:
+        running = repository.deployments.save(
+            deployment, deployment.start(now=datetime.now(UTC))
+        )
+    finally:
+        release_writer.join()
+        other.close()
+    assert running.status is DeploymentStatus.RUNNING
+    assert running.operator == "bob"
 
 
 def test_rollback_target_requires_different_success(
@@ -377,9 +418,26 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 
     reopened = Repository(settings.database_path)
     assert reopened.deployment_requirements.pending(kind)
-    reopened.deployment_requirements.clear(kind)
+    reopened.deployment_requirements.clear(kind, through=datetime.now(UTC))
     assert not reopened.deployment_requirements.pending(kind)
     reopened.close()
+
+
+def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
+    """Clearing is bounded, so material newer than a deployment stays owed."""
+    kind = DeploymentRequirementKind.CERTIFICATES
+    repository = Repository(settings.database_path)
+    before = datetime.now(UTC)
+    repository.deployment_requirements.require(kind)
+
+    repository.deployment_requirements.clear(kind, through=before)
+    assert repository.deployment_requirements.pending(kind)
+
+    requested_at = repository.deployment_requirements.requested_at(kind)
+    assert requested_at is not None
+    repository.deployment_requirements.clear(kind, through=requested_at)
+    assert repository.deployment_requirements.requested_at(kind) is None
+    repository.close()
 
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):

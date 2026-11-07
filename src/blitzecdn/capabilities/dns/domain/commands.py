@@ -2,19 +2,20 @@
 
 Replacing settings and editing selected lists are different commands: the
 latter can only expand to a replacement once the service has read the current
-zone inside its transaction.
+zone inside its transaction. Edits of one contract's lists live with that
+contract's capability and satisfy :class:`PolicyCommand`.
 """
 
 from __future__ import annotations
 
-from typing import Any, Self
+from collections.abc import Mapping
+from typing import Any, Protocol, Self
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from blitzecdn.capabilities.dns.domain.patch import DomainPatch
-from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
 from blitzecdn.core.domain.documents import canonical_document, read_document
+from blitzecdn.core.features.types import PolicyView
 
 
 class PatchPolicy(BaseModel):
@@ -39,62 +40,18 @@ class PatchPolicy(BaseModel):
             )
         )
 
-    def changes(self, current: SitePolicy) -> dict[str, Any]:
+    def changes(self, current: PolicyView) -> dict[str, Any]:
         return read_document(self.settings_json)
 
 
-class EditFirewall(BaseModel):
-    """Replace selected rule lists, or clear the block; validated after the merge."""
+class PolicyCommand(Protocol):
+    """An edit to a zone's policy, resolved against the policy it edits.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    `PatchPolicy` is DNS's; a capability whose contract needs a finer edit,
+    such as security's firewall lists, declares its own beside the contract.
+    """
 
-    allow_sources: tuple[str, ...] | None = None
-    deny_sources: tuple[str, ...] | None = None
-    allowed_countries: tuple[str, ...] | None = None
-    denied_countries: tuple[str, ...] | None = None
-    denied_methods: tuple[str, ...] | None = None
-    denied_paths: tuple[str, ...] | None = None
-    clear: bool = False
-
-    @model_validator(mode="after")
-    def validate_intent(self) -> Self:
-        named = self.model_dump(exclude_none=True, exclude={"clear"})
-        if self.clear and named:
-            raise ValueError("clear cannot be combined with named firewall lists")
-        if not self.clear and not named:
-            raise ValueError("a firewall edit requires named lists or clear")
-        return self
-
-    def changes(self, current: SitePolicy) -> dict[str, Any]:
-        lists = self.model_dump(exclude_none=True, exclude={"clear"})
-        firewall = (
-            SiteFirewall() if self.clear else current.security.firewall.replacing(lists)
-        )
-        return {"firewall": firewall}
+    def changes(self, current: PolicyView) -> Mapping[str, Any]: ...
 
 
-class EditVisitorHeaders(BaseModel):
-    """Change selected switches while preserving the other current switches."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    connecting_ip: bool | None = None
-    ip_country: bool | None = None
-
-    @model_validator(mode="after")
-    def validate_intent(self) -> Self:
-        if self.connecting_ip is None and self.ip_country is None:
-            raise ValueError("a visitor-header edit requires at least one switch")
-        return self
-
-    def changes(self, current: SitePolicy) -> dict[str, Any]:
-        switches = self.model_dump(exclude_none=True)
-        headers = SiteVisitorHeaders.model_validate(
-            current.headers.visitor_headers.model_dump() | switches
-        )
-        return {"visitor_headers": headers}
-
-
-type PolicyCommand = PatchPolicy | EditFirewall | EditVisitorHeaders
-
-__all__ = ["EditFirewall", "EditVisitorHeaders", "PatchPolicy", "PolicyCommand"]
+__all__ = ["PatchPolicy", "PolicyCommand"]

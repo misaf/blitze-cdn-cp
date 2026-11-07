@@ -26,6 +26,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     ReleaseHistory,
     SiteEditor,
     SiteReader,
+    SiteWriter,
     UnitOfWork,
     WorkflowCoordinator,
 )
@@ -34,8 +35,13 @@ from blitzecdn.capabilities.tls.certificates.service import (
     CertificatePersistence,
     CertificatePolicy,
     CertificateService,
+    SiteEditing,
 )
-from blitzecdn.capabilities.tls.contract import CertificateMode, CertificateVersion
+from blitzecdn.capabilities.tls.contract import (
+    CertificateMode,
+    CertificateVersion,
+    TlsPolicy,
+)
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
@@ -50,7 +56,7 @@ from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
 
 #: The installed distribution's version, read from metadata.
@@ -75,8 +81,8 @@ class CertificateMaterialReferences:
                 paths.update(
                     path
                     for path in (
-                        zone.policy.tls.certificate_path,
-                        zone.policy.tls.certificate_key_path,
+                        zone.policy[TlsPolicy].certificate_path,
+                        zone.policy[TlsPolicy].certificate_key_path,
                     )
                     if path is not None
                 )
@@ -86,6 +92,11 @@ class CertificateMaterialReferences:
                     if isinstance(path, str):
                         paths.add(path)
         return tuple(sorted(paths))
+
+
+def build_site_editor(*, writer: SiteWriter) -> SiteEditor:
+    """Wire the TLS writes onto the zone or rule behind a host."""
+    return SiteEditing(writer=writer)
 
 
 def build_certificate_service(
@@ -162,7 +173,7 @@ def unissuable_names(site: CdnSite) -> Sequence[ValidationIssue]:
     """Refuse a site whose ACME request can never be answered."""
     if (
         not site.policy.enabled
-        or site.policy.tls.certificate_mode is not CertificateMode.REQUESTED
+        or site.policy[TlsPolicy].certificate_mode is not CertificateMode.REQUESTED
     ):
         return ()
     return tuple(
@@ -185,12 +196,12 @@ def certificates_rendering(*, store: CertificateStore) -> FeatureRendering[CdnSi
     """Override a site's certificate paths with the verified installed files."""
 
     def site_state(site: CdnSite) -> SiteStateContribution | None:
-        if not site.policy.tls.certificate_mode.issuer_owned:
+        if not site.policy[TlsPolicy].certificate_mode.issuer_owned:
             return None
         version = CertificateVersion.from_paths(
             site.name,
-            site.policy.tls.certificate_path or "",
-            site.policy.tls.certificate_key_path or "",
+            site.policy[TlsPolicy].certificate_path or "",
+            site.policy[TlsPolicy].certificate_key_path or "",
         )
         certificate, private_key = store.sources(site.name, version=version)
         return SiteStateContribution(

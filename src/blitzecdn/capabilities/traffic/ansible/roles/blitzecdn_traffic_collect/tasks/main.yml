@@ -1,0 +1,44 @@
+---
+- name: Create a private temporary collector file
+  ansible.builtin.tempfile:
+    state: file
+    prefix: blitzecdn-traffic-
+  register: blitzecdn_traffic_collect_script
+  check_mode: false
+  changed_when: false
+
+- name: Read visitor traffic and remove the temporary collector
+  block:
+    - name: Copy the standalone traffic collector
+      ansible.builtin.copy:
+        src: collect_traffic.py
+        dest: "{{ blitzecdn_traffic_collect_script.path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      check_mode: false
+      changed_when: false
+
+    - name: Read complete log records from committed checkpoints
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
+          - "{{ blitzecdn_traffic_collect_script.path }}"
+        stdin: >-
+          {{ {'log_directory': blitzecdn_traffic_collect_log_directory,
+              'max_bytes': blitzecdn_traffic_collect_max_bytes,
+              'checkpoints': blitzecdn_traffic_collect_checkpoints.get(inventory_hostname, [])} | to_json }}
+      register: blitzecdn_traffic_collect_result
+      check_mode: false
+      changed_when: false
+
+    - name: Publish traffic deltas to the control plane  # noqa: var-naming[no-role-prefix]
+      ansible.builtin.set_fact:
+        blitzecdn_report: "{{ blitzecdn_traffic_collect_result.stdout | from_json }}"
+  always:
+    - name: Remove the temporary traffic collector
+      ansible.builtin.file:
+        path: "{{ blitzecdn_traffic_collect_script.path }}"
+        state: absent
+      check_mode: false
+      changed_when: false

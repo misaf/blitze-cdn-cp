@@ -47,8 +47,8 @@ def test_configured_values_preserve_precedence_and_falsey_values(tmp_path):
 
 def test_environment_configuration_and_precedence(tmp_path: Path):
     env = {
-        "BLITZE_API_KEY": "a" * 32,
-        "BLITZE_API_KEYS": f"alice:{'b' * 32}",
+        "BLITZE_API_KEY": "0123456789abcdef" * 2,
+        "BLITZE_API_KEYS": f"alice:{'fedcba9876543210' * 2}",
         "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120",
         "BLITZE_ALLOW_EMPTY_SITES": "true",
     }
@@ -63,7 +63,9 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
     "environment",
     [
         {"BLITZE_API_KEY": "short"},
+        {"BLITZE_API_KEY": "a" * 32},
         {"BLITZE_API_KEYS": "missing-separator"},
+        {"BLITZE_API_KEYS": f"operator:{'ab' * 20}"},
         {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "not-a-number"},
         {"BLITZE_ALLOW_EMPTY_SITES": "sometimes"},
     ],
@@ -71,6 +73,14 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
 def test_invalid_environment_fails_closed(tmp_path, environment):
     with pytest.raises(ConfigurationError):
         Settings.from_environment(environment, project_dir=tmp_path)
+
+
+def test_a_copied_environment_example_leaves_the_api_unauthenticated(tmp_path):
+    """A hand-copied example must not run the API on a publicly known key."""
+    shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env")
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+    assert settings.api_keys == {}
+    assert "no API keys configured" in settings.validate_runtime(require_auth=True)
 
 
 def test_runtime_validation_reports_missing_files(tmp_path):
@@ -140,7 +150,7 @@ def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):
     """Core's settings stay core's, most importantly its API keys."""
     settings = Settings.from_environment(
         {
-            "BLITZE_API_KEY": "k" * 40,
+            "BLITZE_API_KEY": "0123456789abcdef" * 3,
             "BLITZE_RUN_LOG_RETENTION": "42",
             "BLITZE_WORKER_POLL_SECONDS": "2.5",
         },
@@ -259,3 +269,27 @@ def test_an_entry_with_host_bits_offers_both_readings(tmp_path):
 
     assert "203.0.113.0/24" in str(failure.value)
     assert "203.0.113.8/32" in str(failure.value)
+
+
+def test_api_body_limit_sources(tmp_path):
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes
+        == 2_097_152
+    )
+    (tmp_path / "blitzecdn.toml").write_text("[blitzecdn]\napi_max_body_bytes = 4096\n")
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes == 4096
+    )
+    configured = Settings.from_environment(
+        {"BLITZE_API_MAX_BODY_BYTES": "8192"}, project_dir=tmp_path
+    )
+    assert configured.api_max_body_bytes == 8192
+    assert "BLITZE_API_MAX_BODY_BYTES" not in configured.capability_environment
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid"])
+def test_invalid_api_body_limit_fails_configuration(tmp_path, value):
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment(
+            {"BLITZE_API_MAX_BODY_BYTES": value}, project_dir=tmp_path
+        )

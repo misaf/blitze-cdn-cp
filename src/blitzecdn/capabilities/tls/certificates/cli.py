@@ -190,7 +190,7 @@ def cert_reconcile(
         json_output=json_output,
         note=(
             f"Queued deployment {deployment.id}; "
-            f"follow it with 'blitzecdn status {deployment.id}'."
+            f"follow it with 'blitzecdn deployment status {deployment.id}'."
             if deployment is not None
             else None
         ),
@@ -216,7 +216,7 @@ def cert_upload(
 ) -> None:
     """Install a certificate you already hold for one site.
 
-    The counterpart of ``POST /v1/hosts/{name}/certificate/upload``, which
+    The counterpart of ``POST /v3/hosts/{name}/certificate/upload``, which
     takes the same two files as a multipart body. Paths rather than a body
     because that is the shape the material is already in on an operator's
     machine, and reading it here keeps a private key out of the argument

@@ -2,7 +2,7 @@
 
 Creation stages everything privately, writes the manifest last, then publishes
 under a fresh name. Restoration checks the whole archive before writing a byte
-anywhere real.
+anywhere real. Retention removes only archives this capability named.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from blitzecdn.capabilities.backup.domain import (
     MANIFEST_NAME,
     BackupComponent,
     BackupManifest,
+    BackupRecord,
     backup_filename,
+    backup_moment,
     member_component,
     parse_manifest,
     unsafe_member,
@@ -27,6 +29,7 @@ from blitzecdn.capabilities.backup.domain import (
 from blitzecdn.capabilities.backup.ports import (
     ArchiveGateway,
     BackupComponentGateway,
+    BackupHistory,
     RestoreRecovery,
     SchemaVersions,
     ServiceControl,
@@ -59,6 +62,7 @@ class BackupService:
         services: ServiceControl,
         workspace: Workspace,
         recovery: RestoreRecovery,
+        history: BackupHistory,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.policy = policy
@@ -67,6 +71,7 @@ class BackupService:
         self.services = services
         self.workspace = workspace
         self.recovery = recovery
+        self.history = history
         self.clock = clock or system_clock
         self._components = {gateway.component: gateway for gateway in components}
 
@@ -81,7 +86,8 @@ class BackupService:
         """Write one archive and return where it landed.
 
         A full backup takes whatever exists; an explicit selection of a component
-        that does not exist is an error.
+        that does not exist is an error. Only a full backup is recorded as the
+        latest, since only a full backup can rebuild the controller.
         """
         moment = self.clock()
         selection = self._select(only)
@@ -105,6 +111,15 @@ class BackupService:
                 manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
             )
             self.archive.write(staging, target)
+        if only is None:
+            self.history.record(
+                BackupRecord(
+                    completed_at=self.clock().replace(microsecond=0),
+                    archive=target.name,
+                    size_bytes=target.stat().st_size,
+                    components=selection,
+                )
+            )
         return target
 
     def _select(
@@ -154,7 +169,38 @@ class BackupService:
             )
         return target
 
+    # -- Retaining -----------------------------------------------------
+
+    def prune(self, *, keep: int) -> tuple[Path, ...]:
+        """Delete all but the newest ``keep`` archives in the backup directory.
+
+        Only names :func:`backup_filename` produces are candidates, so anything
+        else an operator keeps there, or an archive written with ``--output``
+        under its own name, is never touched. Zero keeps everything.
+        """
+        directory = self.policy.backup_dir
+        if keep == 0 or not directory.is_dir():
+            return ()
+        archives = sorted(
+            (
+                (moment, path)
+                for path in directory.iterdir()
+                if (moment := backup_moment(path.name)) is not None
+                and not path.is_symlink()
+                and path.is_file()
+            ),
+            reverse=True,
+        )
+        expired = tuple(path for _, path in archives[keep:])
+        for path in expired:
+            path.unlink(missing_ok=True)
+        return expired
+
     # -- Reading -------------------------------------------------------
+
+    def latest(self) -> BackupRecord | None:
+        """The last full backup that completed, if one has been recorded."""
+        return self.history.latest()
 
     def inspect(self, archive: Path) -> BackupManifest:
         """What an archive holds, without extracting or restoring any of it."""

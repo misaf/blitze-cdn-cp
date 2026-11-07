@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from blitzecdn.capabilities.backup.adapters import (
     AcmeComponent,
+    BackupStatusFile,
     ComposeRestoreGuard,
     ConfigComponent,
     DatabaseComponent,
@@ -25,6 +26,9 @@ from blitzecdn.core.runtime.resources import distribution_version
 
 #: The installed distribution's version, read from package metadata.
 __version__ = distribution_version(__name__)
+
+#: Beside the worker records, in the state directory every container mounts.
+BACKUP_STATUS = "backup-status.json"
 
 
 def build_restore_journal(settings: Settings) -> RestoreJournal:
@@ -67,7 +71,12 @@ def build_backup_service(
         # a complete copy of the database and every private key.
         workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
         recovery=build_restore_journal(settings),
+        history=BackupStatusFile(settings.state_dir / BACKUP_STATUS),
     )
 
 
-__all__ = ["__version__", "build_backup_service"]
+__all__ = [
+    "BACKUP_STATUS",
+    "__version__",
+    "build_backup_service",
+]
