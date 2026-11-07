@@ -372,10 +372,21 @@ def test_the_origin_request_host_override_survives_port_preservation():
 def test_the_cache_key_still_separates_the_listener_ports():
     """$server_port keeps :8080 and :80 from sharing a cached object.
 
-    Two listeners may reach genuinely different origin services.
+    Two listeners may reach genuinely different origin services, because each
+    one is proxied to the same port on the origin. So every block that proxies
+    — not merely some of them — has to key on the listener port: one block
+    keyed without it would let the object fetched from that block's origin
+    port answer for another's. Issue #67 proposed dropping the port for hit
+    ratio; this is the test that says why it stays.
     """
     rendered = render_site(site_to_ansible(mode_site(SslMode.FULL, True)))
-    assert rendered.count('proxy_cache_key "$scheme$server_port$request_method') >= 2
+    blocks = re.findall(r"location @blitzecdn_upstream \{(.*?)\n    \}", rendered, re.S)
+    proxied = [block for block in blocks if "proxy_pass" in block]
+    defaults = role_defaults()
+    listeners = defaults["blitzecdn_edge_runtime"]["listeners"]
+    assert len(proxied) == len(listeners["http"]) + len(listeners["https"])
+    for block in proxied:
+        assert 'proxy_cache_key "$scheme$server_port$request_method' in block
 
 
 def test_the_acme_challenge_path_never_proxies_on_any_listener():
