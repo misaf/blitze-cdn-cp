@@ -11,7 +11,10 @@ from blitzecdn.capabilities.tls.certificates.domain.certificate import (
     RenewalResult,
 )
 from blitzecdn.capabilities.tls.certificates.domain.preflight import (
+    PREFLIGHT_BACKOFF_MAX_SECONDS,
     TTL_CUTOVER_ADVISORY_SECONDS,
+    PreflightAttempt,
+    PreflightBackoff,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
@@ -20,11 +23,14 @@ from blitzecdn.capabilities.tls.certificates.domain.preflight import (
 __all__ = [
     "CERTIFICATE_RENEWAL_DAYS",
     "CERTIFICATE_WORKFLOW",
+    "PREFLIGHT_BACKOFF_MAX_SECONDS",
     "TTL_CUTOVER_ADVISORY_SECONDS",
     "CertificateInfo",
     "CertificateRequest",
     "CertificateSource",
     "CertificateStatus",
+    "PreflightAttempt",
+    "PreflightBackoff",
     "PreflightCheck",
     "PreflightReport",
     "PreflightSeverity",

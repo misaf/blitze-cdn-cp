@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -16,6 +16,7 @@ from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
+    PreflightAttempt,
     PreflightReport,
 )
 from blitzecdn.capabilities.tls.contract import (
@@ -91,6 +92,20 @@ class Preflight(Protocol):
     ) -> PreflightReport: ...
 
 
+class PreflightAttempts(Protocol):
+    """The last blocked preflight of each site waiting for a certificate."""
+
+    def get(self, site: str) -> PreflightAttempt | None: ...
+
+    def list_all(self) -> list[PreflightAttempt]: ...
+
+    def record(self, attempt: PreflightAttempt) -> None: ...
+
+    def clear(self, site: str) -> None: ...
+
+    def retain(self, sites: Collection[str]) -> None: ...
+
+
 class WorkflowProgress(Protocol):
     def checkpoint(
         self, name: str, details: dict[str, Any] | None = None
@@ -123,6 +138,7 @@ __all__ = [
     "Issuer",
     "MaterialReferences",
     "Preflight",
+    "PreflightAttempts",
     "RecordReader",
     "ReleaseHistory",
     "SiteEditor",

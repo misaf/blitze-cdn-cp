@@ -43,7 +43,7 @@ ansible_app = typer.Typer(
 
 @diagnostics_app.command()
 def overview(json_output: common.JsonOutput = False) -> None:
-    """Show queue backlog, worker progress, recovery review and certificate expiry."""
+    """Show queue backlog, worker progress, recovery review and certificate state."""
     common.emit(common.service(DiagnosticsService).status(), json_output=json_output)
 
 

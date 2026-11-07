@@ -74,13 +74,24 @@ class CertificatePreflight:
     def check(
         self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
     ) -> PreflightReport:
-        """Run every check for one site; the caller supplies stored state."""
-        checks = [
-            self._check_dns(site),
-            self._check_caa(site),
-            self._check_deployed(site, deployed=deployed),
-            self._check_origin(site),
-        ]
+        """Run the checks for one site; the caller supplies stored state.
+
+        A blocking DNS failure already decides the answer, so the network checks
+        after it (the CAA walk and the origin probe) are skipped: an unpointed
+        site must not cost lookups and a connection to its origin on every run.
+        The checks that only read stored state still run, so the report names
+        everything left to fix.
+        """
+        dns_check = self._check_dns(site)
+        if not dns_check.passed and dns_check.severity is PreflightSeverity.BLOCKING:
+            checks = [dns_check, self._check_deployed(site, deployed=deployed)]
+        else:
+            checks = [
+                dns_check,
+                self._check_caa(site),
+                self._check_deployed(site, deployed=deployed),
+                self._check_origin(site),
+            ]
         if record_ttl is not None:
             checks.append(self._check_ttl(record_ttl))
         return PreflightReport(site=site.name, checks=tuple(checks))

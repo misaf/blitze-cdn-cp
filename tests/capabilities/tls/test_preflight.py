@@ -355,9 +355,34 @@ def test_summary_lists_only_blocking_failures(build, site):
     summary = report.summary()
     assert "dns" in summary
     assert "deployed" in summary
-    assert "origin" not in summary
     assert "ttl" not in summary
-    assert {check.name for check in report.advisories} == {"origin", "ttl"}
+    assert {check.name for check in report.advisories} == {"ttl"}
+
+
+def test_a_dns_block_skips_caa_and_the_origin_probe(settings, monkeypatch, site):
+    """An unpointed site must not cost a CAA walk or a connection to its origin."""
+
+    class RefusingOriginProbe(FakeOriginProbe):
+        def check(self, site: CdnSite) -> OriginCheck:
+            raise AssertionError("a DNS block must not probe the origin")
+
+    def refuse_caa(self, name):
+        raise AssertionError("a DNS block must not walk CAA")
+
+    monkeypatch.setattr(preflight_module, "_resolve", lambda host, resolver=None: set())
+    monkeypatch.setattr(CertificatePreflight, "_closest_caa", refuse_caa)
+    monkeypatch.setattr(
+        CertificatePreflight, "_edge_addresses", lambda self: {"203.0.113.5"}
+    )
+    report = CertificatePreflight(
+        settings,
+        FakeEdgeStore(),
+        ca_domain="letsencrypt.org",
+        origin_probe=RefusingOriginProbe(),
+    ).check(site, deployed=False, record_ttl=300)
+
+    assert [check.name for check in report.checks] == ["dns", "deployed", "ttl"]
+    assert {check.name for check in report.blocking_failures} == {"dns", "deployed"}
 
 
 # ----------------------------------------------------------------------
