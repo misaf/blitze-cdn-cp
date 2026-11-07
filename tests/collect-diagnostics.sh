@@ -53,7 +53,9 @@ capture_host host-listeners.txt 'ss -lntup'
 capture_host host-disk.txt 'df -h; echo; du -sh /var/lib/docker 2>/dev/null'
 capture_host host-blitzecdn-tree.txt 'ls -la --recursive /etc/blitzecdn /var/lib/blitzecdn 2>&1 | head -n 2000'
 
-names=$(docker exec "${host}" docker ps --all --format '{{.Names}}' 2>/dev/null || true)
+# Bounded like every capture: a wedged inner engine must cost this one command,
+# not the job's remaining time and with it the upload of everything above.
+names=$(${bound[@]+"${bound[@]}"} "${on_host[@]}" "docker ps --all --format '{{.Names}}'" 2>/dev/null || true)
 for name in ${names}; do
   capture_host "inner-${name}.log" "docker logs --timestamps --tail 2000 ${name}"
   capture_host "inner-${name}.state.json" "docker inspect --format '{{json .State}}' ${name}"

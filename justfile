@@ -363,11 +363,21 @@ ci-run branch="":
         echo "${branch} is at ${local_sha} here but ${sha} on GitHub: push first." >&2
         exit 1
     fi
+    # The dispatch returns no run ID and the run appears a moment later, so the
+    # new run is the one on this commit that was not there before. Matching on
+    # the commit alone would pick up an earlier dispatch of the same commit and
+    # report its result as this one's.
+    runs_on_commit() {
+        gh run list --workflow ci.yml --event workflow_dispatch --commit "${sha}" \
+            --limit 100 --json databaseId --jq '.[].databaseId'
+    }
+    before=" $(runs_on_commit | tr '\n' ' ') "
     gh workflow run ci.yml --ref "${branch}"
-    # The dispatch returns before the run exists; wait for the one on this commit.
+    run=""
     for _ in $(seq 30); do
-        run=$(gh run list --workflow ci.yml --event workflow_dispatch --commit "${sha}" \
-            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+        for candidate in $(runs_on_commit); do
+            [[ ${before} == *" ${candidate} "* ]] || { run=${candidate}; break; }
+        done
         [[ -n ${run} ]] && break
         sleep 2
     done
