@@ -8,6 +8,21 @@
 {% if firewall.denied_methods | default([], true) %}
         if ($request_method ~ "^({{ firewall.denied_methods | join('|') }})$") { return 405; }
 {% endif %}
+{% if firewall.allowed_methods | default([], true) %}
+        if ($request_method !~ "^({{ firewall.allowed_methods | join('|') }})$") { return 405; }
+{% endif %}
+{#
+  $uri, not $request_uri: decoded and slash-merged, so /%61pi/ or //api/ cannot
+  slip past. A path ending in '/' is a prefix, any other one exact; the
+  contract's allowed_paths_pattern spells the same rule.
+#}
+{% if firewall.allowed_paths | default([], true) %}
+{% set patterns = namespace(items=[]) %}
+{% for path in firewall.allowed_paths %}
+{% set patterns.items = patterns.items + [(path | regex_escape) ~ ('' if path.endswith('/') else '$')] %}
+{% endfor %}
+        if ($uri !~ "^({{ patterns.items | join('|') }})") { return 403; }
+{% endif %}
 {% for source in firewall.allow_sources | default([], true) %}
         allow {{ source }};
 {% endfor %}

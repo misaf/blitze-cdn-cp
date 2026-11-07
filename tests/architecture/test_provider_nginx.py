@@ -142,6 +142,8 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         "deny_sources": [],
         "allowed_countries": [],
         "denied_countries": [],
+        "allowed_methods": [],
         "denied_methods": ["DELETE"],
+        "allowed_paths": [],
         "denied_paths": [],
     }
