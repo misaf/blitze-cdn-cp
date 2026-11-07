@@ -255,7 +255,7 @@ if [[ ${SUITE} != lifecycle ]]; then
   in_container 'cd / && blitzecdn domain add rollback.example.org &&
     blitzecdn record add rollback.example.org www --value 192.0.2.11' ||
     fail "could not seed a zone"
-  in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 >/dev/null' ||
+  in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 --skip-host-key >/dev/null' ||
     fail "could not register a second edge"
   in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"192.0.2.53\"]|" \
     /etc/blitzecdn/blitzecdn.toml' ||

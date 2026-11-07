@@ -38,6 +38,26 @@ def test_host_key_scan_is_stable_across_runs():
     assert "sort" in written["ansible.builtin.copy"]["content"]
 
 
+def test_a_converge_never_rewrites_the_edge_host_keys():
+    """Edge keys are enrolled by `edge add`; an update must not wipe them (#48)."""
+    loopback = role_task("Record the loopback host keys")["ansible.builtin.copy"]
+    assert loopback["dest"].endswith("/.ssh/known_hosts.loopback")
+    edges = role_task("Keep the edge host keys file")["ansible.builtin.file"]
+    assert edges["path"].endswith("/.ssh/known_hosts")
+    assert edges["state"] == "touch"
+    assert edges["modification_time"] == "preserve"
+    writers = [
+        task
+        for task in role_tasks()
+        if any(
+            str(module.get("dest", "")).endswith("/.ssh/known_hosts")
+            for module in task.values()
+            if isinstance(module, dict)
+        )
+    ]
+    assert writers == []
+
+
 def test_controlplane_role_has_no_legacy_host_application_unit_cleanup():
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
     assert "blitzecdn_controlplane_obsolete_units" not in defaults
