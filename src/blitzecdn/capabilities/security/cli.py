@@ -74,9 +74,30 @@ def domain_firewall(
             help="ISO 3166-1 alpha-2 answered with 403. Needs GeoIP on the edge.",
         ),
     ] = None,
+    allow_method: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-method",
+            help=(
+                "HTTP method served; every other method gets a 405. GET brings "
+                "HEAD. Allowing only GET also refuses CORS preflight (OPTIONS) "
+                "and form posts. Repeatable. Replaces the list."
+            ),
+        ),
+    ] = None,
     deny_method: Annotated[
         list[str] | None,
         typer.Option("--deny-method", help="HTTP method answered with 405."),
+    ] = None,
+    allow_path: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-path",
+            help=(
+                "Path served; every other path gets a 403. A trailing '/' admits "
+                "everything under it. Repeatable. Replaces the list."
+            ),
+        ),
     ] = None,
     deny_path: Annotated[
         list[str] | None,
@@ -97,6 +118,12 @@ def domain_firewall(
             --deny-source 0.0.0.0/0 --deny-source ::/0 \\
             --allow-source 203.0.113.0/24
 
+    Methods and paths have allowlists of their own, which combine: this serves
+    only GET and HEAD under /api/, with /api/admin still refused:
+
+        blitzecdn domain firewall example.com \\
+            --allow-method GET --allow-path /api/ --deny-path /api/admin
+
     Each option replaces its own list; the lists you do not name are kept. That
     differs from the equivalent PATCH on the HTTP API, which replaces the whole
     block. Country rules need the 'geoip' capability, and
@@ -108,7 +135,9 @@ def domain_firewall(
         "deny_sources": deny_source,
         "allowed_countries": allow_country,
         "denied_countries": deny_country,
+        "allowed_methods": allow_method,
         "denied_methods": deny_method,
+        "allowed_paths": allow_path,
         "denied_paths": deny_path,
     }
     named = {field: value for field, value in supplied.items() if value is not None}
