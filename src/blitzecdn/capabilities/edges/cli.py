@@ -7,11 +7,59 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
+from blitzecdn.capabilities.edges.domain import (
+    Edge,
+    EdgePatch,
+    HostKey,
+    known_hosts_pattern,
+    select_host_keys,
+)
+from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_edge_modules
 from blitzecdn.entrypoints.cli import common
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
+
+HostKeyFingerprint = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--host-key-fingerprint",
+        help=(
+            "The edge's SHA256 SSH host key fingerprint, from 'ssh-keygen -lf' "
+            "on the edge; repeat for more. Only a matching key is trusted. Omit "
+            "to be shown the scanned fingerprints and asked."
+        ),
+    ),
+]
+
+
+def _enroll_host_key(
+    service: EdgeOperationsService, edge: Edge, fingerprints: list[str] | None
+) -> tuple[HostKey, ...]:
+    """Scan ``edge``, decide which keys to trust, and record them.
+
+    With fingerprints, only matching keys are kept and nothing is asked. Without
+    them the operator is shown what the host offered and has to confirm it; a
+    run with no terminal to confirm on aborts rather than trusting on first use.
+    """
+    scanned = service.scan_host_keys(edge)
+    if fingerprints:
+        chosen = select_host_keys(scanned, fingerprints)
+    else:
+        typer.echo(
+            f"{known_hosts_pattern(edge.host, edge.port)} offers these SSH host keys:",
+            err=True,
+        )
+        for key in scanned:
+            typer.echo(f"  {key.key_type} {key.fingerprint}", err=True)
+        typer.echo(
+            "Compare them with 'ssh-keygen -lf' on the edge's own console.", err=True
+        )
+        if not typer.confirm("Trust these host keys?", err=True):
+            raise typer.Abort()
+        chosen = scanned
+    service.trust_host_keys(edge, chosen, "cli")
+    return chosen
 
 
 @edge_app.command("list")
@@ -77,13 +125,29 @@ def edge_add(
             ),
         ),
     ] = None,
+    host_key_fingerprint: HostKeyFingerprint = None,
+    skip_host_key: Annotated[
+        bool,
+        typer.Option(
+            "--skip-host-key",
+            help=(
+                "Register without trusting a host key, for a host that is not "
+                "up yet. Run 'blitzecdn edge host-key' before deploying."
+            ),
+        ),
+    ] = False,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Register an edge server.
+    """Register an edge server and trust its SSH host key.
 
-    Nothing is converged and nothing reaches the host: the edge exists from now
-    on, so the next `blitzecdn deploy` includes it. There is no inventory file
-    to write — Ansible reads the fleet from the control plane on every run.
+    Nothing is converged: the edge exists from now on, so the next
+    `blitzecdn deploy` includes it. There is no inventory file to write —
+    Ansible reads the fleet from the control plane on every run.
+
+    The controller connects with strict host key checking, so the edge's key is
+    scanned first and trusted only once you confirm its fingerprint, or when it
+    matches `--host-key-fingerprint`. On a checkout without the controller's
+    SSH configuration, your own SSH client and known_hosts decide instead.
 
     `--capability` is what this edge's runtime image can actually do. Naming
     them makes compilation refuse a site whose settings this edge could not
@@ -96,23 +160,71 @@ def edge_add(
         raise typer.BadParameter(
             "at least one --ssh-source management CIDR is required"
         )
-    edge = common.service(EdgeOperationsService).add_edge(
-        Edge(
-            name=name,
-            host=host,
-            user=user,
-            port=port,
-            private_key_file=private_key_file,
-            public_addresses=tuple(public_address or ()),
-            ssh_sources=tuple(ssh_source),
-            capabilities=None if capability is None else tuple(capability),
-        ),
-        "cli",
+    if skip_host_key and host_key_fingerprint:
+        raise typer.BadParameter(
+            "--skip-host-key and --host-key-fingerprint contradict each other"
+        )
+    service = common.service(EdgeOperationsService)
+    candidate = Edge(
+        name=name,
+        host=host,
+        user=user,
+        port=port,
+        private_key_file=private_key_file,
+        public_addresses=tuple(public_address or ()),
+        ssh_sources=tuple(ssh_source),
+        capabilities=None if capability is None else tuple(capability),
+    )
+    # Trusted before the edge is registered, so an edge that cannot be reached
+    # or whose key is refused is not left in the fleet failing every deploy.
+    # A taken name is refused first, before anything is scanned or trusted.
+    if candidate.name in {edge.name for edge in service.list_edges()}:
+        raise ConflictError(f"edge {candidate.name!r} already exists")
+    if not skip_host_key and service.manages_host_keys(candidate):
+        _enroll_host_key(service, candidate, host_key_fingerprint)
+    edge = service.add_edge(candidate, "cli")
+    next_step = (
+        f"Run 'blitzecdn edge host-key {edge.name}' to trust its SSH host key, "
+        "then 'blitzecdn deploy'."
+        if skip_host_key and service.manages_host_keys(edge)
+        else "Run 'blitzecdn deploy' to converge it."
     )
     common.emit(
         edge,
         json_output=json_output,
-        note=f"\nRegistered {edge.name}. Run 'blitzecdn deploy' to converge it.",
+        note=f"\nRegistered {edge.name}. {next_step}",
+    )
+
+
+@edge_app.command("host-key")
+def edge_host_key(
+    name: Annotated[str, typer.Argument(help="Registered edge name.")],
+    host_key_fingerprint: HostKeyFingerprint = None,
+) -> None:
+    """Trust an edge's current SSH host key, replacing the one trusted before.
+
+    For an edge registered with `--skip-host-key` or through the API, one whose
+    `--host` or `--port` changed, and an edge whose host key was rotated or
+    reinstalled. The edge is scanned and its fingerprint confirmed exactly as
+    on `edge add`; every key previously trusted for its address is replaced.
+    """
+    service = common.service(EdgeOperationsService)
+    edge = service.get_edge(name)
+    if not service.manages_host_keys(edge):
+        raise typer.BadParameter(
+            f"{edge.host}'s host key is not the controller's to manage: on a "
+            "checkout your SSH client's known_hosts decides, and the loopback "
+            "keys are recorded by the installer."
+        )
+    previous = service.trusted_host_keys(edge)
+    if previous:
+        typer.echo("Currently trusted:", err=True)
+        for key in previous:
+            typer.echo(f"  {key.key_type} {key.fingerprint}", err=True)
+    trusted = _enroll_host_key(service, edge, host_key_fingerprint)
+    typer.echo(
+        f"Trusted {len(trusted)} host key(s) for {edge.name} "
+        f"({known_hosts_pattern(edge.host, edge.port)})."
     )
 
 
@@ -177,13 +289,22 @@ def edge_update(
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter("give at least one field to change")
-    edge = common.service(EdgeOperationsService).update_edge(
-        name, EdgePatch.model_validate(named), "cli"
+    service = common.service(EdgeOperationsService)
+    edge = service.update_edge(name, EdgePatch.model_validate(named), "cli")
+    # Host keys are trusted per address, so a new one has none yet.
+    readdressed = (host is not None or port is not None) and (
+        service.manages_host_keys(edge) and not service.trusted_host_keys(edge)
+    )
+    next_step = (
+        f"Run 'blitzecdn edge host-key {edge.name}' to trust its SSH host key "
+        "at the new address, then 'blitzecdn deploy'."
+        if readdressed
+        else "Run 'blitzecdn deploy' to apply."
     )
     common.emit(
         edge,
         json_output=json_output,
-        note=f"\nUpdated {edge.name}. Run 'blitzecdn deploy' to apply.",
+        note=f"\nUpdated {edge.name}. {next_step}",
     )
 
 

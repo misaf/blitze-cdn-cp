@@ -192,6 +192,7 @@ _CONCRETE_ADAPTERS = {
     "CertbotIssuer",
     "CertificatePreflight",
     "DramatiqBackgroundRunner",
+    "KnownHosts",
     "Repository",
 }
 

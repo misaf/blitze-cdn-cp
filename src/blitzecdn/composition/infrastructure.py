@@ -19,10 +19,12 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     ServingVerifier,
 )
+from blitzecdn.capabilities.edges.adapters.host_keys import KnownHosts
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.edges.ports import HostKeyStore as HostKeyStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
 from blitzecdn.capabilities.jobs.ports import WorkerHistory, WorkerProgress
@@ -73,6 +75,7 @@ class Adapters:
     features: FeatureRegistry | None = None
     runner: FleetRunner | None = None
     origin_probe: OriginProbePort | None = None
+    host_keys: HostKeyStorePort | None = None
     serving_probe: ServingVerifier | None = None
     edges: EdgeStorePort | None = None
     background: QueueBackgroundRunner | None = None
@@ -182,6 +185,10 @@ class InfrastructureProvider(Provider):
     @provide
     def origin_probe(self, settings: Settings, adapters: Adapters) -> OriginProbePort:
         return adapters.origin_probe or OriginProbe(settings)
+
+    @provide
+    def host_keys(self, settings: Settings, adapters: Adapters) -> HostKeyStorePort:
+        return adapters.host_keys or KnownHosts(settings)
 
     @provide
     def serving_probe(self, adapters: Adapters) -> ServingVerifier:
