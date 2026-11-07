@@ -187,8 +187,8 @@ def test_the_role_refuses_under_attack_mode_without_capability_or_secret(tmp_pat
 
 
 def test_the_role_bounds_the_proof_of_work_difficulty(tmp_path):
-    """Below 8 bits is no work; above 24 strands phones on the challenge."""
-    for bits in (7, 25):
+    """Below 8 bits is no work; above 20 outlasts the challenge token."""
+    for bits in (7, 21):
         refused = run_role_tasks(
             TASKS,
             _defaults(
