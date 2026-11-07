@@ -1631,14 +1631,17 @@ def test_cli_restore_needs_confirmation_and_says_what_it_did(cli_settings):
     assert "Restored: tls" in accepted.stdout
 
 
-def test_restoring_configuration_says_the_firewall_is_still_behind(
+def test_restoring_configuration_says_the_installer_must_run_again(
     cli_settings, tmp_path
 ):
-    """The archive moves the access list; nothing moves the rules with it.
+    """The archive moves the access list and the controller key; nothing moves
+    the host with them.
 
-    `BLITZE_ALLOWED_IPS` is restored, but the host firewall still reflects the old
-    list until the installer reconciles it, so the restore says so. A tls-only
-    restore carries no configuration and stays quiet.
+    `BLITZE_ALLOWED_IPS` and the controller key are restored, but the host
+    firewall still reflects the old list, and the deploy account still trusts
+    the old key, until the installer converges the installed release again. That
+    is `standalone`: `update` does nothing on the release a host already runs. A
+    tls-only restore carries no configuration and stays quiet.
     """
 
     def restore(component: str) -> str:
@@ -1653,8 +1656,8 @@ def test_restoring_configuration_says_the_firewall_is_still_behind(
             cli.app, ["backup", "restore", str(archive), "--yes"]
         ).stdout
 
-    assert "install.sh update" in restore("config")
-    assert "install.sh update" not in restore("tls")
+    assert "blitzecdn-install standalone" in restore("config")
+    assert "blitzecdn-install standalone" not in restore("tls")
 
 
 # --- the domain manifest rules ----------------------------------------

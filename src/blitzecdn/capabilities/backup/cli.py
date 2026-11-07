@@ -167,9 +167,12 @@ def restore(
         # still converged to whatever the previous desired state was.
         typer.echo("Run 'blitzecdn deploy' to converge the edges on restored state.")
     if BackupComponent.CONFIG in manifest.components:
-        # The archive's BLITZE_ALLOWED_IPS now governs the API, but the host
-        # firewall still admits the old list until the installer reconciles it.
+        # The archive's controller key and BLITZE_ALLOWED_IPS now govern the
+        # control plane, but the deploy account still trusts the old key and
+        # the host firewall admits the old list until the installer converges
+        # them. `update` would not: it does nothing on the installed release.
         typer.echo(
-            "Run 'sudo /opt/blitzecdn/install.sh update' on an installed host to "
+            "Run 'sudo blitzecdn-install standalone --admin-cidr CIDR --email ADDRESS' "
+            "on an installed host to authorize the restored controller key and "
             "converge its firewall on the restored API access list."
         )
