@@ -241,3 +241,50 @@ def test_an_exhausted_budget_is_a_timeout(wire, monkeypatch):
         AuthoritativeResolver(timeout=0.0, bootstrap=FakeBootstrap(BOOTSTRAP)).resolve(
             "www.example.com", dns.rdatatype.A
         )
+
+
+def test_a_lame_nameserver_cannot_answer_that_a_name_is_absent(wire):
+    """An empty non-authoritative NOERROR is no evidence; ask the next server."""
+    _, handlers = wire
+    handlers["192.0.2.1"] = _respond(authoritative=False)
+    handlers["192.0.2.2"] = _respond("www.example.com. 300 IN A 203.0.113.9")
+    resolver = _resolver()
+
+    records = resolver.resolve("www.example.com", dns.rdatatype.A)
+
+    assert [record.address for record in records] == ["203.0.113.9"]
+    assert resolver.answered_by("www.example.com") == "ns2.example.com (192.0.2.2)"
+
+
+def test_only_lame_nameservers_is_a_failure_not_an_empty_answer(wire):
+    _, handlers = wire
+    handlers["192.0.2.1"] = _respond(authoritative=False)
+    handlers["192.0.2.2"] = _respond(rcode=dns.rcode.NXDOMAIN, authoritative=False)
+
+    with pytest.raises(AuthoritativeLookupFailed, match="lame"):
+        _resolver().resolve("www.example.com", dns.rdatatype.A)
+
+
+def test_a_silent_nameserver_leaves_budget_for_the_next(wire, monkeypatch):
+    """Each server gets a share of what is left, not all of it."""
+    _, handlers = wire
+    clock = [1000.0]
+    monkeypatch.setattr(authoritative_module.time, "monotonic", lambda: clock[0])
+    timeouts: list[float] = []
+
+    handlers["192.0.2.2"] = _respond("www.example.com. 300 IN A 203.0.113.9")
+    original = authoritative_module.dns.query.udp_with_fallback
+
+    def timed(query, where, timeout=None, **kwargs):
+        timeouts.append(timeout)
+        if where == "192.0.2.1":
+            clock[0] += timeout  # the whole share is spent waiting
+            raise dns.exception.Timeout
+        return original(query, where, timeout=timeout, **kwargs)
+
+    monkeypatch.setattr(authoritative_module.dns.query, "udp_with_fallback", timed)
+
+    records = _resolver().resolve("www.example.com", dns.rdatatype.A)
+
+    assert [record.address for record in records] == ["203.0.113.9"]
+    assert timeouts == [2.5, 2.5]

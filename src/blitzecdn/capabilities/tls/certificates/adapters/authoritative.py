@@ -70,7 +70,7 @@ class AuthoritativeResolver:
         for _ in range(_MAX_HOPS):
             if servers is None:
                 zone, servers = self._nameservers_for(qname, deadline)
-            response, server = self._ask(qname, rdtype, servers, deadline)
+            response, server = self._ask(qname, rdtype, zone, servers, deadline)
             self._answered_by[original] = f"{server[0]} ({server[1]})"
             records, target = _follow(response, qname, rdtype)
             if records:
@@ -163,16 +163,25 @@ class AuthoritativeResolver:
         self,
         qname: dns.name.Name,
         rdtype: dns.rdatatype.RdataType,
+        zone: dns.name.Name | None,
         servers: list[tuple[str, str]],
         deadline: float,
     ) -> tuple[dns.message.Message, tuple[str, str]]:
+        """The first usable response: authoritative, or a referral further down.
+
+        Each server gets an equal share of what is left, so one that drops
+        packets cannot spend the budget the healthy ones need. A response that
+        is neither authoritative nor a referral is lame (a server listed for a
+        zone it does not serve) and says nothing about whether the name exists.
+        """
         query = dns.message.make_query(qname, rdtype)
         query.flags &= ~dns.flags.RD
         errors: list[str] = []
-        for server in servers:
+        for index, server in enumerate(servers):
+            share = _remaining(deadline) / (len(servers) - index)
             try:
                 response, _ = dns.query.udp_with_fallback(
-                    query, server[1], timeout=_remaining(deadline)
+                    query, server[1], timeout=share
                 )
             except dns.exception.Timeout:
                 if time.monotonic() >= deadline:
@@ -182,9 +191,14 @@ class AuthoritativeResolver:
             except (OSError, dns.exception.DNSException) as exc:
                 errors.append(f"{server[0]}: {type(exc).__name__}")
                 continue
-            if response.rcode() in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN):
+            if response.rcode() not in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN):
+                errors.append(f"{server[0]}: {dns.rcode.to_text(response.rcode())}")
+                continue
+            if response.flags & dns.flags.AA:
                 return response, server
-            errors.append(f"{server[0]}: {dns.rcode.to_text(response.rcode())}")
+            if _referral(response, qname, zone) is not None:
+                return response, server
+            errors.append(f"{server[0]}: lame (not authoritative for {qname})")
         raise AuthoritativeLookupFailed(f"{qname}: {'; '.join(errors) or 'no servers'}")
 
 
