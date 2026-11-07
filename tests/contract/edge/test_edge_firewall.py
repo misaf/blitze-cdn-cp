@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from support.edge_render import (
+    render_http_fragment,
     render_site,
 )
 from support.policy import site_from_settings
@@ -20,22 +23,66 @@ REQUIRES_CAPABILITIES = {
     "test_allowed_paths_match_the_normalized_uri_with_escaped_entries": ("security",),
     "test_method_and_path_allowlists_combine": ("security",),
     "test_the_acme_challenge_path_is_served_under_a_path_allowlist": ("security",),
+    "test_an_allowed_source_is_served_from_a_denied_country": ("geoip", "security"),
+    "test_an_allowed_source_is_served_outside_the_allowed_countries": (
+        "geoip",
+        "security",
+    ),
+    "test_an_allowed_source_is_exempt_from_method_rules": ("security",),
+    "test_an_allowed_source_still_meets_the_path_rules": ("security",),
+    "test_the_exemption_geo_is_declared_for_each_site_that_reads_it": ("security",),
 }
 
 
-def _render(firewall):
-    return render_site(
-        site_to_ansible(
-            site_from_settings(
-                {
-                    "name": "allow",
-                    "server_names": ["allow.example.com"],
-                    "origin_host": "origin.example.com",
-                    "firewall": firewall,
-                }
-            )
+def _site(firewall, name="allow"):
+    return site_to_ansible(
+        site_from_settings(
+            {
+                "name": name,
+                "server_names": [f"{name}.example.com"],
+                "origin_host": "origin.example.com",
+                "firewall": firewall,
+            }
         )
     )
+
+
+def _render(firewall, **overrides):
+    return render_site(_site(firewall), **overrides)
+
+
+def _verdict(rendered, *, exempt, country="", method="GET", uri="/"):
+    """What `location /`'s rewrite-phase rules answer, evaluated as Nginx would.
+
+    The firewall's `set` and `if` lines run in order; the first `return` wins.
+    `exempt` is the value the site's geo yields for the client address. The
+    patterns are plain PCRE, which Python's `re` reads the same way.
+    """
+    location = rendered[rendered.index("    location / {") :]
+    location = location[: location.index("try_files")]
+    variables = {
+        "$blitzecdn_country": country,
+        "$request_method": method,
+        "$uri": uri,
+    }
+    for line in location.splitlines():
+        line = line.strip()
+        if match := re.fullmatch(r'set (\$\w+) "(.*)";', line):
+            name, value = match.groups()
+            value = re.sub(
+                r"\$blitzecdn_firewall_exempt_\w+", "1" if exempt else "0", value
+            )
+            for variable, current in variables.items():
+                value = value.replace(variable, current)
+            variables[name] = value
+        elif match := re.fullmatch(
+            r'if \((\$\w+) (!?~) "(.*)"\) \{ return (\d+); \}', line
+        ):
+            name, operator, pattern, status = match.groups()
+            matched = re.search(pattern, variables[name]) is not None
+            if matched == (operator == "~"):
+                return int(status)
+    return 200
 
 
 def test_firewall_rules_reach_the_generated_configuration(desired_state):
@@ -48,7 +95,8 @@ def test_firewall_rules_reach_the_generated_configuration(desired_state):
     assert "allow 203.0.113.9/32;" in rendered
     assert "deny 203.0.113.0/24;" in rendered
     assert "deny 2001:db8::/32;" in rendered
-    assert 'if ($request_method ~ "^(DELETE|TRACE)$")' in rendered
+    # allow_sources exempts from the method rule too, so it reads the guard.
+    assert 'if ($blitzecdn_firewall_method ~ "^0:(DELETE|TRACE)$")' in rendered
     assert "location ^~ /admin {" in rendered
     # The allow has to precede the denies: nginx takes the first match, so the
     # reverse order would make every exemption dead.
@@ -161,3 +209,87 @@ def test_the_acme_challenge_path_is_served_under_a_path_allowlist():
     assert "$uri !~" not in challenge_block
     assert "$request_method !~" not in challenge_block
     assert '$uri !~ "^(/api/)"' in rendered
+
+
+def test_an_allowed_source_is_served_from_a_denied_country():
+    """The exemption runs in the rewrite phase, where the country rule does.
+
+    `allow` alone is read in the later access phase, so a country `return 403`
+    would refuse the office network before its `allow` was ever consulted.
+    """
+    rendered = _render(
+        {"allow_sources": ["203.0.113.0/24"], "denied_countries": ["RU"]},
+        blitzecdn_edge_geoip_enabled=True,
+    )
+    assert _verdict(rendered, exempt=True, country="RU") == 200
+    assert _verdict(rendered, exempt=False, country="RU") == 403
+    assert _verdict(rendered, exempt=False, country="DE") == 200
+    assert _verdict(rendered, exempt=False, country="") == 200
+
+
+def test_an_allowed_source_is_served_outside_the_allowed_countries():
+    rendered = _render(
+        {"allow_sources": ["2001:db8::/48"], "allowed_countries": ["DE", "FR"]},
+        blitzecdn_edge_geoip_enabled=True,
+    )
+    assert _verdict(rendered, exempt=True, country="US") == 200
+    assert _verdict(rendered, exempt=True, country="") == 200
+    assert _verdict(rendered, exempt=False, country="US") == 403
+    # An address the database cannot place is still refused by an allow list.
+    assert _verdict(rendered, exempt=False, country="") == 403
+    assert _verdict(rendered, exempt=False, country="FR") == 200
+
+
+def test_an_allowed_source_is_exempt_from_method_rules():
+    denied = _render({"allow_sources": ["198.51.100.7"], "denied_methods": ["POST"]})
+    assert _verdict(denied, exempt=True, method="POST") == 200
+    assert _verdict(denied, exempt=False, method="POST") == 405
+    allowed = _render({"allow_sources": ["198.51.100.7"], "allowed_methods": ["GET"]})
+    assert _verdict(allowed, exempt=True, method="DELETE") == 200
+    assert _verdict(allowed, exempt=False, method="DELETE") == 405
+    assert _verdict(allowed, exempt=False, method="HEAD") == 200
+
+
+def test_an_allowed_source_still_meets_the_path_rules():
+    """Path rules describe what the site publishes, not who may ask.
+
+    denied_paths render as their own `location ^~ … { return 403; }`, which an
+    exemption could not bypass without a second copy of the proxy, and
+    allowed_paths follow them so the two path rules agree.
+    """
+    rendered = _render(
+        {
+            "allow_sources": ["198.51.100.7"],
+            "allowed_paths": ["/api/"],
+            "denied_paths": ["/api/admin"],
+        }
+    )
+    assert _verdict(rendered, exempt=True, uri="/private") == 403
+    assert "location ^~ /api/admin { return 403; }" in rendered
+
+
+def test_the_exemption_geo_is_declared_for_each_site_that_reads_it():
+    """A variable read but never declared fails `nginx -t` on every edge."""
+    exempted = _site(
+        {
+            "allow_sources": ["203.0.113.0/24", "2001:db8::/48"],
+            "denied_countries": ["RU"],
+        },
+        name="example-com--office",
+    )
+    plain = _site({"denied_methods": ["TRACE"]}, name="plain")
+    snippet = render_http_fragment("security-http.conf.j2", [exempted, plain])
+    assert "geo $blitzecdn_firewall_exempt_example_com__office {" in snippet
+    assert "    default 0;" in snippet
+    assert "    203.0.113.0/24 1;" in snippet
+    assert "    2001:db8::/48 1;" in snippet
+    assert "$blitzecdn_firewall_exempt_plain" not in snippet
+    declared = set(re.findall(r"geo (\$blitzecdn_firewall_exempt_\w+)", snippet))
+    read = set(
+        re.findall(
+            r"\$blitzecdn_firewall_exempt_\w+",
+            render_site(exempted, blitzecdn_edge_geoip_enabled=True)
+            + render_site(plain),
+        )
+    )
+    assert read == declared

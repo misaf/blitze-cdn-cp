@@ -52,6 +52,7 @@ blitzecdn	route	POST /v3/hosts/{name}/certificate/upload
 blitzecdn	route	POST /v3/origins/check
 blitzecdn	route	POST /v3/rollbacks
 blitzecdn	route	POST /v3/ssl/automatic/reconcile
+blitzecdn	route	POST /v3/workflows/{workflow_id}/acknowledge
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
