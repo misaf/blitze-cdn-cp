@@ -559,7 +559,7 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
 ):
     """The drift timer writes a row an hour whether or not anything changed.
 
-    Only check-mode rows are pruned; real deployments are rollback targets.
+    Real deployments within their own, separate bound survive.
     """
     repository = Repository(settings.database_path)
     release = _release(repository)
@@ -576,14 +576,14 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
         advance(repository.deployments, deployment.id, DeploymentStatus.RUNNING)
         advance(repository.deployments, deployment.id, finished_status)
 
-    assert repository.deployments.prune_history(4) == 6
+    assert repository.deployments.prune_history(4, keep_applied=10) == 6
 
     kept = repository.deployments.list_deployments(limit=100)
     assert len([row for row in kept if row.check_mode]) == 4
     assert {row.id for row in real} <= {row.id for row in kept}
 
     # Nothing left to do on a second pass.
-    assert repository.deployments.prune_history(4) == 0
+    assert repository.deployments.prune_history(4, keep_applied=10) == 0
 
 
 @pytest.mark.parametrize("running", [False, True])
@@ -605,12 +605,118 @@ def test_history_retention_preserves_unfinished_drift_progress(settings, running
         advance(repository.deployments, completed.id, DeploymentStatus.RUNNING)
         advance(repository.deployments, completed.id, DeploymentStatus.SUCCEEDED)
 
-    assert repository.deployments.prune_history(1) == 2
+    assert repository.deployments.prune_history(1, keep_applied=10) == 2
     assert repository.deployments.get_deployment(unfinished.id) == unfinished
     assert [
         target.edge for target in repository.deployment_targets.targets(unfinished.id)
     ] == ["edge-a"]
-    assert repository.deployments.prune_history(1) == 0
+    assert repository.deployments.prune_history(1, keep_applied=10) == 0
+
+
+def _finish(repository, operator, release, status, **options):
+    deployment = repository.deployments.create_deployment(
+        operator, release_id=release.id, check_mode=False, **options
+    )
+    advance(repository.deployments, deployment.id, DeploymentStatus.RUNNING)
+    return advance(repository.deployments, deployment.id, status)
+
+
+def _release_marked(repository, marker):
+    """A release of its own: the setting changes the compiled document."""
+    repository.ansible_settings.set_setting("blitzecdn_test_release_marker", marker)
+    return _release(repository)
+
+
+def test_deployment_retention_bounds_real_runs_and_keeps_rollback_targets(settings):
+    """Each deploy that changes state adds a run and a release; neither is forever.
+
+    Within the newest runs nothing goes. Beyond them only each recent release's
+    newest successful full-fleet run stays, which is what rollback picks from.
+    """
+    repository = Repository(settings.database_path)
+    old, middle, current = (
+        _release_marked(repository, marker) for marker in ("old", "middle", "now")
+    )
+    old_success = _finish(repository, "alice", old, DeploymentStatus.SUCCEEDED)
+    _finish(repository, "alice", old, DeploymentStatus.SUCCEEDED)
+    old_latest = _finish(repository, "alice", old, DeploymentStatus.SUCCEEDED)
+    _finish(repository, "alice", middle, DeploymentStatus.FAILED)
+    _finish(
+        repository, "alice", middle, DeploymentStatus.SUCCEEDED, host_limit="edge-a"
+    )
+    recent = [
+        _finish(repository, "alice", current, DeploymentStatus.FAILED),
+        _finish(repository, "alice", current, DeploymentStatus.SUCCEEDED),
+    ]
+
+    # Five older runs; the newest full-fleet success of `old` stays for rollback.
+    assert repository.deployments.prune_history(50, keep_applied=2) == 4
+
+    kept = {row.id for row in repository.deployments.list_deployments(limit=100)}
+    assert kept == {old_latest.id, *(row.id for row in recent)}
+    assert old_success.id not in kept
+    assert repository.deployments.successful_rollback_target(current.id) == (
+        repository.deployments.get_deployment(old_latest.id)
+    )
+
+    # The unnamed releases are now prunable, and their bundles go with them.
+    repository.releases.prune(1)
+    assert {release.id for release in repository.releases.list_releases()} == {
+        old.id,
+        current.id,
+    }
+    assert repository.deployments.prune_history(50, keep_applied=2) == 0
+
+
+def test_deployment_retention_bounds_rollback_targets_to_recent_releases(settings):
+    repository = Repository(settings.database_path)
+    releases = [_release_marked(repository, str(index)) for index in range(5)]
+    runs = [
+        _finish(repository, "alice", release, DeploymentStatus.SUCCEEDED)
+        for release in releases
+    ]
+
+    assert repository.deployments.prune_history(50, keep_applied=2) == 3
+    kept = {row.id for row in repository.deployments.list_deployments(limit=100)}
+    assert kept == {runs[-1].id, runs[-2].id}
+
+
+def test_deployment_retention_keeps_what_a_surviving_rollback_names(settings):
+    """``rollback_of`` is a foreign key: the run it names must outlive it."""
+    repository = Repository(settings.database_path)
+    first, second = (_release_marked(repository, marker) for marker in ("a", "b"))
+    origin = _finish(repository, "alice", second, DeploymentStatus.FAILED)
+    for _ in range(3):
+        _finish(repository, "alice", second, DeploymentStatus.FAILED)
+    rollback = _finish(
+        repository,
+        "alice",
+        first,
+        DeploymentStatus.SUCCEEDED,
+        rollback_of=origin.id,
+    )
+
+    assert repository.deployments.prune_history(50, keep_applied=1) == 3
+    kept = {row.id for row in repository.deployments.list_deployments(limit=100)}
+    assert kept == {origin.id, rollback.id}
+
+
+def test_deployment_retention_never_drops_an_unfinished_real_run(settings):
+    repository = Repository(settings.database_path)
+    release = _release(repository)
+    queued = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
+    )
+    running = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
+    )
+    advance(repository.deployments, running.id, DeploymentStatus.RUNNING)
+    for _ in range(3):
+        _finish(repository, "alice", release, DeploymentStatus.FAILED)
+
+    assert repository.deployments.prune_history(50, keep_applied=1) == 2
+    kept = {row.id for row in repository.deployments.list_deployments(limit=100)}
+    assert {queued.id, running.id} <= kept
 
 
 def test_workflow_retention_never_drops_an_unfinished_one(settings):

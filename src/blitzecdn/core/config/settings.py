@@ -38,6 +38,7 @@ class Settings(BaseSettings):
             "output_limit_bytes",
             "run_log_retention",
             "history_retention",
+            "deployment_retention",
             "preflight_dns_timeout_seconds",
             "preflight_dns_servers",
             "allow_empty_sites",
@@ -117,9 +118,14 @@ class Settings(BaseSettings):
     #: How many run logs to keep, newest first; every invocation writes one.
     run_log_retention: int = Field(default=500, ge=10, le=100_000)
     #: How many finished check-mode deployments, jobs and workflows to keep,
-    #: and the baseline number of releases; referenced releases, unfinished
-    #: deployments and real deployments' rollback history always survive.
+    #: and the baseline number of releases; referenced releases and unfinished
+    #: deployments always survive.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
+    #: How many finished real deployments to keep, newest first, plus the newest
+    #: successful full-fleet deployment of as many recently converged releases,
+    #: which rollback chooses from. Pruned deployments free their releases and
+    #: rendered configuration bundles for release retention.
+    deployment_retention: int = Field(default=100, ge=10, le=100_000)
     #: How many audit events to keep. A disk bound, not a retention policy: the
     #: default holds years, and a longer trail belongs off the box.
     audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
