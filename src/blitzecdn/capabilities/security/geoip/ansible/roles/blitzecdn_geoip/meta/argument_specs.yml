@@ -5,17 +5,17 @@ argument_specs:
     description:
       - >-
         The `geoip` capability's whole edge implementation, contributed by the
-        geoip feature. It provisions the MaxMind GeoLite2 database and
-        its refresh schedule, and writes the conf.d snippet that defines
-        $blitzecdn_country for this feature's Nginx contribution to expose.
+        geoip feature. It installs the GeoLite2 database the release pins from
+        the controller, verified by digest, for this feature's Nginx
+        contribution to read.
       - >-
         Run from the edge play's capability slot, which the control plane fills
         from its features.
       - >-
         It reads the shared edge runtime contract for one thing only — the
-        capability data directory its database lives under, and the nginx
-        configuration tree its snippet lives in. It reads no variable belonging
-        to blitzecdn_nginx, blitzecdn_edge_stack or another capability's role.
+        capability data directory its database lives under. It reads no
+        variable belonging to blitzecdn_nginx, blitzecdn_edge_stack or another
+        capability's role.
     options:
       blitzecdn_edge_runtime:
         type: dict
@@ -29,24 +29,20 @@ argument_specs:
         description: >-
           Whether this fleet resolves visitor addresses to countries. Every
           controller ships the capability; this switches it on.
-      blitzecdn_geoip_account_id: {type: str, required: true}
-      blitzecdn_geoip_license_key:
+      blitzecdn_geoip_database_sha256:
         type: str
-        required: true
-        no_log: true
+        required: false
         description: >-
-          MaxMind license key, read from the controller's environment. Reaches
-          the updater container through a 0600 env_file, never through the
-          Compose file or `docker inspect`.
+          The SHA-256 of the database this release pins. Derived by the
+          release; absent until the controller holds a database. Checked on the
+          controller before the copy and on the edge after it.
+      blitzecdn_geoip_controller_directory:
+        type: path
+        required: true
+        description: >-
+          Where the controller keeps its databases, under its state directory.
+
       blitzecdn_geoip_edition: {type: str, required: true}
       blitzecdn_geoip_directory: {type: path, required: true}
       blitzecdn_geoip_database: {type: path, required: true}
-      blitzecdn_geoip_update_enabled: {type: bool, required: true}
-      blitzecdn_geoip_update_calendar: {type: str, required: true}
-      blitzecdn_geoip_update_splay: {type: str, required: true}
-      blitzecdn_geoip_updater_image: {type: str, required: true}
-      blitzecdn_geoip_project: {type: str, required: true}
-      blitzecdn_geoip_compose_file: {type: path, required: true}
-      blitzecdn_geoip_env_file: {type: path, required: true}
       blitzecdn_geoip_reload: {type: str, required: true}
-      blitzecdn_geoip_units: {type: list, elements: str, required: true}

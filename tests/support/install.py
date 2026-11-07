@@ -208,8 +208,6 @@ def fake_installation(root: Path) -> list[Path]:
     owned = [
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/blitzecdn/control-plane.compose.yml",
-        root / "etc/systemd/system/blitzecdn-geoipupdate.service",
-        root / "etc/systemd/system/blitzecdn-geoipupdate.timer",
         root / "usr/local/bin/blitzecdn",
         root / "usr/local/sbin/blitzecdn-install",
         root / "etc/sudoers.d/blitzecdn-deploy",

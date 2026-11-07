@@ -48,7 +48,8 @@
       A site asks for country-based filtering or the BZ-IPCountry visitor
       header, but GeoIP is off on {{ inventory_hostname }}. Run
       `blitzecdn config set blitzecdn_geoip_enabled true`, provide MaxMind
-      credentials on the controller, and deploy again — or turn the country
+      credentials on the controller and run `blitzecdn geoip update`, then
+      deploy again — or turn the country
       rules and visitor_headers.ip_country off. Nothing was changed on this
       host. Rendering either setting against an undefined $blitzecdn_country
       would fail `nginx -t` and roll the whole edge back; converging them
@@ -58,120 +59,65 @@
 - name: Provision the GeoIP capability
   when: blitzecdn_geoip_enabled | bool
   block:
-    - name: Create the GeoIP directories
+    # Read by the edge container through core's read-only mount of the
+    # capability data directory, so it is world-readable.
+    - name: Create the GeoIP directory
       ansible.builtin.file:
-        path: "{{ item.path }}"
+        path: "{{ blitzecdn_geoip_directory }}"
         state: directory
         owner: root
         group: root
-        mode: "{{ item.mode }}"
-      loop:
-        # Read by the edge container through core's read-only mount of the
-        # capability data directory, so it is world-readable.
-        - {path: "{{ blitzecdn_geoip_directory }}", mode: "0755"}
-        # The Compose project and the credentials, neither of which the edge
-        # container ever sees.
-        - {path: "{{ blitzecdn_geoip_compose_file | dirname }}", mode: "0700"}
-      loop_control:
-        label: "{{ item.path }}"
+        mode: "0755"
 
-    # 0600 root: the license key authenticates to a MaxMind account, so it is a
-    # credential rather than a database identifier. It reaches the container as
-    # an env_file rather than an `environment:` entry, so it never appears in
-    # the Compose file or in `docker inspect`.
-    #
-    # Before the Compose file that names it: `docker compose config` validates
-    # the rendered project and fails on an env_file that does not exist yet.
-    - name: Configure the MaxMind credentials
-      ansible.builtin.template:
-        src: geoipupdate.env.j2
-        dest: "{{ blitzecdn_geoip_env_file }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-      when: blitzecdn_geoip_license_key | length > 0
-
-    - name: Render the GeoIP updater project
-      ansible.builtin.template:
-        src: compose.yml.j2
-        dest: "{{ blitzecdn_geoip_compose_file }}"
-        owner: root
-        group: root
-        mode: "0600"
-      when: blitzecdn_geoip_license_key | length > 0
-
-    - name: Manage the MaxMind GeoLite2 database
-      when: blitzecdn_geoip_license_key | length > 0
+    # The controller downloads GeoLite2 once for the whole fleet and the
+    # release pins its file by digest, so an edge needs no MaxMind credential,
+    # no schedule of its own, and no route to MaxMind.
+    - name: Install the database the release pins
+      when: blitzecdn_geoip_database_sha256 is defined
+      vars:
+        blitzecdn_geoip_database_source: >-
+          {{ blitzecdn_geoip_controller_directory }}/GeoLite2-Country-{{
+          blitzecdn_geoip_database_sha256 }}.mmdb
       block:
-        - name: Check whether the database has been downloaded
+        - name: Read the pinned database's digest on the controller
           ansible.builtin.stat:
-            path: "{{ blitzecdn_geoip_database }}"
-          register: blitzecdn_geoip_present
+            path: "{{ blitzecdn_geoip_database_source }}"
+            checksum_algorithm: sha256
+          delegate_to: localhost
+          become: false
+          register: blitzecdn_geoip_source
 
-        # Only when absent. MaxMind publishes GeoLite2 twice a week and
-        # rate-limits downloads, so fetching on every converge would spend a
-        # quota to re-fetch a file that has not changed. Refreshes are the
-        # timer's job.
-        - name: Download the GeoLite2 database
-          community.docker.docker_compose_v2_run:
-            project_src: "{{ blitzecdn_geoip_compose_file | dirname }}"
-            project_name: "{{ blitzecdn_geoip_project }}"
-            files: ["{{ blitzecdn_geoip_compose_file | basename }}"]
-            service: geoipupdate
-            # --rm. This is a one-shot whose only output is a replaced file on
-            # a shared mount; leaving exited containers behind would turn a
-            # twice-weekly refresh into an ever-growing `docker ps -a`.
-            cleanup: true
-            # There is no terminal here, and asking for one makes the run fail
-            # under Ansible rather than under an operator.
-            interactive: false
-          register: blitzecdn_geoip_fetch
-          until: blitzecdn_geoip_fetch is success
-          retries: 3
-          delay: 15
-          when:
-            - not blitzecdn_geoip_present.stat.exists
-            - not ansible_check_mode
+        - name: Require the exact database captured by the release
+          ansible.builtin.assert:
+            that:
+              - blitzecdn_geoip_source.stat.isreg | default(false)
+              - >-
+                blitzecdn_geoip_source.stat.checksum | default('')
+                == blitzecdn_geoip_database_sha256
+            fail_msg: >-
+              The GeoIP database this release pins,
+              {{ blitzecdn_geoip_database_source }}, is missing from the
+              controller or has changed; refusing to ship it.
 
-        - name: Schedule database refreshes
-          ansible.builtin.template:
-            src: "geoipupdate.{{ item }}.j2"
-            dest: "/etc/systemd/system/blitzecdn-geoipupdate.{{ item }}"
+        # Renamed into place by the copy module, so Nginx's auto_reload sees
+        # the old file or the whole new one, never a partial write.
+        - name: Copy the GeoIP database
+          ansible.builtin.copy:
+            src: "{{ blitzecdn_geoip_database_source }}"
+            dest: "{{ blitzecdn_geoip_database }}"
             owner: root
             group: root
             mode: "0644"
-          loop: [service, timer]
-          register: blitzecdn_geoip_units_rendered
-          when: blitzecdn_geoip_update_enabled | bool
-
-        - name: Enable the refresh timer
-          ansible.builtin.systemd_service:
-            name: blitzecdn-geoipupdate.timer
-            enabled: true
-            state: started
-            daemon_reload: "{{ blitzecdn_geoip_units_rendered is changed }}"
-          when:
-            - blitzecdn_geoip_update_enabled | bool
-            - not ansible_check_mode
-
-        - name: Withdraw the refresh timer
-          ansible.builtin.systemd_service:
-            name: blitzecdn-geoipupdate.timer
-            enabled: false
-            state: stopped
-          failed_when: false
-          when:
-            - not (blitzecdn_geoip_update_enabled | bool)
-            - not ansible_check_mode
 
     # Without the file Nginx fails to *start*, not merely to reload, so a
-    # missing database has to stop the deploy here rather than surface at the
-    # next reboot. The updater above provisions it when there are credentials;
-    # without them the operator places it by hand and this is what says so.
+    # missing or wrong database has to stop the deploy here rather than surface
+    # at the next reboot. With no database on the controller, the operator
+    # places one on the edge by hand and this is what says so.
     - name: Inspect the GeoIP database
       ansible.builtin.stat:
         path: "{{ blitzecdn_geoip_database }}"
+        checksum_algorithm: sha256
+        get_checksum: "{{ blitzecdn_geoip_database_sha256 is defined }}"
       register: blitzecdn_geoip_db
 
     - name: Require the GeoIP database to be present
@@ -180,41 +126,26 @@
           - blitzecdn_geoip_db.stat.exists or ansible_check_mode
         fail_msg: >-
           GeoIP is enabled but there is no database at
-          {{ blitzecdn_geoip_database }}. Either the updater could not
-          provision GeoLite2 — check BLITZE_MAXMIND_ACCOUNT_ID and
-          BLITZE_MAXMIND_LICENSE_KEY on the controller, and that this edge can
-          reach updates.maxmind.com — or no credentials were configured and no
-          database was placed there by hand. Country rules and the BZ-IPCountry
-          header cannot be served without it.
+          {{ blitzecdn_geoip_database }}, and the controller has none to ship.
+          Set BLITZE_MAXMIND_ACCOUNT_ID and BLITZE_MAXMIND_LICENSE_KEY on the
+          controller and run `blitzecdn geoip update`, or place a database
+          there by hand. Country rules and the BZ-IPCountry header cannot be
+          served without it.
 
-# Turning the capability off withdraws everything it put on the host, in the
-# order that keeps the edge loadable at every point: the Nginx snippet first,
-# because a site still reading $blitzecdn_country is refused by the assertion
-# above and cannot reach here, and the credential last, so a fleet that stops
-# using country rules stops holding a MaxMind key on every edge.
-- name: Withdraw the GeoIP capability
-  when: not (blitzecdn_geoip_enabled | bool)
-  block:
-    - name: Stop and disable the refresh timer
-      ansible.builtin.systemd_service:
-        name: "{{ item }}"
-        state: stopped
-        enabled: false
-      loop: "{{ blitzecdn_geoip_units }}"
-      failed_when: false
-      when: not ansible_check_mode
+    - name: Require the installed database to match the release
+      ansible.builtin.assert:
+        that:
+          - >-
+            blitzecdn_geoip_db.stat.checksum | default('')
+            == blitzecdn_geoip_database_sha256
+        fail_msg: >-
+          {{ blitzecdn_geoip_database }} on {{ inventory_hostname }} does not
+          match the database the release pins.
+      when:
+        - blitzecdn_geoip_database_sha256 is defined
+        - not ansible_check_mode
 
-    - name: Remove the refresh units
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ item }}"
-        state: absent
-      loop: "{{ blitzecdn_geoip_units }}"
-      notify: Reload systemd after a GeoIP change
-
-    - name: Withdraw the MaxMind credentials and updater project
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ blitzecdn_geoip_env_file }}"
-        - "{{ blitzecdn_geoip_compose_file }}"
+# Turning the capability off leaves the database where it is: it is not a
+# credential, Nginx stops reading it as soon as the snippet is gone, and an
+# operator's hand-placed file is not this role's to delete. Edges hold nothing
+# of MaxMind's but the data.

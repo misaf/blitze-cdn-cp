@@ -162,6 +162,31 @@ set and wait up to 180 seconds for health. If recovery fails, the checkpoint
 is retained and services stay stopped; retry `blitzecdn backup recover`.
 That explicit recovery also starts existing stopped API/worker containers.
 
+## GeoIP database
+
+Country rules and the `BZ-IPCountry` header read a GeoLite2-Country database.
+The controller downloads it from MaxMind once for the whole fleet, so the
+account's daily download limit is spent per controller rather than per edge,
+and no edge holds the MaxMind license key or contacts MaxMind.
+
+1. Set `BLITZE_MAXMIND_ACCOUNT_ID` and `BLITZE_MAXMIND_LICENSE_KEY` in the
+   controller's `.env`.
+2. Turn the capability on: `blitzecdn config set blitzecdn_geoip_enabled true`.
+3. Fetch the first database with `blitzecdn geoip update`, then `blitzecdn deploy`.
+
+After that the `geoip-refresh` job downloads again every
+`BLITZE_GEOIP_REFRESH_INTERVAL_SECONDS` (a day by default; `0` disables it).
+A changed database is stored under the controller's state directory as
+`geoip-databases/GeoLite2-Country-<sha256>.mmdb` and queues a fleet deployment. Each
+release pins the file by digest; the edge role checks the digest on
+the controller, copies the file, and checks it again on the edge. Files a
+retained release still pins are kept, and full backups include them, so a
+rollback ships the database it was built with even on a restored controller.
+
+Without credentials, place a database at
+`/var/lib/blitzecdn/edge-data/geoip/GeoLite2-Country.mmdb` on each edge by
+hand; the deploy refuses an enabled edge that has none.
+
 ## Backups
 
 An installed controller takes a full backup every day and then prunes the
