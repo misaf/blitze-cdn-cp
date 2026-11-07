@@ -299,3 +299,126 @@ def test_ansible_commit_applies_retention_only_outside_check_mode(tmp_path, chec
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(trees(root)) == (4 if check else 2)
     assert (root / ".mutation.lock").exists() is not check
+
+
+def tls_release(root, number, *pairs):
+    """A deployed release whose site configuration names managed TLS versions."""
+    candidate = ConfigurationRelease(root, f"{number:064x}", ())
+    candidate.candidate.mkdir(parents=True)
+    (candidate.candidate / "nginx.conf").write_text("events {}\nhttp {}\n")
+    sites = candidate.candidate / "nginx/sites-available"
+    sites.mkdir(parents=True)
+    for site, chain, key in pairs:
+        (sites / f"{site}.conf").write_text(
+            f"ssl_certificate {chain};\nssl_certificate_key {key};\n"
+        )
+    candidate.seal_candidate()
+    return candidate
+
+
+def material(tls, site, digit):
+    directory = tls / site
+    directory.mkdir(parents=True, exist_ok=True)
+    chain = directory / f"fullchain-{digit * 64}.pem"
+    key = directory / f"privkey-{digit * 64}.pem"
+    chain.write_text("chain")
+    key.write_text("key")
+    return site, str(chain), str(key)
+
+
+def tls_files(tls):
+    return {str(p.relative_to(tls)) for p in tls.rglob("*")}
+
+
+def test_commit_collects_tls_versions_no_retained_release_references(tmp_path):
+    root, tls = tmp_path / "releases", tmp_path / "tls"
+    for number in (1, 2, 3):
+        current = tls_release(root, number, material(tls, "example-com", str(number)))
+        current.activate()
+        current.commit(0, tls)
+    # Release 2 is the rollback target, so its version stays; 1 is gone.
+    assert tls_files(tls) == {
+        "example-com",
+        f"example-com/fullchain-{'2' * 64}.pem",
+        f"example-com/privkey-{'2' * 64}.pem",
+        f"example-com/fullchain-{'3' * 64}.pem",
+        f"example-com/privkey-{'3' * 64}.pem",
+    }
+
+
+def test_commit_removes_deleted_sites_and_ansible_backups_but_nothing_else(
+    tmp_path,
+):
+    root, tls = tmp_path / "releases", tmp_path / "tls"
+    kept = material(tls, "kept", "a")
+    material(tls, "deleted", "b")
+    backup = tls / "kept" / f"privkey-{'a' * 64}.pem.4242.2026-10-27@13:50:26~"
+    backup.write_text("old key")
+    (tls / "kept" / "operator.pem").write_text("not ours")
+    (tls / "loose.pem").write_text("not ours")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / f"privkey-{'c' * 64}.pem").write_text("precious")
+    (tls / "linked").symlink_to(external)
+    for number in (1, 2):
+        current = tls_release(root, number, kept)
+        current.activate()
+        current.commit(0, tls)
+    assert tls_files(tls) == {
+        "kept",
+        f"kept/fullchain-{'a' * 64}.pem",
+        f"kept/privkey-{'a' * 64}.pem",
+        "kept/operator.pem",
+        "loose.pem",
+        "linked",
+    }
+    assert (external / f"privkey-{'c' * 64}.pem").read_text() == "precious"
+
+
+def test_unjournaled_candidate_pins_its_tls_material(tmp_path):
+    root, tls = tmp_path / "releases", tmp_path / "tls"
+    serving = material(tls, "example-com", "1")
+    staged = material(tls, "example-com", "2")
+    tls_release(root, 9, staged)
+    current = tls_release(root, 1, serving)
+    current.activate()
+    current.commit(0, tls)
+    assert {Path(p) for p in (*serving[1:], *staged[1:])} <= set(tls.rglob("*"))
+
+
+def test_tls_collection_is_deferred_when_release_collection_fails(tmp_path, capsys):
+    root, tls = tmp_path / "releases", tmp_path / "tls"
+    orphan = material(tls, "deleted", "9")
+    (root).mkdir()
+    (root / f".{'f' * 64}.transaction.json").write_text("[]")
+    current = tls_release(root, 1, material(tls, "example-com", "1"))
+    current.activate()
+    current.commit(0, tls)
+    assert Path(orphan[2]).exists()
+    assert "cleanup deferred" in capsys.readouterr().err
+
+
+def test_cli_commit_passes_the_tls_root(tmp_path):
+    root, tls = tmp_path / "releases", tmp_path / "tls"
+    for number, digit in ((1, "1"), (2, "2")):
+        current = tls_release(root, number, material(tls, "example-com", digit))
+        current.activate()
+        current.commit(20)
+    current = tls_release(root, 3, material(tls, "example-com", "3"))
+    current.activate()
+    subprocess.run(  # noqa: S603 - fixed local helper argv
+        [
+            sys.executable,
+            str(_HELPER),
+            "commit",
+            str(root),
+            current.digest,
+            "--keep-older",
+            "0",
+            "--tls-root",
+            str(tls),
+        ],
+        check=True,
+    )
+    assert not (tls / "example-com" / f"privkey-{'1' * 64}.pem").exists()
+    assert (tls / "example-com" / f"privkey-{'2' * 64}.pem").exists()

@@ -9,5 +9,10 @@
       - "{{ blitzecdn_release_digest }}"
       - --keep-older
       - "{{ blitzecdn_config_release_keep_older }}"
+      # Certificate and key versions are content addressed, so every renewal
+      # leaves a new file. Collect those no retained release references, so a
+      # compromised edge holds only keys it can still serve or roll back to.
+      - --tls-root
+      - "{{ blitzecdn_edge_runtime.paths.tls | default('/etc/blitzecdn/tls') }}"
   changed_when: true
   when: not ansible_check_mode

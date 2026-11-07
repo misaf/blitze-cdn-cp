@@ -79,6 +79,9 @@
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
 
+# No backups: paths are content addressed, so a copy never replaces different
+# bytes, and a backup would only leave another private key behind. Versions no
+# retained release references are collected when a release commits.
 - name: Install managed certificate chains
   ansible.builtin.copy:
     src: "{{ item.certificate_source_path }}"
@@ -86,7 +89,6 @@
     owner: root
     group: root
     mode: "0644"
-    backup: true
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
@@ -100,7 +102,6 @@
     owner: root
     group: root
     mode: "0600"
-    backup: true
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
