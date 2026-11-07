@@ -87,7 +87,6 @@
         group: root
         mode: "0600"
       no_log: true
-      notify: Validate and reload Nginx
 
 # The key goes with the snippet that includes it: leaving a fleet secret on an
 # edge that no longer serves challenges is a credential kept for nothing. A
@@ -98,4 +97,3 @@
     path: "{{ blitzecdn_security_under_attack_key_file }}"
     state: absent
   when: not (blitzecdn_security_under_attack_enabled | bool)
-  notify: Validate and reload Nginx

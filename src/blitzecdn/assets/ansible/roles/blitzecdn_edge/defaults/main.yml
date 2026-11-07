@@ -72,8 +72,7 @@ blitzecdn_edge_runtime:
   #
   # Here rather than in blitzecdn_edge_stack because it is a property of the
   # image, which this contract already carries — an image whose workers run as
-  # someone else needs this changed with it, exactly as `modules_include` moves
-  # if the image renames that file.
+  # someone else needs this changed with it.
   worker_uid: 101
 
   # Host directories, every one of them. Containers stay disposable: replacing
@@ -85,16 +84,12 @@ blitzecdn_edge_runtime:
     # The configuration tree blitzecdn_nginx writes and the container mounts
     # read-only.
     nginx: /etc/nginx
-    # The `load_module` list, which is two paths rather than one because it is
-    # the only file in the tree whose name inside the runtime is not its name
-    # on the host. nginx.conf includes `modules_include` on its first line and
-    # that path belongs to the image; `modules_conf` is what blitzecdn_nginx
-    # renders from the installed capabilities and blitzecdn_edge_stack mounts
-    # over it. Here rather than in either role because both need it and it
-    # describes the runtime: the image carries every module the published
-    # capabilities can ask for, and this is how one edge loads its own subset.
+    # The `load_module` list. The controller renders it into each release from
+    # the installed capabilities, blitzecdn_config_release binds it to the
+    # candidate, and nginx.conf includes it on its first line. The image carries
+    # every module the published capabilities can ask for; this is how one edge
+    # loads its own subset.
     modules_conf: /etc/nginx/blitzecdn-modules.conf
-    modules_include: /etc/nginx/modules.conf
     # njs modules an installed capability provisions. Root-owned and 0750
     # rather than world-readable, because a module here is executable code the
     # edge runs on every request it guards.
