@@ -1,4 +1,4 @@
-"""Reading the journal, for every kind of workflow."""
+"""Reading the journal, for every kind of workflow, and signing off on one."""
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends
 
 from blitzecdn.capabilities.workflows.api.models import Workflow
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
-from blitzecdn.entrypoints.api.dependencies import require_operator
+from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    require_operator,
+)
 from blitzecdn.entrypoints.api.models import as_operation
 from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
 
@@ -33,3 +37,16 @@ def get_workflow(
     workflow_history: FromDishka[WorkflowHistory],
 ) -> Workflow:
     return as_operation(workflow_history.get(workflow_id), Workflow)
+
+
+@router.post("/v3/workflows/{workflow_id}/acknowledge", response_model=Workflow)
+def acknowledge_workflow(
+    workflow_id: str,
+    operator: OperatorDependency,
+    workflows: FromDishka[WorkflowCoordinator],
+) -> Workflow:
+    """Mark a ``needs_review`` workflow ``reviewed`` once its checkpoints are checked.
+
+    Until then it is never pruned. Any other status is a 409.
+    """
+    return as_operation(workflows.acknowledge(workflow_id, operator), Workflow)

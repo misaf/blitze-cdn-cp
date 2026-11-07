@@ -138,6 +138,7 @@ class ServiceProvider(Provider):
         return WorkflowCoordinator(
             journal=repository.workflows,
             uow=repository,
+            events=repository.audit_log,
             retention=settings.history_retention,
             clock=adapters.clock,
         )

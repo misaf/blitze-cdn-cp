@@ -26,7 +26,8 @@ class WorkflowRow(Base):
             name="workflows_kind_check",
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
+            "status IN "
+            "('pending', 'running', 'succeeded', 'failed', 'needs_review', 'reviewed')",
             name="workflows_status_check",
         ),
         # `created_at`, not `updated_at`: every query here orders by the
