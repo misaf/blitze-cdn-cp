@@ -16,12 +16,14 @@ from blitzecdn.capabilities.tls.certificates.adapters import CertbotIssuer
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,
 )
+from blitzecdn.capabilities.tls.certificates.domain import PreflightBackoff
 from blitzecdn.capabilities.tls.certificates.ports import (
     CertificateStore,
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
     EventRecorder,
+    PreflightAttempts,
     RecordReader,
     ReleaseHistory,
     SiteEditor,
@@ -116,17 +118,26 @@ def build_certificate_service(
     deployments: DeploymentGateway,
     workflows: WorkflowCoordinator,
     uow: UnitOfWork,
+    preflight_attempts: PreflightAttempts,
     clock: Clock = system_clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
     return CertificateService(
         material_references=CertificateMaterialReferences(releases),
-        policy=CertificatePolicy(default_email=config.default_email),
+        policy=CertificatePolicy(
+            default_email=config.default_email,
+            # Starts at the reconciliation interval; a disabled timer still
+            # needs a sensible base for runs an operator starts by hand.
+            preflight_backoff=PreflightBackoff(
+                interval_seconds=config.reconcile_interval_seconds or 600
+            ),
+        ),
         persistence=CertificatePersistence(
             sites=sites,
             certificates=store,
             uow=uow,
             requirements=requirements,
+            preflight_attempts=preflight_attempts,
         ),
         execution=CertificateExecution(
             runner=lock,

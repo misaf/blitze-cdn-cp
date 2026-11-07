@@ -79,6 +79,7 @@ def _with_seams(
         site_editor=service.site_editor,
         deployments=service.deployments,
         workflows=service.workflows,
+        clock=service.clock,
     )
 
 

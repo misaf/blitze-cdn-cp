@@ -74,10 +74,11 @@ def reconcile_certificates(
 ) -> ReconciliationResult:
     """Issue first certificates for ready sites and queue their deployment.
 
-    Poll GET /v3/deployments/{id} for the queued deployment's outcome.
+    Poll GET /v3/deployments/{id} for the queued deployment's outcome. Every
+    waiting site is checked, even one the scheduled run is backing off.
     """
     return as_operation(
-        certificates.reconcile_certificates(operator),
+        certificates.reconcile_certificates(operator, force=True),
         ReconciliationResult,
     )
 
