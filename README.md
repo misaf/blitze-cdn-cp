@@ -191,10 +191,22 @@ plugins and a public Python SDK are not supported; feature contribution types
 are internal composition interfaces.
 
 For a new capability, follow the skeleton and dependency rules in
-`tests/architecture/`, declare contributions in `feature.py`, and register it in
-[composition/roster.py](src/blitzecdn/composition/roster.py). Bind concrete
-dependencies in composition and the capability's `wiring.py`. Keep API and CLI
-handlers thin and test their shared behavior through the service.
+`tests/architecture/` and declare contributions in `feature.py`. Routes and
+commands then reach the API and CLI through the feature registry, but the
+composition root wires every capability by name. A new capability touches:
+
+- [composition/roster.py](src/blitzecdn/composition/roster.py): a
+  `RosterEntry` for its feature module, with its rendering and operations
+  binders if it has any.
+- [composition/repository.py](src/blitzecdn/composition/repository.py): its
+  persistence stores, if it keeps state in the controller database.
+- [composition/services.py](src/blitzecdn/composition/services.py): providers
+  for its services, built by the capability's own `wiring.py`.
+- An Alembic migration under `src/blitzecdn/assets/migrations/versions/` for
+  any new tables (see below).
+
+Keep API and CLI handlers thin and test their shared behavior through the
+service.
 
 A per-site setting belongs to a capability's contract: a `CapabilityPolicy`
 model in its `contract.py`, contributed as a `PolicyContribution` in
