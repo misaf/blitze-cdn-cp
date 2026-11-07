@@ -16,7 +16,8 @@ run_log_retention = 500
 history_retention = 1000
 deployment_retention = 100
 allow_empty_sites = false
-preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',') | map('trim') | list | to_json }}
+preflight_dns_source = {{ blitzecdn_controlplane_preflight_dns_source | to_json }}
+preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',') | map('trim') | select | list | to_json }}
 
 # Backup
 backup_dir = {{ blitzecdn_controlplane_backup_dir | to_json }}

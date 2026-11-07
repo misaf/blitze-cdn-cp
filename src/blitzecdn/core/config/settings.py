@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from ipaddress import ip_address, ip_network
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
     Field,
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
             "deployment_retention",
             "preflight_dns_timeout_seconds",
             "preflight_dns_servers",
+            "preflight_dns_source",
             "allow_empty_sites",
             "origin_check_timeout_seconds",
             "drift_check_interval_seconds",
@@ -97,9 +98,14 @@ class Settings(BaseSettings):
     #: Budget for one CAA lookup in certificate preflight; past it, the check
     #: becomes advisory rather than blocking.
     preflight_dns_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    #: Resolvers preflight asks instead of the host's, to see what the CA sees
-    #: rather than a split-horizon view. Empty uses the host resolver.
+    #: Recursive resolvers preflight asks instead of each zone's authoritative
+    #: nameservers. Empty follows `preflight_dns_source`.
     preflight_dns_servers: Annotated[tuple[str, ...], NoDecode] = ()
+    #: Where preflight looks names up when no servers are configured.
+    #: `authoritative` asks each zone's own nameservers, as the CA does;
+    #: `host` uses the controller's `getaddrinfo`, with its caches,
+    #: `/etc/hosts` and any split-horizon view, so it is an explicit opt-in.
+    preflight_dns_source: Literal["authoritative", "host"] = "authoritative"
     #: `BLITZE_*` variables core does not consume, staged for features to claim
     #: through `ConfigurationContribution`. `SecretStr`, because core cannot
     #: tell which are credentials. Core's own names, the API keys included, are
@@ -178,6 +184,16 @@ class Settings(BaseSettings):
                 ) from exc
             servers.append(part)
         return tuple(servers)
+
+    @model_validator(mode="after")
+    def check_preflight_dns(self) -> Self:
+        """Servers and the host resolver are two answers to one question."""
+        if self.preflight_dns_servers and self.preflight_dns_source == "host":
+            raise ValueError(
+                "preflight_dns_servers and preflight_dns_source = 'host' "
+                "contradict each other; set one"
+            )
+        return self
 
     @field_validator("allowed_ips", mode="before")
     @classmethod

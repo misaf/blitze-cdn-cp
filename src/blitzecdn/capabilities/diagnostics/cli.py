@@ -56,7 +56,12 @@ class ResolverCheck:
 def check_resolver(settings: Any) -> ResolverCheck:
     """Detect a resolver that invents answers for reserved names."""
     servers = settings.preflight_dns_servers
-    where = f" ({', '.join(servers)})" if servers else " (host resolver)"
+    if servers:
+        where = f" ({', '.join(servers)})"
+    elif getattr(settings, "preflight_dns_source", "host") == "host":
+        where = " (host resolver)"
+    else:
+        where = " (host resolver, used to find authoritative nameservers)"
     resolver = dns.resolver.Resolver()
     timeout = float(settings.preflight_dns_timeout_seconds)
     resolver.lifetime = timeout

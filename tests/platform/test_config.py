@@ -198,10 +198,29 @@ def test_runtime_validation_requires_generated_vars_beneath_state(settings):
     )
 
 
-def test_preflight_dns_servers_default_to_the_host_resolver(tmp_path):
-    assert (
-        Settings.from_environment({}, project_dir=tmp_path).preflight_dns_servers == ()
+def test_preflight_dns_defaults_to_authoritative_nameservers(tmp_path):
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+    assert settings.preflight_dns_servers == ()
+    assert settings.preflight_dns_source == "authoritative"
+
+
+def test_preflight_dns_source_accepts_the_host_resolver(tmp_path):
+    settings = Settings.from_environment(
+        {"BLITZE_PREFLIGHT_DNS_SOURCE": "host"}, project_dir=tmp_path
     )
+    assert settings.preflight_dns_source == "host"
+
+
+def test_preflight_dns_servers_contradict_the_host_resolver(tmp_path):
+    """Servers would silently win; refusing says which one the operator meant."""
+    with pytest.raises(ConfigurationError, match="contradict"):
+        Settings.from_environment(
+            {
+                "BLITZE_PREFLIGHT_DNS_SOURCE": "host",
+                "BLITZE_PREFLIGHT_DNS_SERVERS": "1.1.1.1",
+            },
+            project_dir=tmp_path,
+        )
 
 
 @pytest.mark.parametrize("raw", ["dns.google", "not-an-ip", "1.1.1.1,nope"])
