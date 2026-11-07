@@ -11,19 +11,31 @@
 {{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false, 'first_hostname': first_hostname}) }}
 {% endfor %}
 {% endmacro %}
+{#
+  Which origin connection a listener proxies to, as "<scheme>:<port>". The one
+  place the SSL-mode matrix is spelled: the upstream groups below and the
+  proxy_pass that names them both read it, so they cannot disagree about which
+  group a listener uses.
+#}
+{% macro origin_of(listener_port, visitor_scheme) -%}
+{%- set secure = visitor_scheme == 'https' -%}
+{%- set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) -%}
+{#- Flexible HTTPS/443 terminates at the edge and reaches the HTTP origin on 80. -#}
+{%- set origin_port = 80 if secure and ssl_mode == 'flexible' and listener_port == 443 else listener_port -%}
+{{ 'https' if origin_tls else 'http' }}:{{ origin_port }}
+{%- endmacro %}
+{#
+  Site names are [a-z0-9-] and the suffix is always "_<scheme>_<port>", so the
+  underscores make every group name unique across the whole edge.
+#}
+{% macro upstream_name(origin) -%}
+blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
+{%- endmacro %}
 {% macro proxy(listener_port, visitor_scheme='http') %}
+{% set origin = origin_of(listener_port, visitor_scheme) | string %}
+{% set origin_scheme = origin.split(':')[0] %}
 {% set secure = visitor_scheme == 'https' %}
-{% set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) %}
-{% set origin_scheme = 'https' if origin_tls else 'http' %}
-{# Flexible HTTPS/443 terminates at the edge and reaches the HTTP origin on 80. #}
-{% set origin_port = 80 if secure and ssl_mode == 'flexible' and listener_port == 443 else listener_port %}
-{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ origin_port %}
-{% if blitzecdn_nginx_resolvers %}
-        set $blitzecdn_upstream {{ upstream }};
-        proxy_pass $blitzecdn_upstream$request_uri;
-{% else %}
-        proxy_pass {{ upstream }};
-{% endif %}
+        proxy_pass {{ origin_scheme }}://{{ upstream_name(origin) }};
         proxy_http_version 1.1;
         proxy_set_header Host {{ item.origin_request_host | default('$host') }};
         proxy_set_header X-Real-IP $remote_addr;
@@ -90,6 +102,61 @@
 {% endif %}
 {% endfor %}
 {% endif %}
+{#
+  One upstream group per origin connection this site actually proxies to, so
+  idle connections to the origin are pooled and reused instead of every cache
+  miss paying a TCP handshake, and for an HTTPS origin a TLS handshake as well.
+  A literal proxy_pass to host:port, or a variable one, has no pool to return a
+  connection to: Nginx closes it when the response ends.
+
+  The group is keyed by origin scheme and port, not by listener, because
+  Flexible's 443 and the plain 80 listener reach the same http:80 and must not
+  declare it twice. A redirecting HTTP listener proxies nothing and contributes
+  no group, and a site with no hostnames renders no servers and so no groups —
+  without resolvers a group's name is resolved at load, and a site that serves
+  nothing must not be able to fail the edge's configuration test.
+
+  With resolvers the server carries `resolve`, which keeps what the variable
+  proxy_pass used to give: the origin's address follows DNS at the resolver's
+  `valid` interval rather than being pinned at load, and an origin whose name
+  does not resolve yet fails its own requests rather than the reload. `resolve`
+  needs its group in shared memory; every group on the edge shares the one zone
+  so its size is one fleet-wide setting rather than one per site.
+
+  Keepalive needs the request to the origin to be HTTP/1.1 with an empty
+  Connection header. proxy() sets the version, and the
+  $blitzecdn_connection_upgrade map in http.conf.j2 sends "" whenever the
+  visitor is not upgrading.
+#}
+{% set origins = namespace(wanted=[]) %}
+{% if item.server_names %}
+{% if not (tls and (item.always_use_https | default(false))) %}
+{% for port in blitzecdn_edge_runtime.listeners.http %}
+{% set origin = origin_of(port, 'http') | string %}
+{% if origin not in origins.wanted %}{% set origins.wanted = origins.wanted + [origin] %}{% endif %}
+{% endfor %}
+{% endif %}
+{% if tls %}
+{% for port in blitzecdn_edge_runtime.listeners.https %}
+{% set origin = origin_of(port, 'https') | string %}
+{% if origin not in origins.wanted %}{% set origins.wanted = origins.wanted + [origin] %}{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% for origin in origins.wanted %}
+upstream {{ upstream_name(origin) }} {
+{% if blitzecdn_nginx_resolvers %}
+    zone {{ blitzecdn_nginx_upstream_zone }} {{ blitzecdn_nginx_upstream_zone_size }};
+    server {{ origin_host }}:{{ origin.split(':')[1] }} resolve;
+{% else %}
+    server {{ origin_host }}:{{ origin.split(':')[1] }};
+{% endif %}
+{% if blitzecdn_nginx_upstream_keepalive | int > 0 %}
+    keepalive {{ blitzecdn_nginx_upstream_keepalive }};
+    keepalive_timeout {{ blitzecdn_nginx_upstream_keepalive_timeout }};
+{% endif %}
+}
+{% endfor %}
 {% for hostname in item.server_names %}
 {% set first_hostname = loop.first %}
 {% set log_name = hostname | replace('*', '_wildcard') %}

@@ -120,7 +120,9 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
         f'proxy_cache_key "$scheme$server_port$request_method$host{key_uri}' in rendered
     )
     # Ignore affects identity in the cache, not what the origin receives.
-    assert "proxy_pass $blitzecdn_upstream$request_uri;" in rendered
+    # proxy_pass carries no URI, so Nginx sends the request line as the visitor
+    # sent it, query string included.
+    assert "proxy_pass http://blitzecdn_origin_query-mode_http_80;" in rendered
 
 
 def _compressed(mode: CompressionMode) -> dict[str, Any]:

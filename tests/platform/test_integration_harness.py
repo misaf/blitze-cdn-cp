@@ -18,6 +18,7 @@ import shlex
 import http3_release
 import pytest
 import yaml
+from support.edge_render import rendered_upstreams
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core.domain.configuration import ConfigurationBundle
@@ -240,7 +241,8 @@ def test_the_harness_release_renders_and_is_content_addressed(tmp_path):
     assert origin, "the harness has no HTTP origin"
     for site in released["blitzecdn_nginx_sites"]:
         rendered = bundle.files[f"nginx/sites-available/{site['name']}.conf"].decode()
-        assert f"http://{site['origin_host']}:{origin[1]};" in rendered, (
+        upstreams = rendered_upstreams(rendered)
+        assert f"http://{site['origin_host']}:{origin[1]}" in upstreams, (
             "the rendered upstream does not reach the harness origin's port"
         )
 
