@@ -7,7 +7,11 @@ from blitzecdn.capabilities.diagnostics.domain.status import (
     OperationalStatus,
     WorkerStatus,
 )
-from blitzecdn.capabilities.diagnostics.ports import BackupHistory, QueueHistory
+from blitzecdn.capabilities.diagnostics.ports import (
+    BackupHistory,
+    ConvergenceHistory,
+    QueueHistory,
+)
 from blitzecdn.capabilities.jobs.ports import WorkerHistory
 from blitzecdn.capabilities.tls.ports import CertificateHistory
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
@@ -23,6 +27,7 @@ class DiagnosticsService:
         certificates: CertificateHistory,
         workers: WorkerHistory,
         backups: BackupHistory,
+        convergence: ConvergenceHistory,
         clock: Clock = system_clock,
     ) -> None:
         self.queue = queue
@@ -30,6 +35,7 @@ class DiagnosticsService:
         self.certificates = certificates
         self.workers = workers
         self.backups = backups
+        self.convergence = convergence
         self.clock = clock
 
     def status(self) -> OperationalStatus:
@@ -79,4 +85,5 @@ class DiagnosticsService:
                 last_archive=backup.archive if backup else None,
                 last_size_bytes=backup.size_bytes if backup else None,
             ),
+            convergence=self.convergence.health(),
         )

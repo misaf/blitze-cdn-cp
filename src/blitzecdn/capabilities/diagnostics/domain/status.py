@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from blitzecdn.capabilities.deployments.domain import ConvergenceHealth
 from blitzecdn.capabilities.jobs.domain.observability import (
     QueueStatistics,
     WorkerHeartbeat,
@@ -49,3 +50,5 @@ class OperationalStatus(BaseModel):
     worker_stale_after_seconds: int = WORKER_STALE_SECONDS
     certificates: CertificateStatistics
     backups: BackupStatistics
+    #: Applied deployments and drift checks: last outcomes and failure streaks.
+    convergence: tuple[ConvergenceHealth, ...]
