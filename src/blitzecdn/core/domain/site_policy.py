@@ -17,7 +17,11 @@ from pydantic import ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
 
 from blitzecdn.core.domain.composed import ComposedModel
-from blitzecdn.core.domain.policy import CapabilityPolicy, ResolvedPolicySchema
+from blitzecdn.core.domain.policy import (
+    CapabilityPolicy,
+    HostView,
+    ResolvedPolicySchema,
+)
 from blitzecdn.core.exceptions import FeatureError
 
 __all__ = ["SitePolicy"]
@@ -148,10 +152,10 @@ class SitePolicy(ComposedModel):
     def required_capabilities(self) -> frozenset[str]:
         return frozenset(self.capability_requirements)
 
-    def validate_for_site(self, name: str) -> None:
-        """The contributed rules that need the host's name; raises ``ValueError``."""
+    def validate_for_site(self, host: HostView) -> None:
+        """The contributed rules that need the host itself; raises ``ValueError``."""
         for check in SitePolicy.policy_schema().site_checks:
-            check(name, self)
+            check(host, self)
 
     @model_validator(mode="after")
     def validate_contributed_checks(self) -> Self:

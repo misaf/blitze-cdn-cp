@@ -321,9 +321,12 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false
 
 # The zone carries the policy; the proxied record carries the origin. The
 # virtual host is named after the zone (`example-com`), hence `${ACME_SITE}`.
+# The origin is a documentation address nothing ever connects to: this test
+# only handshakes with the edge, and a loopback origin, which would reach the
+# edge itself, is refused.
 in_container 'cd / && blitzecdn domain add example.com' ||
   fail "could not add a zone"
-in_container 'cd / && blitzecdn record add example.com cdn --value 127.0.0.1' ||
+in_container 'cd / && blitzecdn record add example.com cdn --value 192.0.2.10' ||
   fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged.
@@ -502,7 +505,7 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:15000/roots/0 -o /root/pe
   fail "could not fetch the ACME root"
 # The chain, checked as a client would: it verifies to Pebble's root and is
 # valid for this name. A handshake rather than a request, since the origin is
-# this host and a request would loop.
+# a documentation address with nothing behind it.
 in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
   -CAfile /root/pebble/root.pem -verify_return_error -verify_hostname ${ACME_DOMAIN} \
   </dev/null >/dev/null 2>&1" || {

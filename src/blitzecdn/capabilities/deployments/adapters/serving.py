@@ -66,7 +66,9 @@ class ServingProbe:
             CdnSite(
                 name="default",
                 server_names=("blitzecdn.invalid",),
-                origin_host="127.0.0.1",
+                # Never contacted; a documentation address, as an origin must be
+                # one an edge may proxy to.
+                origin_host="192.0.2.1",
             ),
         )
         for site in probes:

@@ -68,6 +68,94 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     return candidate
 
 
+#: "This network" (RFC 1122): Linux routes `0.x` to the host itself. Python's
+#: ``is_unspecified`` covers only `0.0.0.0`.
+_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
+
+#: Cloud metadata services outside link-local, which ``is_link_local`` catches
+#: (`169.254.169.254`): AWS's IPv6 endpoint is a unique local address and
+#: Alibaba's sits in shared address space, both otherwise allowed on opt-in.
+_METADATA_ADDRESSES = frozenset(
+    ipaddress.ip_address(address) for address in ("fd00:ec2::254", "100.100.100.200")
+)
+
+#: Networks an origin may sit in only when its site opts in: RFC 1918, shared
+#: address space (RFC 6598, often a provider's internal network) and IPv6
+#: unique local addresses. Spelled out rather than ``is_private``, which also
+#: holds the documentation ranges and the ones refused outright below.
+PRIVATE_ORIGIN_NETWORKS = tuple(
+    ipaddress.ip_network(network)
+    for network in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "fc00::/7",
+    )
+)
+
+
+def _origin_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The address an origin literal names, an IPv4-mapped IPv6 one unwrapped."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        return address.ipv4_mapped
+    return address
+
+
+def refuse_internal_origin(host: str) -> None:
+    """Refuse an origin that would point an edge at itself; ``ValueError`` if so.
+
+    Edges run nginx in the host's network namespace, so a loopback origin
+    reaches the edge's own services and a link-local one reaches the cloud
+    metadata service and its credentials. No site has a legitimate reason to
+    proxy to either, nor to an unspecified, multicast or reserved address, so
+    no opt-in exists.
+
+    Only IP literals are checked. A hostname is resolved by the edge at
+    request time and can rebind to any of these. Proxied records carry
+    addresses, so a release never holds one, but anything that hands an edge
+    a named origin owns that risk.
+    """
+    address = _origin_ip(host)
+    if address is None:
+        return
+    kind = (
+        "unspecified"
+        if address.is_unspecified or address in _THIS_NETWORK
+        else "loopback"
+        if address.is_loopback
+        else "link-local"
+        if address.is_link_local
+        or (isinstance(address, ipaddress.IPv6Address) and address.is_site_local)
+        else "cloud metadata"
+        if address in _METADATA_ADDRESSES
+        else "multicast"
+        if address.is_multicast
+        else "reserved"
+        if address.is_reserved
+        else None
+    )
+    if kind is not None:
+        raise ValueError(
+            f"origin {host} is a {kind} address, which reaches the edge itself "
+            "rather than a website; proxy to the origin's public address"
+        )
+
+
+def is_private_origin(host: str) -> bool:
+    """Whether ``host`` is an address in :data:`PRIVATE_ORIGIN_NETWORKS`."""
+    address = _origin_ip(host)
+    return address is not None and any(
+        address in network
+        for network in PRIVATE_ORIGIN_NETWORKS
+        if network.version == address.version
+    )
+
+
 def unique(values: tuple[str, ...], label: str) -> tuple[str, ...]:
     """Refuse a repeated entry rather than silently collapsing it."""
     deduplicated = tuple(dict.fromkeys(values))

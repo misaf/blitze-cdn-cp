@@ -110,8 +110,9 @@ def test_the_nginx_template_reads_only_fields_a_capability_owns():
 def test_every_edge_visible_setting_reaches_the_nginx_template():
     """A switch the desired state carries and the template never reads is inert.
 
-    `ssl_automatic_mode` is the one deliberate exception: the controller acts on
-    it and the edge sees only the resulting `ssl_mode`.
+    The controller acts on two and the edge sees only the result:
+    `ssl_automatic_mode` becomes an `ssl_mode`, and `allow_private_origin`
+    decides whether a host is served at all.
     """
     site = CdnSite(
         name="alpha",
@@ -123,7 +124,7 @@ def test_every_edge_visible_setting_reaches_the_nginx_template():
         re.findall(r"(?:item|site)\.([a-z_0-9]+)", _NGINX_IMPLEMENTATION_TEXT)
     ) | set(re.findall(r"site\.get\(\"([a-z_0-9]+)\"", _RENDERER_TEXT))
 
-    assert document - referenced == {"ssl_automatic_mode"}
+    assert document - referenced == {"ssl_automatic_mode", "allow_private_origin"}
 
 
 def test_the_nested_blocks_are_read_through_their_owning_capability():
