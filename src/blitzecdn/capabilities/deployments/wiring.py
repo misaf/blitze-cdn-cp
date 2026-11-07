@@ -155,6 +155,7 @@ def build_deployment_service(
             generated_vars_path=settings.generated_vars_path,
             output_limit_bytes=settings.output_limit_bytes,
             history_retention=settings.history_retention,
+            deployment_retention=settings.deployment_retention,
             runtime_errors=settings.validate_runtime,
         ),
         persistence=DeploymentPersistence(
