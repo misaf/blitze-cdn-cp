@@ -7,7 +7,8 @@
 # real apt, real accounts. A standalone host is also an edge, so it must meet
 # the narrower edge platform; CI runs Ubuntu only.
 #
-# Requires Docker and about five minutes per image.
+# Requires Docker and about five minutes per image. With DIAGNOSTICS_DIR set,
+# a failed run leaves the host's journal and container logs there.
 #
 # Both images are built here from the working tree unless an archive of each
 # is given, for a machine that should not build them itself, such as one that
@@ -45,6 +46,12 @@ image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
 
 cleanup() {
+  local status=$?
+  # DIAGNOSTICS_DIR collects the host's journal and container logs from a
+  # failed run before the host goes; CI keeps them as an artifact.
+  if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
+    bash "${project_dir}/tests/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${container}"
+  fi
   # KEEP_CONTAINER=1 leaves the host up to inspect a failure; remove it with
   # `docker rm -f -v` afterwards.
   if [[ ${KEEP_CONTAINER:-0} == 1 ]]; then

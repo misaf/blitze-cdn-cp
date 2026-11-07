@@ -40,6 +40,13 @@ origin="blitzecdn-http3-origin-${suffix}"
 workdir=$(mktemp -d)
 
 cleanup() {
+  local status=$?
+  # DIAGNOSTICS_DIR collects the edge host's journal and container logs, and
+  # the origin's, from a failed run before they go; CI keeps them as an
+  # artifact.
+  if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
+    bash "${project_dir}/tests/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${edge}" "${origin}"
+  fi
   # `-v`: the edge host's anonymous volumes go with it. They hold a whole
   # container engine's images, and a runner that keeps them keeps gigabytes.
   docker rm -f -v "${edge}" "${origin}" >/dev/null 2>&1 || true
