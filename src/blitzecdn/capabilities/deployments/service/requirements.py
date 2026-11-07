@@ -47,9 +47,11 @@ def queued_to_satisfy(
 
 def settle(requirements: DeploymentRequirements, deployment: Deployment) -> None:
     """Clear what a succeeded ``deployment`` delivered, inside its transaction."""
-    if satisfies(deployment):
+    if not satisfies(deployment):
+        return
+    for kind in DeploymentRequirementKind:
         requirements.clear(
-            DeploymentRequirementKind.CERTIFICATES,
+            kind,
             # The release was compiled under the lock before this row, so only a
             # requirement raised before it is in the release.
             through=deployment.created_at,

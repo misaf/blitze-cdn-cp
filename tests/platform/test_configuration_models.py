@@ -154,7 +154,8 @@ def test_features_cannot_read_each_others_secrets(tmp_path):
         tmp_path,
     )
     geoip = resolved.for_feature("geoip")
-    assert resolved.environment == configured
+    # Kept to the controller: only the controller downloads GeoLite2.
+    assert resolved.environment == {}
     assert geoip.secret("BLITZE_MAXMIND_LICENSE_KEY").get_secret_value() == "sentinel"
     assert geoip.is_set("BLITZE_MAXMIND_LICENSE_KEY")
     with pytest.raises(
