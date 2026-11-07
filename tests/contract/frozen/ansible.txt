@@ -223,6 +223,10 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_ciphers	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_stapling	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_status_allow	type=list elements=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_status_file	type=path required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_upstream_keepalive	type=int required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_upstream_keepalive_timeout	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_upstream_zone	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_upstream_zone_size	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_worker_connections	type=int required
 blitzecdn	variable	blitzecdn_origins.blitzecdn_origins_sites	type=list elements=dict default=[]
 blitzecdn	variable	blitzecdn_origins.blitzecdn_origins_timeout	type=int default=5

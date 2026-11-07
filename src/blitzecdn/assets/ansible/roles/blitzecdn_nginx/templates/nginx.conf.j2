@@ -13,6 +13,13 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
     sendfile on;
+    # With sendfile, send the response headers and the start of the body in one
+    # full packet rather than a header-only one first. tcp_nodelay is Nginx's
+    # default and is stated because the pair is what makes tcp_nopush safe: the
+    # last partial packet of a response is pushed immediately, not held for the
+    # 200ms Nagle would wait.
+    tcp_nopush on;
+    tcp_nodelay on;
     keepalive_timeout 65;
     include {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/*.conf;
     include {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/*;

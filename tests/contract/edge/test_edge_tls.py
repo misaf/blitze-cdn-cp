@@ -255,7 +255,9 @@ def test_full_strict_verifies_on_every_https_listener_including_alternates():
 
     for port in runtime["listeners"]["https"]:
         block = _https_block(rendered, defaults, port)
-        assert f"https://origin.example.com:{port}" in block
+        assert rendered_upstreams(rendered, within=block) == {
+            f"https://origin.example.com:{port}"
+        }
         assert "proxy_ssl_verify on;" in block
         assert "proxy_ssl_server_name on;" in block
 
@@ -347,13 +349,14 @@ def test_an_ipv6_origin_is_bracketed_on_every_listener_port():
 
 
 def test_a_pinned_resolver_free_edge_still_preserves_the_listener_port():
-    """Without resolvers the upstream is a literal proxy_pass, same rule."""
+    """Without resolvers the group's server is resolved at load, same rule."""
     rendered = render_site(
         site_to_ansible(mode_site(SslMode.FULL, serves_tls=True)),
         blitzecdn_nginx_resolvers=[],
     )
-    assert "set $blitzecdn_upstream" not in rendered
-    passes = set(re.findall(r"proxy_pass (\S+);", rendered))
+    assert " resolve;" not in rendered
+    assert "zone " not in rendered
+    passes = rendered_upstreams(rendered)
     defaults = role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     assert passes == {
@@ -365,8 +368,8 @@ def test_the_origin_request_host_override_survives_port_preservation():
     site = mode_site(SslMode.FULL, serves_tls=True, origin_request_host="app.internal")
     rendered = render_site(site_to_ansible(site))
     assert "proxy_set_header Host app.internal;" in rendered
-    assert "http://origin.example.com:8080" in rendered
-    assert "https://origin.example.com:8443" in rendered
+    assert "http://origin.example.com:8080" in rendered_upstreams(rendered)
+    assert "https://origin.example.com:8443" in rendered_upstreams(rendered)
 
 
 def test_the_cache_key_still_separates_the_listener_ports():

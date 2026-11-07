@@ -24,6 +24,30 @@ blitzecdn_nginx_modules: []
 blitzecdn_nginx_module_directory: /usr/lib/nginx/modules
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
+# Idle connections to an origin each worker keeps open per upstream group, for
+# the next cache miss to reuse. Every proxied site renders one group per origin
+# scheme and port it reaches; see site.conf.j2. It is a cap on idle sockets,
+# not on concurrency: a burst opens as many connections as it needs and only
+# this many are kept afterwards. 0 turns pooling off and every miss opens a
+# fresh connection, as an edge did before upstream groups existed.
+blitzecdn_nginx_upstream_keepalive: 32
+# How long an idle origin connection is kept. Below an Nginx origin's own 75s,
+# so against the most common origin the edge closes first rather than writing a
+# request into a socket the origin is closing. An origin with a shorter idle
+# timeout — Apache's default is 5s — closes first instead; Nginx retries a
+# request whose reused connection turns out to be closed, except a
+# non-idempotent one it had already sent.
+blitzecdn_nginx_upstream_keepalive_timeout: 60s
+# The shared-memory zone every upstream group on the edge is placed in. Only
+# used with resolvers: `server ... resolve` re-resolves the origin at runtime
+# and needs its group in shared memory. One zone for the whole edge, so its
+# size is one setting rather than one per site. Measured against the edge
+# image, a megabyte holds about seven hundred groups and a site needs at most
+# one per listener port, so 32m is well over a thousand fully-proxied sites.
+# Too small fails `nginx -t` with "no memory in upstream zone" before the
+# release is activated, never at runtime.
+blitzecdn_nginx_upstream_zone: blitzecdn_origins
+blitzecdn_nginx_upstream_zone_size: 32m
 blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
 # Which site carries `reuseport` on the QUIC listener. Nginx accepts it on
 # exactly one server block, so this names the owner rather than the capability
