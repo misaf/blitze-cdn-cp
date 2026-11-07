@@ -447,7 +447,7 @@ def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
     assert "healthcheck" + ".sh" not in dockerfile
     assert "blitzecdn-" + "healthcheck" not in dockerfile
     # In the runtime stage, not just the throwaway builder that also uses it.
-    assert "curl" in dockerfile.split("FROM ${NGINX_IMAGE}")[-1]
+    assert "curl" in dockerfile.rsplit("\nFROM ", 1)[-1]
 
     # test_removed_host_compatibility_contracts_do_not_reappear walks the tree for
     # the old script and its variable.
