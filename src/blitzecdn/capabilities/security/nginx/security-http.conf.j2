@@ -4,3 +4,20 @@ include {{ blitzecdn_security_under_attack_key_file }};
 js_var $blitzecdn_under_attack_location;
 limit_req_zone $binary_remote_addr zone=blitzecdn_under_attack_verify:10m rate=30r/m;
 {% endif %}
+{#
+  One geo per site with allow_sources: 1 for a client the site's firewall
+  exempts from its country and method rules, 0 for everyone else. Site names
+  are [a-z0-9-], so swapping '-' for '_' keeps every variable name distinct.
+  security-access.conf.j2 reads it under the same condition.
+#}
+{% for firewalled in blitzecdn_nginx_sites | default([], true) %}
+{% set firewall = firewalled.firewall | default({}, true) or {} %}
+{% if firewall.allow_sources | default([], true) %}
+geo $blitzecdn_firewall_exempt_{{ firewalled.name | replace('-', '_') }} {
+    default 0;
+{% for source in firewall.allow_sources %}
+    {{ source }} 1;
+{% endfor %}
+}
+{% endif %}
+{% endfor %}
