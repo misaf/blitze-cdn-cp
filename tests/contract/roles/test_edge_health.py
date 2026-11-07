@@ -307,7 +307,6 @@ def test_no_edge_image_reference_floats():
         and re.match(r"[^/\s]+\.[^/\s]+/", value)
     }
     assert any("blitzecdn_edge_runtime_image_default" in key for key in references)
-    assert any("geoipupdate" in value for value in references.values())
     for name, reference in references.items():
         assert not reference.endswith(":latest"), name
         assert re.search(r"(@sha256:[0-9a-f]{64}|:\d+\.\d+)", reference), reference

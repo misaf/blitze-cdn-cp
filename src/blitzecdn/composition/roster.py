@@ -15,6 +15,13 @@ from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
+from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
+from blitzecdn.capabilities.security.geoip.service import GeoIpService
+from blitzecdn.capabilities.security.geoip.settings import GeoIpConfig
+from blitzecdn.capabilities.security.geoip.wiring import (
+    geoip_operations,
+    geoip_rendering,
+)
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
@@ -62,6 +69,7 @@ class RenderingInputs:
 
     capability_config: ResolvedCapabilityEnvironment
     certificate_store: CertificateStore
+    geoip_store: DatabaseStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +86,8 @@ class OperationInputs:
     traffic: TrafficService
     traffic_config: TrafficConfig
     has_edges: Callable[[], bool]
+    geoip: GeoIpService
+    geoip_config: GeoIpConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +107,14 @@ def _security_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
 
 def _certificates_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
     return certificates_rendering(store=inputs.certificate_store)
+
+
+def _geoip_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
+    return geoip_rendering(store=inputs.geoip_store)
+
+
+def _geoip_operations(inputs: OperationInputs) -> FeatureOperations:
+    return geoip_operations(geoip=inputs.geoip, config=inputs.geoip_config)
 
 
 def _deployments_operations(inputs: OperationInputs) -> FeatureOperations:
@@ -172,7 +190,11 @@ ROSTER: tuple[RosterEntry, ...] = (
         rendering=_security_rendering,
     ),
     RosterEntry("blitzecdn.capabilities.origins.feature"),
-    RosterEntry("blitzecdn.capabilities.security.geoip.feature"),
+    RosterEntry(
+        "blitzecdn.capabilities.security.geoip.feature",
+        rendering=_geoip_rendering,
+        operations=_geoip_operations,
+    ),
     RosterEntry("blitzecdn.capabilities.hardening.feature"),
     RosterEntry(
         "blitzecdn.capabilities.http.http3.feature",

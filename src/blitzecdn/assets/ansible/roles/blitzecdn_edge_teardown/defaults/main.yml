@@ -18,8 +18,8 @@ blitzecdn_edge_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 # Systemd units this collection installs, matched rather than listed.
 #
 # A list would have to name every unit any capability might install, which puts
-# `blitzecdn-geoipupdate.timer` — a unit only the `geoip` package's role ever
-# writes — in a core role that has never heard of that package. The prefix is
+# units only a capability's own role ever writes in a core role that has never
+# heard of that capability. The prefix is
 # the contract instead: a unit under /etc/systemd/system whose name starts with
 # this is ours, and teardown removes it whether the capability that wrote it is
 # still installed or not. That last part matters most: a host is usually

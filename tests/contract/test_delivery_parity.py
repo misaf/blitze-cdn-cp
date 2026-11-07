@@ -273,6 +273,13 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "cert list", "GET /v3/certificates", ""),
     (
         "blitzecdn",
+        "geoip update",
+        None,
+        "Provisions the first database without waiting for the scheduled "
+        "refresh; the scheduler owns it after that, so no remote operation.",
+    ),
+    (
+        "blitzecdn",
         "cert preflight",
         "GET /v3/hosts/{name}/certificate/preflight",
         "",

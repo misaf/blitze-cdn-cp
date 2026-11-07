@@ -342,6 +342,17 @@ class AcmeComponent(_DirectoryComponent):
         return self._settings.state_dir / "letsencrypt/config"
 
 
+class GeoIpDatabasesComponent(_DirectoryComponent):
+    """The controller's fingerprinted GeoIP databases and its current pointer."""
+
+    component = BackupComponent.GEOIP_DATABASES
+
+    @property
+    def _root(self) -> Path:
+        # Where the geoip slice keeps them; asserted equal by its tests.
+        return self._settings.state_dir / "geoip-databases"
+
+
 class ConfigComponent:
     """Operator configuration and the controller's own identity.
 
