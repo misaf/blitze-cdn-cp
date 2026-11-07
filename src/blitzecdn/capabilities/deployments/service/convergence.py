@@ -71,6 +71,7 @@ class DeploymentPolicy:
     generated_vars_path: Path
     output_limit_bytes: int
     history_retention: int
+    deployment_retention: int
     runtime_errors: Callable[[], list[str]]
 
 
@@ -427,7 +428,10 @@ class DeploymentService:
             )
             self.persistence.targets.plan(deployment.id, planned_edges, fence=0)
             # Pruned inline by a writer, so retention cannot silently stop.
-            self.persistence.deployments.prune_history(self.policy.history_retention)
+            self.persistence.deployments.prune_history(
+                self.policy.history_retention,
+                keep_applied=self.policy.deployment_retention,
+            )
             self.events.record(
                 domain_event(
                     operator,
