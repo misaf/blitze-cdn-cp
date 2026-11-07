@@ -17,7 +17,7 @@ from blitzecdn.capabilities.http.contract import (
     ProtocolPolicy,
 )
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.features.types import PolicyView
+from blitzecdn.core.features.types import HostView, PolicyView
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
@@ -269,8 +269,9 @@ def http3_requires_edge_tls(policy: PolicyView) -> None:
         raise ValueError("http3_enabled=True requires ssl_mode to serve edge TLS")
 
 
-def managed_certificate_belongs_to_site(site: str, policy: PolicyView) -> None:
+def managed_certificate_belongs_to_site(host: HostView, policy: PolicyView) -> None:
     """Managed material lives at exact version paths under the host's own name."""
+    site = host.name
     tls = policy[TlsPolicy]
     if not tls.certificate_mode.issuer_owned:
         return

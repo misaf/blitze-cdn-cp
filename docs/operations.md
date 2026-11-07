@@ -266,6 +266,25 @@ worker and does not inherit the submitting request's trace context. Use the
 operation/deployment ID to follow its durable outcome and worker logs. The
 authenticated `/metrics` endpoint continues reporting operational state separately.
 
+## Origin addresses
+
+Edges run Nginx in the host's own network namespace, so an origin is reached
+from the edge itself. A proxied record whose address would point an edge at
+itself is never served, whatever the zone says: loopback (`127.0.0.0/8`,
+`::1`), link-local (`169.254.0.0/16`, `fe80::/10`, which holds the cloud
+metadata service), the known metadata addresses outside it (`fd00:ec2::254`,
+`100.100.100.200`), unspecified (`0.0.0.0/8`, `::`), multicast and reserved
+addresses. IPv4-mapped IPv6 addresses are judged by the IPv4 address they carry.
+
+Private addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+`100.64.0.0/10`, `fc00::/7`) are served only when the zone or a rule sets
+`allow_private_origin: true`, for an origin that really is on the provider's
+internal network. Without it the hostname is reported as unservable, with the
+reason, and the rest of the zone keeps serving.
+
+Proxied records hold addresses, never names, so an edge never resolves an
+origin and DNS rebinding cannot move one onto these ranges after the check.
+
 ## Hostname access and error logs
 
 Each edge stores separate persistent logs for every configured hostname:

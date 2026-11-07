@@ -10,12 +10,13 @@ from dataclasses import dataclass
 
 from blitzecdn.core.domain.policy import (
     CapabilityPolicy,
+    HostView,
     PolicyCheck,
     PolicyView,
     SiteCheck,
 )
 
-__all__ = ["PolicyCheck", "PolicyContribution", "PolicyView", "SiteCheck"]
+__all__ = ["HostView", "PolicyCheck", "PolicyContribution", "PolicyView", "SiteCheck"]
 
 
 @dataclass(frozen=True, slots=True)

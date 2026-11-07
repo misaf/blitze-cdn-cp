@@ -14,6 +14,7 @@ blitzecdn_nginx_sites:
     cache_valid_not_found: 1m
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
+    allow_private_origin: false
     http3_enabled: false
     max_upload_size: 100m
     ssl_mode: 'off'
@@ -51,6 +52,7 @@ blitzecdn_nginx_sites:
     cache_valid_not_found: 1m
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
+    allow_private_origin: false
     http3_enabled: false
     max_upload_size: 100m
     ssl_mode: flexible

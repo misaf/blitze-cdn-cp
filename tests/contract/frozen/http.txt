@@ -77,6 +77,7 @@ blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
 blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn	schema	CdnSite.allow_private_origin	boolean optional
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional
@@ -166,6 +167,7 @@ blitzecdn	schema	DnsRecord.proxied	boolean optional
 blitzecdn	schema	DnsRecord.ttl	integer optional
 blitzecdn	schema	DnsRecord.type	enum[A,AAAA] optional
 blitzecdn	schema	DnsRecord.value	string required
+blitzecdn	schema	Domain.allow_private_origin	boolean optional
 blitzecdn	schema	Domain.always_use_https	boolean optional
 blitzecdn	schema	Domain.cache_enabled	boolean optional
 blitzecdn	schema	Domain.cache_query_string_mode	CacheQueryStringMode optional
@@ -187,6 +189,7 @@ blitzecdn	schema	Domain.ssl_automatic_mode	SslAutomaticMode optional
 blitzecdn	schema	Domain.ssl_mode	SslMode optional
 blitzecdn	schema	Domain.under_attack_mode	boolean optional
 blitzecdn	schema	Domain.visitor_headers	SiteVisitorHeaders optional
+blitzecdn	schema	DomainPatch.allow_private_origin	boolean optional
 blitzecdn	schema	DomainPatch.always_use_https	boolean optional
 blitzecdn	schema	DomainPatch.cache_enabled	boolean optional
 blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode optional

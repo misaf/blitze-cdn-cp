@@ -60,7 +60,7 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `minimum_tls_version` | `1.2` |
 | `certificate_mode` | `disabled` |
 | `certificate_path`, `certificate_key_path` | `null` |
-| `http3_enabled`, `always_use_https`, `under_attack_mode` | `false` |
+| `http3_enabled`, `always_use_https`, `under_attack_mode`, `allow_private_origin` | `false` |
 | `max_upload_size` | `100m` |
 | `enabled`, `cache_enabled` | `true` |
 | `cache_query_string_mode` | `include` |
