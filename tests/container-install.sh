@@ -223,12 +223,15 @@ api_status_with_current_key() {
     curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${key}" http://127.0.0.1:8000/v3/edges'
 }
 
-# Everything a rollback must bring back, as one comparable document: the
-# configuration and credential files by digest, and the database-backed fleet
-# settings, zones and edges in full.
+# Everything a rollback must bring back, as one comparable document. The
+# configuration is what the running API loaded, not the files' bytes: a restore
+# re-renders both files from their parsed values. The environment is digested
+# because it holds the credentials. The database-backed fleet settings, zones
+# and edges are compared in full.
 control_plane_state() {
-  in_container 'cd / && sha256sum /etc/blitzecdn/blitzecdn.env /etc/blitzecdn/blitzecdn.toml &&
-    blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
+  in_container "docker exec blitzecdn-api python -c 'import json, tomllib; print(json.dumps(tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\")), sort_keys=True))'" &&
+    in_container 'docker exec blitzecdn-api env | grep "^BLITZE_" | sort | sha256sum' &&
+    in_container 'cd / && blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
 }
 
 if [[ ${SUITE} != lifecycle ]]; then
@@ -242,7 +245,8 @@ if [[ ${SUITE} != lifecycle ]]; then
 
   # State a fresh install would not have, in each place it lives: a fleet
   # setting, a zone with a record and a second edge in the database, and a
-  # marker in the host's configuration file.
+  # changed value in the host's configuration file. The lifecycle stages
+  # rewrite that value themselves, so `all` needs no cleanup for it.
   in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
     fail "could not seed a fleet setting"
   in_container 'cd / && blitzecdn domain add rollback.example.org &&
@@ -250,12 +254,15 @@ if [[ ${SUITE} != lifecycle ]]; then
     fail "could not seed a zone"
   in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 >/dev/null' ||
     fail "could not register a second edge"
-  in_container 'printf "\n# rollback marker\n" >> /etc/blitzecdn/blitzecdn.toml' ||
-    fail "could not mark the configuration file"
+  in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"192.0.2.53\"]|" \
+    /etc/blitzecdn/blitzecdn.toml' ||
+    fail "could not change the configuration file"
+  in_container 'grep -q "^preflight_dns_servers = \[\"192.0.2.53\"\]$" /etc/blitzecdn/blitzecdn.toml' ||
+    fail "the configuration file was not changed"
   # Configuration is read at start; recreate so the services run what is saved.
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
     up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
-    fail "the control plane did not come back with the marked configuration"
+    fail "the control plane did not come back with the changed configuration"
   saved_state=$(control_plane_state) || fail "could not read the state to roll back to"
   [[ $(api_status_with_current_key) == 200 ]] ||
     fail "the API refused its own operator key before the rollback"
