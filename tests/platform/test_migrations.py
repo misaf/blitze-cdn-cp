@@ -170,6 +170,11 @@ INITIAL = (
     "0008_traffic",
 )
 
+#: Revisions after the initial chain, in upgrade order, with the tables each
+#: one adds. A table here is not its capability's initial revision's to create.
+LATER = (("0009_deployment_outcomes", {"deployment_outcomes"}),)
+LATER_TABLES = {table for _, tables in LATER for table in tables}
+
 
 def _tables(path) -> set[str]:
     with closing(sqlite3.connect(path)) as connection:
@@ -201,6 +206,7 @@ def test_each_initial_revision_creates_exactly_its_capabilitys_tables(tmp_path):
     owners = {
         mapper.local_table.name: _owner(mapper.class_.__module__)
         for mapper in Base.registry.mappers
+        if mapper.local_table.name not in LATER_TABLES
     }
     path = tmp_path / "control.db"
     config = _config(path)
@@ -215,14 +221,29 @@ def test_each_initial_revision_creates_exactly_its_capabilitys_tables(tmp_path):
         before = after
 
 
+def test_later_revisions_each_add_exactly_their_tables(tmp_path):
+    """An existing database at the initial head gains them by upgrading."""
+    path = tmp_path / "control.db"
+    config = _config(path)
+    command.upgrade(config, INITIAL[-1])
+    before = _tables(path)
+    for revision, tables in LATER:
+        command.upgrade(config, revision)
+        after = _tables(path)
+        assert after - before == tables, revision
+        before = after
+    assert LATER[-1][0] == ScriptDirectory.from_config(config).get_current_head()
+
+
 def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
     path = tmp_path / "control.db"
     config = _config(path)
-    for revision in INITIAL:
+    revisions = (*INITIAL, *(revision for revision, _ in LATER))
+    for revision in revisions:
         command.upgrade(config, revision)
         assert _revision(path) == revision
     DatabaseSchema.validate(path)
-    for revision in reversed(INITIAL[:-1]):
+    for revision in reversed(revisions[:-1]):
         command.downgrade(config, revision)
         assert _revision(path) == revision
     command.downgrade(config, "base")
