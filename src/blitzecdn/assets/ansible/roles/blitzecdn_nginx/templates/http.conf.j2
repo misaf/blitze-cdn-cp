@@ -3,6 +3,22 @@ map $http_upgrade $blitzecdn_connection_upgrade {
     default upgrade;
     ''      '';
 }
+# The one encoding the origin is asked for: `br` when the visitor takes it,
+# else `gzip`, else none. Core rather than a capability's, because two of them
+# read it and either may be installed without the other: compression sends it
+# to the origin, and the cache keys entries by it. Asking for exactly one lets
+# an origin that cannot produce it answer uncompressed, so the edge encodes the
+# body itself; the visitor's own list, `gzip, deflate, br`, would get gzip
+# back, which the edge cannot re-encode.
+#
+# A coding the visitor refuses with `q=0` (`br;q=0, gzip`) does not count, or
+# the origin would be asked for exactly what the visitor ruled out and its
+# encoded answer would pass through the edge untouched.
+map $http_accept_encoding $blitzecdn_accept_encoding {
+    default        "";
+    "~*(^|,)\s*br\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"    "br";
+    "~*(^|,)\s*gzip\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"  "gzip";
+}
 {% if blitzecdn_nginx_resolvers %}
 resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_resolver_valid }};
 resolver_timeout {{ blitzecdn_nginx_resolver_timeout }};

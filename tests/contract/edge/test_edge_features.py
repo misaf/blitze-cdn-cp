@@ -46,6 +46,14 @@ REQUIRES_CAPABILITIES = {
         "compression",
     ),
     "test_missing_compression_preserves_pre_upgrade_behavior": ("compression",),
+    "test_compression_normalizes_the_origin_encoding_without_the_cache": (
+        "compression",
+    ),
+    "test_the_cache_normalizes_the_origin_encoding_with_compression_off": ("cache",),
+    "test_the_origin_is_asked_for_one_encoding_at_most_once": (
+        "cache",
+        "compression",
+    ),
 }
 
 
@@ -197,6 +205,40 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
     assert "gzip_vary on;" in rendered
     # Proxied responses carry headers that disable gzip under the default.
     assert "gzip_proxied any;" in rendered
+
+
+@pytest.mark.parametrize("mode", [CompressionMode.BROTLI, CompressionMode.GZIP])
+def test_compression_normalizes_the_origin_encoding_without_the_cache(mode):
+    """Uncached, the visitor's `gzip, deflate, br` would reach the origin.
+
+    Most origins answer that with gzip, which the Brotli filter cannot
+    re-encode, so Brotli would only ever reach cached sites.
+    """
+    site = _compressed(mode) | {"cache_enabled": False}
+    rendered = render_site(site)
+
+    assert "proxy_cache " not in rendered
+    assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
+
+
+@pytest.mark.parametrize("cache_enabled", [True, False])
+@pytest.mark.parametrize("mode", list(CompressionMode))
+def test_the_origin_is_asked_for_one_encoding_at_most_once(mode, cache_enabled):
+    """Cache and compression both want the header; only one of them sends it."""
+    site = _compressed(mode) | {"cache_enabled": cache_enabled}
+    rendered = render_site(site)
+    upstreams = rendered.split("location @blitzecdn_upstream")[1:]
+
+    assert upstreams
+    for location in upstreams:
+        assert location.count("proxy_set_header Accept-Encoding") <= 1
+
+
+def test_the_cache_normalizes_the_origin_encoding_with_compression_off():
+    """The key names the encoding, so the origin is asked for exactly that one."""
+    rendered = render_site(_compressed(CompressionMode.OFF))
+
+    assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
 
 
 def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
