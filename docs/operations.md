@@ -32,7 +32,7 @@ probes and start no workers.
   (usually DNS not pointing at an edge yet), when one was last checked, and
   when the soonest is checked next. Scheduled reconciliation backs off such a
   site, doubling the wait from one reconcile interval up to a day, until the
-  site or its DNS record changes; `blitzecdn cert reconcile` and
+  site, its DNS record or its deployment changes; `blitzecdn cert reconcile` and
   `POST /v3/certificates/reconcile` check every waiting site at once. After a
   blocking DNS failure, preflight skips the CAA lookup and the origin probe.
 * **Backups:** the last full backup's completion time, age, archive name and

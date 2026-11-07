@@ -187,7 +187,12 @@ class CertificateService:
         Returns the report, or ``None`` with the reason the check was not made.
         """
         record = self.dns.record_for_hostname(site.server_names[0])
-        fingerprint = _fingerprint(site, record.model_dump(mode="json"))
+        # Deployment readiness is part of the answer but not of the site, so a
+        # first deployment must end the backoff as a DNS change does.
+        deployed = self.deployments.site_is_deployed(site.name)
+        fingerprint = _fingerprint(
+            site, record.model_dump(mode="json"), deployed=deployed
+        )
         attempts = self.persistence.preflight_attempts
         backoff = self.policy.preflight_backoff
         previous = attempts.get(site.name)
@@ -201,12 +206,10 @@ class CertificateService:
                 f"{previous.summary} (checked {previous.failures} time(s) "
                 f"without change, last at {previous.checked_at:%Y-%m-%d %H:%M} UTC; "
                 f"next check after {previous.next_check_at:%Y-%m-%d %H:%M} UTC, "
-                "sooner if the site or its DNS record changes)"
+                "sooner if the site, its DNS record or its deployment changes)"
             )
         report = self.execution.preflight.check(
-            site,
-            deployed=self.deployments.site_is_deployed(site.name),
-            record_ttl=record.ttl,
+            site, deployed=deployed, record_ttl=record.ttl
         )
         if report.ok:
             attempts.clear(site.name)
@@ -607,10 +610,14 @@ class CertificateService:
         return "renewed", status.site
 
 
-def _fingerprint(site: CdnSite, record: object) -> str:
+def _fingerprint(site: CdnSite, record: object, *, deployed: bool) -> str:
     """Digest of what a preflight depends on that the controller can see change."""
     payload = json.dumps(
-        {"site": site.model_dump(mode="json"), "record": record},
+        {
+            "site": site.model_dump(mode="json"),
+            "record": record,
+            "deployed": deployed,
+        },
         sort_keys=True,
         separators=(",", ":"),
     )
