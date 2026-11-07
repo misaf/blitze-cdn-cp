@@ -100,7 +100,7 @@ def domain_firewall(
     Each option replaces its own list; the lists you do not name are kept. That
     differs from the equivalent PATCH on the HTTP API, which replaces the whole
     block. Country rules need the 'geoip' capability, and
-    blitzecdn_geoip_enabled with a country database on the edge. A deploy will
+    blitzecdn_geoip_enabled with a country database on the controller. A deploy will
     refuse rather than silently serve the traffic they were meant to block.
     """
     supplied = {

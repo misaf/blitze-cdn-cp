@@ -31,6 +31,8 @@ from blitzecdn.capabilities.jobs.wiring import (
     build_job_queue,
     build_job_scheduler,
 )
+from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
+from blitzecdn.capabilities.security.geoip.wiring import build_geoip_store
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
 from blitzecdn.composition.repository import Repository
@@ -190,6 +192,10 @@ class InfrastructureProvider(Provider):
         self, settings: Settings, adapters: Adapters
     ) -> CertificateStore:
         return CertificateStore(settings, clock=adapters.clock)
+
+    @provide
+    def geoip_store(self, settings: Settings) -> DatabaseStore:
+        return build_geoip_store(state_dir=settings.state_dir)
 
     @provide
     def job_queue(

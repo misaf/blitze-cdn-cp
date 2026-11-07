@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.security.geoip import __version__, ansible
+from blitzecdn.capabilities.security.geoip import __version__, ansible, cli
 from blitzecdn.capabilities.security.geoip.settings import CONFIGURATION
 from blitzecdn.core.features import (
     AnsibleContribution,
+    CliCommandGroup,
     EdgeModule,
     Feature,
     FeatureMetadata,
@@ -31,8 +32,11 @@ FEATURES = (
             provides=frozenset({"geoip"}),
             summary="Visitor IP-to-country lookup for country headers and rules.",
         ),
-        # MaxMind credentials for the GeoLite2 updater; optional, since sites needing
-        # geoip are refused by capability token.
+        cli_commands=(
+            CliCommandGroup(feature="geoip", name="geoip", app=cli.geoip_app),
+        ),
+        # MaxMind credentials for the controller's one GeoLite2 download;
+        # optional, since without them the operator places a database by hand.
         configuration=(CONFIGURATION,),
         ansible=(
             AnsibleContribution(
