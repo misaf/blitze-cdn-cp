@@ -54,8 +54,9 @@ def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None
     )
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, mode)
+        # Owned by the stream first, so a refused chmod still closes it.
         with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())

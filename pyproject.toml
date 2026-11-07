@@ -106,6 +106,12 @@ pythonpath = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["src"]
+# Python children of the test run (the recovery journey's worker, installer
+# helpers run with `sys.executable`) record their own data files, which
+# pytest-cov combines; without this, code reached only through a subprocess
+# reads as untested. Interpreters in the packaging suite's throwaway
+# virtualenvs have no coverage installed and stay unmeasured.
+patch = ["subprocess"]
 
 [tool.coverage.report]
 include_namespace_packages = true
