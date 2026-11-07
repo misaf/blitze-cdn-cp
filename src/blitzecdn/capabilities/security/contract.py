@@ -283,7 +283,8 @@ ISO_3166_1_ALPHA_2 = frozenset(
 # fmt: on
 
 #: Nginx refuses a configuration token longer than its 4 KiB read buffer, and
-#: the allowed paths render as one quoted regex.
+#: the allowed paths render as one quoted regex. Bytes, not characters: a
+#: non-ASCII path takes up to four bytes per character in that buffer.
 ALLOWED_PATHS_PATTERN_LIMIT = 3500
 
 #: Codes people reach for that ISO does not assign, and what to use instead.
@@ -446,7 +447,8 @@ class SiteFirewall(OmittedWhenEmpty):
                 "allowed_countries and denied_countries both list "
                 + ", ".join(sorted(overlap))
             )
-        if len(allowed_paths_pattern(self.allowed_paths)) > ALLOWED_PATHS_PATTERN_LIMIT:
+        pattern = allowed_paths_pattern(self.allowed_paths).encode("utf-8")
+        if len(pattern) > ALLOWED_PATHS_PATTERN_LIMIT:
             raise ValueError(
                 "allowed_paths are too long together for one Nginx rule; list "
                 "shared prefixes ending in '/' instead of individual paths"
