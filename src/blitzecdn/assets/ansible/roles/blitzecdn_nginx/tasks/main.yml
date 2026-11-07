@@ -93,7 +93,6 @@
   loop_control:
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
-  notify: Validate and reload Nginx
 
 - name: Install managed private keys
   ansible.builtin.copy:
@@ -107,23 +106,16 @@
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
   no_log: true
-  notify: Validate and reload Nginx
 
 
 - name: Inspect managed-site registry
   ansible.builtin.stat:
-    path: >-
-      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
-         if blitzecdn_config_release_enabled | default(false) | bool
-         else blitzecdn_nginx_managed_sites_file }}
+    path: "{{ blitzecdn_config_release_root }}/current/nginx/blitzecdn-managed-sites"
   register: blitzecdn_nginx_registry
 
 - name: Read managed-site registry
   ansible.builtin.slurp:
-    path: >-
-      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
-         if blitzecdn_config_release_enabled | default(false) | bool
-         else blitzecdn_nginx_managed_sites_file }}
+    path: "{{ blitzecdn_config_release_root }}/current/nginx/blitzecdn-managed-sites"
   register: blitzecdn_nginx_registry_content
   when: blitzecdn_nginx_registry.stat.exists
 

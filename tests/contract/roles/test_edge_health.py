@@ -76,7 +76,7 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     for deeper in ("nginx", "-t", "ss", "kill", "test"):
         assert deeper not in healthcheck["test"], deeper
 
-    assert "['nginx', '-t']" in health
+    assert "argv: [nginx, -t, -c," in health
     assert "current/nginx.conf" in health
     # The status endpoint is verified a second time by Ansible, from the
     # controller's side of the deploy, and separately from Docker's verdict.
@@ -190,32 +190,25 @@ def test_every_configuration_activation_is_guarded_by_nginx_t():
     """A rendered tree reaches a running edge only through `nginx -t`.
 
     Nginx keeps serving what it loaded, so an invalid file is silent until the
-    next reload. Every writer notifies the handler, the handler validates before
-    it signals, and the stack role re-validates against a new image before the
-    serving container is replaced.
+    next reload. Every writer writes into a candidate release, the candidate is
+    tested before it is sealed, and the stack role re-validates against a new
+    image before the serving container is replaced.
     """
-    handlers = (ROLE_DIR / "handlers/main.yml").read_text(encoding="utf-8")
-    listeners = yaml.safe_load(handlers)
-    names = [task["name"] for task in listeners]
-    assert names.index("Validate Nginx configuration") < names.index(
-        "Reload Nginx after validation"
-    ), "the reload handler must run after the validation it depends on"
-    validate = listeners[names.index("Validate Nginx configuration")]
-    # Candidate writes suppress the legacy handler; activation is explicit and
-    # uses the sealed tree which staging already tested with the pinned image.
-    assert validate["when"] == (
-        "not ansible_check_mode and not "
-        "(blitzecdn_config_release_enabled | default(false) | bool)"
-    )
-    assert validate["ansible.builtin.include_tasks"] == "config-test.yml"
+    # No role reloads Nginx behind the release's back: there is no handler a
+    # writer could notify to signal an untested tree into service.
+    assert not (ROLE_DIR / "handlers").exists()
 
     config_test = yaml.safe_load(
         (ROLE_DIR / "tasks/config-test.yml").read_text(encoding="utf-8")
     )
     assert len(config_test) == 1
     command = config_test[0]["community.docker.docker_container"]["command"]
-    assert "['nginx', '-t']" in command
-    assert "blitzecdn_config_release_candidate ~ '/nginx.conf'" in command
+    assert command == [
+        "nginx",
+        "-t",
+        "-c",
+        "{{ blitzecdn_config_release_candidate }}/nginx.conf",
+    ]
     assert "when" not in config_test[0]
     assert "failed_when" in config_test[0]
 
