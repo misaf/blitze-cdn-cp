@@ -30,20 +30,49 @@ class SiteEditing:
         self.writer = writer
 
     def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
+        self,
+        site: CdnSite,
+        mode: CertificateMode,
+        version: CertificateVersion,
+        operator: str,
     ) -> CdnSite:
-        """Record a managed certificate on the zone or rule that produced this host."""
+        """Record a managed certificate on the zone or rule that produced this host.
+
+        A host enrolled in Automatic SSL that still serves no TLS starts serving
+        Flexible in the same write: Flexible needs nothing from the origin, and
+        the scan can raise it to Full or Full (strict) later. Without this, the
+        host would wait for the next scheduled scan with a certificate it never
+        serves.
+        """
         certificate_path, certificate_key_path = managed_certificate_paths(
             site.name, version
         )
-        change = SiteChange(
-            {
+
+        def decide(current: CdnSite) -> SiteChange:
+            changes: dict[str, object] = {
                 "certificate_mode": mode,
                 "certificate_path": certificate_path,
                 "certificate_key_path": certificate_key_path,
             }
-        )
-        updated = self.writer.change_site(site.name, lambda _current: change)
+            tls = current.policy[TlsPolicy]
+            if (
+                tls.ssl_automatic_mode is SslAutomaticMode.AUTO
+                and not tls.ssl_mode.serves_tls
+            ):
+                changes["ssl_mode"] = SslMode.FLEXIBLE
+                return SiteChange(
+                    changes,
+                    domain_event(
+                        operator,
+                        "ssl.automatic.upgraded",
+                        "site",
+                        site.name,
+                        {"from": tls.ssl_mode.value, "to": SslMode.FLEXIBLE.value},
+                    ),
+                )
+            return SiteChange(changes)
+
+        updated = self.writer.change_site(site.name, decide)
         if updated is None:  # pragma: no cover - the decision above always writes
             raise NotFoundError(f"CDN site {site.name!r} does not exist")
         return updated

@@ -41,7 +41,11 @@ class SiteEditor(Protocol):
     """Record issuance results against the zone or rule that authored a host."""
 
     def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
+        self,
+        site: CdnSite,
+        mode: CertificateMode,
+        version: CertificateVersion,
+        operator: str,
     ) -> CdnSite: ...
 
     def apply_automatic_ssl_upgrade(

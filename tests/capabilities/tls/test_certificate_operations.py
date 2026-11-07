@@ -91,7 +91,10 @@ def test_issuance_is_outside_activation_transaction_and_failure_keeps_evidence(
     assert [step.name for step in workflow.steps] == ["issued", "stored"]
 
 
-def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_pair):
+def test_upload_and_request_certificate_activate_material(settings, certificate_pair):
+    """An uploaded certificate starts an Auto host on Flexible; a later request
+    keeps the stronger mode the operator chose meanwhile."""
+
     class FakeIssuer:
         def issue(self, site, email):
             assert site.name == "example-com"
@@ -112,7 +115,10 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
         control.sites.get_site("example-com").policy[TlsPolicy].certificate_mode
         == "uploaded"
     )
-    assert control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode == "off"
+    assert (
+        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode
+        is SslMode.FLEXIBLE
+    )
 
     control.dns.update_domain(
         "example.com", PatchPolicy.from_patch(DomainPatch(ssl_mode="full")), "alice"
@@ -141,6 +147,71 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     assert document["certificate_key_path"].endswith(
         f"/privkey-{requested.private_key_digest}.pem"
     )
+
+
+def test_first_certificate_for_an_auto_host_releases_https(settings, certificate_pair):
+    """An Auto host serves HTTPS from the release after its first certificate,
+    without waiting for the scheduled Automatic SSL scan."""
+    repository = Repository(settings.database_path)
+    control = certificate_control_plane(
+        settings,
+        runner=FakeRunner([ansible_run(host_run("edge-a"))]),
+        issuer=_FixedIssuer(certificate_pair),
+        preflight=FakePreflight(),
+    )
+    seed_proxied_record(control)
+    tls = control.sites.get_site("example-com").policy[TlsPolicy]
+    assert tls.ssl_automatic_mode is SslAutomaticMode.AUTO
+    assert tls.ssl_mode is SslMode.OFF
+
+    control.certificates.request_certificate(
+        "example-com", "alice", "owner@example.com"
+    )
+
+    assert (
+        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode
+        is SslMode.FLEXIBLE
+    )
+    event = next(
+        event
+        for event in repository.audit_log.list_audit_events(20)
+        if event.action == "ssl.automatic.upgraded"
+    )
+    assert event.operator == "alice"
+    assert event.details == {"from": "off", "to": "flexible"}
+
+    result = control.deployments.deploy("alice", check=True)
+    assert result.status is DeploymentStatus.SUCCEEDED
+    document = yaml.safe_load(settings.generated_vars_path.read_text("utf-8"))[
+        "blitzecdn_nginx_sites"
+    ][0]
+    assert document["ssl_mode"] == "flexible"
+
+
+def test_first_certificate_leaves_a_custom_host_off(settings, certificate_pair):
+    """An operator who opted out of Automatic SSL keeps the mode they set."""
+    control = certificate_control_plane(settings, runner=FakeRunner())
+    seed_proxied_record(control)
+    control.dns.update_domain(
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(ssl_automatic_mode="custom")),
+        "alice",
+    )
+    certificate, key = certificate_pair()
+
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
+
+    tls = control.sites.get_site("example-com").policy[TlsPolicy]
+    assert tls.certificate_mode == "uploaded"
+    assert tls.ssl_mode is SslMode.OFF
+
+
+class _FixedIssuer:
+    def __init__(self, certificate_pair):
+        self.certificate_pair = certificate_pair
+
+    def issue(self, site, email):
+        return self.certificate_pair()
 
 
 def test_new_certificate_material_owes_the_fleet_a_deployment(
@@ -386,7 +457,10 @@ def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(
         control.sites.get_site(site_name).policy[TlsPolicy].certificate_mode
         == "requested"
     )
-    assert control.sites.get_site(site_name).policy[TlsPolicy].ssl_mode == "off"
+    # Reconciliation serves the new certificate at once, on the Auto host.
+    assert (
+        control.sites.get_site(site_name).policy[TlsPolicy].ssl_mode is SslMode.FLEXIBLE
+    )
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):

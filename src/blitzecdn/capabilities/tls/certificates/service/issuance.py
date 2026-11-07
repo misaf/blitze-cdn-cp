@@ -135,7 +135,7 @@ class CertificateService:
             progress.checkpoint("installed", {"site": name})
             with self.persistence.uow.transaction():
                 self.site_editor.activate_managed_certificate(
-                    site, CertificateMode.UPLOADED, info.version
+                    site, CertificateMode.UPLOADED, info.version, operator
                 )
                 self.persistence.requirements.require(
                     DeploymentRequirementKind.CERTIFICATES
@@ -273,7 +273,7 @@ class CertificateService:
             progress.checkpoint("stored", {"site": site.name})
         with self.persistence.uow.transaction():
             self.site_editor.activate_managed_certificate(
-                site, CertificateMode.REQUESTED, info.version
+                site, CertificateMode.REQUESTED, info.version, operator
             )
             self.persistence.requirements.require(
                 DeploymentRequirementKind.CERTIFICATES

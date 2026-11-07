@@ -702,7 +702,7 @@ def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settin
         uow=_competing_writer(
             control,
             lambda: control.site_editor.activate_managed_certificate(
-                site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+                site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
             ),
         ),
     )
