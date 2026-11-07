@@ -5,6 +5,7 @@ blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
 blitzecdn	route	GET /v3/audit-events
+blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
 blitzecdn	route	GET /v3/deployments
 blitzecdn	route	GET /v3/deployments/{deployment_id}
@@ -37,8 +38,8 @@ blitzecdn	route	PATCH /v3/domains/{domain}
 blitzecdn	route	PATCH /v3/domains/{domain}/records/{name}
 blitzecdn	route	PATCH /v3/domains/{domain}/rules/{name}
 blitzecdn	route	PATCH /v3/edges/{name}
+blitzecdn	route	POST /v3/cache/connections
 blitzecdn	route	POST /v3/cache/purge
-blitzecdn	route	POST /v3/cache/stats
 blitzecdn	route	POST /v3/certificates/reconcile
 blitzecdn	route	POST /v3/certificates/renew
 blitzecdn	route	POST /v3/deployments
@@ -78,6 +79,19 @@ blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
 blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
 blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn	schema	CacheCounters.bytes_sent	integer required
+blitzecdn	schema	CacheCounters.requests	integer required
+blitzecdn	schema	CacheHour.byte_hit_ratio	number|null required
+blitzecdn	schema	CacheHour.bytes_sent	integer required
+blitzecdn	schema	CacheHour.cacheable_requests	integer required
+blitzecdn	schema	CacheHour.cached_bytes_sent	integer required
+blitzecdn	schema	CacheHour.edge	string required
+blitzecdn	schema	CacheHour.hit_ratio	number|null required
+blitzecdn	schema	CacheHour.hits	integer required
+blitzecdn	schema	CacheHour.hostname	string required
+blitzecdn	schema	CacheHour.hour	string required
+blitzecdn	schema	CacheHour.outcomes	object required
+blitzecdn	schema	CacheHour.requests	integer required
 blitzecdn	schema	CdnSite.allow_private_origin	boolean optional
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
@@ -140,6 +154,7 @@ blitzecdn	schema	CollectionStatus.registered	boolean required
 blitzecdn	schema	CollectionStatus.stale	boolean required
 blitzecdn	schema	CollectionStatus.stale_after_seconds	integer required
 blitzecdn	schema	CollectionStatus.state	FreshnessState required
+blitzecdn	schema	ConnectionsRequest.host_limit	string|null optional
 blitzecdn	schema	ConvergenceHealth.consecutive_failures	integer optional
 blitzecdn	schema	ConvergenceHealth.kind	ConvergenceKind required
 blitzecdn	schema	ConvergenceHealth.last_failure_at	string|null optional
@@ -270,10 +285,16 @@ blitzecdn	schema	OperationalStatus.worker_stale_after_seconds	integer optional
 blitzecdn	schema	OperationalStatus.workers	array[WorkerStatus] required
 blitzecdn	schema	OperationalStatus.workflows	WorkflowStatistics required
 blitzecdn	schema	OriginCheckRequest.host_limit	string|null optional
+blitzecdn	schema	OutcomeCounters.bytes_sent	integer required
+blitzecdn	schema	OutcomeCounters.requests	integer required
 blitzecdn	schema	Page_AuditEvent_.items	array[AuditEvent] required
 blitzecdn	schema	Page_AuditEvent_.limit	integer required
 blitzecdn	schema	Page_AuditEvent_.offset	integer required
 blitzecdn	schema	Page_AuditEvent_.total	integer required
+blitzecdn	schema	Page_CacheHour_.items	array[CacheHour] required
+blitzecdn	schema	Page_CacheHour_.limit	integer required
+blitzecdn	schema	Page_CacheHour_.offset	integer required
+blitzecdn	schema	Page_CacheHour_.total	integer required
 blitzecdn	schema	Page_CdnSite_.items	array[CdnSite] required
 blitzecdn	schema	Page_CdnSite_.limit	integer required
 blitzecdn	schema	Page_CdnSite_.offset	integer required
@@ -410,7 +431,6 @@ blitzecdn	schema	SslAutomaticReconciliation.deployment	Deployment|null optional
 blitzecdn	schema	SslAutomaticReconciliation.scanned	array[string] optional
 blitzecdn	schema	SslAutomaticReconciliation.skipped	object optional
 blitzecdn	schema	SslAutomaticReconciliation.upgraded	object optional
-blitzecdn	schema	StatsRequest.host_limit	string|null optional
 blitzecdn	schema	TaskResult.action	string optional
 blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required
@@ -418,6 +438,7 @@ blitzecdn	schema	TaskResult.role	string|null optional
 blitzecdn	schema	TaskResult.task	string required
 blitzecdn	schema	TrafficUsage.body_bytes_sent	integer required
 blitzecdn	schema	TrafficUsage.bytes_sent	integer required
+blitzecdn	schema	TrafficUsage.cache	object required
 blitzecdn	schema	TrafficUsage.edge	string required
 blitzecdn	schema	TrafficUsage.hostname	string required
 blitzecdn	schema	TrafficUsage.hour	string required

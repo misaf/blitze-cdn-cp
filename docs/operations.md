@@ -443,7 +443,8 @@ timezone, the actual requested `hostname`, and the configured `server_name`
 `request_time` is a JSON number in seconds. Diagnostic fields include client IP,
 request line, cache status, upstream address and response time, referer and user
 agent. String fields use Nginx JSON escaping; unavailable upstream values may be
-`"-"`, and an absent cache header may be empty. Error logs retain Nginx's native
+`"-"`, and `cache_status` (`$upstream_cache_status`) is empty when the cache
+was not consulted. Error logs retain Nginx's native
 text format.
 
 The visitor bandwidth counter sums `bytes_sent`: bytes Nginx reports
@@ -458,8 +459,8 @@ The [traffic capability](traffic-accounting.md) collects these records and
 persists hourly totals. Scheduling and API/CLI access are separate steps.
 Disabling access logging means there are no records to collect. Identity probes
 suppressed by `access_log off` also remain excluded.
-Cache statistics read the newest lines of each live hostname access file, so
-every hostname gets its own sample window. These files are the only request
+Cache statistics are counted from these records by traffic collection; see
+[cache statistics](#cache-statistics). These files are the only request
 log: there is no aggregate access file, and requests do not reach Docker
 stdout, so `docker logs` shows startup output and errors only. Hostname errors
 at `warn` and above go to their own file and Docker stderr; startup errors or
@@ -488,3 +489,37 @@ set `blitzecdn_edge_teardown_domain_logs_path` and
 `blitzecdn_edge_teardown_error_log_path` to the same root with `/domains` and
 `/error.log` appended before teardown. Logs remain local to each edge; this step adds no log
 retrieval API or cross-edge statistics.
+
+## Cache statistics
+
+Cache effectiveness is read from stored hourly rows, never by sampling edges.
+Traffic collection counts each access record's cache outcome exactly once, in
+the same pass and transaction as its traffic, so the two never disagree about
+what was counted. See [traffic accounting](traffic-accounting.md#cache-outcomes).
+
+```sh
+blitzecdn cache stats \
+  --start 2026-10-27T14:00:00Z --end 2026-10-27T15:00:00Z \
+  --hostname example.com --json
+```
+
+`GET /v3/cache/stats` takes the same `start`, `end`, `hostname`, `edge`, `limit`
+and `offset` as `/v3/traffic/usage` and returns one row per edge, hostname and
+UTC hour with:
+
+- `requests`, `bytes_sent` and `outcomes` (requests and bytes per outcome);
+- `cacheable_requests`: every outcome except NONE;
+- `hits` and `hit_ratio`: HIT, STALE, UPDATING and REVALIDATED over cacheable
+  requests;
+- `cached_bytes_sent` and `byte_hit_ratio`: bytes served from cache, the
+  origin offload a request-count ratio does not show.
+
+Ratios are `null` when nothing consulted the cache: an idle site is not a broken
+one. Redirects, errors Nginx served itself and sites with caching disabled are
+NONE rather than misses. Rows lag while collection is pending; check
+`blitzecdn traffic status EDGE`. To aggregate a range or a site across edges,
+sum the counters, not the ratios.
+
+Nginx's `stub_status` connection counters are live state, not log-derived:
+`POST /v3/cache/connections` queues a read (the operation's result is a
+`ConnectionsReport`), and `blitzecdn cache connections` runs one directly.

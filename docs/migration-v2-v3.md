@@ -125,7 +125,7 @@ you need before replacing a block; see [nested PATCH objects](api-defaults.md#ne
 | Request | v2 response | v3 response |
 | --- | --- | --- |
 | Cache purge | `200 PurgeResult` (or `409` for partial failure) | `202 Operation` |
-| Cache statistics | `200 CacheStatsReport` | `202 Operation` |
+| Cache statistics | `200 CacheStatsReport` | `GET /v3/cache/stats` reads stored hourly rows; live connection counters are `POST /v3/cache/connections` → `202 Operation` |
 | Origin checks | `200 OriginReport` | `202 Operation` |
 | Edge removal | `200 EdgeRemoval` | `202 Operation` |
 | Deploy, drift check, rollback | `202 Deployment` | `202 Deployment`, with polling headers |

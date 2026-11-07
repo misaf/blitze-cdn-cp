@@ -16,7 +16,7 @@ from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 
 SUBMISSIONS = [
     ("POST", "/v3/cache/purge", {"purge_all": True}, "operations"),
-    ("POST", "/v3/cache/stats", {}, "operations"),
+    ("POST", "/v3/cache/connections", {}, "operations"),
     ("POST", "/v3/origins/check", {}, "operations"),
     ("DELETE", "/v3/edges/{name}", None, "operations"),
     ("POST", "/v3/deployments", {}, "deployments"),
@@ -63,7 +63,7 @@ def test_operation_polling_stops_retry_hints_for_terminal_work(
     control, repository = seeded()
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
-        accepted = client.post("/v3/cache/stats", json={}, headers=API_HEADERS)
+        accepted = client.post("/v3/cache/connections", json={}, headers=API_HEADERS)
         job_id = accepted.json()["id"]
         if state != "pending":
             now = datetime.now(UTC)
@@ -133,7 +133,7 @@ def test_openapi_documents_headers_for_all_accepted_and_polling_responses(settin
 def test_rejected_work_does_not_advertise_a_polling_resource(settings):
     with TestClient(control_plane_app(settings)) as client:
         for response, expected in (
-            (client.post("/v3/cache/stats", json={}), 401),
+            (client.post("/v3/cache/connections", json={}), 401),
             (client.post("/v3/cache/purge", json={}, headers=API_HEADERS), 409),
             (client.get("/v3/operations/missing", headers=API_HEADERS), 404),
         ):

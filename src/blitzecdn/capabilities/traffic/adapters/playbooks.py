@@ -14,6 +14,7 @@ class TrafficPlaybooks:
         self,
         checkpoints: dict[str, tuple[LogCursor, ...]],
         *,
+        max_bytes: int,
         host_limit: str | None = None,
     ) -> AnsibleRun:
         return self._fleet.run_playbook(
@@ -21,9 +22,10 @@ class TrafficPlaybooks:
             playbook=COLLECT_PLAYBOOK,
             host_limit=host_limit,
             variables={
+                "blitzecdn_traffic_collect_max_bytes": max_bytes,
                 "blitzecdn_traffic_collect_checkpoints": {
                     edge: [cursor.model_dump(mode="json") for cursor in cursors]
                     for edge, cursors in checkpoints.items()
-                }
+                },
             },
         )

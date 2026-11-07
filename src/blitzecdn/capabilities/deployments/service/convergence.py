@@ -194,32 +194,24 @@ class DeploymentService:
         """
 
         with self.execution.runner.lock():
-            return self._journalled(
-                DEPLOYMENT_WORKFLOW,
-                operator,
-                None,
-                "converged",
-                lambda: self.converge(
-                    self._queue(
-                        operator,
-                        check=check,
-                        host_limit=host_limit,
-                    ),
-                    operator,
-                ),
-            )
+            deployment = self._queue(operator, check=check, host_limit=host_limit)
+            return self._journalled(deployment, operator)
 
-    def _journalled(
-        self,
-        kind: WorkflowKind,
-        operator: str,
-        resource_id: str | None,
-        checkpoint: str,
-        work: Callable[[], Deployment],
-    ) -> Deployment:
-        """Converge inside a workflow record, so every path leaves a durable trace."""
-        with self.workflows.run(kind, operator, resource_id) as progress:
-            deployment = work()
+    def _journalled(self, deployment: Deployment, operator: str) -> Deployment:
+        """Converge inside a workflow record, so every path leaves a durable trace.
+
+        The record names the deployment from the moment it opens, so a workflow a
+        crash leaves for review is always linked to the run it was journalling.
+        Admission happens before, in its own transaction, and needs no review.
+        """
+        if deployment.rollback_of:
+            kind: WorkflowKind = ROLLBACK_WORKFLOW
+            checkpoint = "converged_and_adopted"
+        else:
+            kind = DEPLOYMENT_WORKFLOW
+            checkpoint = "converged"
+        with self.workflows.run(kind, operator, deployment.id) as progress:
+            deployment = self.converge(deployment, operator)
             progress.checkpoint(checkpoint, {"deployment_id": deployment.id})
             if deployment.status is not DeploymentStatus.SUCCEEDED:
                 progress.fail(deployment.detail or deployment.status.value)
@@ -269,16 +261,8 @@ class DeploymentService:
         """
 
         with self.execution.runner.lock():
-            return self._journalled(
-                ROLLBACK_WORKFLOW,
-                operator,
-                deployment_id,
-                "converged_and_adopted",
-                lambda: self.converge(
-                    self._queue_rollback(operator, deployment_id, check=check),
-                    operator,
-                ),
-            )
+            deployment = self._queue_rollback(operator, deployment_id, check=check)
+            return self._journalled(deployment, operator)
 
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
@@ -312,17 +296,7 @@ class DeploymentService:
                         deployment.id,
                     )
                 )
-            kind = ROLLBACK_WORKFLOW if deployment.rollback_of else DEPLOYMENT_WORKFLOW
-            checkpoint = (
-                "converged_and_adopted" if deployment.rollback_of else "converged"
-            )
-            return self._journalled(
-                kind,
-                deployment.operator,
-                deployment.id,
-                checkpoint,
-                lambda: self.converge(deployment, deployment.operator),
-            )
+            return self._journalled(deployment, deployment.operator)
 
     # -- Drift ---------------------------------------------------------
 

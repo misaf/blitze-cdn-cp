@@ -1,7 +1,8 @@
 # Visitor traffic accounting
 
 The traffic capability collects hourly request counts, bytes sent to visitors,
-and response body bytes per edge and actual requested hostname. Hours use UTC
+and response body bytes per edge and actual requested hostname, plus the same
+requests and bytes split by cache outcome. Hours use UTC
 and the log timestamp at request completion. Redirects and errors count as
 requests. Release identity probes remain excluded by Nginx's `access_log off`.
 Counter semantics and the JSON format are described in [operations](operations.md#hostname-access-and-error-logs).
@@ -32,8 +33,9 @@ The collector reads complete newline-terminated records from active files,
 uncompressed archives and gzip archives. Partial trailing records stay pending.
 A corrupt or oversized record blocks its file without advancing that file's
 cursor; other valid files can still progress. The maximum record size is 64 KiB.
-Each invocation processes at most 4 MiB of new record bytes and 128 stream batches per
-edge by default; `more` reports remaining work. Completed streams do not emit
+Each invocation processes at most `BLITZE_TRAFFIC_COLLECTION_MAX_BYTES` (256 MiB
+by default) of new record bytes and 128 stream batches per edge; `more` reports
+remaining work. Completed streams do not emit
 empty batches. Gzip seeking may decompress already processed bytes, so the batch
 bound limits new data, not total disk I/O. Uncompressed archives are cheaper to
 read during normal frequent collection.
@@ -41,6 +43,10 @@ read during normal frequent collection.
 ## Persistence and failure handling
 
 `traffic_hours` uses `(edge, hostname, hour)` as its primary key.
+`traffic_cache_hours` adds `outcome` to that key and holds the hour's requests
+and `bytes_sent` per cache outcome. Its rows are written in the same transaction
+as their `traffic_hours` row and cursor, always sum to that row's totals, and are
+deleted with it.
 `traffic_cursors` uses `(edge, stream_id)` and advances with the matching totals.
 A retried or already committed batch adds nothing. An overlapping stale batch
 is refused and must be recollected from current checkpoints. SQLite reserves
@@ -76,16 +82,19 @@ logs itself.
 ```dotenv
 BLITZE_TRAFFIC_COLLECTION_INTERVAL_SECONDS=60
 BLITZE_TRAFFIC_COLLECTION_MAX_PASSES=3
+BLITZE_TRAFFIC_COLLECTION_MAX_BYTES=268435456
 ```
 
 The equivalent `[blitzecdn]` TOML fields are
-`traffic_collection_interval_seconds` and `traffic_collection_max_passes`.
+`traffic_collection_interval_seconds`, `traffic_collection_max_passes` and
+`traffic_collection_max_bytes` (64 KiB–1 GiB).
 The interval supports 0–86400 seconds; zero removes the recurring schedule on
 restart. It does not cancel work already queued or running. The pass limit
 supports 1–10. These are typed traffic capability settings, available through
 existing configuration introspection.
 
-Each pass retains the collector's 4 MiB/128-stream limit per edge. Subsequent
+Each pass reads at most `BLITZE_TRAFFIC_COLLECTION_MAX_BYTES` and 128 streams per
+edge; see [sizing collection](#sizing-collection-for-cdn-volume). Subsequent
 passes target only edges reporting remaining data, at least one newly committed
 request, and no errors. A partial trailing line or duplicate delivery cannot
 cause an immediate retry loop. At most three fleet calls run by default;
@@ -128,7 +137,8 @@ Both interfaces return `{items, total, limit, offset}`. `total` counts matching
 hourly rows, not requests or bytes. Limit defaults to 100 (1–500); offset starts
 at zero. Rows are ordered by hour ascending, then hostname and edge, with a
 range index supporting the read. Each item contains `edge`, `hostname`, `hour`
-(UTC), `requests`, `bytes_sent` and `body_bytes_sent` as integer counters.
+(UTC), `requests`, `bytes_sent` and `body_bytes_sent` as integer counters, and
+`cache`: an object keyed by cache outcome, each with `requests` and `bytes_sent`.
 No totals across rows or edges are implied by the page envelope.
 
 Empty hours are omitted. An empty page does not prove zero traffic: collection
@@ -144,6 +154,46 @@ can change rows and offsets. Query a completed range after collection catches
 up when exporting multiple pages. This interface does not provide a frozen
 export snapshot or billing reconciliation.
 
+
+## Cache outcomes
+
+Each record's `cache_status` (Nginx's `$upstream_cache_status`) is counted in the
+same pass, under the same cursor, as its traffic: HIT, STALE, UPDATING,
+REVALIDATED, MISS, EXPIRED or BYPASS. An empty value means the cache was never
+consulted (a redirect, an error Nginx served itself, or a site with caching
+disabled) and is counted as NONE; so is any other value, so that a cache label
+can never block traffic collection. The cache capability reads these rows for
+`GET /v3/cache/stats` and `blitzecdn cache stats`, which add hit ratio and
+origin offload; see [operations](operations.md#cache-statistics).
+
+## Sizing collection for CDN volume
+
+A pass is one Ansible run per edge, so throughput per edge is
+`max_bytes × max_passes / interval`. `just bench-traffic` measures the collector
+itself on generated ~570-byte records. On a laptop core it parses about
+50,000 records/s (≈28 MiB/s) from plain files and from gzip archives read in one
+pass. Gzip falls to about 19 MiB/s when a small budget makes each pass seek
+through already-processed compressed bytes again.
+
+| Budget per pass × passes per minute | Sustained per edge | At 570 B/record |
+| --- | --- | --- |
+| 4 MiB × 3 (previous default) | 12 MiB/min | ≈ 370 requests/s |
+| 256 MiB × 3 (default) | 768 MiB/min | ≈ 23,000 requests/s |
+| 1 GiB × 3 (maximum) | 3 GiB/min | ≈ 94,000 requests/s |
+
+Parsing is not the limit at these sizes: a 256 MiB pass takes about 10 s of
+one core here, well inside the playbook timeout. Size the budget so that
+`max_bytes × max_passes` per interval exceeds the busiest edge's log rate at
+peak with headroom to catch up after an outage; a backlog drains at the
+difference between the two. Memory does not grow with the budget: records
+stream through, and only one bucket per hostname, hour and outcome is kept.
+
+Logs must outlive the longest expected collection gap. The managed logrotate
+policy keeps 14 archives per hostname file and rotates daily, or above 100 MiB
+when logrotate runs; the newest archive stays uncompressed. Records that are
+rotated away before they are collected are lost for both traffic and cache
+statistics, and `GET /v3/traffic/status/{edge}` reports `backlogged` while a pass
+ends with work remaining. Watch it rather than relying on retention alone.
 
 ## Retention
 

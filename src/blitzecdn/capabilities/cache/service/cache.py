@@ -11,16 +11,19 @@ from datetime import datetime
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import (
-    CacheStatsReport,
-    EdgeStats,
+    CacheHour,
+    ConnectionsReport,
+    EdgeConnections,
+    OutcomeCounters,
     PurgeEntry,
     PurgeResult,
-    SiteCacheStats,
 )
-from blitzecdn.capabilities.cache.ports import CacheRunner
+from blitzecdn.capabilities.cache.ports import CacheRunner, CacheUsage
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
@@ -37,6 +40,7 @@ class CacheService:
         sites: SiteReader,
         events: EventRecorder,
         runner: CacheRunner,
+        usage: CacheUsage,
         clock: Clock = system_clock,
     ) -> None:
         #: Read to decide which hostnames may be purged. This service never
@@ -44,6 +48,7 @@ class CacheService:
         self.sites = sites
         self.events = events
         self.runner = runner
+        self.usage = usage
         self.clock = clock
 
     def purge_cache(
@@ -177,64 +182,75 @@ class CacheService:
             )
         return tuple(resolved)
 
-    def cache_stats(
+    def stats(self, query: UsageQuery) -> PageResult[CacheHour]:
+        """Stored hourly cache outcomes, ordered by hour, hostname and edge.
+
+        Read from what traffic accounting committed; no edge is contacted, so
+        numbers lag while collection is pending.
+        """
+        page = self.usage.usage(query)
+        return PageResult(
+            items=[
+                CacheHour(
+                    edge=row.edge,
+                    hostname=row.hostname,
+                    hour=row.hour,
+                    outcomes={
+                        outcome.value: OutcomeCounters(
+                            requests=counters.requests,
+                            bytes_sent=counters.bytes_sent,
+                        )
+                        for outcome, counters in sorted(row.cache.items())
+                    },
+                )
+                for row in page.items
+            ],
+            total=page.total,
+        )
+
+    def connections(
         self, operator: str, *, host_limit: str | None = None
-    ) -> CacheStatsReport:
-        """Collect cache effectiveness from the edges, read-only and unlocked.
+    ) -> ConnectionsReport:
+        """Read nginx's live connection counters from the edges, unlocked.
 
         Counters arrive on each ``HostRun.report``, so an edge that ran but reported
         nothing shows as silent rather than vanishing.
         """
-        run = self.runner.run_stats(host_limit=host_limit)
-        report = CacheStatsReport(
+        run = self.runner.run_connections(host_limit=host_limit)
+        report = ConnectionsReport(
             collected_at=self.clock(),
             host_limit=host_limit,
-            edges=tuple(_edge_stats(host) for host in run.hosts),
+            edges=tuple(_edge_connections(host) for host in run.hosts),
         )
         self.events.record(
             domain_event(
                 operator,
-                "cache.stats_collected",
+                "cache.connections_collected",
                 "deployment",
                 None,
                 {
                     "host_limit": host_limit,
                     "reporting": [edge.host for edge in report.reporting],
                     "silent": [edge.host for edge in report.silent],
-                    "hit_ratio": report.hit_ratio,
                 },
             )
         )
         if not report.edges:
-            raise ExecutionError(run.unreported("statistics"))
+            raise ExecutionError(run.unreported("connection counters"))
         return report
 
 
-def _edge_stats(host: HostRun) -> EdgeStats:
+def _edge_connections(host: HostRun) -> EdgeConnections:
     """Read one edge's report defensively; a malformed one means "nothing usable"."""
     if not host.reached:
-        return EdgeStats(host=host.host, error="unreachable")
+        return EdgeConnections(host=host.host, error="unreachable")
     if not host.succeeded:
-        return EdgeStats(host=host.host, error="the stats role failed on this edge")
+        return EdgeConnections(
+            host=host.host, error="the stats role failed on this edge"
+        )
     document = host.report
     if document is None:
-        return EdgeStats(host=host.host, error="the edge published no report")
-    outcomes: dict[str, dict[str, int]] = {}
-    rows = document.get("cache")
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        site = str(row.get("site", "")).strip()
-        outcome = str(row.get("outcome", "")).strip().upper()
-        try:
-            requests = int(row.get("requests", 0))
-        except (TypeError, ValueError):
-            continue
-        if not site or not outcome or requests < 0:
-            continue
-        outcomes.setdefault(site, {})[outcome] = (
-            outcomes.setdefault(site, {}).get(outcome, 0) + requests
-        )
+        return EdgeConnections(host=host.host, error="the edge published no report")
     raw_connections = document.get("connections")
     connections = {
         str(key): int(value)
@@ -248,13 +264,9 @@ def _edge_stats(host: HostRun) -> EdgeStats:
         collected_at = datetime.fromisoformat(str(collected)) if collected else None
     except ValueError:
         collected_at = None
-    return EdgeStats(
+    return EdgeConnections(
         host=host.host,
         collected_at=collected_at,
         nginx_reachable=bool(document.get("nginx_reachable")),
         connections=connections,
-        sites=tuple(
-            SiteCacheStats(site=name, outcomes=counts)
-            for name, counts in sorted(outcomes.items())
-        ),
     )

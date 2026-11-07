@@ -1,4 +1,4 @@
-"""Purges and statistics as queued operations: their kinds, payloads and runs.
+"""Purges and connection readings as queued operations: their kinds, payloads and runs.
 
 The HTTP API queues these for the worker; the CLI calls the service directly.
 A payload is JSON naming the operator and the request; a run returns the same
@@ -14,17 +14,17 @@ from blitzecdn.capabilities.cache.domain import PurgeEntry
 from blitzecdn.capabilities.cache.service.cache import CacheService
 
 __all__ = [
+    "CONNECTIONS_OPERATION",
     "OPERATION_KINDS",
     "PURGE_OPERATION",
-    "STATS_OPERATION",
+    "connections_payload",
     "operation_handlers",
     "purge_payload",
-    "stats_payload",
 ]
 
 PURGE_OPERATION = "cache.purge"
-STATS_OPERATION = "cache.stats"
-OPERATION_KINDS = (PURGE_OPERATION, STATS_OPERATION)
+CONNECTIONS_OPERATION = "cache.connections"
+OPERATION_KINDS = (PURGE_OPERATION, CONNECTIONS_OPERATION)
 
 
 def purge_payload(
@@ -42,7 +42,7 @@ def purge_payload(
     }
 
 
-def stats_payload(operator: str, *, host_limit: str | None) -> dict[str, Any]:
+def connections_payload(operator: str, *, host_limit: str | None) -> dict[str, Any]:
     return {"operator": operator, "host_limit": host_limit}
 
 
@@ -60,10 +60,10 @@ def operation_handlers(
         )
         return result.model_dump(mode="json")
 
-    def stats(payload: Mapping[str, Any]) -> dict[str, Any]:
-        report = cache.cache_stats(
+    def connections(payload: Mapping[str, Any]) -> dict[str, Any]:
+        report = cache.connections(
             str(payload["operator"]), host_limit=payload.get("host_limit")
         )
         return report.model_dump(mode="json")
 
-    return {PURGE_OPERATION: purge, STATS_OPERATION: stats}
+    return {PURGE_OPERATION: purge, CONNECTIONS_OPERATION: connections}

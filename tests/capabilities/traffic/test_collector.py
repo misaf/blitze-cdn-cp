@@ -153,3 +153,35 @@ def test_missing_directory_and_symlinks_are_reported(tmp_path, collector, record
     target.write_bytes(record())
     (tmp_path / "api.example.com.access.log").symlink_to(target)
     assert collect(collector, tmp_path)["errors"]
+
+
+def test_cache_outcomes_partition_each_hourly_bucket(tmp_path, collector, record):
+    """Each record lands under exactly one outcome, in the same pass and cursor."""
+    (tmp_path / "api.example.com.access.log").write_bytes(
+        record(cache_status="HIT", bytes_sent=1000)
+        + record(cache_status="HIT", bytes_sent=500)
+        + record(cache_status="MISS", bytes_sent=200)
+        + record(cache_status="")
+        + record()
+        # Not a value nginx's $upstream_cache_status produces: never consulted.
+        + record(cache_status="HIT from upstream-squid")
+        + record(cache_status=["HIT"])
+    )
+    result = collect(collector, tmp_path)
+    assert not result["errors"]
+    (bucket,) = result["batches"][0]["buckets"]
+    assert bucket["cache"] == {
+        "HIT": {"requests": 2, "bytes_sent": 1500},
+        "MISS": {"requests": 1, "bytes_sent": 200},
+        "NONE": {"requests": 4, "bytes_sent": 480},
+    }
+    assert bucket["requests"] == 7
+    assert bucket["bytes_sent"] == 2180
+
+
+def test_the_budget_bounds_and_defaults(tmp_path, collector, record):
+    (tmp_path / "api.example.com.access.log").write_bytes(record())
+    assert not collect(collector, tmp_path, max_bytes=1024**3)["errors"]
+    for bad in (65535, 1024**3 + 1, "big"):
+        with pytest.raises(ValueError, match="max_bytes"):
+            collect(collector, tmp_path, max_bytes=bad)
