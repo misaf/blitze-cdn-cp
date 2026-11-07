@@ -139,6 +139,43 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     )
 
 
+def _normalized_encoding(header: str) -> str:
+    """Evaluate the core map as Nginx does: first matching regex, else default."""
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    body = core.split("map $http_accept_encoding $blitzecdn_accept_encoding {")[1]
+    entries = re.findall(
+        r'^\s*"~\*(.+)"\s+"(br|gzip)";\s*$', body.split("}\n")[0], re.M
+    )
+    assert [value for _, value in entries] == ["br", "gzip"]
+    for pattern, value in entries:
+        if re.search(pattern, header, re.IGNORECASE):
+            return value
+    return ""
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("gzip, deflate, br", "br"),
+        ("BR", "br"),
+        ("br;q=0.5, gzip", "br"),
+        ("deflate, gzip;q=0.8", "gzip"),
+        ("x-br, gzip", "gzip"),
+        ("deflate", ""),
+        ("", ""),
+        # Refused codings are not asked for: the origin would answer with them.
+        ("br;q=0, gzip;q=1", "gzip"),
+        ("br; q=0.000 , gzip", "gzip"),
+        ("br;level=1;q=0, gzip", "gzip"),
+        ("gzip;q=0", ""),
+        ("br;q=0, gzip;q=0", ""),
+        ("br;q=0.001", "br"),
+    ],
+)
+def test_the_encoding_map_asks_for_one_coding_the_visitor_accepts(header, expected):
+    assert _normalized_encoding(header) == expected
+
+
 def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
     """Execute the role's key calculation, including its Jinja loops."""
     ansible = shutil.which("ansible-playbook") or str(
