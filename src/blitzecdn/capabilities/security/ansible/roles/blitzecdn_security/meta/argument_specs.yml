@@ -36,7 +36,7 @@ argument_specs:
         required: true
         description: >-
           Proof-of-work difficulty of the browser challenge, in leading zero
-          bits of a SHA-256 hash; between 8 and 24.
+          bits of a SHA-256 hash; between 8 and 20.
       blitzecdn_security_under_attack_secret:
         type: str
         required: true
