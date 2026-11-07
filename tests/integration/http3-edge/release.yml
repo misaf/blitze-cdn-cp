@@ -20,7 +20,6 @@ blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_edge_http3_enabled: true
 blitzecdn_nginx_http3_listener_owner: site-one-test
 blitzecdn_geoip_enabled: true
-blitzecdn_geoip_update_enabled: false
 blitzecdn_geoip_edition: GeoIP2-Country-Test
 blitzecdn_security_under_attack_enabled: true
 # The config-test container has no network, so keep origin lookup deferred

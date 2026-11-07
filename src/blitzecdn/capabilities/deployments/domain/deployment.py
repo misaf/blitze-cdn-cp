@@ -22,6 +22,8 @@ class DeploymentRequirementKind(StrEnum):
     """
 
     CERTIFICATES = "certificates"
+    #: The controller holds a GeoIP database no release has shipped yet.
+    GEOIP_DATABASE = "geoip_database"
 
 
 class DeploymentStatus(StrEnum):

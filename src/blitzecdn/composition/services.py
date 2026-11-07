@@ -18,6 +18,7 @@ from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
+from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     ServingVerifier,
@@ -53,6 +54,13 @@ from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.releases.wiring import build_release_service
+from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
+from blitzecdn.capabilities.security.geoip.service import GeoIpService
+from blitzecdn.capabilities.security.geoip.settings import (
+    CONFIGURATION as GEOIP_CONFIGURATION,
+)
+from blitzecdn.capabilities.security.geoip.settings import GeoIpConfig
+from blitzecdn.capabilities.security.geoip.wiring import build_geoip_service
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
@@ -177,6 +185,7 @@ class ServiceProvider(Provider):
         features: FeatureRegistry,
         capability_config: ResolvedCapabilityEnvironment,
         certificate_store: CertificateStore,
+        geoip_store: DatabaseStore,
     ) -> Rendering[CdnSite]:
         """What every feature renders into a release, from configuration and
         adapters only."""
@@ -185,6 +194,7 @@ class ServiceProvider(Provider):
                 RenderingInputs(
                     capability_config=capability_config,
                     certificate_store=certificate_store,
+                    geoip_store=geoip_store,
                 )
             )
         )
@@ -410,6 +420,36 @@ class ServiceProvider(Provider):
             deployments=deployments,
         )
 
+    # -- GeoIP: one download per controller, shipped like release material.
+
+    @provide
+    def geoip_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> GeoIpConfig:
+        return capability_config.for_feature(GEOIP_CONFIGURATION.feature).as_model(
+            GeoIpConfig
+        )
+
+    @provide
+    def geoip(
+        self,
+        repository: Repository,
+        config: GeoIpConfig,
+        store: DatabaseStore,
+        releases: ReleaseService,
+        runner: FleetRunner,
+    ) -> GeoIpService:
+        requirements = repository.deployment_requirements
+        return build_geoip_service(
+            config=config,
+            store=store,
+            lock=runner,
+            require_deployment=lambda: requirements.require(
+                DeploymentRequirementKind.GEOIP_DATABASE
+            ),
+            releases=releases,
+        )
+
     # -- contributed jobs and the queue's runner ----------------------------
 
     @provide
@@ -425,6 +465,8 @@ class ServiceProvider(Provider):
         queue_ready: QueueReadiness,
         traffic: TrafficService,
         traffic_config: TrafficConfig,
+        geoip: GeoIpService,
+        geoip_config: GeoIpConfig,
     ) -> Operations:
         """Contributed jobs close over services, so they bind once every
         service exists."""
@@ -441,6 +483,8 @@ class ServiceProvider(Provider):
                     traffic=traffic,
                     traffic_config=traffic_config,
                     has_edges=lambda: bool(repository.edges.list_edges()),
+                    geoip=geoip,
+                    geoip_config=geoip_config,
                 )
             )
         )

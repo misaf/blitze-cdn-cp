@@ -1,9 +1,0 @@
----
-# No Nginx reload here: what this role contributes to the configuration reaches
-# the edge through the release blitzecdn_config_release activates. What is here
-# is the one thing that is genuinely this role's — systemd needs telling when
-# the units this role wrote are removed.
-- name: Reload systemd after a GeoIP change
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: not ansible_check_mode

@@ -8,10 +8,6 @@
 blitzecdn_edge_stack_image_pull: false
 blitzecdn_firewall_enabled: true
 blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
-# The runner has no MaxMind credentials, and the test installs a MaxMind sample
-# database by hand. Without these the role would try to fetch one.
-blitzecdn_geoip_account_id: ''
-blitzecdn_geoip_license_key: ''
 # A credential, so it reaches the edge as a runner variable and never as part
 # of the release. The script generates it on the edge host.
 blitzecdn_security_under_attack_secret: >-

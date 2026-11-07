@@ -96,11 +96,13 @@ def resolve_capability_environment(
     claims (``FeatureError``), and an unusable value (``ConfigurationError``).
     ``configured`` is the environment and the 0600 ``.env``; ``from_file`` is
     ``blitzecdn.toml``. A setting may come from either, the environment winning; a
-    secret only from the first. Only secrets are forwarded to Ansible.
+    secret only from the first. Only secrets are forwarded to Ansible, and only
+    those a capability has not kept to the controller.
     """
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}
     secrets: set[str] = set()
+    forwarded: set[str] = set()
     for contribution in sorted(contributions, key=lambda item: item.feature):
         for name in _claimed_names(contribution):
             if not name.startswith("BLITZE_"):
@@ -115,6 +117,9 @@ def resolve_capability_environment(
                 )
             owners[name] = contribution.feature
         secrets.update(key.name for key in contribution.environment_keys)
+        forwarded.update(
+            key.name for key in contribution.environment_keys if key.ansible
+        )
         declared[contribution.feature] = contribution
     unknown = sorted((set(configured) | set(from_file)) - owners.keys())
     if unknown:
@@ -142,7 +147,9 @@ def resolve_capability_environment(
     }
     # Secrets only: forwarding staged settings would send the subset that
     # happened to be set rather than the resolved values.
-    environment = {key: configured[key] for key in sorted(configured) if key in secrets}
+    environment = {
+        key: configured[key] for key in sorted(configured) if key in forwarded
+    }
     return ResolvedCapabilityEnvironment(environment=environment, configs=configs)
 
 

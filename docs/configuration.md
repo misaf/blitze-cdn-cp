@@ -7,7 +7,7 @@ settings live beside their owner:
 | --- | --- |
 | Certificates and Automatic SSL | `capabilities/tls/settings.py` |
 | Under Attack Mode | `capabilities/security/settings.py` |
-| MaxMind credentials | `capabilities/security/geoip/settings.py` |
+| MaxMind credentials and GeoIP refresh | `capabilities/security/geoip/settings.py` |
 | Backup location and retention | `capabilities/backup/settings.py` |
 
 These are application settings. Database-managed domain policy, cache policy,
@@ -34,7 +34,8 @@ backup_dir = "backups"
 
 Secrets may come from the environment or `.env`, never TOML. Values remain
 masked as `SecretStr`, and only declared capability secrets are forwarded to
-Ansible. API credentials are never forwarded. Unknown names and duplicate
+Ansible. API credentials are never forwarded, and neither are the MaxMind
+credentials, which only the controller itself uses. Unknown names and duplicate
 ownership are refused during composition.
 
 A blank non-secret capability value selects its model default. It still takes

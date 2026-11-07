@@ -38,6 +38,9 @@ class BackupComponent(StrEnum):
     ACME = "acme"
     #: Configuration, secrets and the SSH key every edge trusts.
     CONFIG = "config"
+    #: GeoIP databases retained releases pin. MaxMind serves only the newest,
+    #: so a rollback to an older release cannot download its file again.
+    GEOIP_DATABASES = "geoip_databases"
 
 
 class BackupManifest(BaseModel):

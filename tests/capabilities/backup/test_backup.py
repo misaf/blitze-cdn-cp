@@ -70,7 +70,9 @@ def _backup_dir(settings):
 # --- fixtures ---------------------------------------------------------
 
 
-def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> None:
+def _populate(
+    settings, *, database=True, tls=True, acme=True, config=True, geoip=True
+) -> None:
     """Give a controller the state a disaster-recovery backup has to capture."""
     if database:
         store = Repository(settings.database_path)
@@ -107,6 +109,12 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
         settings.state_dir.mkdir(parents=True, exist_ok=True)
         (settings.state_dir / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
         (settings.state_dir / "id_ed25519.pub").write_text("PUBLIC", encoding="utf-8")
+    if geoip:
+        root = settings.state_dir / "geoip-databases"
+        root.mkdir(parents=True, exist_ok=True)
+        digest = "ab" * 32
+        (root / f"GeoLite2-Country-{digest}.mmdb").write_bytes(b"DATABASE")
+        (root / "current").write_text(f"{digest}\n", encoding="ascii")
 
 
 @pytest.fixture
@@ -183,12 +191,18 @@ def test_the_filename_is_readable_utc(populated):
 def test_a_full_backup_takes_every_component_that_exists(service, populated):
     archive = service.create()
     assert archive.parent == _backup_dir(populated)
-    assert _manifest(archive)["components"] == ["acme", "config", "database", "tls"]
+    assert _manifest(archive)["components"] == [
+        "acme",
+        "config",
+        "database",
+        "geoip_databases",
+        "tls",
+    ]
 
 
 def test_a_full_backup_skips_a_component_with_nothing_in_it(settings):
     """A controller that has never issued a certificate still has a backup."""
-    _populate(settings, tls=False, acme=False)
+    _populate(settings, tls=False, acme=False, geoip=False)
     archive = build_backup_service(
         settings,
         configuration=load_registry().configuration_contributions(),
@@ -542,6 +556,7 @@ def test_a_full_backup_restores_every_component(populated):
         "acme",
         "config",
         "database",
+        "geoip_databases",
         "tls",
     ]
     assert populated.database_path.is_file()

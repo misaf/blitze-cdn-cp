@@ -249,8 +249,7 @@ def run_role_tasks(
         | {
             "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-local"),
             "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
-            # Capability roles use the same collections as core's (`community.docker`
-            # runs the updater container).
+            # Capability roles use the same collections as core's.
             "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
         },
     )

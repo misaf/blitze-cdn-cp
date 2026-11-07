@@ -2,7 +2,7 @@ blitzecdn	command	blitzecdn ansible roles-path
 blitzecdn	command	blitzecdn ansible slots
 blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False
 blitzecdn	command	blitzecdn backup commit-restore
-blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
+blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config,geoip_databases] --output/-o type=path
 blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
 blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
@@ -50,6 +50,7 @@ blitzecdn	command	blitzecdn edge list	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge remove	<name> type=str required --yes/-y type=boolean default=False --decommission/--no-decommission type=boolean default=True --force type=boolean default=False
 blitzecdn	command	blitzecdn edge update	<name> type=str required --host type=str --user type=str --port type=int range --private-key-file type=str --public-address type=str --ssh-source type=str --capability type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn features	--json type=boolean default=False
+blitzecdn	command	blitzecdn geoip update	--json type=boolean default=False
 blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
