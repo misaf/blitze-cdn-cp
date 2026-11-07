@@ -39,6 +39,31 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "traffic_cache_hours",
+        sa.Column("edge", sa.String(), nullable=False),
+        sa.Column("hostname", sa.String(), nullable=False),
+        sa.Column("hour", sa.String(), nullable=False),
+        sa.Column("outcome", sa.String(), nullable=False),
+        sa.Column("requests", sa.Integer(), nullable=False),
+        sa.Column("bytes_sent", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "requests > 0 AND bytes_sent >= 0",
+            name="traffic_cache_hours_counters_check",
+        ),
+        sa.CheckConstraint(
+            "outcome IN ('HIT', 'STALE', 'UPDATING', 'REVALIDATED', "
+            "'MISS', 'EXPIRED', 'BYPASS', 'NONE')",
+            name="traffic_cache_hours_outcome_check",
+        ),
+        sa.ForeignKeyConstraint(
+            ["edge", "hostname", "hour"],
+            ["traffic_hours.edge", "traffic_hours.hostname", "traffic_hours.hour"],
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("edge", "hostname", "hour", "outcome"),
+    )
+
+    op.create_table(
         "traffic_cursors",
         sa.Column("edge", sa.String(), nullable=False),
         sa.Column("stream_id", sa.String(), nullable=False),
@@ -97,5 +122,7 @@ def downgrade() -> None:
     op.drop_table("traffic_retention")
 
     op.drop_table("traffic_cursors")
+
+    op.drop_table("traffic_cache_hours")
 
     op.drop_table("traffic_hours")

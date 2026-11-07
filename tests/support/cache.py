@@ -28,12 +28,3 @@ def purges(fake: FakeRunner) -> list[tuple[tuple[PurgeEntry, ...], bool, str | N
             )
         )
     return purged
-
-
-def stats_limits(fake: FakeRunner) -> list[str | None]:
-    """The host limit each statistics run was asked for."""
-    return [
-        limit
-        for name, _playbook, _variables, limit in fake.playbooks
-        if name == "stats"
-    ]

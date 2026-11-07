@@ -46,6 +46,12 @@ def seed(store):
                                 requests=hour + 1,
                                 bytes_sent=2**53 + 1,
                                 body_bytes_sent=100,
+                                cache={"HIT": {"requests": 1, "bytes_sent": 2**53 + 1}}
+                                if not hour
+                                else {
+                                    "HIT": {"requests": hour, "bytes_sent": 2**53},
+                                    "MISS": {"requests": 1, "bytes_sent": 1},
+                                },
                             )
                             for hour in range(3)
                             for hostname in ("api.example.com", "example.com")

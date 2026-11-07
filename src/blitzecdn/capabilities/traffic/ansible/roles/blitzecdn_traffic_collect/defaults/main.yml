@@ -1,5 +1,6 @@
 ---
 # Must match the edge runtime's log root with /domains appended.
 blitzecdn_traffic_collect_log_directory: /var/log/nginx/domains
-blitzecdn_traffic_collect_max_bytes: 4194304
+# The control plane passes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES on every run.
+blitzecdn_traffic_collect_max_bytes: 268435456
 blitzecdn_traffic_collect_checkpoints: {}

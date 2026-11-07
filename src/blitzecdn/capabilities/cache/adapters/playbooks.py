@@ -45,7 +45,7 @@ class CachePlaybooks:
             host_limit=host_limit,
         )
 
-    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
+    def run_connections(self, *, host_limit: str | None = None) -> AnsibleRun:
         return self._fleet.run_playbook(
             name="stats",
             playbook=ansible.STATS_PLAYBOOK,

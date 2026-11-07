@@ -40,5 +40,6 @@ class TrafficRunner(Protocol):
         self,
         checkpoints: dict[str, tuple[LogCursor, ...]],
         *,
+        max_bytes: int,
         host_limit: str | None = None,
     ) -> AnsibleRun: ...
