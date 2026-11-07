@@ -580,6 +580,22 @@ def test_a_changed_dns_record_ends_the_backoff(settings):
     assert attempt.site == site_name
 
 
+def test_a_first_deployment_ends_the_backoff(settings, monkeypatch):
+    preflight = FakePreflight(("deployed",))
+    control, _clock, _site_name = _backing_off(settings, preflight)
+    control.certificates.reconcile_certificates("timer")
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 1
+
+    monkeypatch.setattr(
+        control.certificates.deployments, "site_is_deployed", lambda name: True
+    )
+    control.certificates.reconcile_certificates("timer")
+
+    assert len(preflight.calls) == 2
+    assert preflight.calls[-1][1] is True
+
+
 def test_a_passing_preflight_forgets_the_backoff(settings, certificate_pair):
     class FakeIssuer:
         def issue(self, site, email):
