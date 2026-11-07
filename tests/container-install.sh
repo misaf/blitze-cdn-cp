@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # Run the whole installer lifecycle against a throwaway container.
 #
-#   tests/container-install.sh ubuntu:26.04
+#   tests/container-install.sh ubuntu:26.04 [all|lifecycle|rollback]
 #
 # The only test that runs `install.sh standalone` for real: systemd as PID 1,
 # real apt, real accounts. A standalone host is also an edge, so it must meet
 # the narrower edge platform; CI runs Ubuntu only.
+#
+# The suite picks the stages after the install, which both share:
+#
+#   lifecycle  edge convergence, ACME, backup and restore, re-install, the
+#              update refusal, and uninstall
+#   rollback   the documented way back to a backup: full backup, uninstall,
+#              standalone again, restore
+#   all        rollback, then lifecycle on the restored host (the default)
+#
+# CI runs lifecycle and rollback as separate jobs, side by side.
 #
 # Requires Docker and about five minutes per image. With DIAGNOSTICS_DIR set,
 # a failed run leaves the host's journal and container logs there.
@@ -19,7 +29,12 @@
 #                                built with `blitzecdn edge image spec`
 set -Eeuo pipefail
 
-readonly IMAGE=${1:?usage: container-install.sh IMAGE}
+readonly IMAGE=${1:?usage: container-install.sh IMAGE [all|lifecycle|rollback]}
+readonly SUITE=${2:-all}
+case ${SUITE} in
+  all|lifecycle|rollback) ;;
+  *) printf 'unknown suite: %s (all, lifecycle or rollback)\n' "${SUITE}" >&2; exit 2 ;;
+esac
 readonly ADMIN_CIDR=203.0.113.8/32
 readonly ACME_EMAIL=ops@example.com
 # The API access list, and the one a later run repoints it to. Neither contains
@@ -199,6 +214,100 @@ in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname)
 # working.
 in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
   fail "the API stopped answering on loopback"
+
+# The HTTP status of an authenticated API read with the operator key the host's
+# environment file holds now. The key never leaves the container.
+# shellcheck disable=SC2016
+api_status_with_current_key() {
+  in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env | head -1)
+    curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${key}" http://127.0.0.1:8000/v3/edges'
+}
+
+# Everything a rollback must bring back, as one comparable document: the
+# configuration and credential files by digest, and the database-backed fleet
+# settings, zones and edges in full.
+control_plane_state() {
+  in_container 'cd / && sha256sum /etc/blitzecdn/blitzecdn.env /etc/blitzecdn/blitzecdn.toml &&
+    blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
+}
+
+if [[ ${SUITE} != lifecycle ]]; then
+  say "Rolling back to a backup through a reinstall"
+  # `update` never moves backwards and `standalone` refuses another release, so
+  # going back is the documented recovery: uninstall, which keeps the backups,
+  # install the release to return to, and restore the full backup taken before.
+  # The release here is the commit under test on both sides; returning across
+  # releases is the same steps with the older installer.
+  rollback_backup=/var/backups/blitzecdn/before-rollback.tar.gz
+
+  # State a fresh install would not have, in each place it lives: a fleet
+  # setting, a zone with a record and a second edge in the database, and a
+  # marker in the host's configuration file.
+  in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
+    fail "could not seed a fleet setting"
+  in_container 'cd / && blitzecdn domain add rollback.example.org &&
+    blitzecdn record add rollback.example.org www --value 127.0.0.1' ||
+    fail "could not seed a zone"
+  in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 >/dev/null' ||
+    fail "could not register a second edge"
+  in_container 'printf "\n# rollback marker\n" >> /etc/blitzecdn/blitzecdn.toml' ||
+    fail "could not mark the configuration file"
+  # Configuration is read at start; recreate so the services run what is saved.
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+    up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
+    fail "the control plane did not come back with the marked configuration"
+  saved_state=$(control_plane_state) || fail "could not read the state to roll back to"
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "the API refused its own operator key before the rollback"
+
+  in_container "cd / && blitzecdn backup create -o ${rollback_backup}" ||
+    fail "the backup to roll back to failed"
+
+  in_container 'blitzecdn-install --uninstall --yes' ||
+    fail "the uninstall before reinstalling failed"
+  in_container 'test ! -e /etc/blitzecdn' || fail "the uninstall left /etc/blitzecdn"
+  in_container "test -s ${rollback_backup}" ||
+    fail "the uninstall did not keep the backup a rollback needs"
+
+  # The downloaded installer and image archive, exactly as the first install.
+  in_container "cd / && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar /root/install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}" ||
+    fail "the reinstall failed"
+  # A fresh installation, so the restore below is what brings the state back.
+  [[ $(control_plane_state) != "${saved_state}" ]] ||
+    fail "the reinstall already had the saved state, so the restore proves nothing"
+
+  in_container "cd / && blitzecdn backup restore ${rollback_backup} --yes" ||
+    fail "restoring the backup after the reinstall failed"
+  for service in blitzecdn-api blitzecdn-worker; do
+    in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
+      fail "${service} is not healthy after the rollback"
+  done
+  in_container "docker inspect -f '{{.Config.Image}}' blitzecdn-api | grep -qF '${pinned_image}'" ||
+    fail "the API does not run the installed image after the rollback"
+  restored_state=$(control_plane_state) || fail "could not read the restored state"
+  [[ ${restored_state} == "${saved_state}" ]] || {
+    diff <(printf '%s\n' "${saved_state}") <(printf '%s\n' "${restored_state}") || true
+    fail "the rollback did not restore configuration, credentials, zones and edges"
+  }
+  in_container "grep -qx 'BLITZE_ALLOWED_IPS=${ALLOWED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
+    fail "the rollback lost the API access list"
+  # The restored credential is the one the running API accepts.
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "the API does not accept the restored operator key"
+  in_container 'cd / && blitzecdn doctor --json >/dev/null' ||
+    fail "doctor fails after the rollback"
+
+  if [[ ${SUITE} == rollback ]]; then
+    printf '\nPASS: %s completed install and rollback\n' "${IMAGE}"
+    exit 0
+  fi
+
+  # The lifecycle stages below expect a host with only the local edge: the
+  # second one has no machine behind it, and a deploy would try to reach it.
+  in_container 'cd / && blitzecdn edge remove edge-rollback --no-decommission --yes >/dev/null &&
+    blitzecdn domain remove rollback.example.org --yes >/dev/null' ||
+    fail "could not remove the rollback fixtures"
+fi
 
 say "Isolating manual certificate operations from scheduled reconciliation"
 # This harness requests and renews certificates explicitly. The worker's first
