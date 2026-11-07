@@ -79,6 +79,29 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
     assert detail.json()["error"].startswith("the controller restarted")
 
 
+def test_an_interrupted_workflow_is_acknowledged_once(settings):
+    repository = Repository(settings.database_path)
+    workflow = repository.workflows.create(
+        "interrupted", "certificate", "alice", "example-com"
+    )
+    headers = {"X-API-Key": "x" * 32}
+
+    with TestClient(control_plane_app(settings)) as client:
+        path = f"/v3/workflows/{workflow.id}/acknowledge"
+        assert client.post(path).status_code == 401
+        acknowledged = client.post(path, headers=headers)
+        again = client.post(path, headers=headers)
+        missing = client.post("/v3/workflows/nope/acknowledge", headers=headers)
+
+    assert acknowledged.status_code == 200
+    assert acknowledged.json()["status"] == "reviewed"
+    assert acknowledged.json()["error"].startswith("the controller restarted")
+    assert acknowledged.json()["steps"][-1]["name"] == "reviewed"
+    assert again.status_code == 409
+    assert missing.status_code == 404
+    assert repository.audit_log.list_audit_events(1)[0].action == "workflow.reviewed"
+
+
 def test_domain_and_record_crud_and_errors(
     settings, domain_payload, record_create_payload
 ):

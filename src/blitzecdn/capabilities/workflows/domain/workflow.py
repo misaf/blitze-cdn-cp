@@ -33,6 +33,8 @@ class WorkflowStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     NEEDS_REVIEW = "needs_review"
+    #: An operator acknowledged a NEEDS_REVIEW workflow; only now may it be pruned.
+    REVIEWED = "reviewed"
 
 
 class WorkflowStep(BaseModel):

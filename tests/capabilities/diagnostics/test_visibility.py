@@ -137,7 +137,9 @@ def test_status_cli_uses_the_same_service(settings, monkeypatch):
 def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog):
     repository = Repository(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "operator", "site-a")
-    coordinator = WorkflowCoordinator(journal=repository.workflows, uow=repository)
+    coordinator = WorkflowCoordinator(
+        journal=repository.workflows, uow=repository, events=repository.audit_log
+    )
     coordinator.reconcile_interrupted()
     (warning,) = [
         record for record in caplog.records if "recovery review" in record.message

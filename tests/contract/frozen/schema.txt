@@ -20,7 +20,7 @@ blitzecdn	check	traffic_cursors.traffic_cursors_offset_check	offset > 0
 blitzecdn	check	traffic_hours.traffic_hours_counters_check	requests > 0 AND bytes_sent >= 0 AND body_bytes_sent >= 0
 blitzecdn	check	traffic_retention.traffic_retention_singleton	id = 1
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
-blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
+blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review', 'reviewed')
 blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
 blitzecdn	check	zone_rules.zone_rules_name_nonempty_check	length(name) > 0
 blitzecdn	check	zone_rules.zone_rules_priority_check	priority BETWEEN 1 AND 1000
