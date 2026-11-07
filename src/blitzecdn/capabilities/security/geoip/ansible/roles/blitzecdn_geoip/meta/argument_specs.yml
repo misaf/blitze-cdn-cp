@@ -41,11 +41,7 @@ argument_specs:
         required: true
         description: >-
           Where the controller keeps its databases, under its state directory.
-      blitzecdn_geoip_database_source:
-        type: path
-        required: true
-        description: >-
-          The controller's copy of the pinned database, named by its digest.
+
       blitzecdn_geoip_edition: {type: str, required: true}
       blitzecdn_geoip_directory: {type: path, required: true}
       blitzecdn_geoip_database: {type: path, required: true}

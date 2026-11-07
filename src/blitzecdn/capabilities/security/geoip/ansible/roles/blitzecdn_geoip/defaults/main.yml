@@ -30,11 +30,12 @@ blitzecdn_geoip_enabled: false
 # which the control plane hands every run as BLITZE_STATE_DIR. Only the digest
 # is in the release, so a controller restored to another directory renders the
 # same release and can still roll back to it.
+#
+# The file name is derived inside the task block that runs only when a digest
+# is pinned: argument validation renders every default, and one naming the
+# digest would fail on a controller that has no database yet.
 blitzecdn_geoip_controller_directory: >-
   {{ lookup('env', 'BLITZE_STATE_DIR') }}/geoip-databases
-blitzecdn_geoip_database_source: >-
-  {{ blitzecdn_geoip_controller_directory }}/GeoLite2-Country-{{
-  blitzecdn_geoip_database_sha256 }}.mmdb
 
 # Country is all the firewall rules and the BZ-IPCountry header need.
 # GeoLite2-City is far larger and buys nothing here.

@@ -156,7 +156,6 @@ blitzecdn	variable	blitzecdn_geoip.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_controller_directory	type=path required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_database	type=path required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_database_sha256	type=str
-blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_database_source	type=path required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_directory	type=path required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_edition	type=str required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_enabled	type=bool required
