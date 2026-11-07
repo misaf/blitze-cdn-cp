@@ -77,6 +77,15 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "edge remove", "DELETE /v3/edges/{name}", ""),
     (
         "blitzecdn",
+        "edge host-key",
+        None,
+        "trusting an edge's SSH host key. It writes the controller's own "
+        "known_hosts and is a decision an operator makes against the edge's "
+        "console; an endpoint would either trust whatever answered the scan or "
+        "need the fingerprint the CLI already accepts.",
+    ),
+    (
+        "blitzecdn",
         None,
         "GET /v3/edges/{name}",
         "one edge by name; see GET /v3/hosts/{name}.",

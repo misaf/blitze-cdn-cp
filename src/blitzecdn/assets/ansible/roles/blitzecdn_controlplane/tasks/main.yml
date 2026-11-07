@@ -123,6 +123,10 @@
 # Recorded rather than trusted on first use: the controller runs SSH with
 # StrictHostKeyChecking, so the loopback keys have to be known before the first
 # deployment or it fails instead of prompting.
+# In a file of their own, which ssh_config.j2 names for the loopback pair only:
+# this task rewrites it whole on every converge, and the edges' known_hosts
+# beside it, which `blitzecdn edge add` and `edge host-key` fill, must survive
+# an update untouched.
 # Deliberately not `ssh-keyscan -H`: hashing salts each run, so the file would
 # differ every time and every converge would report a change it did not make.
 # Hashing protects the list of hosts an account connects to, and this list is
@@ -138,7 +142,19 @@
     # Sorted because ssh-keyscan does not promise an order, and an unsorted
     # write would report a change on every run.
     content: "{{ blitzecdn_controlplane_host_keys.stdout_lines | sort | join('\n') }}\n"
-    dest: "{{ blitzecdn_controlplane_state_dir }}/.ssh/known_hosts"
+    dest: "{{ blitzecdn_controlplane_state_dir }}/.ssh/known_hosts.loopback"
+    owner: "65534"
+    group: "65534"
+    mode: "0600"
+
+# Created when missing and otherwise only held to its owner and mode: the
+# content is the edges' enrolled host keys, which no converge may rewrite.
+- name: Keep the edge host keys file
+  ansible.builtin.file:
+    path: "{{ blitzecdn_controlplane_state_dir }}/.ssh/known_hosts"
+    state: touch
+    access_time: preserve
+    modification_time: preserve
     owner: "65534"
     group: "65534"
     mode: "0600"

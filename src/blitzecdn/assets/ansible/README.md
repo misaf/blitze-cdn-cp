@@ -24,8 +24,15 @@ uv run blitzecdn plan
 uv run blitzecdn deploy
 ```
 
-Use a non-root SSH user, verified host keys, and at least one trusted management
-CIDR. Managed edges must be fresh Ubuntu 26.04 LTS hosts.
+Use a non-root SSH user and at least one trusted management CIDR. Managed edges
+must be fresh Ubuntu 26.04 LTS hosts.
+
+On an installed controller, `edge add` scans the edge's SSH host key and trusts
+it only after you confirm the fingerprint, or when it matches
+`--host-key-fingerprint`. `blitzecdn edge host-key NAME` replaces it after a
+rotation. In a checkout, your own SSH client and `~/.ssh/known_hosts` verify
+edges; add each key there yourself. See "Edge SSH host keys" in
+`docs/operations.md`.
 
 Inspect the generated inventory when troubleshooting:
 

@@ -36,6 +36,7 @@ from blitzecdn.capabilities.dns.wiring import (
 )
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.edges.ports import HostKeyStore as HostKeyStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.edges.service import operations as edge_operations
 from blitzecdn.capabilities.edges.wiring import build_edge_operations_service
@@ -266,10 +267,18 @@ class ServiceProvider(Provider):
 
     @provide
     def edge_operations(
-        self, repository: Repository, edges: EdgeStorePort, runner: FleetRunner
+        self,
+        repository: Repository,
+        edges: EdgeStorePort,
+        runner: FleetRunner,
+        host_keys: HostKeyStorePort,
     ) -> EdgeOperationsService:
         return build_edge_operations_service(
-            edges=edges, runner=runner, events=repository.audit_log, uow=repository
+            edges=edges,
+            runner=runner,
+            host_keys=host_keys,
+            events=repository.audit_log,
+            uow=repository,
         )
 
     @provide

@@ -226,6 +226,7 @@ def fake_installation(root: Path) -> list[Path]:
         root / "var/lib/blitzecdn/control-plane.db",
         root / "var/lib/blitzecdn/certificates/example-cdn/fullchain-deadbeef.pem",
         root / "var/lib/blitzecdn/.ssh/known_hosts",
+        root / "var/lib/blitzecdn/.ssh/known_hosts.loopback",
         root / "var/lib/blitzecdn/.ssh/config",
         root / "var/lib/blitzecdn/acme/.well-known/acme-challenge/token",
         root / "home/deploy/.ssh/authorized_keys",

@@ -141,6 +141,39 @@ A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
 then run the standalone command of the release you want.
 
+## Edge SSH host keys
+
+The controller connects to every edge with strict host key checking and
+`BatchMode`, so it never trusts a key on first use and never prompts during a
+deploy. An edge's key has to be trusted before its first deploy:
+
+```bash
+# On the edge's own console, read the fingerprint to compare against:
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+
+# On the controller, pass it; only a matching key is trusted:
+blitzecdn edge add edge-01 --host 192.0.2.10 --ssh-source 198.51.100.0/24 \
+  --host-key-fingerprint SHA256:...
+```
+
+Without `--host-key-fingerprint`, `edge add` scans the host, prints the
+fingerprints it offers and asks before trusting them. With no terminal to ask
+on, it stops without registering the edge. `--skip-host-key` registers an edge
+whose host is not up yet; trust its key before deploying.
+
+`blitzecdn edge host-key NAME` scans a registered edge again and replaces every
+key trusted for its address. Use it after the edge's host key is rotated or the
+host is reinstalled, after `edge update --host` or `--port`, and for an edge
+registered through the API, which does not scan. It takes the same
+`--host-key-fingerprint` option and records who accepted which fingerprint in
+the audit log.
+
+The keys live in `/var/lib/blitzecdn/.ssh/known_hosts`, which a control-plane
+update never rewrites. The installer keeps the loopback keys of a standalone
+host in `known_hosts.loopback` beside it and rewrites only that file. A
+checkout without the controller's SSH configuration uses your own SSH client
+and `~/.ssh/known_hosts` instead, and `edge add` leaves host keys to it.
+
 ## Host commands and Compose
 
 The installed `blitzecdn` command runs disposable CLI containers through Docker
