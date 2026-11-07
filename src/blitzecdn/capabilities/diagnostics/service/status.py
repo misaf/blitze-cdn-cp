@@ -53,6 +53,7 @@ class DiagnosticsService:
                 )
             )
         certificates = self.certificates.certificate_statuses()
+        attempts = self.certificates.preflight_attempts()
         backup = self.backups.latest()
         return OperationalStatus(
             observed_at=now,
@@ -67,6 +68,13 @@ class DiagnosticsService:
                 renewal_due=sum(item.due_for_renewal() for item in certificates),
                 next_expiry_at=min(
                     (item.not_after for item in certificates), default=None
+                ),
+                preflight_blocked=len(attempts),
+                preflight_last_checked_at=max(
+                    (item.checked_at for item in attempts), default=None
+                ),
+                preflight_next_check_at=min(
+                    (item.next_check_at for item in attempts), default=None
                 ),
             ),
             backups=BackupStatistics(

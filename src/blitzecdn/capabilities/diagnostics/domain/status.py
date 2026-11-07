@@ -27,6 +27,13 @@ class CertificateStatistics(BaseModel):
     expiring: int
     renewal_due: int
     next_expiry_at: datetime | None
+    #: Sites waiting for a first certificate whose last preflight blocked,
+    #: typically because their hostname does not point at an edge yet.
+    preflight_blocked: int
+    #: When reconciliation last checked one of those sites, and when it will
+    #: next check the soonest; it backs off sites that keep failing.
+    preflight_last_checked_at: datetime | None
+    preflight_next_check_at: datetime | None
 
 
 class BackupStatistics(BaseModel):

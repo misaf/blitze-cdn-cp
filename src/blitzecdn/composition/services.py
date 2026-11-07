@@ -412,6 +412,7 @@ class ServiceProvider(Provider):
             # type to mypy. The behavior is the narrow protocol TLS declares.
             workflows=cast(CertificateWorkflows, workflows),
             uow=repository,
+            preflight_attempts=repository.preflight_attempts,
             clock=adapters.clock,
         )
 

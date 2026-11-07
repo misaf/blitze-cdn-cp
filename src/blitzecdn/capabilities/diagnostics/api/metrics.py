@@ -127,6 +127,11 @@ def operational_metrics(report: OperationalStatus) -> str:
         "Earliest managed certificate expiry, or zero when none exist.",
         certificates.next_expiry_at.timestamp() if certificates.next_expiry_at else 0,
     )
+    gauge(
+        "certificates_preflight_blocked",
+        "Sites waiting for a first certificate whose last preflight blocked.",
+        certificates.preflight_blocked,
+    )
     # A timestamp rather than an age, like the expiry above: the scrape is the
     # clock, so `time() - blitzecdn_backup_last_success_timestamp_seconds`
     # is the age, and a controller that never backed up reads as infinitely

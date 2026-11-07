@@ -7,6 +7,7 @@ root's services and substitutes only the named seam.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import yaml
@@ -31,8 +32,16 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
-from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
+from blitzecdn.capabilities.dns.domain import (
+    DomainPatch,
+    PatchPolicy,
+    RecordPatch,
+    RecordType,
+)
+from blitzecdn.capabilities.tls.certificates.domain import (
+    CertificateSource,
+    PreflightBackoff,
+)
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode, TlsPolicy
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import Repository
@@ -481,6 +490,136 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
     assert result.issued == ()
     assert "dns" in result.skipped[site_name]
     assert result.deployment is None
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def _backing_off(settings, preflight):
+    control = certificate_control_plane(
+        settings, runner=FakeRunner(), preflight=preflight
+    )
+    clock = _Clock()
+    control.certificates.clock = clock
+    return control, clock, seed_proxied_record(control).name
+
+
+def test_scheduled_reconcile_backs_off_a_site_that_keeps_blocking(settings):
+    preflight = FakePreflight(("dns",))
+    control, clock, site_name = _backing_off(settings, preflight)
+    interval = control.certificates.policy.preflight_backoff.interval_seconds
+
+    control.certificates.reconcile_certificates("timer")
+    first = control.certificates.preflight_attempts()
+    assert [(item.site, item.failures) for item in first] == [(site_name, 1)]
+    assert first[0].checked_at == clock.now
+    assert first[0].next_check_at == clock.now + timedelta(seconds=interval)
+
+    # The next scheduled run is one interval later and checks again ...
+    clock.now += timedelta(seconds=interval)
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 2
+    (second,) = control.certificates.preflight_attempts()
+    assert second.failures == 2
+    assert second.next_check_at == clock.now + timedelta(seconds=2 * interval)
+
+    # ... but the one after that is inside the doubled wait and does not.
+    clock.now += timedelta(seconds=interval)
+    result = control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 2
+    assert "dns" in result.skipped[site_name]
+    assert "next check after" in result.skipped[site_name]
+
+    clock.now += timedelta(seconds=interval)
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 3
+
+
+def test_preflight_backoff_is_capped_at_a_day(settings):
+    backoff = PreflightBackoff(interval_seconds=600)
+    assert backoff.delay(1) == timedelta(minutes=10)
+    assert backoff.delay(4) == timedelta(minutes=80)
+    assert backoff.delay(10) == timedelta(days=1)
+    assert backoff.delay(10_000) == timedelta(days=1)
+
+
+def test_a_forced_reconcile_checks_a_site_that_is_backing_off(settings):
+    preflight = FakePreflight(("dns",))
+    control, _clock, site_name = _backing_off(settings, preflight)
+    control.certificates.reconcile_certificates("timer")
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 1
+
+    result = control.certificates.reconcile_certificates("cli", force=True)
+
+    assert len(preflight.calls) == 2
+    assert result.skipped[site_name] == "dns: dns failed"
+
+
+def test_a_changed_dns_record_ends_the_backoff(settings):
+    preflight = FakePreflight(("dns",))
+    control, _clock, site_name = _backing_off(settings, preflight)
+    control.certificates.reconcile_certificates("timer")
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 1
+
+    control.dns.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(ttl=120), "alice"
+    )
+    control.certificates.reconcile_certificates("timer")
+
+    assert len(preflight.calls) == 2
+    (attempt,) = control.certificates.preflight_attempts()
+    # A new fingerprint starts the count again.
+    assert attempt.failures == 1
+    assert attempt.site == site_name
+
+
+def test_a_first_deployment_ends_the_backoff(settings, monkeypatch):
+    preflight = FakePreflight(("deployed",))
+    control, _clock, _site_name = _backing_off(settings, preflight)
+    control.certificates.reconcile_certificates("timer")
+    control.certificates.reconcile_certificates("timer")
+    assert len(preflight.calls) == 1
+
+    monkeypatch.setattr(
+        control.certificates.deployments, "site_is_deployed", lambda name: True
+    )
+    control.certificates.reconcile_certificates("timer")
+
+    assert len(preflight.calls) == 2
+    assert preflight.calls[-1][1] is True
+
+
+def test_a_passing_preflight_forgets_the_backoff(settings, certificate_pair):
+    class FakeIssuer:
+        def issue(self, site, email):
+            return certificate_pair((site.server_names[0],))
+
+    preflight = FakePreflight(("dns",))
+    configured = with_capability_settings(
+        settings, acme_default_email="ops@example.com"
+    )
+    control = certificate_control_plane(
+        configured,
+        runner=FakeRunner([ansible_run(host_run("edge-a"))]),
+        issuer=FakeIssuer(),
+        preflight=preflight,
+    )
+    site_name = seed_proxied_record(control).name
+    control.certificates.reconcile_certificates("timer")
+    assert control.certificates.preflight_attempts() != []
+
+    preflight.failures = ()
+    result = control.certificates.reconcile_certificates("cli", force=True)
+
+    assert result.issued == (site_name,)
+    assert control.certificates.preflight_attempts() == []
 
 
 def test_request_certificate_requires_email(settings):
