@@ -4,4 +4,11 @@ Host localhost 127.0.0.1
     IdentityFile /opt/blitzecdn/.state/id_ed25519
     IdentitiesOnly yes
     StrictHostKeyChecking yes
+    # Rewritten by the role on every converge.
+    UserKnownHostsFile /opt/blitzecdn/.state/.ssh/known_hosts.loopback
+
+# Every edge. Keys are enrolled by `blitzecdn edge add` and `edge host-key`,
+# never by a converge, so an update keeps them. No trust on first use.
+Host *
+    StrictHostKeyChecking yes
     UserKnownHostsFile /opt/blitzecdn/.state/.ssh/known_hosts

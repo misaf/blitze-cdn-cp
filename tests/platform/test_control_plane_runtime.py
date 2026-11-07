@@ -185,7 +185,12 @@ def test_container_ssh_uses_the_mounted_controller_configuration():
     )
     assert controller_config == f"{container_state}/.ssh/config"
     assert f"IdentityFile {container_state}/id_ed25519" in config
-    assert f"UserKnownHostsFile {container_state}/.ssh/known_hosts" in config
+    loopback, edges = config.split("Host *")
+    assert f"UserKnownHostsFile {container_state}/.ssh/known_hosts.loopback" in loopback
+    assert f"UserKnownHostsFile {container_state}/.ssh/known_hosts" in {
+        line.strip() for line in edges.splitlines()
+    }
+    assert "StrictHostKeyChecking yes" in edges
 
 
 def test_upgrade_recreates_containers_and_uninstall_removes_the_project():
