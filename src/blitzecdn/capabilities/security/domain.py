@@ -21,7 +21,9 @@ class EditFirewall(BaseModel):
     deny_sources: tuple[str, ...] | None = None
     allowed_countries: tuple[str, ...] | None = None
     denied_countries: tuple[str, ...] | None = None
+    allowed_methods: tuple[str, ...] | None = None
     denied_methods: tuple[str, ...] | None = None
+    allowed_paths: tuple[str, ...] | None = None
     denied_paths: tuple[str, ...] | None = None
     clear: bool = False
 

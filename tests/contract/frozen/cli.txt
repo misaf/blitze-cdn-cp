@@ -30,7 +30,7 @@ blitzecdn	command	blitzecdn domain cache	<name> type=str required --on/--off typ
 blitzecdn	command	blitzecdn domain cache-query-string	<name> type=str required --mode type=choice[include,ignore] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
-blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --deny-method type=str --deny-path type=str --clear type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --allow-method type=str --deny-method type=str --allow-path type=str --deny-path type=str --clear type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain hosts	--json type=boolean default=False
 blitzecdn	command	blitzecdn domain http3	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain list	--json type=boolean default=False

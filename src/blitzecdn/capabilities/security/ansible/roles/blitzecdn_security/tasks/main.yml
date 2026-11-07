@@ -26,10 +26,12 @@
         | list | length == 0
       - >-
         item.firewall.denied_methods | default([])
+        | union(item.firewall.allowed_methods | default([]))
         | reject('match', '^[A-Z][A-Z-]{1,19}$')
         | list | length == 0
       - >-
         item.firewall.denied_paths | default([])
+        | union(item.firewall.allowed_paths | default([]))
         | reject('match', '^/[^\\s;{}"''\\\\]*$')
         | list | length == 0
     fail_msg: "Site {{ item.name }} has invalid CDN request-security rules."
