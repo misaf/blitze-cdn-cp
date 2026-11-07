@@ -392,6 +392,8 @@ blitzecdn	schema	SettingSource.setting	string required
 blitzecdn	schema	SettingSource.value	any required
 blitzecdn	schema	SiteFirewall.allow_sources	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_countries	array[string] optional
+blitzecdn	schema	SiteFirewall.allowed_methods	array[string] optional
+blitzecdn	schema	SiteFirewall.allowed_paths	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_countries	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_methods	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_paths	array[string] optional

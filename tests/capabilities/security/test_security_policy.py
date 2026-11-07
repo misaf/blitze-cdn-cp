@@ -119,3 +119,46 @@ def test_replacing_refuses_a_list_a_firewall_does_not_have():
     """A typo that silently changed nothing would read as a rule that applied."""
     with pytest.raises(ValueError, match="no such rule list: deny_contries"):
         SiteFirewall().replacing({"deny_contries": ["DE"]})
+
+
+def test_allowing_get_also_allows_head():
+    """Nginx answers HEAD from the GET handler; refusing it breaks clients."""
+    assert SiteFirewall(allowed_methods=("get",)).allowed_methods == ("GET", "HEAD")
+    assert SiteFirewall(allowed_methods=("HEAD", "GET")).allowed_methods == (
+        "HEAD",
+        "GET",
+    )
+    assert SiteFirewall(allowed_methods=("POST",)).allowed_methods == ("POST",)
+
+
+@pytest.mark.parametrize(
+    ("rules", "message"),
+    [
+        (
+            {"allowed_methods": ("GET",), "denied_methods": ("DELETE",)},
+            "cannot both be set",
+        ),
+        ({"allowed_methods": ("GET IT",)}, "not an HTTP method"),
+        ({"allowed_paths": ("api/",)}, "allowed path 'api/' must start with '/'"),
+        ({"allowed_paths": ('/a"b',)}, "may not contain whitespace"),
+        ({"allowed_paths": ("/api/", "/api/")}, "duplicate path"),
+        ({"denied_paths": ("/",)}, "list the paths to serve in allowed_paths"),
+        (
+            {"allowed_paths": tuple(f"/{i:03d}/" + "x" * 500 for i in range(10))},
+            "too long together",
+        ),
+    ],
+)
+def test_an_allowlist_the_edge_could_not_render_is_refused(rules, message):
+    with pytest.raises(ValidationError, match=message):
+        SiteFirewall(**rules)
+
+
+def test_denied_paths_carve_out_of_allowed_paths():
+    """allow /api/, deny /api/admin: the longer `location ^~` wins at the edge."""
+    firewall = SiteFirewall(allowed_paths=("/api/",), denied_paths=("/api/admin",))
+
+    assert firewall.allowed_paths == ("/api/",)
+    assert firewall.denied_paths == ("/api/admin",)
+    assert not firewall.requires_geoip
+    assert SecurityPolicy(firewall=firewall).required_capabilities
