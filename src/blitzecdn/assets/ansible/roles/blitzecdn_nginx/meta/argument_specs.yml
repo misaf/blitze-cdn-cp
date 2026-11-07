@@ -59,6 +59,20 @@ argument_specs:
           directory it resolves against.
       blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
       blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
+      blitzecdn_nginx_upstream_keepalive:
+        type: int
+        required: true
+        description: >-
+          Idle origin connections each worker keeps per upstream group for the
+          next cache miss to reuse. 0 disables pooling.
+      blitzecdn_nginx_upstream_keepalive_timeout: {type: str, required: true}
+      blitzecdn_nginx_upstream_zone: {type: str, required: true}
+      blitzecdn_nginx_upstream_zone_size:
+        type: str
+        required: true
+        description: >-
+          Shared memory for every origin upstream group on the edge, used when
+          resolvers are set so origins re-resolve at runtime.
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}
       blitzecdn_nginx_http3_listener_owner: {type: str, required: true}
       blitzecdn_nginx_config_test_image:
