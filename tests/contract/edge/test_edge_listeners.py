@@ -16,6 +16,7 @@ from support.edge_render import (
     nginx_environment,
     nginx_resources,
     render_site,
+    rendered_upstreams,
     role_path,
     runtime_contract,
     seed_site,
@@ -189,7 +190,7 @@ def test_http3_alt_svc_follows_the_listener_not_the_origin():
     """Alt-Svc advertises the edge's own :443 on the :443 listener only."""
     site = mode_site(SslMode.FLEXIBLE, serves_tls=True, http3_enabled=True)
     rendered = render_site(site_to_ansible(site))
-    assert "http://origin.example.com:80" in rendered
+    assert "http://origin.example.com:80" in rendered_upstreams(rendered)
     assert rendered.count("add_header Alt-Svc 'h3=\":443\"; ma=86400' always;") == 1
 
 

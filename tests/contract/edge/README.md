@@ -12,6 +12,7 @@ about the boundary between the two, not either side alone.
 | `test_edge_firewall.py` | Firewall rules reaching the rendered configuration |
 | `test_edge_headers.py` | The trusted `BZ-*` visitor headers on the origin leg |
 | `test_edge_tls.py` | SSL modes, the origin leg, and each listener's upstream |
+| `test_edge_upstreams.py` | Origin upstream groups, connection pooling, and runtime resolution |
 | `test_edge_redirects.py` | Always Use HTTPS and Under Attack Mode |
 | `test_edge_features.py` | Compression, cache key, upload limits, websockets, the TLS floor |
 

@@ -216,5 +216,29 @@ def mode_site(mode: SslMode, serves_tls: bool, **extra: Any) -> CdnSite:
     return site_from_settings(payload | extra)
 
 
-def rendered_upstreams(rendered: str) -> set[str]:
-    return set(re.findall(r"set \$blitzecdn_upstream (\S+);", rendered))
+def upstream_groups(rendered: str) -> dict[str, str]:
+    """Each rendered ``upstream`` group's name and the body between its braces."""
+    return dict(re.findall(r"^upstream (\S+) \{\n(.*?)^\}", rendered, re.M | re.S))
+
+
+def rendered_upstreams(rendered: str, *, within: str | None = None) -> set[str]:
+    """Every origin a ``proxy_pass`` reaches, as ``scheme://host:port``.
+
+    Followed through the group the directive names to the address in its
+    ``server`` line, so the SSL-mode matrix is asserted against where a request
+    actually goes, not against a group name that merely encodes it. ``within``
+    narrows the directives to one server block of ``rendered``; the groups are
+    declared outside every server block, so they are always read from the file.
+    """
+    servers = {
+        name: re.search(r"^    server (\S+?)(?: resolve)?;$", body, re.M)
+        for name, body in upstream_groups(rendered).items()
+    }
+    origins: set[str] = set()
+    for scheme, name in re.findall(
+        r"proxy_pass (https?)://(\S+);", rendered if within is None else within
+    ):
+        server = servers.get(name)
+        assert server is not None, f"proxy_pass names {name}, which is not rendered"
+        origins.add(f"{scheme}://{server.group(1)}")
+    return origins
