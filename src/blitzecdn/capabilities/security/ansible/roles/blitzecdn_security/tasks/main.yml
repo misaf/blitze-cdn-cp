@@ -68,10 +68,14 @@
         or blitzecdn_security_under_attack_secret | length >= 32
       - blitzecdn_security_under_attack_passage_seconds | int >= 60
       - blitzecdn_security_under_attack_passage_seconds | int <= 86400
+      - blitzecdn_security_under_attack_difficulty_bits | int >= 8
+      - blitzecdn_security_under_attack_difficulty_bits | int <= 20
     fail_msg: >-
       Under Attack Mode requires BLITZE_UNDER_ATTACK_SECRET to contain at
-      least 32 bytes and blitzecdn_security_under_attack_passage_seconds to be
-      between 60 and 86400 seconds. Nothing was changed on this host.
+      least 32 bytes, blitzecdn_security_under_attack_passage_seconds to be
+      between 60 and 86400 seconds and
+      blitzecdn_security_under_attack_difficulty_bits to be between 8 and 20.
+      Nothing was changed on this host.
 
 - name: Provision the edge challenge capability
   when: blitzecdn_security_under_attack_enabled | bool
