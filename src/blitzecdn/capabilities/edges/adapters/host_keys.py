@@ -8,6 +8,10 @@ file it never rewrites, so what is enrolled here survives an update.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import hmac
 import os
 import subprocess
 import tempfile
@@ -75,15 +79,21 @@ class KnownHosts:
         """Replace whatever this file trusted for the host with ``keys``.
 
         Replaced, not appended: a key that rotated away would otherwise stay
-        acceptable for good. Other hosts' lines, comments, markers and hashed
-        entries are kept as they are.
+        acceptable for good. Hashed entries for the host are removed too, since
+        SSH would still accept their key. On a line that also names other
+        hosts only this host's name is dropped, so their trust is unchanged.
+        Comments, markers and every other host's lines are kept as they are.
         """
         pattern = known_hosts_pattern(host, port)
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
         except FileNotFoundError:
             lines = []
-        kept = [line for line in lines if not _names(line, pattern)]
+        kept = [
+            remaining
+            for line in lines
+            if (remaining := _without(line, pattern)) is not None
+        ]
         kept += [f"{pattern} {key.key_type} {key.key}" for key in keys]
         self._directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(
@@ -99,12 +109,46 @@ class KnownHosts:
             raise
 
 
-def _names(line: str, pattern: str) -> bool:
-    """Whether a plain (unmarked, unhashed) entry lists ``pattern`` among its hosts."""
-    fields = line.split()
-    if len(fields) < 3 or fields[0].startswith(("#", "@", "|")):
+def _is_entry(fields: list[str]) -> bool:
+    """A host-and-key line: not a comment or blank, and not ``@revoked`` or a CA."""
+    return len(fields) >= 3 and not fields[0].startswith(("#", "@"))
+
+
+def _matches(name: str, pattern: str) -> bool:
+    """Whether one host field names ``pattern``, plainly or as ``|1|salt|hash``.
+
+    A hashed name is HMAC-SHA1 of the name keyed by its salt, as
+    ``ssh-keygen -H`` and ``HashKnownHosts`` write it.
+    """
+    if not name.startswith("|1|"):
+        return name == pattern
+    parts = name.split("|")
+    if len(parts) != 4:
         return False
-    return pattern in fields[0].split(",")
+    try:
+        salt = base64.b64decode(parts[2], validate=True)
+        digest = base64.b64decode(parts[3], validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    expected = hmac.new(salt, pattern.encode(), hashlib.sha1).digest()
+    return hmac.compare_digest(expected, digest)
+
+
+def _names(line: str, pattern: str) -> bool:
+    """Whether an entry lists ``pattern`` among its hosts, hashed or not."""
+    fields = line.split()
+    return _is_entry(fields) and any(
+        _matches(name, pattern) for name in fields[0].split(",")
+    )
+
+
+def _without(line: str, pattern: str) -> str | None:
+    """``line`` with ``pattern`` taken out of its hosts; ``None`` if none remain."""
+    if not _names(line, pattern):
+        return line
+    hosts, rest = line.split(None, 1)
+    remaining = [name for name in hosts.split(",") if not _matches(name, pattern)]
+    return f"{','.join(remaining)} {rest}" if remaining else None
 
 
 def _parse(text: str, pattern: str) -> tuple[HostKey, ...]:
