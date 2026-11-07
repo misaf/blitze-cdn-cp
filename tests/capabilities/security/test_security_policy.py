@@ -147,6 +147,11 @@ def test_allowing_get_also_allows_head():
             {"allowed_paths": tuple(f"/{i:03d}/" + "x" * 500 for i in range(10))},
             "too long together",
         ),
+        (
+            # 1,508 characters but 4,511 UTF-8 bytes: Nginx counts bytes.
+            {"allowed_paths": tuple("/" + c * 500 for c in "日月火")},
+            "too long together",
+        ),
     ],
 )
 def test_an_allowlist_the_edge_could_not_render_is_refused(rules, message):
