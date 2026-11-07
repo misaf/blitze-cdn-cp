@@ -15,6 +15,7 @@ from blitzecdn.core.exceptions import FeatureError
 
 __all__ = [
     "CapabilityPolicy",
+    "HostView",
     "PolicyCheck",
     "PolicyView",
     "ResolvedPolicySchema",
@@ -50,9 +51,21 @@ class PolicyView(Protocol):
 #: ``ValueError`` so the policy's validation reports it like any other field.
 type PolicyCheck = Callable[[PolicyView], None]
 
-#: A rule that also needs the virtual host's name, so it holds for a host but
-#: not for a zone, which yields several. Raises ``ValueError`` as well.
-type SiteCheck = Callable[[str, PolicyView], None]
+
+class HostView(Protocol):
+    """What a site check may read of the virtual host besides its policy."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def origin_host(self) -> str: ...
+
+
+#: A rule that also needs the virtual host — its name or its origin — so it
+#: holds for a host but not for a zone, which yields several. Raises
+#: ``ValueError`` as well.
+type SiteCheck = Callable[[HostView, PolicyView], None]
 
 
 @dataclass(frozen=True, slots=True)

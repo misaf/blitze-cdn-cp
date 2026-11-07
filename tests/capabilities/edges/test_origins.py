@@ -22,12 +22,17 @@ from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 from blitzecdn.core.domain.site import CdnSite
 
+#: Where the test listeners bind. A real site refuses a loopback origin, which
+#: would reach the edge itself, so the probe is handed one built around it.
+_LISTENER = "127.0.0.1"
+
 
 def _site(**overrides) -> CdnSite:
+    origin = overrides.pop("origin_host", _LISTENER)
     payload = {
         "name": "example-com",
         "server_names": ["cdn.example.com"],
-        "origin_host": "127.0.0.1",
+        "origin_host": "198.51.100.10" if origin == _LISTENER else origin,
         **overrides,
     }
     if payload.get("ssl_mode", SslMode.OFF) != SslMode.OFF:
@@ -36,7 +41,10 @@ def _site(**overrides) -> CdnSite:
             "certificate_path": "/etc/ssl/certs/edge.pem",
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    return site_from_settings(payload)
+    site = site_from_settings(payload)
+    if origin == _LISTENER:
+        site = site.model_copy(update={"origin_host": _LISTENER})
+    return site
 
 
 def test_origin_reports_require_the_current_ssl_mode():
