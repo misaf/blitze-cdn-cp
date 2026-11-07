@@ -65,30 +65,6 @@ blitzecdn_nginx_http3_listener_owner: ''
 # blitzecdn_edge_stack starts, so `nginx -t` and `nginx -s reload` in this role
 # mean "in that container".
 blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
-# The mounts a configuration test needs to see, in Compose's own
-# host:container:mode form. The same set the running container gets, minus
-# nothing: a test that cannot see a certificate, runtime module or a capability's
-# data file passes against a tree the real edge would refuse. Cache and log are
-# writable because contributed resources may initialize runtime storage and
-# `nginx -t` opens the error log.
-# tests/contract/roles/ asserts this matches the Compose file.
-blitzecdn_nginx_config_test_volumes:
-  - >-
-    {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{
-      blitzecdn_edge_runtime.paths.modules_include }}:ro
-  - "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro"
-  - >-
-    {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{
-      blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
-  - "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro"
-  - "{{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
-  - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
