@@ -227,6 +227,9 @@ class DeploymentStore:
         recent_applied = (
             select(DeploymentRow.id)
             .where(DeploymentRow.check_mode.is_(False))
+            # Unfinished runs survive anyway; counting them would let a backlog
+            # of queued work push finished history out early.
+            .where(DeploymentRow.status.in_(finished))
             .order_by(*newest_first)
             .limit(keep_applied)
         )

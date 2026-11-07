@@ -702,8 +702,12 @@ def test_deployment_retention_keeps_what_a_surviving_rollback_names(settings):
 
 
 def test_deployment_retention_never_drops_an_unfinished_real_run(settings):
+    """Unfinished runs are kept apart from the bound, so they never use it up."""
     repository = Repository(settings.database_path)
     release = _release(repository)
+    finished = [
+        _finish(repository, "alice", release, DeploymentStatus.FAILED) for _ in range(3)
+    ]
     queued = repository.deployments.create_deployment(
         "alice", release_id=release.id, check_mode=False
     )
@@ -711,12 +715,10 @@ def test_deployment_retention_never_drops_an_unfinished_real_run(settings):
         "alice", release_id=release.id, check_mode=False
     )
     advance(repository.deployments, running.id, DeploymentStatus.RUNNING)
-    for _ in range(3):
-        _finish(repository, "alice", release, DeploymentStatus.FAILED)
 
     assert repository.deployments.prune_history(50, keep_applied=1) == 2
     kept = {row.id for row in repository.deployments.list_deployments(limit=100)}
-    assert {queued.id, running.id} <= kept
+    assert kept == {queued.id, running.id, finished[-1].id}
 
 
 def test_workflow_retention_never_drops_an_unfinished_one(settings):
