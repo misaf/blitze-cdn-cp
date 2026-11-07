@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.cache.adapters import CachePlaybooks
+from blitzecdn.capabilities.cache.ports import CacheUsage
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.core.ports.clock import Clock, system_clock
@@ -18,14 +19,16 @@ def build_cache_service(
     sites: SiteReader,
     events: EventRecorder,
     fleet: PlaybookRunner,
+    usage: CacheUsage,
     clock: Clock = system_clock,
 ) -> CacheService:
-    """Wire the cache capability to the fleet and the derived hosts."""
+    """Wire the cache capability to the fleet, the derived hosts and stored usage."""
     return CacheService(
         # Read-only: purging never changes desired state.
         sites=sites,
         events=events,
         runner=CachePlaybooks(fleet),
+        usage=usage,
         clock=clock,
     )
 

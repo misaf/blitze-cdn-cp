@@ -257,7 +257,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "nothing to poll.",
     ),
     ("blitzecdn", "cache purge", "POST /v3/cache/purge", ""),
-    ("blitzecdn", "cache stats", "POST /v3/cache/stats", ""),
+    ("blitzecdn", "cache stats", "GET /v3/cache/stats", ""),
+    ("blitzecdn", "cache connections", "POST /v3/cache/connections", ""),
     ("blitzecdn", "origin check", "POST /v3/origins/check", ""),
     (
         "blitzecdn",

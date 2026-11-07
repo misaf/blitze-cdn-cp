@@ -382,7 +382,8 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "traffic": set(),
     "backup": set(),
     "origins": {"edges", "jobs"},
-    "cache": {"dns", "jobs"},
+    # `traffic` because its collector counts cache outcomes in the same pass.
+    "cache": {"dns", "jobs", "traffic"},
     "compression": {"dns"},
     "deployments": {"dns", "edges", "releases", "workflows"},
     # Readiness and metrics read the state these own.
@@ -571,7 +572,7 @@ def test_no_capability_port_declares_another_capability_s_playbook():
     # Each edge playbook port belongs to the capability that runs that play.
     owners: dict[str, str | None] = {
         "run_cache_purge": "cache",
-        "run_stats": "cache",
+        "run_connections": "cache",
         "run_origin_check": "origins",
         "run_decommission": "edges",
     }

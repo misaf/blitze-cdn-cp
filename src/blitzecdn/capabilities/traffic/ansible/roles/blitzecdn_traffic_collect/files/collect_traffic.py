@@ -23,13 +23,20 @@ MAX_BATCHES = 128
 MAX_COUNTER = 2**63 - 1
 LOG_NAME = re.compile(r"^[a-z0-9_.-]+\.access\.log(?:\.\d+)?(?:\.gz)?$")
 REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
+HOSTNAME_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+#: ``$upstream_cache_status`` values. Anything else, including an empty value
+#: (the cache was never consulted), is counted as NONE: a cache label must never
+#: block the traffic it rides on.
+CACHE_OUTCOMES = frozenset(
+    {"HIT", "STALE", "UPDATING", "REVALIDATED", "MISS", "EXPIRED", "BYPASS"}
+)
 
 
 class CollectionError(ValueError):
     """A safe diagnostic containing no raw request data."""
 
 
-def usage(line: bytes) -> tuple[str, str, int, int]:
+def usage(line: bytes) -> tuple[str, str, int, int, str]:
     record = json.loads(line)
     if (
         not isinstance(record, dict)
@@ -45,10 +52,7 @@ def usage(line: bytes) -> tuple[str, str, int, int]:
     if (
         not isinstance(host, str)
         or not 1 <= len(host) <= 253
-        or not all(
-            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
-            for label in host.split(".")
-        )
+        or not all(HOSTNAME_LABEL.fullmatch(label) for label in host.split("."))
     ):
         raise CollectionError("invalid traffic hostname")
     timestamp = record.get("timestamp")
@@ -63,7 +67,10 @@ def usage(line: bytes) -> tuple[str, str, int, int]:
         type(value) is not int or not 0 <= value <= MAX_COUNTER for value in counters
     ):
         raise CollectionError("invalid traffic byte counter")
-    return host, hour, cast(int, counters[0]), cast(int, counters[1])
+    outcome = record.get("cache_status")
+    if not isinstance(outcome, str) or outcome not in CACHE_OUTCOMES:
+        outcome = "NONE"
+    return host, hour, cast(int, counters[0]), cast(int, counters[1]), outcome
 
 
 def anchor(handle: BinaryIO, offset: int) -> str:
@@ -110,7 +117,7 @@ def read_stream(
         if not line.endswith(b"\n") or consumed + len(line) > budget:
             more = True
             break
-        host, hour, sent, body = usage(line)
+        host, hour, sent, body, outcome = usage(line)
         bucket = buckets.setdefault(
             (host, hour),
             {
@@ -119,11 +126,16 @@ def read_stream(
                 "requests": 0,
                 "bytes_sent": 0,
                 "body_bytes_sent": 0,
+                "cache": {},
             },
         )
         bucket["requests"] += 1
         bucket["bytes_sent"] += sent
         bucket["body_bytes_sent"] += body
+        cache = bucket["cache"].setdefault(outcome, {"requests": 0, "bytes_sent": 0})
+        cache["requests"] += 1
+        cache["bytes_sent"] += sent
+        # Per-outcome counters are bounded by the bucket's own totals.
         if any(
             bucket[key] > MAX_COUNTER
             for key in ("requests", "bytes_sent", "body_bytes_sent")
@@ -150,9 +162,9 @@ def read_stream(
 
 def collect(document: dict[str, Any]) -> dict[str, Any]:
     directory = Path(document["log_directory"])
-    budget = document.get("max_bytes", 4 * 1024 * 1024)
-    if type(budget) is not int or not MAX_LINE_BYTES <= budget <= 64 * 1024 * 1024:
-        raise CollectionError("max_bytes must be between 65536 and 67108864")
+    budget = document.get("max_bytes", 256 * 1024 * 1024)
+    if type(budget) is not int or not MAX_LINE_BYTES <= budget <= 1024 * 1024 * 1024:
+        raise CollectionError("max_bytes must be between 65536 and 1073741824")
     checkpoints = {
         cursor["stream_id"]: cursor for cursor in document.get("checkpoints", [])
     }

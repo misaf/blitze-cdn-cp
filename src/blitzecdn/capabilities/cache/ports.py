@@ -7,9 +7,21 @@ from pathlib import Path
 from typing import Protocol
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.traffic.domain import TrafficUsage, UsageQuery
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 
-__all__ = ["CacheRunner", "FleetPlaybooks"]
+__all__ = ["CacheRunner", "CacheUsage", "FleetPlaybooks"]
+
+
+class CacheUsage(Protocol):
+    """Stored hourly counters, cache outcomes included, read without edges.
+
+    Traffic accounting owns the log cursor; counting cache outcomes in the
+    same pass means every record is counted exactly once, for both.
+    """
+
+    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]: ...
 
 
 class FleetPlaybooks(Protocol):
@@ -30,7 +42,7 @@ class FleetPlaybooks(Protocol):
 
 
 class CacheRunner(Protocol):
-    """The two plays this capability runs; statistics arrive on ``HostRun.report``."""
+    """The two plays this capability runs; counters arrive on ``HostRun.report``."""
 
     def run_cache_purge(
         self,
@@ -40,4 +52,4 @@ class CacheRunner(Protocol):
         host_limit: str | None = None,
     ) -> AnsibleRun: ...
 
-    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun: ...
+    def run_connections(self, *, host_limit: str | None = None) -> AnsibleRun: ...

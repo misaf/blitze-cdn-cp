@@ -18,7 +18,7 @@ path from the submission URL, especially for drift checks and rollbacks.
 ## Submit and poll
 
 ```http
-POST /v3/cache/stats
+POST /v3/cache/connections
 X-API-Key: YOUR_API_KEY
 Content-Type: application/json
 
@@ -54,7 +54,7 @@ server work. Polling does not resubmit the original request.
 | Submission | Polling resource | Response body |
 | --- | --- | --- |
 | `POST /v3/cache/purge` | `/v3/operations/{id}` | `Operation`; result is `PurgeResult` |
-| `POST /v3/cache/stats` | `/v3/operations/{id}` | `Operation`; result is `CacheStatsReport` |
+| `POST /v3/cache/connections` | `/v3/operations/{id}` | `Operation`; result is `ConnectionsReport` |
 | `POST /v3/origins/check` | `/v3/operations/{id}` | `Operation`; result is `OriginReport` |
 | `DELETE /v3/edges/{name}` | `/v3/operations/{id}` | `Operation`; result describes removal and decommissioning |
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |

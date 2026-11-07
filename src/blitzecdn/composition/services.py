@@ -303,11 +303,13 @@ class ServiceProvider(Provider):
         repository: Repository,
         sites: HostService,
         runner: FleetRunner,
+        traffic: TrafficService,
     ) -> CacheService:
         return build_cache_service(
             sites=sites,
             events=repository.audit_log,
             fleet=runner,
+            usage=traffic,
             clock=adapters.clock,
         )
 

@@ -26,6 +26,7 @@ def test_collector_reports_are_committed_through_the_production_service_graph(
     assert not first[0].errors
     assert service.collect("alice")[0].requests == 0
     assert fake.playbooks[-1][2]["blitzecdn_traffic_collect_checkpoints"]["edge-a"]
+    assert fake.playbooks[-1][2]["blitzecdn_traffic_collect_max_bytes"] == 256 * 2**20
     hour = datetime(2026, 10, 27, 9, tzinfo=UTC)
     rows = control.repository.traffic.hourly(
         edge="edge-a",
