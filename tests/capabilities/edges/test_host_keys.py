@@ -100,6 +100,46 @@ def test_trusting_replaces_that_host_and_keeps_every_other_line(known_hosts):
     assert known_hosts.path.stat().st_mode & 0o777 == 0o600
 
 
+#: `192.0.2.10 <FIRST>` as `ssh-keygen -H` hashed it.
+HASHED_EDGE = "|1|UOguBdvTgVNFUgY+rE64teNLRK8=|+hji3LwMPDo7yAdvFP5747mSCH8="
+
+
+def test_a_hashed_entry_for_the_host_is_replaced_too(known_hosts):
+    """SSH would still accept a hashed entry's key, so a rotation must remove it."""
+    known_hosts.path.parent.mkdir()
+    known_hosts.path.write_text(
+        f"{HASHED_EDGE} {FIRST.key_type} {FIRST.key}\n"
+        f"|1|c2FsdA==|aGFzaA== {FIRST.key_type} {FIRST.key}\n",
+        encoding="utf-8",
+    )
+    assert known_hosts.trusted("192.0.2.10", 22) == (FIRST,)
+
+    known_hosts.trust("192.0.2.10", 22, (SECOND,))
+
+    assert known_hosts.trusted("192.0.2.10", 22) == (SECOND,)
+    text = known_hosts.path.read_text(encoding="utf-8")
+    assert HASHED_EDGE not in text
+    assert "|1|c2FsdA==|aGFzaA==" in text
+
+
+def test_a_shared_line_keeps_trusting_its_other_names(known_hosts):
+    """Rotating one address must not drop an alias's trust in the old key."""
+    known_hosts.path.parent.mkdir()
+    known_hosts.path.write_text(
+        f"192.0.2.10,edge-01 {FIRST.key_type} {FIRST.key} a comment\n",
+        encoding="utf-8",
+    )
+
+    known_hosts.trust("192.0.2.10", 22, (SECOND,))
+
+    assert known_hosts.trusted("192.0.2.10", 22) == (SECOND,)
+    assert known_hosts.trusted("edge-01", 22) == (FIRST,)
+    assert (
+        f"edge-01 {FIRST.key_type} {FIRST.key} a comment"
+        in known_hosts.path.read_text(encoding="utf-8").splitlines()
+    )
+
+
 def test_trusting_a_first_host_creates_the_file(known_hosts):
     known_hosts.trust("192.0.2.10", 7845, (FIRST,))
 
