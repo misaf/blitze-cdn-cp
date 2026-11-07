@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, runtime_defaults
+from support.contracts import PROJECT_DIR, ROLE_DIR, runtime_defaults
 
 from blitzecdn.capabilities.cache import ansible
 
@@ -25,6 +25,9 @@ CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_purge"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
 STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
 NGINX_DIR = ansible.ROLES_PATH.parent.parent / "nginx"
+#: Where $blitzecdn_accept_encoding is mapped: core, because compression sends
+#: it to the origin and this capability keys by it, each without the other.
+CORE_HTTP_TEMPLATE = ROLE_DIR / "templates/http.conf.j2"
 
 
 def test_the_roles_this_capability_ships_are_where_it_says_they_are():
@@ -76,13 +79,15 @@ def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
     )
 
 
-def test_purge_role_agrees_with_the_capability_owned_nginx_resource():
-    """The cache package owns both normalization and every consumer of it."""
-    template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
+def test_purge_role_agrees_with_the_nginx_normalization():
+    """The key is purged per encoding because the core map normalizes it."""
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    upstream = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
     assert _defaults_of(CACHE_ROLE_DIR)[
         "blitzecdn_cache_purge_normalize_accept_encoding"
     ]
-    assert "$blitzecdn_accept_encoding" in template
+    assert "map $http_accept_encoding $blitzecdn_accept_encoding" in core
+    assert "$blitzecdn_accept_encoding" in upstream
 
 
 def test_stats_role_reads_the_log_the_nginx_role_writes():
@@ -125,8 +130,8 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     defaults = _defaults_of(CACHE_ROLE_DIR)
     assert set(defaults["blitzecdn_cache_purge_methods"]) == {"GET", "HEAD"}
 
-    cache_conf = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
-    mapped = set(re.findall(r'"(br|gzip)"\s*;', cache_conf)) | {""}
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    mapped = set(re.findall(r'"(br|gzip)"\s*;', core)) | {""}
     assert set(defaults["blitzecdn_cache_purge_encodings"]) == mapped, (
         "the encodings blitzecdn_cache purges differ from the ones the "
         "$blitzecdn_accept_encoding map can produce; the unlisted variant "
