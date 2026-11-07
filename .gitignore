@@ -33,6 +33,7 @@ dist/
 
 .coverage
 coverage.xml
+reports/
 htmlcov/
 
 .DS_Store
