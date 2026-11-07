@@ -16,7 +16,26 @@ REQUIRES_CAPABILITIES = {
         "geoip",
         "security",
     ),
+    "test_allowed_methods_refuse_every_other_method": ("security",),
+    "test_allowed_paths_match_the_normalized_uri_with_escaped_entries": ("security",),
+    "test_method_and_path_allowlists_combine": ("security",),
+    "test_the_acme_challenge_path_is_served_under_a_path_allowlist": ("security",),
 }
+
+
+def _render(firewall):
+    return render_site(
+        site_to_ansible(
+            site_from_settings(
+                {
+                    "name": "allow",
+                    "server_names": ["allow.example.com"],
+                    "origin_host": "origin.example.com",
+                    "firewall": firewall,
+                }
+            )
+        )
+    )
 
 
 def test_firewall_rules_reach_the_generated_configuration(desired_state):
@@ -98,3 +117,47 @@ def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
     )
     rendered = render_site(site, blitzecdn_edge_geoip_enabled=True)
     assert 'if ($blitzecdn_country !~ "^(DE|FR)$")' in rendered
+
+
+def test_allowed_methods_refuse_every_other_method():
+    rendered = _render({"allowed_methods": ["GET"]})
+    assert 'if ($request_method !~ "^(GET|HEAD)$") { return 405; }' in rendered
+    assert "$uri !~" not in rendered
+
+
+def test_allowed_paths_match_the_normalized_uri_with_escaped_entries():
+    """$uri is decoded and slash-merged, so /%61pi/ and //api/ match like /api/.
+
+    $request_uri is the raw line: matching it would let either spelling past.
+    A trailing '/' is a prefix; anything else is exact, and a '.' is a dot.
+    """
+    rendered = _render({"allowed_paths": ["/api/", "/status", "/v1.0/"]})
+    assert 'if ($uri !~ "^(/api/|/status$|/v1\\.0/)") { return 403; }' in rendered
+    assert "$request_uri !~" not in rendered
+    assert "$request_method !~" not in rendered
+
+
+def test_method_and_path_allowlists_combine():
+    rendered = _render(
+        {
+            "allowed_methods": ["GET"],
+            "allowed_paths": ["/api/"],
+            "denied_paths": ["/api/admin"],
+        }
+    )
+    location = rendered[rendered.index("    location / {") :]
+    location = location[: location.index("try_files")]
+    assert '$request_method !~ "^(GET|HEAD)$"' in location
+    assert '$uri !~ "^(/api/)"' in location
+    # The carve-out is its own longer prefix location, so it beats `location /`.
+    assert "location ^~ /api/admin { return 403; }" in rendered
+
+
+def test_the_acme_challenge_path_is_served_under_a_path_allowlist():
+    rendered = _render({"allowed_paths": ["/api/"], "allowed_methods": ["POST"]})
+    challenge = rendered.index("location ^~ /.well-known/acme-challenge/ {")
+    block_end = rendered.index("}", rendered.index("try_files $uri =404;"))
+    challenge_block = rendered[challenge:block_end]
+    assert "$uri !~" not in challenge_block
+    assert "$request_method !~" not in challenge_block
+    assert '$uri !~ "^(/api/)"' in rendered

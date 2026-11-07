@@ -16,6 +16,7 @@ from typing import Any, cast
 import jinja2
 import jinja2.runtime
 import yaml
+from ansible.plugins.filter.core import regex_escape
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
@@ -76,6 +77,7 @@ def nginx_environment() -> jinja2.Environment:
         keep_trailing_newline=True,
     )
     environment.filters["bool"] = ansible_bool
+    environment.filters["regex_escape"] = regex_escape
 
     @jinja2.pass_context
     def lookup(

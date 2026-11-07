@@ -204,3 +204,26 @@ def test_the_role_rejects_a_firewall_rule_it_cannot_safely_render(
 
     assert rejected.returncode != 0
     assert "invalid CDN request-security rules" in rejected.stdout
+
+
+def test_the_role_rejects_an_allowlist_rule_it_cannot_safely_render(
+    desired_state, tmp_path
+):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"firewall": {"allowed_paths": ['/a" { return 200']}}
+
+    rejected = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
+
+    assert rejected.returncode != 0
+    assert "invalid CDN request-security rules" in rejected.stdout
+
+
+def test_the_role_accepts_method_and_path_allowlists(desired_state, tmp_path):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {
+        "firewall": {"allowed_methods": ["GET", "HEAD"], "allowed_paths": ["/api/"]}
+    }
+
+    accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
+
+    assert accepted.returncode == 0, accepted.stdout

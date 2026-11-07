@@ -10,7 +10,13 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.validation import OmittedWhenEmpty, unique
@@ -276,6 +282,10 @@ ISO_3166_1_ALPHA_2 = frozenset(
 )
 # fmt: on
 
+#: Nginx refuses a configuration token longer than its 4 KiB read buffer, and
+#: the allowed paths render as one quoted regex.
+ALLOWED_PATHS_PATTERN_LIMIT = 3500
+
 #: Codes people reach for that ISO does not assign, and what to use instead.
 COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 
@@ -308,8 +318,27 @@ class SiteFirewall(OmittedWhenEmpty):
         max_length=250,
         description="ISO 3166-1 alpha-2 codes answered with 403. Needs geoip.",
     )
+    allowed_methods: tuple[str, ...] = Field(
+        default=(),
+        max_length=20,
+        description=(
+            "HTTP methods served; every other method gets a 405. HEAD is added "
+            "when GET is listed. Allowing only GET also refuses CORS preflight "
+            "(OPTIONS) and form posts. Cannot be combined with denied_methods."
+        ),
+    )
     denied_methods: tuple[str, ...] = Field(
         default=(), max_length=20, description="HTTP methods answered with 405."
+    )
+    allowed_paths: tuple[str, ...] = Field(
+        default=(),
+        max_length=100,
+        description=(
+            "Paths served; every other path gets a 403. An entry ending in '/' "
+            "admits everything under it, any other entry only that exact path. "
+            "Matched against the decoded, normalized URI. denied_paths still "
+            "apply inside an allowed prefix."
+        ),
     )
     denied_paths: tuple[str, ...] = Field(
         default=(), max_length=100, description="URI prefixes answered with 403."
@@ -362,7 +391,7 @@ class SiteFirewall(OmittedWhenEmpty):
             normalized.append(candidate)
         return unique(tuple(normalized), "country")
 
-    @field_validator("denied_methods")
+    @field_validator("allowed_methods", "denied_methods")
     @classmethod
     def validate_methods(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         normalized = []
@@ -373,20 +402,38 @@ class SiteFirewall(OmittedWhenEmpty):
             normalized.append(candidate)
         return unique(tuple(normalized), "method")
 
-    @field_validator("denied_paths")
+    @field_validator("allowed_methods")
     @classmethod
-    def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def head_follows_get(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Nginx answers HEAD from the GET handler; refusing it breaks clients."""
+        if "GET" in values and "HEAD" not in values:
+            return (*values, "HEAD")
+        return values
+
+    @field_validator("allowed_paths", "denied_paths")
+    @classmethod
+    def validate_paths(
+        cls, values: tuple[str, ...], info: ValidationInfo
+    ) -> tuple[str, ...]:
+        kind = "allowed" if info.field_name == "allowed_paths" else "denied"
         normalized = []
         for item in values:
             candidate = item.strip()
             if not candidate.startswith("/"):
-                raise ValueError(f"denied path {item!r} must start with '/'")
+                raise ValueError(f"{kind} path {item!r} must start with '/'")
             if len(candidate) > 512:
-                raise ValueError("denied paths must be at most 512 characters")
+                raise ValueError(f"{kind} paths must be at most 512 characters")
             if any(character in candidate for character in " \t\r\n;{}\"'\\"):
                 raise ValueError(
-                    f"denied path {item!r} may not contain whitespace, quotes, "
+                    f"{kind} path {item!r} may not contain whitespace, quotes, "
                     "backslashes, ';', '{' or '}'"
+                )
+            if kind == "denied" and candidate == "/":
+                # `location ^~ /` duplicates the site's own `location /`, which
+                # fails the edge's configuration test.
+                raise ValueError(
+                    "denied path '/' would block the whole site; list the paths "
+                    "to serve in allowed_paths instead"
                 )
             normalized.append(candidate)
         return unique(tuple(normalized), "path")
@@ -399,11 +446,31 @@ class SiteFirewall(OmittedWhenEmpty):
                 "allowed_countries and denied_countries both list "
                 + ", ".join(sorted(overlap))
             )
+        if len(allowed_paths_pattern(self.allowed_paths)) > ALLOWED_PATHS_PATTERN_LIMIT:
+            raise ValueError(
+                "allowed_paths are too long together for one Nginx rule; list "
+                "shared prefixes ending in '/' instead of individual paths"
+            )
+        if self.allowed_methods and self.denied_methods:
+            raise ValueError(
+                "allowed_methods and denied_methods cannot both be set: an "
+                "allowlist already refuses every method it does not name"
+            )
         return self
 
     @property
     def requires_geoip(self) -> bool:
         return bool(self.allowed_countries or self.denied_countries)
+
+
+def allowed_paths_pattern(paths: Sequence[str]) -> str:
+    """The alternation the edge renders: a prefix for '/'-terminated paths.
+
+    Mirrors ``security-access.conf.j2``, whose ``regex_escape`` is ``re.escape``.
+    """
+    return "|".join(
+        re.escape(path) + ("" if path.endswith("/") else "$") for path in paths
+    )
 
 
 class SecurityPolicy(CapabilityPolicy):
