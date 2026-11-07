@@ -1,17 +1,18 @@
-"""`cache` purge and `stats`, plus the zone cache settings under `domain`."""
+"""`cache` purge, stats and connections; zone cache settings under `domain`."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import typer
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
-from blitzecdn.capabilities.cache.domain import CacheStatsReport, PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 from blitzecdn.entrypoints.cli.domain_editing import report, update
@@ -101,68 +102,63 @@ def _purge_entry(value: str) -> PurgeEntry:
 
 @cache_app.command("stats")
 def stats(
-    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    by_site: Annotated[
-        bool,
-        typer.Option("--by-site", help="Break the numbers down by virtual host."),
-    ] = False,
+    start: Annotated[
+        str, typer.Option("--start", help="Inclusive UTC hour, ISO 8601 with timezone.")
+    ],
+    end: Annotated[
+        str, typer.Option("--end", help="Exclusive UTC hour, ISO 8601 with timezone.")
+    ],
+    hostname: Annotated[
+        str | None, typer.Option("--hostname", help="Exact served hostname.")
+    ] = None,
+    edge: Annotated[str | None, typer.Option("--edge", help="Exact edge name.")] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=500)] = 100,
+    offset: Annotated[int, typer.Option("--offset", min=0, max=2**63 - 1)] = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Report cache effectiveness across the edges.
+    """Stored hourly cache outcomes, ordered by hour, hostname and edge.
 
-    Reads the access log and nginx's own counters on each edge. Changes
-    nothing, so it is safe to run at any time, including during a deploy.
-
+    Counted by traffic collection from every log record; no edge is contacted.
     The hit ratio counts only requests that consulted the cache. Redirects,
     errors nginx served itself, and sites with caching disabled are excluded
     rather than scored as misses.
     """
-    report = common.service(CacheService).cache_stats("cli", host_limit=limit)
-    if json_output:
-        common.emit(_stats_document(report, by_site=by_site), json_output=True)
-        return
-    common.emit(_stats_document(report, by_site=by_site), json_output=False)
-    for edge in report.silent:
-        typer.echo(f"\n{edge.host} reported nothing: {edge.error}", err=True)
-    if report.hit_ratio is None:
-        typer.echo(
-            "\nNo cacheable requests in the window read, so there is no hit "
-            "ratio yet. A fresh edge or a quiet one both look like this."
-        )
+    query = UsageQuery.model_validate(
+        {
+            "start": start,
+            "end": end,
+            "hostname": hostname,
+            "edge": edge,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+    result = common.service(CacheService).stats(query)
+    common.emit(
+        {
+            "items": [item.model_dump(mode="json") for item in result.items],
+            "total": result.total,
+            "limit": query.limit,
+            "offset": query.offset,
+        },
+        json_output=json_output,
+    )
 
 
-def _stats_document(report: CacheStatsReport, *, by_site: bool) -> dict[str, Any]:
-    """One shape for both outputs, so --json is never a different answer."""
-    document: dict[str, Any] = {
-        "collected_at": report.collected_at.isoformat(),
-        "hit_ratio": report.hit_ratio,
-        "hits": report.hits,
-        "cacheable_requests": report.cacheable_requests,
-        "requests": report.requests,
-        "edges": [
-            {
-                "host": edge.host,
-                "hit_ratio": edge.hit_ratio,
-                "requests": edge.requests,
-                "nginx_reachable": edge.nginx_reachable,
-                "connections": edge.connections,
-                "error": edge.error,
-            }
-            for edge in report.edges
-        ],
-    }
-    if by_site:
-        document["sites"] = [
-            {
-                "site": site.site,
-                "hit_ratio": site.hit_ratio,
-                "hits": site.hits,
-                "cacheable_requests": site.cacheable_requests,
-                "requests": site.requests,
-            }
-            for site in report.by_site()
-        ]
-    return document
+@cache_app.command("connections")
+def connections(
+    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Read nginx's live connection counters on each edge.
+
+    Changes nothing, so it is safe to run at any time, including during a deploy.
+    """
+    result = common.service(CacheService).connections("cli", host_limit=limit)
+    common.emit(result.model_dump(mode="json"), json_output=json_output)
+    if not json_output:
+        for silent in result.silent:
+            typer.echo(f"\n{silent.host} reported nothing: {silent.error}", err=True)
 
 
 @domain_commands.command("cache")

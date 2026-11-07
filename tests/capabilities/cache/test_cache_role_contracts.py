@@ -39,7 +39,8 @@ def test_the_roles_this_capability_ships_are_where_it_says_they_are():
         "blitzecdn_cache_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
-    assert (STATS_ROLE_DIR / "files/collect_cache_stats.py").is_file()
+    # Cache outcomes come from traffic collection; this role reads no logs.
+    assert not (STATS_ROLE_DIR / "files").exists()
 
 
 def test_the_plays_this_capability_runs_ship_with_it():
@@ -90,12 +91,8 @@ def test_purge_role_agrees_with_the_nginx_normalization():
     assert "$blitzecdn_accept_encoding" in upstream
 
 
-def test_stats_role_reads_the_log_the_nginx_role_writes():
+def test_stats_role_reads_the_status_endpoint_the_nginx_role_serves():
     stats = _defaults_of(STATS_ROLE_DIR)
-    assert (
-        stats["blitzecdn_cache_stats_log_directory"]
-        == _contract_value("paths", "logs") + "/domains"
-    )
     assert stats["blitzecdn_cache_stats_status_address"] == _contract_value(
         "status", "address"
     )

@@ -22,6 +22,7 @@ from support.control_plane import (
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_WORKFLOW,
     PHASE_ORDER,
+    ROLLBACK_WORKFLOW,
     DeploymentStatus,
     TargetPhase,
     TargetStatus,
@@ -176,6 +177,57 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings):
     assert [workflow.kind for workflow in workflows] == [DEPLOYMENT_WORKFLOW]
     assert workflows[0].resource_id == queued.id
     assert [step.name for step in workflows[0].steps] == ["converged"]
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+def test_a_synchronous_run_names_its_deployment_while_it_runs(settings, rollback):
+    """A crash mid-run leaves the open workflow for review; it must say which run.
+
+    The record is read from another connection during the rollout, which is what a
+    restarted controller would find.
+    """
+    repository = Repository(settings.database_path)
+    open_workflows = []
+
+    class Runner(FakeRunner):
+        def run(self, **kwargs):
+            other = Repository(settings.database_path)
+            try:
+                open_workflows.extend(
+                    workflow
+                    for workflow in other.workflows.list_workflows(10)
+                    if workflow.status is WorkflowStatus.RUNNING
+                )
+            finally:
+                other.close()
+            return super().run(**kwargs)
+
+    control = build_application(
+        settings=settings, repository=repository, runner=Runner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    if rollback:
+        target = control.deployments.deploy("alice")
+        open_workflows.clear()
+        result = control.deployments.rollback("alice", target.id)
+        kind, checkpoint = ROLLBACK_WORKFLOW, "converged_and_adopted"
+    else:
+        result = control.deployments.deploy("alice")
+        kind, checkpoint = DEPLOYMENT_WORKFLOW, "converged"
+
+    assert result.status is DeploymentStatus.SUCCEEDED
+    assert open_workflows
+    assert {(workflow.kind, workflow.resource_id) for workflow in open_workflows} == {
+        (kind, result.id)
+    }
+    (closed,) = [
+        workflow
+        for workflow in repository.workflows.list_workflows(10)
+        if workflow.resource_id == result.id
+    ]
+    assert closed.status is WorkflowStatus.SUCCEEDED
+    assert [step.name for step in closed.steps] == [checkpoint]
 
 
 def test_a_failed_queued_deployment_fails_its_workflow(settings):

@@ -4,17 +4,19 @@ from blitzecdn.capabilities.cache.domain.purge import PurgeEntry, PurgeResult
 from blitzecdn.capabilities.cache.domain.statistics import (
     CACHE_CONSULTED_OUTCOMES,
     CACHE_HIT_OUTCOMES,
-    CacheStatsReport,
-    EdgeStats,
-    SiteCacheStats,
+    CacheHour,
+    ConnectionsReport,
+    EdgeConnections,
+    OutcomeCounters,
 )
 
 __all__ = [
     "CACHE_CONSULTED_OUTCOMES",
     "CACHE_HIT_OUTCOMES",
-    "CacheStatsReport",
-    "EdgeStats",
+    "CacheHour",
+    "ConnectionsReport",
+    "EdgeConnections",
+    "OutcomeCounters",
     "PurgeEntry",
     "PurgeResult",
-    "SiteCacheStats",
 ]

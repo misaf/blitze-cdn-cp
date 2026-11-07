@@ -18,12 +18,44 @@ class TrafficValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class CacheOutcome(StrEnum):
+    """Nginx's ``$upstream_cache_status``, with NONE for never consulted.
+
+    Which outcomes count as hits is the cache capability's judgement; traffic
+    only counts each record under the label it carried.
+    """
+
+    HIT = "HIT"
+    STALE = "STALE"
+    UPDATING = "UPDATING"
+    REVALIDATED = "REVALIDATED"
+    MISS = "MISS"
+    EXPIRED = "EXPIRED"
+    BYPASS = "BYPASS"
+    NONE = "NONE"
+
+
+class CacheCounters(TrafficValue):
+    requests: Annotated[Counter, Field(ge=1)]
+    bytes_sent: Counter
+
+
 class HourlyUsage(TrafficValue):
     hostname: str
     hour: datetime
     requests: Annotated[Counter, Field(ge=1)]
     bytes_sent: Counter
     body_bytes_sent: Counter
+    #: The same records split by cache outcome; each record has exactly one.
+    cache: Annotated[dict[CacheOutcome, CacheCounters], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def cache_partitions_totals(self) -> Self:
+        if sum(item.requests for item in self.cache.values()) != self.requests or (
+            sum(item.bytes_sent for item in self.cache.values()) != self.bytes_sent
+        ):
+            raise ValueError("cache outcomes must partition the hour's totals")
+        return self
 
     @field_validator("hostname")
     @classmethod

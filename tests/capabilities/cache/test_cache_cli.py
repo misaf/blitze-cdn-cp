@@ -1,4 +1,4 @@
-"""`blitzecdn cache purge` and `blitzecdn cache stats`, as an operator types them.
+"""`blitzecdn cache purge`, `stats` and `connections`, as an operator types them.
 
 Reached through the real root application, so these also hold that the
 commands are on the tree.
@@ -6,6 +6,7 @@ commands are on the tree.
 
 import json
 import sys
+from datetime import UTC, datetime
 
 import pytest
 from support.cache import purges
@@ -19,6 +20,13 @@ from support.control_plane import (
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.traffic.domain import (
+    CollectedUsage,
+    HourlyUsage,
+    LogCursor,
+    UsageBatch,
+)
+from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
@@ -139,77 +147,85 @@ def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     assert exit_info.value.code == cli.ExitCode.NOT_FOUND
 
 
-def _stats_runner(*hosts):
-    """Counters arrive on the run itself, published by the role as a fact."""
-    return FakeRunner([ansible_run(*hosts)])
+def _seed_stats(settings):
+    hour = datetime(2026, 10, 27, 9, tzinfo=UTC)
+    repository = Repository(settings.database_path)
+    repository.traffic.apply(
+        "edge-a",
+        CollectedUsage(
+            batches=(
+                UsageBatch(
+                    end=LogCursor(stream_id="a" * 64, offset=100, anchor="f" * 64),
+                    buckets=(
+                        HourlyUsage(
+                            hostname="cdn.example.com",
+                            hour=hour,
+                            requests=4,
+                            bytes_sent=40,
+                            body_bytes_sent=0,
+                            cache={
+                                "HIT": {"requests": 3, "bytes_sent": 30},
+                                "MISS": {"requests": 1, "bytes_sent": 10},
+                            },
+                        ),
+                    ),
+                ),
+            )
+        ),
+    )
+    repository.close()
 
 
-_EDGE_REPORT = {
-    "host": "edge-a",
-    "collected_at": "2026-08-09T01:00:00Z",
-    "nginx_reachable": True,
-    "connections": {"active": 3},
-    "cache": [
-        {"site": "cdn.example.com", "outcome": "HIT", "requests": 3},
-        {"site": "cdn.example.com", "outcome": "MISS", "requests": 1},
-    ],
-}
+def test_stats_reads_stored_hourly_outcomes(settings, monkeypatch):
+    fake = FakeRunner([])
+    cli_control_plane(settings, monkeypatch, fake)
+    _seed_stats(settings)
 
-
-def test_stats_reports_the_fleet_hit_ratio(settings, monkeypatch):
-    cli_control_plane(
-        settings,
-        monkeypatch,
-        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
+    result = runner.invoke(
+        cli.app,
+        [
+            "cache",
+            "stats",
+            "--start",
+            "2026-10-27T09:00:00Z",
+            "--end",
+            "2026-10-27T10:00:00Z",
+            "--hostname",
+            "cdn.example.com",
+            "--json",
+        ],
     )
 
-    result = runner.invoke(cli.app, ["cache", "stats", "--json"])
-
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["hit_ratio"] == 0.75
-    assert payload["edges"][0]["host"] == "edge-a"
-    assert "sites" not in payload
+    assert payload["total"] == 1
+    (row,) = payload["items"]
+    assert row["edge"] == "edge-a"
+    assert row["hit_ratio"] == 0.75
+    assert row["byte_hit_ratio"] == 0.75
+    assert row["outcomes"]["HIT"] == {"requests": 3, "bytes_sent": 30}
+    assert fake.playbooks == []
 
 
-def test_stats_by_site_breaks_the_numbers_down(settings, monkeypatch):
+def test_connections_names_an_edge_that_reported_nothing(settings, monkeypatch):
     cli_control_plane(
         settings,
         monkeypatch,
-        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
-    )
-
-    payload = json.loads(
-        runner.invoke(cli.app, ["cache", "stats", "--by-site", "--json"]).stdout
-    )
-
-    assert payload["sites"][0]["site"] == "cdn.example.com"
-    assert payload["sites"][0]["hit_ratio"] == 0.75
-
-
-def test_stats_says_so_when_there_is_no_cacheable_traffic_yet(settings, monkeypatch):
-    """A fresh edge must not be reported as a cache that is failing."""
-    quiet = {**_EDGE_REPORT, "cache": [{"site": "a", "outcome": "NONE", "requests": 4}]}
-    cli_control_plane(
-        settings, monkeypatch, _stats_runner(host_run("edge-a", ok=5, report=quiet))
-    )
-
-    result = runner.invoke(cli.app, ["cache", "stats"])
-
-    assert result.exit_code == 0
-    assert "no hit ratio yet" in result.output
-
-
-def test_stats_names_an_edge_that_reported_nothing(settings, monkeypatch):
-    cli_control_plane(
-        settings,
-        monkeypatch,
-        _stats_runner(
-            host_run("edge-a", ok=5, report=_EDGE_REPORT),
-            host_run("edge-b", ok=0, unreachable=1),
+        FakeRunner(
+            [
+                ansible_run(
+                    host_run(
+                        "edge-a",
+                        ok=5,
+                        report={"nginx_reachable": True, "connections": {"active": 3}},
+                    ),
+                    host_run("edge-b", ok=0, unreachable=1),
+                )
+            ]
         ),
     )
 
-    result = runner.invoke(cli.app, ["cache", "stats"])
+    result = runner.invoke(cli.app, ["cache", "connections"])
 
+    assert result.exit_code == 0, result.output
     assert "edge-b reported nothing: unreachable" in result.output
