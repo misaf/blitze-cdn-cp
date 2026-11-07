@@ -74,6 +74,10 @@
     # no schedule of its own, and no route to MaxMind.
     - name: Install the database the release pins
       when: blitzecdn_geoip_database_sha256 is defined
+      vars:
+        blitzecdn_geoip_database_source: >-
+          {{ blitzecdn_geoip_controller_directory }}/GeoLite2-Country-{{
+          blitzecdn_geoip_database_sha256 }}.mmdb
       block:
         - name: Read the pinned database's digest on the controller
           ansible.builtin.stat:

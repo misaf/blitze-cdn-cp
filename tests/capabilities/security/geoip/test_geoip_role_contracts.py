@@ -37,11 +37,7 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
     # Where the controller keeps its databases: a controller-side `lookup` and
     # a digest only a release supplies, so Ansible resolves them lazily.
-    for controller_side in (
-        "blitzecdn_geoip_controller_directory",
-        "blitzecdn_geoip_database_source",
-    ):
-        defaults.pop(controller_side)
+    defaults.pop("blitzecdn_geoip_controller_directory")
     context = runtime_defaults() | defaults
     context |= overrides
     environment = ansible_jinja()
@@ -239,9 +235,35 @@ def test_the_role_finds_the_pinned_file_where_the_controller_stores_it():
     assert directory == (
         "{{ lookup('env', 'BLITZE_STATE_DIR') }}/" + DATABASE_DIRECTORY
     )
-    source = defaults["blitzecdn_geoip_database_source"].replace(" ", "")
+    install = next(
+        task
+        for task in _tasks()
+        if task.get("name") == "Install the database the release pins"
+    )
+    source = install["vars"]["blitzecdn_geoip_database_source"].replace(" ", "")
     digest = "{{blitzecdn_geoip_database_sha256}}"
     assert source == (
         "{{blitzecdn_geoip_controller_directory}}/"
         + database_filename("0" * 64).replace("0" * 64, digest)
     )
+
+
+def test_the_role_runs_on_a_fleet_whose_controller_has_no_database(tmp_path):
+    """No digest pinned: validating the role's arguments must not need one.
+
+    Including the role validates its argument spec, which renders every
+    default; a default naming `blitzecdn_geoip_database_sha256` failed every
+    fleet whose controller had not downloaded a database yet.
+    """
+    tasks = tmp_path / "include.yml"
+    tasks.write_text(
+        yaml.safe_dump([{"ansible.builtin.include_role": {"name": str(ROLE)}}]),
+        encoding="utf-8",
+    )
+    variables = {
+        "blitzecdn_edge_runtime": runtime_defaults()["blitzecdn_edge_runtime"],
+        "blitzecdn_nginx_sites": _sites_with(),
+    }
+
+    result = run_role_tasks(tasks, variables, tmp_path)
+    assert result.returncode == 0, result.stdout
