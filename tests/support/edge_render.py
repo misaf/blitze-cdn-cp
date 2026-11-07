@@ -178,6 +178,26 @@ def render_site(site: dict[str, Any], **overrides: Any) -> str:
     )
 
 
+def render_http_fragment(name: str, sites: list[dict[str, Any]]) -> str:
+    """One capability's ``http`` resource, rendered for this list of sites."""
+    template = next(
+        resource["template"]
+        for resource in nginx_resources()["http"]
+        if resource["name"] == name
+    )
+    environment = nginx_environment()
+    return environment.from_string(Path(template).read_text()).render(
+        **(
+            role_defaults()
+            | _capability_defaults()
+            | {
+                "blitzecdn_nginx_resources": nginx_resources(),
+                "blitzecdn_nginx_sites": sites,
+            }
+        )
+    )
+
+
 def server_blocks(
     rendered: str, defaults: dict[str, Any]
 ) -> tuple[list[str], list[str]]:

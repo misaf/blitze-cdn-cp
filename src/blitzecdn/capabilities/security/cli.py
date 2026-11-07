@@ -51,7 +51,10 @@ def domain_firewall(
         list[str] | None,
         typer.Option(
             "--allow-source",
-            help="CIDR exempted from --deny-source. Repeatable. Replaces the list.",
+            help=(
+                "CIDR exempted from --deny-source and from the country and method "
+                "rules; path rules still apply. Repeatable. Replaces the list."
+            ),
         ),
     ] = None,
     deny_source: Annotated[
@@ -111,8 +114,11 @@ def domain_firewall(
     """Filter requests to one zone at the edge.
 
     The posture stays open: rules subtract from a zone that otherwise serves
-    everyone, and --allow-source is an exemption from --deny-source rather than
-    a whitelist. To close a zone, deny everything and list the exceptions:
+    everyone, and --allow-source is an exemption rather than a whitelist. It
+    exempts from --deny-source and from the country and method rules, so an
+    office network GeoIP places in a denied country is still served; the path
+    rules apply to it like anyone else. To close a zone, deny everything and
+    list the exceptions:
 
         blitzecdn domain firewall example.com \\
             --deny-source 0.0.0.0/0 --deny-source ::/0 \\
