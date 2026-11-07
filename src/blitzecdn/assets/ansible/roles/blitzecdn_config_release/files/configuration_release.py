@@ -25,6 +25,12 @@ from typing import Any
 
 #: Written beside the staged tree by the edge, never shipped in a bundle.
 RUNTIME_IMAGE = "runtime-image"
+#: Content-addressed certificate material the edge installs per site.
+TLS_MATERIAL = re.compile(r"(?:fullchain|privkey)-[0-9a-f]{64}\.pem")
+#: What Ansible's `backup: true` once left beside a replaced file.
+TLS_BACKUP = re.compile(
+    TLS_MATERIAL.pattern + r"\.[0-9]+\.[0-9]{4}-[0-9]{2}-[0-9]{2}@[0-9:]{8}~"
+)
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -230,7 +236,7 @@ class ConfigurationRelease:
         data["status"] = "rolled_back"
         self.save_journal(data)
 
-    def commit(self, keep_older: int = 2) -> None:
+    def commit(self, keep_older: int = 2, tls_root: Path | None = None) -> None:
         if keep_older < 0:
             raise ValueError("older release retention must not be negative")
         self.verify()
@@ -246,8 +252,71 @@ class ConfigurationRelease:
         # not send the controller down the failed-activation rollback path.
         try:
             self.prune(keep_older)
+            # Only after release collection succeeded: the surviving trees are
+            # then exactly the configurations this edge may still serve.
+            if tls_root is not None:
+                self.prune_tls(tls_root)
         except (OSError, ValueError) as exc:
             print(f"configuration release cleanup deferred: {exc}", file=sys.stderr)
+
+    def referenced_tls(self, tls_root: Path) -> set[Path]:
+        """Managed TLS files named by any release tree still on this edge.
+
+        Every surviving tree counts, journaled or not: a retained release can
+        be rolled back to, and an unjournaled one may be mid-deployment.
+        """
+        reference = re.compile(
+            re.escape(str(tls_root)).encode()
+            + rb"/([^/\s;'\"]+)/("
+            + TLS_MATERIAL.pattern.encode()
+            + rb")"
+        )
+        referenced: set[Path] = set()
+        for tree in self.root.iterdir():
+            if re.fullmatch(r"[0-9a-f]{64}", tree.name) is None:
+                continue
+            if tree.is_symlink() or not tree.is_dir():
+                raise ValueError(f"release tree is not a directory: {tree}")
+            for path in tree.rglob("*"):
+                if path.is_file() and not path.is_symlink():
+                    referenced.update(
+                        tls_root / site.decode() / name.decode()
+                        for site, name in reference.findall(path.read_bytes())
+                    )
+        return referenced
+
+    def prune_tls(self, tls_root: Path) -> None:
+        """Remove certificate and key versions no retained release references.
+
+        Material is content addressed, so each renewal adds files and nothing
+        else ever removes them. Only exact managed names are deleted, never
+        through a symbolic link; anything else under the root is left alone.
+        Directories of deleted sites go once they are empty.
+        """
+        if not tls_root.exists() and not tls_root.is_symlink():
+            return
+        if tls_root.is_symlink() or not tls_root.is_dir():
+            raise ValueError(f"managed TLS root is not a directory: {tls_root}")
+        referenced = self.referenced_tls(tls_root)
+        for site in sorted(tls_root.iterdir()):
+            if site.is_symlink() or not site.is_dir():
+                continue
+            removed = False
+            for path in sorted(site.iterdir()):
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if (
+                    TLS_MATERIAL.fullmatch(path.name) and path not in referenced
+                ) or TLS_BACKUP.fullmatch(path.name):
+                    path.unlink()
+                    removed = True
+            if removed:
+                sync_directory(site)
+            if not any(site.iterdir()):
+                site.rmdir()
+                removed = True
+            if removed:
+                sync_directory(tls_root)
 
     def prune(self, keep_older: int) -> None:
         """Collect completed transactions; callers hold the edge mutation lock.
@@ -355,6 +424,11 @@ def main() -> None:
     parser.add_argument("digest")
     parser.add_argument("records", nargs="*", type=Path)
     parser.add_argument("--keep-older", type=int, default=2)
+    parser.add_argument(
+        "--tls-root",
+        type=Path,
+        help="managed TLS root to collect unreferenced material from on commit",
+    )
     args = parser.parse_args()
     if args.keep_older < 0:
         parser.error("--keep-older must not be negative")
@@ -365,7 +439,7 @@ def main() -> None:
         "verify": release.verify,
         "activate": release.activate,
         "rollback": release.rollback,
-        "commit": lambda: release.commit(args.keep_older),
+        "commit": lambda: release.commit(args.keep_older, args.tls_root),
     }
     if args.operation == "verify":
         release.verify()
