@@ -133,7 +133,11 @@ class TrafficService:
         started_at = self.clock()
         self.store.start_collection(targets, attempt_id, started_at)
         try:
-            run = self.runner.collect(self.store.checkpoints(), host_limit=host_limit)
+            run = self.runner.collect(
+                self.store.checkpoints(),
+                max_bytes=self.config.collection_max_bytes,
+                host_limit=host_limit,
+            )
             if not run.hosts:
                 raise ExecutionError(run.unreported("traffic collection"))
         except Exception:

@@ -18,11 +18,13 @@ def queue(settings) -> JobQueue:
 
 def test_an_operation_runs_once_and_keeps_its_result(queue: JobQueue):
     """No automatic retry: the operator asked for one run and reads its outcome."""
-    operations = OperationService(queue=queue, kinds={"cache.stats"})
-    submitted = operations.submit("cache.stats", {"operator": "ops"})
+    operations = OperationService(queue=queue, kinds={"cache.connections"})
+    submitted = operations.submit("cache.connections", {"operator": "ops"})
     assert submitted.max_attempts == 1
 
-    queue.consume_with({"cache.stats": lambda _payload: Done(result={"edges": []})})
+    queue.consume_with(
+        {"cache.connections": lambda _payload: Done(result={"edges": []})}
+    )
     queue.run_one()
 
     finished = operations.get(submitted.id)
@@ -31,7 +33,7 @@ def test_an_operation_runs_once_and_keeps_its_result(queue: JobQueue):
 
 
 def test_an_undeclared_kind_is_neither_submitted_nor_read(queue: JobQueue):
-    operations = OperationService(queue=queue, kinds={"cache.stats"})
+    operations = OperationService(queue=queue, kinds={"cache.connections"})
     with pytest.raises(NotFoundError):
         operations.submit("deployment", {})
 

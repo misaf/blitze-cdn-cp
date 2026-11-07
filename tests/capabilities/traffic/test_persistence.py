@@ -26,6 +26,7 @@ def batch(stream="a", start=None, offset=100, sent=120):
                 requests=1,
                 bytes_sent=sent,
                 body_bytes_sent=100,
+                cache={"HIT": {"requests": 1, "bytes_sent": sent}},
             ),
         ),
     )

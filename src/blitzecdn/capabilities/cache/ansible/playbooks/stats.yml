@@ -1,5 +1,5 @@
 ---
-- name: Collect cache and connection counters from BlitzeCDN edges
+- name: Collect live nginx connection counters from BlitzeCDN edges
   hosts: blitzecdn_edges
   become: true
   gather_facts: false
