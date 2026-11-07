@@ -10,10 +10,14 @@ map $http_upgrade $blitzecdn_connection_upgrade {
 # an origin that cannot produce it answer uncompressed, so the edge encodes the
 # body itself; the visitor's own list, `gzip, deflate, br`, would get gzip
 # back, which the edge cannot re-encode.
+#
+# A coding the visitor refuses with `q=0` (`br;q=0, gzip`) does not count, or
+# the origin would be asked for exactly what the visitor ruled out and its
+# encoded answer would pass through the edge untouched.
 map $http_accept_encoding $blitzecdn_accept_encoding {
     default        "";
-    "~*(^|,)\s*br\s*(;|,|$)"    "br";
-    "~*(^|,)\s*gzip\s*(;|,|$)"  "gzip";
+    "~*(^|,)\s*br\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"    "br";
+    "~*(^|,)\s*gzip\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"  "gzip";
 }
 {% if blitzecdn_nginx_resolvers %}
 resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_resolver_valid }};
