@@ -35,6 +35,22 @@ default:
 install: && collections
     uv sync --frozen
 
+# Only git, uv and just are needed on a laptop: Python, Ansible, ShellCheck and
+# the collections all come from the project environment. Docker is optional;
+# what needs it runs in GitHub Actions (docs/testing.md).
+#
+# Set up a fresh checkout, then report what this machine can and cannot run.
+setup: install
+    @bash tests/doctor.sh local
+
+# Tasks: local (the default), docker-lint, integration, ci, or all. Every task
+# is reported; only the named ones decide the exit status, so a laptop without
+# Docker passes `just doctor` and fails `just doctor integration`.
+#
+# Which tasks this machine can run, with a fix for each missing prerequisite.
+doctor *tasks:
+    @bash tests/doctor.sh {{tasks}}
+
 # The third-party collections the roles are converged with, pinned exactly by
 # `requirements.yml`.
 #
@@ -141,7 +157,8 @@ types:
 # Lint the shell scripts that run as root.
 shell-lint:
     uv run shellcheck install.sh \
-        tests/container-install.sh tests/http3-edge-integration.sh
+        tests/container-install.sh tests/http3-edge-integration.sh \
+        tests/collect-diagnostics.sh tests/doctor.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -323,6 +340,55 @@ check-quick: lint types shell-lint ansible-check test-fast
 
 # Everything CI runs. Run this before pushing.
 check: lock-check lint types shell-lint test ansible-check docker-lint audit build
+
+# --- GitHub Actions ----------------------------------------------------------
+#
+# The infrastructure checks — container installs, the HTTP/3 edge, Dockerfile
+# lint without hadolint — run in CI, so a laptop without Docker gets their
+# results by pushing. These two recipes need `gh` (`just doctor ci`).
+
+# BRANCH defaults to the current one. Refuses a branch whose local head is not
+# what GitHub has, since CI would then test a commit other than yours.
+#
+# Run the CI workflow on the pushed head of BRANCH and follow it to the end.
+ci-run branch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    branch="{{branch}}"
+    branch=${branch:-$(git branch --show-current)}
+    git fetch --quiet origin "${branch}"
+    sha=$(git rev-parse "origin/${branch}")
+    local_sha=$(git rev-parse --verify --quiet "refs/heads/${branch}" || true)
+    if [[ -n ${local_sha} && ${local_sha} != "${sha}" ]]; then
+        echo "${branch} is at ${local_sha} here but ${sha} on GitHub: push first." >&2
+        exit 1
+    fi
+    gh workflow run ci.yml --ref "${branch}"
+    # The dispatch returns before the run exists; wait for the one on this commit.
+    for _ in $(seq 30); do
+        run=$(gh run list --workflow ci.yml --event workflow_dispatch --commit "${sha}" \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+        [[ -n ${run} ]] && break
+        sleep 2
+    done
+    [[ -n ${run:-} ]] || { echo "the dispatched run did not appear; see the Actions tab" >&2; exit 1; }
+    echo "Testing ${sha}: $(gh run view "${run}" --json url --jq .url)"
+    gh run watch "${run}" --exit-status
+
+# RUN defaults to the newest run of the CI workflow on the current branch.
+#
+# Download a CI run's reports and failure diagnostics to .state/ci/RUN.
+ci-download run="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    run="{{run}}"
+    if [[ -z ${run} ]]; then
+        run=$(gh run list --workflow ci.yml --branch "$(git branch --show-current)" \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+    fi
+    [[ -n ${run} ]] || { echo "no CI run found for this branch" >&2; exit 1; }
+    gh run download "${run}" --dir ".state/ci/${run}"
+    echo "Downloaded run ${run} to .state/ci/${run}"
 
 # --- published surfaces --------------------------------------------------
 

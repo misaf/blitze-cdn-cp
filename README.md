@@ -17,8 +17,12 @@ Use Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and
 [just](https://just.systems/). CI runs the main quality gate on Python 3.14 and
 compatibility tests on 3.12 and 3.13. Run commands from the repository root.
 
+Docker and a global Ansible are not required: Ansible comes from the project
+environment, and the checks that need Docker run in GitHub Actions. See
+[testing without local infrastructure](docs/testing.md).
+
 ```sh
-just install                 # Locked Python dependencies and pinned Ansible collections
+just setup                   # just install, then report what this machine can run
 uv run blitzecdn setup       # Migrate the local database; create .env if absent
 uv run blitzecdn --help
 ```
@@ -162,12 +166,17 @@ The [justfile](justfile) owns the development commands used by CI:
 | `just check` | Run the full quality gate, including coverage, packaging tests, Dockerfile lint, security checks, and builds |
 | `just test-installation` | Build and verify an isolated installed wheel |
 | `just test-integration-http3` | Run the separate privileged Docker edge integration harness |
+| `just doctor [task]` | Report which tasks this machine can run (`local`, `docker-lint`, `integration`, `ci`, `all`) |
+| `just ci-run` | Run CI on the pushed current branch and follow it |
+| `just ci-download [run]` | Download a CI run's reports and failure diagnostics |
 
 The full test gate enforces 85% coverage. Ansible checks need the collections
 installed by `just install`. Dockerfile lint requires a local `hadolint` binary
 or a running Docker daemon; container integration checks require Docker and
-their host privileges. Unit tests and test doubles do not establish that a live
-edge deployment works.
+their host privileges. Without those, push and let CI run them; see
+[testing without local infrastructure](docs/testing.md), which also records what
+the container evidence covers and the remaining multi-host gaps. Unit tests and
+test doubles do not establish that a live edge deployment works.
 
 ## Where a change belongs
 
