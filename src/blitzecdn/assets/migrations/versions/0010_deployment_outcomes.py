@@ -1,7 +1,7 @@
 """Record the running outcome of each kind of convergence.
 
-Revision ID: 0009_deployment_outcomes
-Revises: 0008_traffic
+Revision ID: 0010_deployment_outcomes
+Revises: 0009_tls
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0009_deployment_outcomes"
-down_revision = "0008_traffic"
+revision = "0010_deployment_outcomes"
+down_revision = "0009_tls"
 branch_labels = None
 depends_on = None
 
