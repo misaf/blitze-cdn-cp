@@ -108,7 +108,6 @@ blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.empty	type=path r
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.logs	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_conf	type=path required
-blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_include	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.nginx	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.secrets	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.state	type=path required

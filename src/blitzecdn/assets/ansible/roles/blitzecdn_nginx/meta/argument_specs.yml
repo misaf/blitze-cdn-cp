@@ -90,7 +90,10 @@ argument_specs:
           Compose-form mounts the configuration test container receives. The
           same set the running edge gets: a test that cannot see a certificate,
           an njs module or a capability's data file passes against a tree the
-          real edge refuses.
+          real edge refuses. No default: blitzecdn_config_release's select.yml
+          binds it to the release tree before this role runs. Cache and logs
+          are writable because contributed resources may initialize runtime
+          storage and `nginx -t` opens the error log.
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
       blitzecdn_nginx_resolver_valid: {type: str, required: true}

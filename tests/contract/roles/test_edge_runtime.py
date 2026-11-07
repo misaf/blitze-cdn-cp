@@ -28,6 +28,7 @@ from support.role_contracts import (
     COMPOSE_TEMPLATE,
     defaults_of,
     edge_context,
+    probe_volumes,
     render_compose,
 )
 
@@ -55,9 +56,7 @@ def test_the_configuration_test_sees_what_the_running_edge_sees():
     """
     probe = {
         entry.split(":")[0]: entry.split(":")[2]
-        for entry in edge_context(blitzecdn_edge_geoip_enabled=True)[
-            "blitzecdn_nginx_config_test_volumes"
-        ]
+        for entry in probe_volumes(blitzecdn_edge_geoip_enabled=True)
     }
     # Rendered with GeoIP on, because the probe always mounts the database and this
     # compares the full set.
@@ -142,12 +141,12 @@ def test_the_edge_container_takes_the_host_network():
 def test_a_configuration_change_reloads_and_does_not_replace_the_container():
     """Replacing the container for a site change drops every live connection.
 
-    It also empties the cache zone; the handler signals the running container
+    It also empties the cache zone; activation signals the running container
     instead.
     """
-    handlers = (ROLE_DIR / "handlers/main.yml").read_text(encoding="utf-8")
-    assert "nginx, -s, reload" in handlers
-    assert "docker_container_exec" in handlers
+    stack = (STACK_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    assert "argv: [nginx, -s, reload, -c," in stack
+    assert "docker_container_exec" in stack
     assert defaults_of(STACK_ROLE_DIR)["blitzecdn_edge_stack_recreate"] is False
 
 
