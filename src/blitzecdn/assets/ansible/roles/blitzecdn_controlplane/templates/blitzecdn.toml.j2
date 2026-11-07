@@ -14,6 +14,7 @@ api_worker_threads = 2
 output_limit_bytes = 1048576
 run_log_retention = 500
 history_retention = 1000
+deployment_retention = 100
 allow_empty_sites = false
 preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',') | map('trim') | list | to_json }}
 

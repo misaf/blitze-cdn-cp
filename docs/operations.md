@@ -65,6 +65,21 @@ transaction journal, including abandoned staging attempts, are preserved because
 they cannot safely be distinguished from an in-progress stage. This retention
 does not remove external TLS material, runtime data, logs, or container images.
 
+## Controller deployment retention
+
+Each deployment that is queued prunes the controller's deployment history.
+`history_retention` (default 1000) bounds finished check-mode runs, which the
+drift timer writes hourly. `deployment_retention` (default 100) bounds finished
+real deployments: the newest that many are kept, together with the newest
+successful full-fleet deployment of as many recently converged releases, so an
+automatic `rollback` still has a target. Queued and running deployments, the
+newest successful applied run, and any run a surviving rollback names are never
+pruned. A rollback that names a pruned deployment by id is refused as not found.
+
+Once nothing names a release, release pruning drops it, with its rendered
+configuration bundle, beyond the newest `history_retention` releases. The
+database therefore stops growing with every deploy.
+
 ## Prometheus
 
 The existing authenticated `GET /metrics` endpoint retains its edge, site and

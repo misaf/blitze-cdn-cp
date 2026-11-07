@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import CursorResult, Result, delete, select, update
+from sqlalchemy import CursorResult, Result, delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from blitzecdn.capabilities.deployments.adapters.tables import (
@@ -201,29 +201,97 @@ class DeploymentStore:
                 )
             )
 
-    def prune_history(self, keep: int) -> int:
-        """Drop finished check-mode deployments beyond the newest ``keep``.
+    def prune_history(self, keep: int, *, keep_applied: int) -> int:
+        """Drop finished deployments beyond what history and rollback still need.
 
-        Only check-mode rows: real deployments are what rollback chooses from, and
-        queued or running checks are recovery state. The hourly drift check is what
-        makes these accumulate.
+        Finished check-mode runs beyond the newest ``keep``, which the hourly drift
+        check makes accumulate. Finished real runs beyond the newest
+        ``keep_applied``, except the newest successful full-fleet run of each of
+        the ``keep_applied`` releases most recently converged that way, which is
+        what rollback chooses from, and the newest successful applied run, which
+        status reports. Queued and running rows are recovery state and always
+        stay, as does any run a surviving rollback names. A pruned run's release,
+        and the configuration bundle stored with it, is then left to release
+        retention.
         """
         finished = tuple(status.value for status in TERMINAL_STATUSES)
-        with self._db.session() as session:
-            survivors = (
-                select(DeploymentRow.id)
-                .where(
-                    DeploymentRow.check_mode.is_(True),
-                    DeploymentRow.status.in_(finished),
-                )
-                .order_by(DeploymentRow.created_at.desc())
-                .limit(keep)
-                .scalar_subquery()
+        newest_first = (DeploymentRow.created_at.desc(), DeploymentRow.id.desc())
+        succeeded = DeploymentStatus.SUCCEEDED.value
+        recent_checks = (
+            select(DeploymentRow.id)
+            .where(DeploymentRow.check_mode.is_(True))
+            .where(DeploymentRow.status.in_(finished))
+            .order_by(*newest_first)
+            .limit(keep)
+        )
+        recent_applied = (
+            select(DeploymentRow.id)
+            .where(DeploymentRow.check_mode.is_(False))
+            # Unfinished runs survive anyway; counting them would let a backlog
+            # of queued work push finished history out early.
+            .where(DeploymentRow.status.in_(finished))
+            .order_by(*newest_first)
+            .limit(keep_applied)
+        )
+        latest_applied = (
+            select(DeploymentRow.id)
+            .where(
+                DeploymentRow.check_mode.is_(False),
+                DeploymentRow.status == succeeded,
             )
+            .order_by(*newest_first)
+            .limit(1)
+        )
+        # One row per release: its newest successful full-fleet run.
+        ranked = (
+            select(
+                DeploymentRow.id,
+                DeploymentRow.created_at,
+                func.row_number()
+                .over(partition_by=DeploymentRow.release_id, order_by=newest_first)
+                .label("rank"),
+            )
+            .where(
+                DeploymentRow.check_mode.is_(False),
+                DeploymentRow.status == succeeded,
+                DeploymentRow.host_limit.is_(None),
+            )
+            .subquery()
+        )
+        rollback_targets = (
+            select(ranked.c.id)
+            .where(ranked.c.rank == 1)
+            .order_by(ranked.c.created_at.desc(), ranked.c.id.desc())
+            .limit(keep_applied)
+        )
+        unfinished = select(DeploymentRow.id).where(
+            DeploymentRow.status.not_in(finished)
+        )
+        rollbacks = select(DeploymentRow.id, DeploymentRow.rollback_of).where(
+            DeploymentRow.rollback_of.is_not(None)
+        )
+        with self._db.session() as session:
+            survivors = {
+                *session.scalars(recent_checks),
+                *session.scalars(recent_applied),
+                *session.scalars(latest_applied),
+                *session.scalars(rollback_targets),
+                *session.scalars(unfinished),
+            }
+            # A surviving rollback keeps the run it rolled back from, for the
+            # foreign key; rollbacks are rare, so the chain is read whole.
+            rolled_back = {
+                row.id: row.rollback_of for row in session.execute(rollbacks)
+            }
+            pending = list(survivors)
+            while pending:
+                named = rolled_back.get(pending.pop())
+                if named is not None and named not in survivors:
+                    survivors.add(named)
+                    pending.append(named)
             return _rows_affected(
                 session.execute(
                     delete(DeploymentRow).where(
-                        DeploymentRow.check_mode.is_(True),
                         DeploymentRow.status.in_(finished),
                         DeploymentRow.id.not_in(survivors),
                     )
