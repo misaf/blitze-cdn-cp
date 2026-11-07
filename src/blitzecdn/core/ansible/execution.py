@@ -193,7 +193,8 @@ class PlaybookExecutor:
     def _environment(self) -> dict[str, str]:
         # The controller's environment minus every `BLITZE_*` name, so no role
         # can `lookup('env')` the operators' API keys. What a play needs is
-        # added back by name below: the database path and declared secrets.
+        # added back by name below: the database path, the state directory
+        # and declared secrets.
         environment = {
             name: value
             for name, value in os.environ.items()
@@ -231,6 +232,10 @@ class PlaybookExecutor:
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
         )
+        # The controller's own state directory, so a role can name release
+        # material by a path relative to it. A release pinning absolute paths
+        # would render differently on a controller restored somewhere else.
+        environment["BLITZE_STATE_DIR"] = str(self._settings.state_dir.resolve())
         # Declared capability secrets, through the environment rather than
         # `--extra-vars`, which every user on the controller can read in the
         # process table.

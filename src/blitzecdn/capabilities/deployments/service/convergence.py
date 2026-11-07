@@ -235,11 +235,17 @@ class DeploymentService:
         A requirement clears only when a deployment that can satisfy it succeeds, so an
         already queued one is returned rather than a second queued.
         """
-        requested_at = self.persistence.requirements.requested_at(
-            DeploymentRequirementKind.CERTIFICATES
-        )
-        if requested_at is None:
+        pending = [
+            requested
+            for kind in DeploymentRequirementKind
+            if (requested := self.persistence.requirements.requested_at(kind))
+            is not None
+        ]
+        if not pending:
             return None
+        # A queued run satisfies every requirement only if it was compiled after
+        # the newest of them.
+        requested_at = max(pending)
         with self.execution.runner.lock():
             waiting = requirement_policy.queued_to_satisfy(
                 self.persistence.deployments.queued_deployments(), requested_at

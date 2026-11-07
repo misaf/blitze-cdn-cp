@@ -56,6 +56,7 @@ class ConfigurationModel(BaseModel):
                         name=alias,
                         summary=field.description or "",
                         minimum_bytes=int(cast(int, metadata.get("minimum_bytes", 0))),
+                        ansible=metadata.get("ansible", True) is not False,
                     )
                 )
             else:
@@ -97,6 +98,10 @@ class EnvironmentKey:
     summary: str = ""
     required: bool = False
     minimum_bytes: int = 0
+    #: Whether Ansible's subprocess environment receives this secret. False for
+    #: a credential only the controller itself uses, so no playbook — and no
+    #: edge a playbook writes to — can ever be handed it.
+    ansible: bool = True
 
     def __post_init__(self) -> None:
         if self.minimum_bytes < 0:
@@ -166,9 +171,9 @@ class ConfigurationContribution:
     feature: str
     #: The owning Pydantic model validates every configuration contribution.
     model: type[ConfigurationModel]
-    #: Secrets. Only these are copied into Ansible's subprocess environment,
-    #: they remain ``SecretStr`` throughout, and they never travel through argv
-    #: or desired state.
+    #: Secrets. Only these — and of them only those with ``ansible`` set — are
+    #: copied into Ansible's subprocess environment; they remain ``SecretStr``
+    #: throughout, and they never travel through argv or desired state.
     environment_keys: tuple[EnvironmentKey, ...] = ()
     #: Non-secrets. Resolved to the declared type and handed back through
     #: :class:`~blitzecdn.core.features.resolution.CapabilityConfig`.

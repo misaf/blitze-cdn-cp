@@ -8,6 +8,7 @@ from blitzecdn.capabilities.backup.adapters.components import (
     AcmeComponent,
     ConfigComponent,
     DatabaseComponent,
+    GeoIpDatabasesComponent,
     TlsComponent,
 )
 from blitzecdn.capabilities.backup.adapters.history import BackupStatusFile
@@ -19,6 +20,7 @@ __all__ = [
     "ComposeRestoreGuard",
     "ConfigComponent",
     "DatabaseComponent",
+    "GeoIpDatabasesComponent",
     "TarArchive",
     "TemporaryWorkspace",
     "TlsComponent",
