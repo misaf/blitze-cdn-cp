@@ -94,8 +94,9 @@ def create_app(
         )
 
     _register_exception_handlers(application)
-    # The application does not know which capabilities exist. Every router is a
-    # feature's contribution, in roster order.
+    # HTTP routing does not name capabilities: every router is a feature's
+    # contribution, taken from the registry in roster order. The composition
+    # root (`blitzecdn.composition`) still wires each capability explicitly.
     for router in registry.api_routers():
         application.include_router(router)
     add_pagination(application)
