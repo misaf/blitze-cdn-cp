@@ -357,8 +357,12 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
 def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules():
     """Third-party modules must be built against the exact runtime image."""
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
-    assert "ARG NGINX_IMAGE=nginx:1.31.4-alpine" in dockerfile
-    assert dockerfile.count("FROM ${NGINX_IMAGE}") == 2
+    # Both stages name one reference, pinned to a digest: modules compiled in the
+    # builder are ABI-matched only to the image the runtime stage starts from.
+    bases = re.findall(r"^FROM (\S+)", dockerfile, flags=re.MULTILINE)
+    assert len(bases) == 2
+    assert len(set(bases)) == 1, bases
+    assert re.fullmatch(r"nginx:[0-9.]+-alpine@sha256:[0-9a-f]{64}", bases[0])
     assert '"${NGINX_VERSION}-${PKG_RELEASE}"' in dockerfile
     # Every package the builder stage produced carries this image's Nginx version in
     # its filename: the ABI guarantee without enumerating modules.
