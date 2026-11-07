@@ -231,7 +231,10 @@ api_status_with_current_key() {
 control_plane_state() {
   in_container "docker exec blitzecdn-api python -c 'import json, tomllib; print(json.dumps(tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\")), sort_keys=True))'" &&
     in_container 'docker exec blitzecdn-api env | grep "^BLITZE_" | sort | sha256sum' &&
-    in_container 'cd / && blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
+    database_state
+}
+database_state() {
+  in_container 'cd / && blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
 }
 
 if [[ ${SUITE} != lifecycle ]]; then
@@ -303,6 +306,24 @@ if [[ ${SUITE} != lifecycle ]]; then
     fail "the API does not accept the restored operator key"
   in_container 'cd / && blitzecdn doctor --json >/dev/null' ||
     fail "doctor fails after the rollback"
+
+  # The restore brought back the archived controller key, which the reinstalled
+  # deploy account does not trust yet. Re-running the installer authorizes it,
+  # as the restore says; the role's own SSH check is the first proof, and the
+  # one below is the one a deploy depends on. This run also re-renders
+  # blitzecdn.toml from the role, which is why it was compared above.
+  restored_database=$(database_state) || fail "could not read the database state"
+  in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
+    fail "re-running the installer after the restore failed"
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml run --rm --no-deps \
+    --entrypoint ssh blitzecdn-cli -F /opt/blitzecdn/.state/.ssh/config -o BatchMode=yes \
+    deploy@localhost sudo -n true' ||
+    fail "the restored controller key cannot reach the local edge"
+  repaired_database=$(database_state) || fail "could not read the repaired database state"
+  [[ ${repaired_database} == "${restored_database}" ]] ||
+    fail "re-running the installer after the restore changed the restored database state"
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "re-running the installer after the restore changed the operator key"
 
   if [[ ${SUITE} == rollback ]]; then
     printf '\nPASS: %s completed install and rollback\n' "${IMAGE}"
