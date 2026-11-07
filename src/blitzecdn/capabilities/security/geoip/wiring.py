@@ -12,10 +12,7 @@ from blitzecdn.capabilities.security.geoip.adapters import (
     GeoIpDatabaseStore,
     MaxMindDownload,
 )
-from blitzecdn.capabilities.security.geoip.domain import (
-    DATABASE_SHA256_VARIABLE,
-    DATABASE_SOURCE_VARIABLE,
-)
+from blitzecdn.capabilities.security.geoip.domain import DATABASE_SHA256_VARIABLE
 from blitzecdn.capabilities.security.geoip.ports import (
     DatabaseStore,
     DeploymentLock,
@@ -37,6 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.core.domain.site import CdnSite
 
 __all__ = [
+    "DATABASE_DIRECTORY",
     "build_geoip_service",
     "build_geoip_store",
     "geoip_operations",
@@ -44,9 +42,16 @@ __all__ = [
 ]
 
 
+#: Under the controller's state directory; the edge role's
+#: `blitzecdn_geoip_controller_directory` names the same place. Backed up whole
+#: by the backup capability, because MaxMind serves only the newest database
+#: and a rollback needs the exact file its release pinned.
+DATABASE_DIRECTORY = "geoip-databases"
+
+
 def build_geoip_store(*, state_dir: Path) -> GeoIpDatabaseStore:
     """The controller's databases, under its own state directory."""
-    return GeoIpDatabaseStore(state_dir / "geoip")
+    return GeoIpDatabaseStore(state_dir / DATABASE_DIRECTORY)
 
 
 def build_geoip_service(
@@ -73,7 +78,7 @@ def build_geoip_service(
 
 
 def geoip_rendering(*, store: DatabaseStore) -> FeatureRendering[CdnSite]:
-    """Pin the controller's current database, by path and digest, into a release."""
+    """Pin the controller's current database, by digest, into a release."""
 
     def fleet_state(_sites: tuple[CdnSite, ...]) -> FleetStateContribution | None:
         database = store.current()
@@ -81,10 +86,7 @@ def geoip_rendering(*, store: DatabaseStore) -> FeatureRendering[CdnSite]:
             return None
         return FleetStateContribution(
             feature="geoip",
-            variables={
-                DATABASE_SOURCE_VARIABLE: str(database.path),
-                DATABASE_SHA256_VARIABLE: database.sha256,
-            },
+            variables={DATABASE_SHA256_VARIABLE: database.sha256},
         )
 
     return FeatureRendering(feature="geoip", fleet_state=fleet_state)

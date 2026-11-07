@@ -128,7 +128,6 @@ def test_a_refreshed_database_reaches_the_fleet_with_the_next_deployment(
     )
     from blitzecdn.capabilities.security.geoip.domain import (
         DATABASE_SHA256_VARIABLE,
-        DATABASE_SOURCE_VARIABLE,
     )
     from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
     from blitzecdn.composition import Repository
@@ -153,7 +152,7 @@ def test_a_refreshed_database_reaches_the_fleet_with_the_next_deployment(
         assert not requirements.pending(kind)
 
         fleet = control.rendering.fleet_variables(())
-        assert fleet[DATABASE_SOURCE_VARIABLE] == str(installed.path)
         assert fleet[DATABASE_SHA256_VARIABLE] == installed.sha256
+        assert str(installed.path.parent) not in str(fleet)
     finally:
         control.close()

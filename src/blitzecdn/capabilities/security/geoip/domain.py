@@ -13,7 +13,6 @@ from pathlib import Path
 
 __all__ = [
     "DATABASE_SHA256_VARIABLE",
-    "DATABASE_SOURCE_VARIABLE",
     "EDITION",
     "MAXIMUM_DATABASE_BYTES",
     "GeoIpDatabase",
@@ -27,9 +26,9 @@ __all__ = [
 #: GeoLite2-City is far larger and buys nothing here.
 EDITION = "GeoLite2-Country"
 
-#: The fleet variables a release pins the database by. The edge role copies the
-#: file from the controller and refuses one whose digest differs.
-DATABASE_SOURCE_VARIABLE = "blitzecdn_geoip_database_source"
+#: The fleet variable a release pins the database by. Only the digest: the edge
+#: role finds `<edition>-<digest>.mmdb` under the controller's state directory,
+#: so a release renders the same on a controller restored somewhere else.
 DATABASE_SHA256_VARIABLE = "blitzecdn_geoip_database_sha256"
 
 #: GeoLite2-Country is a few MiB. Anything near this is not that database.

@@ -1,7 +1,7 @@
 """Download GeoLite2 once, on the controller, for the whole fleet.
 
 Edges never talk to MaxMind and never hold its license key: a release pins the
-database the controller holds by path and digest, and every edge copies that
+database the controller holds by digest, and every edge copies that
 file like any other release material.
 """
 
@@ -50,20 +50,21 @@ class GeoIpService:
         """
         del operator  # Recorded by the job queue; nothing here is per-operator.
         if self._source is None:
-            current = self._store.current()
             return GeoIpRefresh(
                 configured=False,
                 changed=False,
-                sha256=None if current is None else current.sha256,
+                sha256=self._store.current_digest(),
             )
         # The network, outside the lock: a slow MaxMind must not hold up a deploy.
         payload = self._source.download()
         # Inside it, so no release compiles between choosing the current file and
         # collecting the ones nothing names any more.
         with self._lock.lock():
-            previous = self._store.current()
+            # The recorded digest, not ``current()``: a pointer whose file was
+            # lost is exactly what this download repairs, so it must not refuse.
+            previous = self._store.current_digest()
             database = self._store.install(payload)
-            changed = previous is None or previous.sha256 != database.sha256
+            changed = previous != database.sha256
             if changed:
                 self._require_deployment()
             removed = self._store.collect(

@@ -73,7 +73,7 @@
     # release pins its file by digest, so an edge needs no MaxMind credential,
     # no schedule of its own, and no route to MaxMind.
     - name: Install the database the release pins
-      when: blitzecdn_geoip_database_source is defined
+      when: blitzecdn_geoip_database_sha256 is defined
       block:
         - name: Read the pinned database's digest on the controller
           ansible.builtin.stat:

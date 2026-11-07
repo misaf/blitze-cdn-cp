@@ -221,6 +221,7 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
     assert sorted(name for name in captured if name.startswith("BLITZE_")) == [
         "BLITZE_DATABASE_PATH",
         "BLITZE_MAXMIND_LICENSE_KEY",
+        "BLITZE_STATE_DIR",
     ]
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "licence"
     assert captured["SSH_AUTH_SOCK"] == "/run/user/1000/agent.sock"

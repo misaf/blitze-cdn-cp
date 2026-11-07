@@ -26,7 +26,6 @@ from blitzecdn.capabilities.security.geoip.adapters import (
 )
 from blitzecdn.capabilities.security.geoip.domain import (
     DATABASE_SHA256_VARIABLE,
-    DATABASE_SOURCE_VARIABLE,
     EDITION,
     database_filename,
     digest_of,
@@ -276,7 +275,7 @@ def test_the_download_never_hands_the_key_to_a_redirect(monkeypatch):
 
 def test_rejected_credentials_are_a_configuration_error(monkeypatch):
     def urlopen(request, timeout):
-        raise HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+        raise HTTPError(request.full_url, 401, "Unauthorized", {}, io.BytesIO())
 
     monkeypatch.setattr(maxmind, "urlopen", urlopen)
     with pytest.raises(ConfigurationError, match="BLITZE_MAXMIND_LICENSE_KEY"):
@@ -285,7 +284,7 @@ def test_rejected_credentials_are_a_configuration_error(monkeypatch):
 
 def test_a_spent_daily_limit_is_reported_as_such(monkeypatch):
     def urlopen(request, timeout):
-        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, None)
+        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, io.BytesIO())
 
     monkeypatch.setattr(maxmind, "urlopen", urlopen)
     with pytest.raises(ExecutionError, match="daily download limit"):
@@ -322,7 +321,8 @@ def test_the_maxmind_credentials_never_reach_ansible(tmp_path):
     assert config.credentials_configured
 
 
-def test_a_release_pins_the_current_database_by_path_and_digest(tmp_path):
+def test_a_release_pins_the_current_database_by_digest_alone(tmp_path):
+    """No controller path: a controller restored elsewhere renders the same release."""
     store = GeoIpDatabaseStore(tmp_path)
     rendering = geoip_rendering(store=store)
 
@@ -331,10 +331,7 @@ def test_a_release_pins_the_current_database_by_path_and_digest(tmp_path):
     installed = store.install(database(b"a"))
     contribution = rendering.fleet_state(())
 
-    assert contribution.variables == {
-        DATABASE_SOURCE_VARIABLE: str(installed.path),
-        DATABASE_SHA256_VARIABLE: installed.sha256,
-    }
+    assert contribution.variables == {DATABASE_SHA256_VARIABLE: installed.sha256}
 
 
 def test_the_refresh_is_scheduled_only_with_credentials(tmp_path):
@@ -360,3 +357,32 @@ def test_the_refresh_is_scheduled_only_with_credentials(tmp_path):
     ).scheduled_jobs
     assert job.name == "geoip-refresh"
     assert job.interval_seconds == 86_400
+
+
+def test_a_refresh_repairs_a_current_pointer_whose_file_was_lost(tmp_path):
+    """`blitzecdn geoip update` is what the store's error tells an operator to run."""
+    geoip, store, _requirement, _lock = service(
+        tmp_path, Source(database(b"a"), database(b"a"))
+    )
+    geoip.refresh()
+    store.current().path.unlink()
+    with pytest.raises(ConfigurationError):
+        store.current()
+
+    repaired = geoip.refresh()
+
+    assert repaired.sha256 == store.current().sha256
+    assert store.current().path.read_bytes() == database(b"a")
+
+
+def test_the_store_lives_where_backups_look_for_it(settings):
+    """A restored controller must still hold every database a release pins."""
+    from blitzecdn.capabilities.backup.adapters import GeoIpDatabasesComponent
+    from blitzecdn.capabilities.security.geoip.wiring import build_geoip_store
+
+    store = build_geoip_store(state_dir=settings.state_dir)
+    installed = store.install(database(b"a"))
+    component = GeoIpDatabasesComponent(settings)
+
+    assert component.recovery_paths() == (installed.path.parent,)
+    assert component.present()
