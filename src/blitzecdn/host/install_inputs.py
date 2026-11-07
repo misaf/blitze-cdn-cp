@@ -1,8 +1,11 @@
 """Validate the installer's operator inputs before the host is converged.
 
-Run by `install.sh` in the control-plane image it is about to converge with,
-as ``python -I``, so standard library only. ``allowed-ips`` restates the rules
-``Settings.validate_allowed_ips`` enforces; a test holds the two together.
+Run by `install.sh` as ``python -I -m`` in the control-plane image it is about
+to converge with, so the package that will later read these values is the one
+checking them. ``allowed-ips`` is therefore not a restatement: it applies
+:func:`~blitzecdn.core.config.settings.allowed_ip_networks`, the rule ``Settings``
+applies to ``BLITZE_ALLOWED_IPS``, and cannot accept a value the API would refuse
+at boot. ``standalone`` checks inputs no setting holds, so its rules live here.
 Exit 1 with one message on stderr refuses.
 """
 
@@ -12,37 +15,25 @@ import argparse
 import ipaddress
 from collections.abc import Sequence
 
+from blitzecdn.core.config.settings import allowed_ip_networks
+
 
 class RefusedError(Exception):
     """The input is invalid. The argument is the message for the operator."""
 
 
 def check_allowed_ips(value: str) -> None:
-    """IPv4 networks only, host bits clear, no empty entry."""
-    for entry in (part.strip() for part in value.split(",")):
-        if not entry:
-            raise RefusedError(
-                "error: --allowed-ips entries must be non-empty IPs/CIDRs"
-            )
-        try:
-            network = ipaddress.ip_network(entry, strict=False)
-        except ValueError as error:
-            raise RefusedError(
-                f"error: invalid --allowed-ips entry {entry!r}: {error}"
-            ) from error
-        if network.version != 4:
-            raise RefusedError(
-                f"error: --allowed-ips entry {entry!r} is IPv6; the API "
-                "listens on IPv4 and cannot admit it"
-            )
-        try:
-            ipaddress.ip_network(entry, strict=True)
-        except ValueError:
-            raise RefusedError(
-                f"error: --allowed-ips entry {entry!r} has host bits set. Write "
-                f"'{network}' to admit that whole range, or "
-                f"'{entry.split('/', 1)[0]}/32' to admit only that address"
-            ) from None
+    """The setting's rule, as the flag spells it.
+
+    The installer joins repeated flags with commas and calls this only when one
+    was given, so an empty string here is a flag with no value and is refused;
+    the environment's reading of a blank string as "loopback only" is not this
+    caller's to borrow.
+    """
+    try:
+        allowed_ip_networks(value.split(","), label="--allowed-ips")
+    except ValueError as error:
+        raise RefusedError(f"error: {error}") from error
 
 
 def check_standalone(admin_cidr: str, email: str) -> None:
