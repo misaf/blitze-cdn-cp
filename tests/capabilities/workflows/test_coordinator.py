@@ -19,6 +19,8 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
+from blitzecdn.core.domain.events import DomainEvent
+from blitzecdn.core.exceptions import ConflictError
 
 
 class FakeJournal:
@@ -66,6 +68,9 @@ class FakeJournal:
         )
         return self.workflows[workflow_id]
 
+    def get(self, workflow_id: str) -> Workflow:
+        return self.workflows[workflow_id]
+
     def unfinished(self) -> list[Workflow]:
         return [
             workflow
@@ -76,6 +81,14 @@ class FakeJournal:
     def prune_finished(self, keep: int) -> int:
         self.pruned_to.append(keep)
         return 0
+
+
+class RecordingEvents:
+    def __init__(self) -> None:
+        self.recorded: list[DomainEvent] = []
+
+    def record(self, event: DomainEvent) -> None:
+        self.recorded.append(event)
 
 
 class RecordingUnitOfWork:
@@ -106,8 +119,13 @@ def uow() -> RecordingUnitOfWork:
 
 
 @pytest.fixture
-def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork):
-    return WorkflowCoordinator(journal=journal, uow=uow, retention=5)
+def events() -> RecordingEvents:
+    return RecordingEvents()
+
+
+@pytest.fixture
+def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork, events):
+    return WorkflowCoordinator(journal=journal, uow=uow, events=events, retention=5)
 
 
 def test_a_workflow_opens_running_and_closes_succeeded(coordinator, journal):
@@ -276,3 +294,45 @@ def test_recovery_for_one_resource_leaves_everything_else_running(coordinator, j
 
     assert [workflow.id for workflow in recovered] == ["died-in"]
     assert journal.workflows["in-the-api"].status is WorkflowStatus.RUNNING
+
+
+def test_acknowledging_an_interrupted_workflow_marks_it_reviewed(
+    coordinator, journal, events
+):
+    """Sign-off keeps the evidence, names who gave it, audits it, then prunes."""
+    journal.create("interrupted", "certificate", "alice", "example-com")
+    coordinator.reconcile_interrupted()
+
+    reviewed = coordinator.acknowledge("interrupted", "bob")
+
+    assert reviewed.status is WorkflowStatus.REVIEWED
+    assert reviewed.error is not None
+    assert reviewed.error.startswith("the controller restarted")
+    assert reviewed.steps[-1].name == "reviewed"
+    assert reviewed.steps[-1].details == {"operator": "bob"}
+    (event,) = events.recorded
+    assert (event.operator, event.action, event.resource_id) == (
+        "bob",
+        "workflow.reviewed",
+        "interrupted",
+    )
+    assert journal.pruned_to == [5]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        WorkflowStatus.RUNNING,
+        WorkflowStatus.SUCCEEDED,
+        WorkflowStatus.REVIEWED,
+    ],
+)
+def test_only_needs_review_can_be_acknowledged(coordinator, journal, events, status):
+    journal.create("other", "certificate", "alice")
+    journal.advance("other", status)
+
+    with pytest.raises(ConflictError, match="only needs_review"):
+        coordinator.acknowledge("other", "bob")
+
+    assert journal.workflows["other"].status is status
+    assert events.recorded == []

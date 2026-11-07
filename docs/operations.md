@@ -251,7 +251,15 @@ itself claim that the job succeeded; inspect its durable outcome.
 Interrupted workflows moved to `needs_review` produce warnings with
 `workflow_id`, `workflow_kind`, `resource_id` and the last checkpoint name.
 Checkpoint details and credentials are omitted. Query `GET /v3/workflows` or the
-workflow's existing detail endpoint to inspect its retained journal.
+workflow's existing detail endpoint (`blitzecdn workflow list` / `show` on the
+CLI) to inspect its retained journal.
+
+A `needs_review` workflow is never pruned. Once you have checked the external
+side (for example, whether a certificate was issued), acknowledge it with
+`POST /v3/workflows/{workflow_id}/acknowledge` or
+`blitzecdn workflow acknowledge WORKFLOW_ID`. It moves to `reviewed`, keeps its
+error and checkpoints, records a `workflow.reviewed` audit event, and is then
+pruned like any finished workflow.
 
 ## HTTP traces and request metrics
 

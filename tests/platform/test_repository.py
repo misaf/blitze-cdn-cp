@@ -630,6 +630,24 @@ def test_workflow_retention_never_drops_an_unfinished_one(settings):
     assert len(repository.workflows.unfinished()) == 2
 
 
+def test_workflow_retention_keeps_needs_review_until_it_is_reviewed(settings):
+    """Interrupted external work survives pruning until an operator signs off."""
+    repository = Repository(settings.database_path)
+    repository.workflows.create("interrupted", "certificate", "alice")
+    repository.workflows.advance("interrupted", WorkflowStatus.NEEDS_REVIEW)
+    for index in range(3):
+        repository.workflows.create(f"done-{index}", "certificate", "alice")
+        repository.workflows.advance(f"done-{index}", WorkflowStatus.SUCCEEDED)
+
+    assert repository.workflows.prune_finished(0) == 3
+    assert repository.workflows.get("interrupted").status is (
+        WorkflowStatus.NEEDS_REVIEW
+    )
+
+    repository.workflows.advance("interrupted", WorkflowStatus.REVIEWED)
+    assert repository.workflows.prune_finished(0) == 1
+
+
 def test_a_compare_and_swap_outside_a_transaction_is_refused(settings):
     """Outside a Unit of Work the read and write are not atomic, so the store
     refuses rather than risk a lost update or a snapshot-busy error.
