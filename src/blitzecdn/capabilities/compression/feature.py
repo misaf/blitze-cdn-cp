@@ -65,6 +65,7 @@ FEATURES = (
                 feature="compression",
                 templates_path=NGINX_TEMPLATES,
                 server_fragments=("compression-server.conf.j2",),
+                upstream_fragments=("compression-upstream.conf.j2",),
             ),
         ),
         site_policy=(
