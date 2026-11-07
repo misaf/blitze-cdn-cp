@@ -97,7 +97,7 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
         seed_site(control, name="rule-host", record="api") if rule_owned else original
     )
     updated = control.site_editor.activate_managed_certificate(
-        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     assert updated.policy[TlsPolicy].certificate_mode is CertificateMode.REQUESTED
     assert updated.policy[TlsPolicy].certificate_path.endswith(
@@ -120,7 +120,7 @@ def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
     original = seed_site(control)
     target = seed_site(control, name="rule-host", record="api")
     control.site_editor.activate_managed_certificate(
-        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     updated = control.site_editor.apply_automatic_ssl_upgrade(
         target.name, SslMode.FULL, "scheduler"
@@ -222,6 +222,44 @@ def test_a_rule_that_contradicts_its_zone_darkens_only_its_own_hostnames(control
     assert "http3_enabled=True requires ssl_mode" in error
 
 
+def test_a_zone_writeback_keeps_a_certificate_free_rule_servable(control):
+    """Serving TLS on the zone must not darken a rule that serves without it.
+
+    The rule disables certificates and inherits ``ssl_mode``; the writeback that
+    starts the zone on Flexible pins the rule to the Off it inherited.
+    """
+    zone_host = seed_site(control)
+    seed_record(control, name="api")
+    control.rules.rules.create_rule(
+        Rule(
+            domain="example.com",
+            name="api",
+            match="api.example.com",
+            overrides={
+                "certificate_mode": CertificateMode.DISABLED,
+                "certificate_path": None,
+                "certificate_key_path": None,
+            },
+        )
+    )
+
+    updated = control.site_editor.activate_managed_certificate(
+        zone_host, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
+    )
+
+    assert updated.policy[TlsPolicy].ssl_mode is SslMode.FLEXIBLE
+    assert control.dns.validation_errors() == []
+    rule_host = next(
+        site for site in control.sites.list_sites() if site.name != zone_host.name
+    )
+    assert rule_host.policy[TlsPolicy].ssl_mode is SslMode.OFF
+    assert rule_host.policy[TlsPolicy].certificate_mode is CertificateMode.DISABLED
+    assert (
+        control.rules.get_rule("example.com", "api").overrides["ssl_mode"]
+        == SslMode.OFF
+    )
+
+
 class _InterferingUnitOfWork:
     """A Unit of Work that lets one operator write land as the lock is taken.
 
@@ -249,7 +287,7 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
     """
     site = seed_site(control)
     control.site_editor.activate_managed_certificate(
-        site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     site = control.sites.get_site(site.name)
     assert site.policy[TlsPolicy].ssl_automatic_mode is not SslAutomaticMode.CUSTOM
