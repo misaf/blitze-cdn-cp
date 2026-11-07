@@ -1,3 +1,4 @@
+blitzecdn	check	certificate_preflight_attempts.certificate_preflight_attempts_failures_check	failures >= 1
 blitzecdn	check	deployment_outcomes.deployment_outcomes_failures_check	consecutive_failures >= 0
 blitzecdn	check	deployment_outcomes.deployment_outcomes_kind_check	kind IN ('applied', 'drift_check')
 blitzecdn	check	deployment_targets.deployment_targets_phase_check	phase IS NULL OR phase IN ('prepare', 'validate', 'stage', 'activate', 'verify')
@@ -38,6 +39,12 @@ blitzecdn	column	audit_events.id	type=INTEGER not-null pk
 blitzecdn	column	audit_events.operator	type=VARCHAR not-null
 blitzecdn	column	audit_events.resource_id	type=VARCHAR null
 blitzecdn	column	audit_events.resource_type	type=VARCHAR not-null
+blitzecdn	column	certificate_preflight_attempts.checked_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	certificate_preflight_attempts.failures	type=INTEGER not-null
+blitzecdn	column	certificate_preflight_attempts.fingerprint	type=VARCHAR not-null
+blitzecdn	column	certificate_preflight_attempts.next_check_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	certificate_preflight_attempts.site	type=VARCHAR not-null pk
+blitzecdn	column	certificate_preflight_attempts.summary	type=VARCHAR not-null
 blitzecdn	column	deployment_outcomes.consecutive_failures	type=INTEGER not-null
 blitzecdn	column	deployment_outcomes.kind	type=VARCHAR not-null pk
 blitzecdn	column	deployment_outcomes.last_failure_at	type=UtcDateTime(VARCHAR) null
@@ -178,4 +185,4 @@ blitzecdn	index	releases.ix_releases_id	(id) unique
 blitzecdn	index	traffic_hours.ix_traffic_hours_hour_hostname_edge	(hour,hostname,edge)
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
-blitzecdn	revision	0009_deployment_outcomes
+blitzecdn	revision	0010_deployment_outcomes

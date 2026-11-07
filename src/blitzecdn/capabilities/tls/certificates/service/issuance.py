@@ -6,6 +6,8 @@ Certificate state is written to the zone or rule that produced a host, through
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -20,6 +22,8 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
+    PreflightAttempt,
+    PreflightBackoff,
     PreflightReport,
     ReconciliationResult,
     RenewalResult,
@@ -33,6 +37,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     Issuer,
     MaterialReferences,
     Preflight,
+    PreflightAttempts,
     RecordReader,
     SiteEditor,
     SiteReader,
@@ -63,6 +68,8 @@ class CertificatePolicy:
     """Configuration owned by certificate workflows."""
 
     default_email: str | None
+    #: How long scheduled reconciliation leaves a site with a blocked preflight.
+    preflight_backoff: PreflightBackoff
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,7 @@ class CertificatePersistence:
     certificates: CertificateStore
     uow: UnitOfWork
     requirements: DeploymentRequirements
+    preflight_attempts: PreflightAttempts
 
 
 @dataclass(frozen=True)
@@ -166,6 +174,56 @@ class CertificateService:
             deployed=self.deployments.site_is_deployed(site.name),
             record_ttl=record.ttl,
         )
+
+    def preflight_attempts(self) -> list[PreflightAttempt]:
+        """Sites whose last scheduled preflight blocked, and when each is next due."""
+        return self.persistence.preflight_attempts.list_all()
+
+    def _preflight_due(
+        self, site: CdnSite, *, force: bool
+    ) -> tuple[PreflightReport | None, str]:
+        """Preflight ``site`` unless it is backing off; record a blocked result.
+
+        Returns the report, or ``None`` with the reason the check was not made.
+        """
+        record = self.dns.record_for_hostname(site.server_names[0])
+        # Deployment readiness is part of the answer but not of the site, so a
+        # first deployment must end the backoff as a DNS change does.
+        deployed = self.deployments.site_is_deployed(site.name)
+        fingerprint = _fingerprint(
+            site, record.model_dump(mode="json"), deployed=deployed
+        )
+        attempts = self.persistence.preflight_attempts
+        backoff = self.policy.preflight_backoff
+        previous = attempts.get(site.name)
+        now = self.clock()
+        if (
+            not force
+            and previous is not None
+            and not backoff.due(previous, fingerprint=fingerprint, now=now)
+        ):
+            return None, (
+                f"{previous.summary} (checked {previous.failures} time(s) "
+                f"without change, last at {previous.checked_at:%Y-%m-%d %H:%M} UTC; "
+                f"next check after {previous.next_check_at:%Y-%m-%d %H:%M} UTC, "
+                "sooner if the site, its DNS record or its deployment changes)"
+            )
+        report = self.execution.preflight.check(
+            site, deployed=deployed, record_ttl=record.ttl
+        )
+        if report.ok:
+            attempts.clear(site.name)
+        else:
+            attempts.record(
+                backoff.after(
+                    previous,
+                    site=site.name,
+                    fingerprint=fingerprint,
+                    checked_at=now,
+                    summary=report.summary(),
+                )
+            )
+        return report, report.summary()
 
     def _enforce_preflight(
         self, site: CdnSite, operator: str, *, skip: bool, action: str
@@ -292,25 +350,34 @@ class CertificateService:
             )
         return info
 
-    def reconcile_certificates(self, operator: str) -> ReconciliationResult:
+    def reconcile_certificates(
+        self, operator: str, *, force: bool = False
+    ) -> ReconciliationResult:
         """Issue ready first certificates and queue one deployment to install them.
 
         Queued through deployment requirements, so a second run queues nothing extra.
         Eligibility is re-checked under the cross-process lock, so only one reconciler
         contacts the CA for a site.
+
+        A site whose preflight keeps blocking, such as one never pointed at the
+        edges, is checked less and less often (see `PreflightBackoff`) until it or
+        its DNS record changes. ``force`` checks every site now, for an operator
+        who has just fixed something outside the controller.
         """
         issued: list[str] = []
         skipped: dict[str, str] = {}
         failed: dict[str, str] = {}
+        waiting: list[str] = []
         for candidate in self.persistence.sites.list_sites():
             if (
                 candidate.policy[TlsPolicy].certificate_mode
                 is not CertificateMode.DISABLED
             ):
                 continue
-            report = self.certificate_preflight(candidate.name)
-            if not report.ok:
-                skipped[candidate.name] = report.summary()
+            waiting.append(candidate.name)
+            report, reason = self._preflight_due(candidate, force=force)
+            if report is None or not report.ok:
+                skipped[candidate.name] = reason
                 continue
             try:
                 # Journalled like every path to the CA; this one is unattended.
@@ -344,6 +411,8 @@ class CertificateService:
             except BlitzeError as exc:
                 failed[candidate.name] = str(exc)
 
+        # A site that was deleted or got its certificate stops being tracked.
+        self.persistence.preflight_attempts.retain(waiting)
         deployment = (
             self.deployments.converge_requirements(operator) if issued else None
         )
@@ -539,3 +608,17 @@ class CertificateService:
             )
         _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
         return "renewed", status.site
+
+
+def _fingerprint(site: CdnSite, record: object, *, deployed: bool) -> str:
+    """Digest of what a preflight depends on that the controller can see change."""
+    payload = json.dumps(
+        {
+            "site": site.model_dump(mode="json"),
+            "record": record,
+            "deployed": deployed,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()

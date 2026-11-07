@@ -168,11 +168,12 @@ INITIAL = (
     "0006_edges",
     "0007_workflows",
     "0008_traffic",
+    "0009_tls",
 )
 
 #: Revisions after the initial chain, in upgrade order, with the tables each
 #: one adds. A table here is not its capability's initial revision's to create.
-LATER = (("0009_deployment_outcomes", {"deployment_outcomes"}),)
+LATER = (("0010_deployment_outcomes", {"deployment_outcomes"}),)
 LATER_TABLES = {table for _, tables in LATER for table in tables}
 
 

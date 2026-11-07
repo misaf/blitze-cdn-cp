@@ -18,6 +18,7 @@ from blitzecdn.capabilities.jobs.domain.observability import WorkerHeartbeat
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateSource,
     CertificateStatus,
+    PreflightAttempt,
 )
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.capabilities.workflows.service.coordinator import WorkflowCoordinator
@@ -68,7 +69,17 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
                 certificate(2, False),
                 certificate(10, True),
                 certificate(90, True),
-            ]
+            ],
+            preflight_attempts=lambda: [
+                PreflightAttempt(
+                    site="private-unpointed",
+                    fingerprint="f" * 64,
+                    failures=3,
+                    checked_at=now - timedelta(minutes=5),
+                    next_check_at=now + timedelta(minutes=35),
+                    summary="dns: private.example.com does not resolve",
+                )
+            ],
         ),
         backups=SimpleNamespace(
             latest=lambda: BackupRecord(
@@ -96,12 +107,16 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
     assert report.certificates.expiring == 3
     assert report.certificates.expired == 1
     assert report.certificates.renewal_due == 1
+    assert report.certificates.preflight_blocked == 1
+    assert report.certificates.preflight_last_checked_at == now - timedelta(minutes=5)
+    assert report.certificates.preflight_next_check_at == now + timedelta(minutes=35)
     assert report.backups.last_age_seconds == 7200
     assert report.backups.last_size_bytes == 4096
     metrics = operational_metrics(report)
     assert 'blitzecdn_workers{state="stale"} 1' in metrics
     assert 'blitzecdn_workflows{status="needs_review"} 1' in metrics
     assert "blitzecdn_certificates_expiring 3" in metrics
+    assert "blitzecdn_certificates_preflight_blocked 1" in metrics
     completed = (now - timedelta(hours=2)).timestamp()
     assert f"blitzecdn_backup_last_success_timestamp_seconds {completed}" in metrics
     assert "blitzecdn_backup_last_success_size_bytes 4096" in metrics
@@ -124,6 +139,7 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
         "private-job",
         "private-kind",
         "private.example",
+        "private-unpointed",
     ):
         assert identifier not in metrics
     repository.close()
