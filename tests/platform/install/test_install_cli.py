@@ -22,6 +22,7 @@ from support.install import (
 
 from blitzecdn.core.config.settings import Settings
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.host import install_inputs
 
 # --- lint --------------------------------------------------------------------
 
@@ -187,8 +188,9 @@ def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     ],
 )
 def test_admin_cidr_validation(cidr: str, accepted: bool):
-    result = host_helper("install_inputs", "standalone", cidr, "operator@example.com")
-    assert (result.returncode == 0) is accepted
+    assert (
+        _install_inputs("standalone", cidr, "operator@example.com") == 0
+    ) is accepted
 
 
 @pytest.mark.parametrize(
@@ -202,12 +204,29 @@ def test_admin_cidr_validation(cidr: str, accepted: bool):
     ],
 )
 def test_acme_email_validation(email: str, accepted: bool):
-    result = host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
-    assert (result.returncode == 0) is accepted
+    assert (_install_inputs("standalone", "203.0.113.8/32", email) == 0) is accepted
 
 
-def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
-    return host_helper("install_inputs", "allowed-ips", value)
+def _install_inputs(*arguments: str) -> int:
+    """The helper's exit status, run in-process so its lines are measured."""
+    try:
+        return install_inputs.main(arguments)
+    except SystemExit as exit_:
+        return int(exit_.code or 0)
+
+
+def _validate_allowed_ips(value: str) -> int:
+    return _install_inputs("allowed-ips", value)
+
+
+def test_install_inputs_runs_the_way_the_installer_starts_it():
+    """`install.sh` runs ``python -I -m`` in the image; isolation must not hide
+    the package the helper now imports its rule from."""
+    accepted = host_helper("install_inputs", "allowed-ips", "203.0.113.8/32")
+    assert accepted.returncode == 0, accepted.stderr
+    refused = host_helper("install_inputs", "allowed-ips", "2001:db8::/32")
+    assert refused.returncode == 1
+    assert refused.stderr.startswith("error: --allowed-ips entry")
 
 
 @pytest.mark.parametrize(
@@ -230,18 +249,19 @@ def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
     ],
 )
 def test_allowed_ips_validation(value: str, accepted: bool):
-    assert (_validate_allowed_ips(value).returncode == 0) is accepted
+    assert (_validate_allowed_ips(value) == 0) is accepted
 
 
-def test_allowed_ips_is_refused_before_anything_is_installed():
+def test_allowed_ips_is_refused_before_anything_is_installed(capsys):
     """The refusal has to name the two readings, not just say no.
 
     Refusing rather than masking makes the widening a choice the operator states.
     """
-    result = _validate_allowed_ips("203.0.113.8/24")
-    assert result.returncode != 0
-    assert "203.0.113.0/24" in result.stderr
-    assert "203.0.113.8/32" in result.stderr
+    assert _validate_allowed_ips("203.0.113.8/24") != 0
+    stderr = capsys.readouterr().err
+    assert "--allowed-ips entry '203.0.113.8/24'" in stderr
+    assert "203.0.113.0/24" in stderr
+    assert "203.0.113.8/32" in stderr
 
 
 @pytest.mark.parametrize(
@@ -258,15 +278,16 @@ def test_allowed_ips_is_refused_before_anything_is_installed():
     ],
 )
 def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
-    """One list, two validators, and the flag runs first.
+    """One rule, two readers, and the flag runs first.
 
-    `--allowed-ips` is checked by the image's stdlib helper before the host converges;
-    `Settings` checks the same list when the API reads it. This keeps the copies
-    agreeing, so the flag never provisions a server that cannot start. An empty
+    `--allowed-ips` is checked in the image before the host converges; `Settings`
+    checks the same list when the API reads it. Both call `allowed_ip_networks`,
+    so this holds by construction; it stays to catch a reader that stops calling
+    it, since then the flag could provision a server that cannot start. An empty
     environment value returns a server to loopback, but an empty flag is refused,
     so it is not listed here.
     """
-    accepted_by_installer = _validate_allowed_ips(value).returncode == 0
+    accepted_by_installer = _validate_allowed_ips(value) == 0
     try:
         Settings.from_environment({"BLITZE_ALLOWED_IPS": value}, project_dir=tmp_path)
         accepted_by_setting = True
