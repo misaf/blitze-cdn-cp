@@ -32,7 +32,11 @@ blitzecdn_cache_purge_all: false
 blitzecdn_cache_purge_methods: [GET, HEAD]
 
 # Listener ports are part of the cache key because each one reaches the same
-# port on the origin. These must match the Nginx role's public listener sets.
+# port on the origin, and two origin ports may be two different services — see
+# the proxy_cache_key comment in cache-upstream.conf.j2. A URL can therefore be
+# cached once per listener, and purging it means deleting every port's entry.
+# These must match the Nginx role's public listener sets; the control plane's
+# tests assert they do.
 blitzecdn_cache_purge_http_ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
 blitzecdn_cache_purge_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
 
