@@ -97,7 +97,7 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
         seed_site(control, name="rule-host", record="api") if rule_owned else original
     )
     updated = control.site_editor.activate_managed_certificate(
-        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     assert updated.policy[TlsPolicy].certificate_mode is CertificateMode.REQUESTED
     assert updated.policy[TlsPolicy].certificate_path.endswith(
@@ -120,7 +120,7 @@ def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
     original = seed_site(control)
     target = seed_site(control, name="rule-host", record="api")
     control.site_editor.activate_managed_certificate(
-        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     updated = control.site_editor.apply_automatic_ssl_upgrade(
         target.name, SslMode.FULL, "scheduler"
@@ -249,7 +249,7 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
     """
     site = seed_site(control)
     control.site_editor.activate_managed_certificate(
-        site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+        site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION, "tester"
     )
     site = control.sites.get_site(site.name)
     assert site.policy[TlsPolicy].ssl_automatic_mode is not SslAutomaticMode.CUSTOM

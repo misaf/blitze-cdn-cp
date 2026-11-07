@@ -230,7 +230,7 @@ def seed_site(
             return site
         # The issuer's own write, which derives the paths from this host's name.
         control.site_editor.activate_managed_certificate(
-            site, issuer_mode, TEST_CERTIFICATE_VERSION
+            site, issuer_mode, TEST_CERTIFICATE_VERSION, "tester"
         )
         if deferred_ssl is not None:
             _set_policy(control, domain, rule, {"ssl_mode": deferred_ssl}, operator)
