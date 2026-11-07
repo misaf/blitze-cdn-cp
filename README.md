@@ -64,8 +64,8 @@ Control endpoints require the `X-API-Key` header; use the secret portion of the
 metrics, worker heartbeats, and logs.
 
 Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
-deployment ID for its per-edge progress. Read cache effectiveness with
-`uv run blitzecdn cache stats` (`--by-site` adds a hostname breakdown). These
+deployment ID for its per-edge progress. Read stored hourly cache effectiveness with
+`uv run blitzecdn cache stats --start ... --end ...`. These
 replace the former root commands `status` and `stats`; update scripts to use
 the resource groups. Controller diagnostics remain `blitzecdn overview`.
 

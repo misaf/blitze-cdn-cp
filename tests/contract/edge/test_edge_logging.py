@@ -75,7 +75,7 @@ def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_
         "request_time": 0.125,
         "remote_addr": "2001:db8::1",
         "request": 'GET /path?q="quoted" HTTP/2.0',
-        "sent_http_x_cache_status": "",
+        "upstream_cache_status": "",
         "upstream_addr": "-",
         "upstream_response_time": "-",
         "http_referer": "",

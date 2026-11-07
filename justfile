@@ -402,6 +402,11 @@ ci-download run="":
 
 # --- published surfaces --------------------------------------------------
 
+# Measure the edge traffic collector's records/s per core, plain and gzip.
+# docs/traffic-accounting.md sizes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES from it.
+bench-traffic records="200000":
+    uv run python tests/traffic_collector_benchmark.py --records {{records}}
+
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #
 # Run this only when a change to a *public* surface is intended: the HTTP

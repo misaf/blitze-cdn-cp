@@ -7,12 +7,15 @@ from sqlalchemy import delete, select, tuple_
 from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.traffic.adapters.tables import (
+    TrafficCacheHourRow,
     TrafficCollectionRow,
     TrafficCursorRow,
     TrafficHourRow,
     TrafficRetentionRow,
 )
 from blitzecdn.capabilities.traffic.domain import (
+    CacheCounters,
+    CacheOutcome,
     CollectedUsage,
     CollectionRecord,
     EdgeCollection,
@@ -26,6 +29,9 @@ from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.pagination import read_page
+
+type _HourKey = tuple[str, str, datetime]
+type _Shares = dict[CacheOutcome, CacheCounters]
 
 
 class TrafficStore:
@@ -149,19 +155,24 @@ class TrafficStore:
             state = session.get(TrafficRetentionRow, 1)
             if state is not None:
                 statement = statement.where(TrafficHourRow.hour >= state.cutoff)
-            return read_page(
+            page = read_page(
                 session,
                 statement,
-                lambda row: TrafficUsage(
-                    edge=row.edge,
-                    hostname=row.hostname,
-                    hour=row.hour,
-                    requests=row.requests,
-                    bytes_sent=row.bytes_sent,
-                    body_bytes_sent=row.body_bytes_sent,
-                ),
+                lambda row: row,
                 limit=query.limit,
                 offset=query.offset,
+            )
+            outcomes = self._outcomes(
+                session, [(row.edge, row.hostname, row.hour) for row in page.items]
+            )
+            return PageResult(
+                items=[
+                    TrafficUsage(
+                        edge=row.edge, **self._usage(row, outcomes).model_dump()
+                    )
+                    for row in page.items
+                ],
+                total=page.total,
             )
 
     def checkpoints(self) -> dict[str, tuple[LogCursor, ...]]:
@@ -232,18 +243,63 @@ class TrafficStore:
 
     @staticmethod
     def _increment(session: Session, edge: str, bucket: HourlyUsage) -> None:
-        row = session.get(TrafficHourRow, (edge, bucket.hostname, bucket.hour))
+        key = (edge, bucket.hostname, bucket.hour)
+        row = session.get(TrafficHourRow, key)
         if row is None:
-            session.add(TrafficHourRow(edge=edge, **bucket.model_dump()))
+            session.add(
+                TrafficHourRow(edge=edge, **bucket.model_dump(exclude={"cache"}))
+            )
         else:
-            for name in ("requests", "bytes_sent", "body_bytes_sent"):
-                total = int(getattr(row, name)) + int(getattr(bucket, name))
-                if total > 2**63 - 1:
-                    raise ConflictError(
-                        "hourly traffic counter exceeds the database integer range"
-                    )
-                setattr(row, name, total)
+            _add(row, bucket, ("requests", "bytes_sent", "body_bytes_sent"))
         session.flush()
+        for outcome, counters in bucket.cache.items():
+            share = session.get(TrafficCacheHourRow, (*key, outcome.value))
+            if share is None:
+                session.add(
+                    TrafficCacheHourRow(
+                        edge=edge,
+                        hostname=bucket.hostname,
+                        hour=bucket.hour,
+                        outcome=outcome.value,
+                        **counters.model_dump(),
+                    )
+                )
+            else:
+                _add(share, counters, ("requests", "bytes_sent"))
+        session.flush()
+
+    @staticmethod
+    def _outcomes(
+        session: Session, keys: Sequence[_HourKey]
+    ) -> dict[_HourKey, _Shares]:
+        """Each hour row's cache outcomes; one query for a whole page."""
+        grouped: dict[_HourKey, _Shares] = {key: {} for key in keys}
+        if not keys:
+            return grouped
+        for share in session.scalars(
+            select(TrafficCacheHourRow).where(
+                tuple_(
+                    TrafficCacheHourRow.edge,
+                    TrafficCacheHourRow.hostname,
+                    TrafficCacheHourRow.hour,
+                ).in_(keys)
+            )
+        ):
+            grouped[(share.edge, share.hostname, share.hour)][
+                CacheOutcome(share.outcome)
+            ] = CacheCounters(requests=share.requests, bytes_sent=share.bytes_sent)
+        return grouped
+
+    @staticmethod
+    def _usage(row: TrafficHourRow, outcomes: dict[_HourKey, _Shares]) -> HourlyUsage:
+        return HourlyUsage(
+            hostname=row.hostname,
+            hour=row.hour,
+            requests=row.requests,
+            bytes_sent=row.bytes_sent,
+            body_bytes_sent=row.body_bytes_sent,
+            cache=outcomes[(row.edge, row.hostname, row.hour)],
+        )
 
     def hourly(
         self, *, edge: str, hostname: str, start: datetime, end: datetime
@@ -258,18 +314,26 @@ class TrafficStore:
                     TrafficHourRow.hour < end,
                 )
                 .order_by(TrafficHourRow.hour)
+            ).all()
+            outcomes = self._outcomes(
+                session, [(row.edge, row.hostname, row.hour) for row in rows]
             )
-            return tuple(
-                HourlyUsage(
-                    hostname=row.hostname,
-                    hour=row.hour,
-                    requests=row.requests,
-                    bytes_sent=row.bytes_sent,
-                    body_bytes_sent=row.body_bytes_sent,
-                )
-                for row in rows
-            )
+            return tuple(self._usage(row, outcomes) for row in rows)
 
     @staticmethod
     def _cursor(row: TrafficCursorRow) -> LogCursor:
         return LogCursor(stream_id=row.stream_id, offset=row.offset, anchor=row.anchor)
+
+
+def _add(
+    row: TrafficHourRow | TrafficCacheHourRow,
+    delta: HourlyUsage | CacheCounters,
+    names: tuple[str, ...],
+) -> None:
+    for name in names:
+        total = int(getattr(row, name)) + int(getattr(delta, name))
+        if total > 2**63 - 1:
+            raise ConflictError(
+                "hourly traffic counter exceeds the database integer range"
+            )
+        setattr(row, name, total)

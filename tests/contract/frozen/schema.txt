@@ -16,6 +16,8 @@ blitzecdn	check	job_schedules.job_schedules_lease_check	lease_seconds >= 1
 blitzecdn	check	jobs.jobs_attempts_check	attempts >= 0
 blitzecdn	check	jobs.jobs_max_attempts_check	max_attempts >= 1
 blitzecdn	check	jobs.jobs_status_check	status IN ('pending', 'running', 'succeeded', 'failed')
+blitzecdn	check	traffic_cache_hours.traffic_cache_hours_counters_check	requests > 0 AND bytes_sent >= 0
+blitzecdn	check	traffic_cache_hours.traffic_cache_hours_outcome_check	outcome IN ('HIT', 'STALE', 'UPDATING', 'REVALIDATED', 'MISS', 'EXPIRED', 'BYPASS', 'NONE')
 blitzecdn	check	traffic_cursors.traffic_cursors_offset_check	offset > 0
 blitzecdn	check	traffic_hours.traffic_hours_counters_check	requests > 0 AND bytes_sent >= 0 AND body_bytes_sent >= 0
 blitzecdn	check	traffic_retention.traffic_retention_singleton	id = 1
@@ -112,6 +114,12 @@ blitzecdn	column	releases.digest	type=VARCHAR not-null pk
 blitzecdn	column	releases.document	type=JSON not-null
 blitzecdn	column	releases.id	type=VARCHAR not-null
 blitzecdn	column	releases.inputs_digest	type=VARCHAR not-null fk=release_inputs.digest
+blitzecdn	column	traffic_cache_hours.bytes_sent	type=INTEGER not-null
+blitzecdn	column	traffic_cache_hours.edge	type=VARCHAR not-null pk fk=traffic_hours.edge ondelete=CASCADE
+blitzecdn	column	traffic_cache_hours.hostname	type=VARCHAR not-null pk fk=traffic_hours.hostname ondelete=CASCADE
+blitzecdn	column	traffic_cache_hours.hour	type=UtcDateTime(VARCHAR) not-null pk fk=traffic_hours.hour ondelete=CASCADE
+blitzecdn	column	traffic_cache_hours.outcome	type=VARCHAR not-null pk
+blitzecdn	column	traffic_cache_hours.requests	type=INTEGER not-null
 blitzecdn	column	traffic_collections.attempt_id	type=VARCHAR not-null
 blitzecdn	column	traffic_collections.edge	type=VARCHAR not-null pk
 blitzecdn	column	traffic_collections.finished_at	type=UtcDateTime(VARCHAR) null

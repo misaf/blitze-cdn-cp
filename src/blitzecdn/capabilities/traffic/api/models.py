@@ -2,8 +2,13 @@
 
 from datetime import datetime
 
-from blitzecdn.capabilities.traffic.domain import FreshnessState
+from blitzecdn.capabilities.traffic.domain import CacheOutcome, FreshnessState
 from blitzecdn.entrypoints.api.models import Model
+
+
+class CacheCounters(Model):
+    requests: int
+    bytes_sent: int
 
 
 class TrafficUsage(Model):
@@ -13,6 +18,8 @@ class TrafficUsage(Model):
     requests: int
     bytes_sent: int
     body_bytes_sent: int
+    #: The hour's requests split by cache outcome; NONE never consulted the cache.
+    cache: dict[CacheOutcome, CacheCounters]
 
 
 class CollectionStatus(Model):

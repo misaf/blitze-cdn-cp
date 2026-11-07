@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, Index
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime
@@ -24,6 +24,35 @@ class TrafficHourRow(Base):
     requests: Mapped[int] = mapped_column()
     bytes_sent: Mapped[int] = mapped_column()
     body_bytes_sent: Mapped[int] = mapped_column()
+
+
+class TrafficCacheHourRow(Base):
+    """One cache outcome's share of a ``traffic_hours`` row, written with it."""
+
+    __tablename__ = "traffic_cache_hours"
+    __table_args__ = (
+        CheckConstraint(
+            "requests > 0 AND bytes_sent >= 0",
+            name="traffic_cache_hours_counters_check",
+        ),
+        CheckConstraint(
+            "outcome IN ('HIT', 'STALE', 'UPDATING', 'REVALIDATED', "
+            "'MISS', 'EXPIRED', 'BYPASS', 'NONE')",
+            name="traffic_cache_hours_outcome_check",
+        ),
+        ForeignKeyConstraint(
+            ["edge", "hostname", "hour"],
+            ["traffic_hours.edge", "traffic_hours.hostname", "traffic_hours.hour"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(primary_key=True)
+    hour: Mapped[datetime] = mapped_column(UtcDateTime, primary_key=True)
+    outcome: Mapped[str] = mapped_column(primary_key=True)
+    requests: Mapped[int] = mapped_column()
+    bytes_sent: Mapped[int] = mapped_column()
 
 
 class TrafficCursorRow(Base):

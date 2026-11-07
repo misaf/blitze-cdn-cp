@@ -1,21 +1,32 @@
+from datetime import datetime
+from typing import Annotated
+
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
-from blitzecdn.capabilities.cache.api.models import PurgeRequest, StatsRequest
+from blitzecdn.capabilities.cache.api.models import (
+    CacheHour,
+    ConnectionsRequest,
+    PurgeRequest,
+)
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service.operations import (
+    CONNECTIONS_OPERATION,
     PURGE_OPERATION,
-    STATS_OPERATION,
+    connections_payload,
     purge_payload,
-    stats_payload,
 )
 from blitzecdn.capabilities.jobs import OperationService
+from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
 from blitzecdn.entrypoints.api.models import Operation, as_queued
+from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
 from blitzecdn.entrypoints.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
@@ -64,22 +75,71 @@ def purge_cache(
     return queued
 
 
+@router.get("/v3/cache/stats", response_model=Page[CacheHour])
+def cache_stats(
+    cache: FromDishka[CacheService],
+    params: PaginationParams,
+    start: Annotated[
+        datetime, Query(description="Inclusive UTC hour; timezone required.")
+    ],
+    end: Annotated[
+        datetime, Query(description="Exclusive UTC hour; timezone required.")
+    ],
+    hostname: Annotated[str | None, Query(description="Exact served hostname.")] = None,
+    edge: Annotated[
+        str | None, Query(description="Exact edge name, including retired edges.")
+    ] = None,
+) -> Page[CacheHour]:
+    """Stored hourly cache outcomes, ordered by hour, hostname and edge.
+
+    Counted by traffic collection from every log record exactly once; no edge
+    is contacted. Empty hours are omitted, and counters may lag while
+    collection is pending. The hit ratio counts only requests that consulted
+    the cache; redirects, errors nginx served itself and sites with caching
+    disabled are NONE, not misses.
+    """
+    try:
+        query = UsageQuery(
+            start=start,
+            end=end,
+            hostname=hostname,
+            edge=edge,
+            limit=params.limit,
+            offset=params.offset,
+        )
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**error, "loc": ("query", *error["loc"])}
+                for error in exc.errors(
+                    include_url=False, include_context=False, include_input=False
+                )
+            ]
+        ) from exc
+    return stored_page(
+        cache.stats(query),
+        params,
+        lambda item: CacheHour.model_validate(item.model_dump()),
+    )
+
+
 @router.post(
-    "/v3/cache/stats",
+    "/v3/cache/connections",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE},
 )
-def cache_stats(
+def cache_connections(
     response: Response,
-    request: StatsRequest,
+    request: ConnectionsRequest,
     operator: OperatorDependency,
     queued_operations: FromDishka[OperationService],
 ) -> Operation:
-    """Queue a collection of cache effectiveness; the result is a CacheStatsReport."""
+    """Queue a live read of nginx's connection counters; the result is a report."""
     queued = as_queued(
         queued_operations.submit(
-            STATS_OPERATION, stats_payload(operator, host_limit=request.host_limit)
+            CONNECTIONS_OPERATION,
+            connections_payload(operator, host_limit=request.host_limit),
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")

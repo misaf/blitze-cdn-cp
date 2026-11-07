@@ -174,6 +174,8 @@ def test_failed_edges_are_not_included_in_follow_up_passes():
         {"collection_interval_seconds": -1},
         {"collection_max_passes": 0},
         {"collection_max_passes": 11},
+        {"collection_max_bytes": 65535},
+        {"collection_max_bytes": 2**30 + 1},
     ],
 )
 def test_invalid_schedule_settings_are_refused(values):
