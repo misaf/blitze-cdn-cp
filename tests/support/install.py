@@ -21,7 +21,7 @@ from typing import Any, cast
 import jinja2
 import yaml
 
-from support.paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
@@ -80,9 +80,9 @@ def script_function(name: str) -> str:
 
 
 def host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[str]:
-    """Run one of the stdlib host helpers the way the script does: ``python3 -I``."""
+    """Run one of the image's host helpers the way the script does: ``python -I -m``."""
     return subprocess.run(  # noqa: S603 - interpreter is sys.executable
-        [sys.executable, "-I", str(SOURCE / "host" / f"{helper}.py"), *arguments],
+        [sys.executable, "-I", "-m", f"blitzecdn.host.{helper}", *arguments],
         check=False,
         capture_output=True,
         text=True,
