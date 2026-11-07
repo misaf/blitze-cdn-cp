@@ -1,7 +1,8 @@
 """Recording checkpoints around work SQLite cannot roll back.
 
 When a workflow opens, what an escaping exception means on close, how many
-finished ones are kept, and what a restart does with unfinished ones.
+finished ones are kept, what a restart does with unfinished ones, and how an
+operator signs off on one a restart interrupted.
 """
 
 from __future__ import annotations
@@ -19,8 +20,11 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.ports import WorkflowJournal
+from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.operations import EventRecorder
 
 __all__ = ["WorkflowCoordinator", "WorkflowProgress"]
 
@@ -48,10 +52,12 @@ class WorkflowCoordinator:
         *,
         journal: WorkflowJournal,
         uow: UnitOfWork,
+        events: EventRecorder,
         retention: int = 1000,
         clock: Clock = system_clock,
     ) -> None:
         self.journal = journal
+        self.events = events
         self.clock = clock
         self.uow = uow
         #: How many finished workflows to keep, pruned whenever one closes.
@@ -101,6 +107,43 @@ class WorkflowCoordinator:
                     error=progress.error,
                 )
                 self.journal.prune_finished(self.retention)
+
+    def acknowledge(self, workflow_id: str, operator: str) -> Workflow:
+        """Record that an operator reviewed an interrupted workflow.
+
+        Only NEEDS_REVIEW can be acknowledged. The workflow becomes REVIEWED,
+        keeps its error and checkpoints, gains a ``reviewed`` step naming the
+        operator, and from then on is pruned like any finished workflow.
+        """
+        with self.uow.transaction():
+            current = self.journal.get(workflow_id)
+            if current.status is not WorkflowStatus.NEEDS_REVIEW:
+                raise ConflictError(
+                    f"workflow {workflow_id!r} is {current.status.value}; only "
+                    f"{WorkflowStatus.NEEDS_REVIEW.value} workflows can be "
+                    "acknowledged"
+                )
+            reviewed = self.journal.advance(
+                workflow_id,
+                WorkflowStatus.REVIEWED,
+                step=WorkflowStep(
+                    name="reviewed",
+                    completed_at=self.clock(),
+                    details={"operator": operator},
+                ),
+                error=current.error,
+            )
+            self.events.record(
+                domain_event(
+                    operator,
+                    "workflow.reviewed",
+                    "workflow",
+                    workflow_id,
+                    {"kind": reviewed.kind, "resource_id": reviewed.resource_id},
+                )
+            )
+            self.journal.prune_finished(self.retention)
+        return reviewed
 
     def reconcile_interrupted(
         self, *, resource_id: str | None = None

@@ -129,22 +129,27 @@ class WorkflowStore:
             return [self._workflow(row) for row in rows]
 
     def prune_finished(self, keep: int) -> int:
-        """Drop finished workflows beyond the newest ``keep``; unfinished ones never go.
+        """Drop finished workflows beyond the newest ``keep``.
 
-        NEEDS_REVIEW counts as finished: an operator has been shown it.
+        Unfinished ones never go, and neither does NEEDS_REVIEW: it is the only
+        record of interrupted external work until an operator acknowledges it.
         """
         with self._db.session() as session:
-            unfinished = (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
+            retained = (
+                WorkflowStatus.PENDING.value,
+                WorkflowStatus.RUNNING.value,
+                WorkflowStatus.NEEDS_REVIEW.value,
+            )
             survivors = (
                 select(WorkflowRow.id)
-                .where(WorkflowRow.status.not_in(unfinished))
+                .where(WorkflowRow.status.not_in(retained))
                 .order_by(WorkflowRow.created_at.desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             result = session.execute(
                 delete(WorkflowRow).where(
-                    WorkflowRow.status.not_in(unfinished),
+                    WorkflowRow.status.not_in(retained),
                     WorkflowRow.id.not_in(survivors),
                 )
             )
