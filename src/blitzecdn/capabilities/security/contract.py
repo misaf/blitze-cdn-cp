@@ -298,9 +298,11 @@ class SiteFirewall(OmittedWhenEmpty):
         default=(),
         max_length=200,
         description=(
-            "CIDR networks exempted from deny_sources, matched first. Not an "
-            "allowlist on its own: without a deny entry covering everything "
-            "else, the site stays open."
+            "CIDR networks exempted from deny_sources and from the country and "
+            "method rules (allowed_countries, denied_countries, "
+            "allowed_methods, denied_methods). Path rules still apply to them. "
+            "Not an allowlist on its own: without a deny entry covering "
+            "everything else, the site stays open."
         ),
     )
     deny_sources: tuple[str, ...] = Field(
