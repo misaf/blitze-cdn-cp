@@ -139,7 +139,7 @@ def _is_contract_import(imported: str) -> bool:
     return len(parts) > 1 and parts[1] == "contract"
 
 
-def test_legacy_layer_first_packages_have_no_source_modules():
+def test_layer_first_packages_have_no_source_modules():
     for package in ("domain", "application", "infrastructure"):
         assert not list((_SOURCE / package).rglob("*.py"))
     assert not list((_SOURCE / "api/routes").rglob("*.py"))
