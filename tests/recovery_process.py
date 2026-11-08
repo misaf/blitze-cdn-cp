@@ -34,7 +34,7 @@ from blitzecdn.core.domain.runs import AnsibleRun
 
 class LoopbackProbe(ServingProbe):
     def __init__(self, port: int) -> None:
-        super().__init__(timeout=5)
+        super().__init__(token="0" * 64, timeout=5)
         self.port = port
 
     def _connection(

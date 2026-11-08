@@ -195,8 +195,9 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
 ):
     """The controller's own credentials stay in the controller.
 
-    A play receives the database path and the secrets installed features declared
-    among the `BLITZE_*` names, plus the controller's other variables, which
+    A play receives the database path, the state directory, the release probe
+    token and the secrets installed features declared among the `BLITZE_*`
+    names, plus the controller's other variables, which
     Ansible itself may need.
     """
     captured: dict[str, str] = {}
@@ -224,6 +225,7 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
     assert sorted(name for name in captured if name.startswith("BLITZE_")) == [
         "BLITZE_DATABASE_PATH",
         "BLITZE_MAXMIND_LICENSE_KEY",
+        "BLITZE_RELEASE_PROBE_TOKEN",
         "BLITZE_STATE_DIR",
     ]
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "licence"

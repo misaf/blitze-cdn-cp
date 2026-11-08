@@ -141,3 +141,16 @@ argument_specs:
           Sources permitted to read the status endpoint. The second, redundant
           control alongside the loopback listen address.
       blitzecdn_nginx_status_file: {type: path, required: true}
+      blitzecdn_nginx_release_probe_token:
+        type: str
+        required: true
+        no_log: true
+        description: >-
+          Shared secret a request must carry in X-BlitzeCDN-Probe to read
+          /.blitzecdn/release. Supplied by the controller.
+      blitzecdn_nginx_release_probe_file:
+        type: path
+        required: true
+        description: >-
+          Nginx include, outside the configuration release, that holds the
+          release probe token.
