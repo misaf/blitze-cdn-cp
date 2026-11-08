@@ -218,10 +218,13 @@ A rule that reads another contract is a contributed check with that contract in
 
 Persisted schema changes need an Alembic migration under
 `src/blitzecdn/assets/migrations/`; `just db-revision "description"` generates a
-candidate for review. The initial revisions (`0001_core` to `0008_traffic`)
-group tables by capability in one dependency-ordered chain. Revisions are
-permanent: add a new one for each later schema change rather than editing an
-existing revision, and keep application imports out of them. Apply migrations
+candidate for review. The initial revisions (files `NNNN_initial_<capability>.py`,
+revision IDs `NNNN_<capability>`) create each capability's tables in one
+dependency-ordered chain; `tests/platform/test_migrations.py` lists that chain
+and every later revision, and checks the tables each one creates. Revisions,
+initial or later, are permanent: add a new one for each later schema change
+rather than editing or folding into an existing revision, and keep application
+imports out of them. Apply migrations
 with controller services stopped using `uv run blitzecdn migrate`.
 
 Public CLI, HTTP, database, and Ansible surfaces are frozen under
