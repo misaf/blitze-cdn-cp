@@ -11,11 +11,11 @@ argument_specs:
         of them that
         no edge could serve.
       - >-
-        It exists so those three roles never read each other's variables.
-        Otherwise the role that runs the container would depend on the role
-        that writes configuration for reasons that have nothing to do with
-        configuration, and a role that kept its own copy of the port lists
-        would drift from the others.
+        It exists so those three roles read one contract instead of each
+        other's variables. Otherwise the role that runs the container would
+        depend on the role that writes configuration for reasons that have
+        nothing to do with configuration, and a role that avoided coupling
+        would have to keep its own copy of the port lists instead.
       - >-
         Run it first in the play. The argument spec below is checked when the
         role executes, so putting it ahead of blitzecdn_docker means a

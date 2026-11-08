@@ -116,8 +116,8 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
   without resolvers a group's name is resolved at load, and a site that serves
   nothing must not be able to fail the edge's configuration test.
 
-  With resolvers the server carries `resolve`, which gives what a variable
-  proxy_pass would: the origin's address follows DNS at the resolver's
+  With resolvers the server carries `resolve`, so the origin's address still
+  follows DNS as a variable proxy_pass would: it is re-resolved at the resolver's
   `valid` interval rather than being pinned at load, and an origin whose name
   does not resolve yet fails its own requests rather than the reload. `resolve`
   needs its group in shared memory; every group on the edge shares the one zone

@@ -7,7 +7,7 @@
 # A release's configuration is rendered for it, blitzecdn_edge_stack runs a
 # container inside it and
 # blitzecdn_firewall opens the host to it — three roles that need the same
-# answers and must not get them by reaching into each other's defaults.
+# answers and read them here rather than from each other's defaults.
 #
 # The rule for what belongs here is narrow: a value earns a place only if more
 # than one role needs it *and* it describes the shared runtime rather than one
@@ -17,7 +17,7 @@
 #
 # Roles read `blitzecdn_edge_runtime` and never each other. tests/
 # test_ansible_role_contracts.py asserts that, so a new sibling reference fails
-# the suite rather than quietly coupling the roles again.
+# the suite rather than quietly re-creating the coupling this replaces.
 
 # --- inputs --------------------------------------------------------------
 #
@@ -117,8 +117,9 @@ blitzecdn_edge_runtime:
     # subject. Core creates this directory, mounts it into the runtime and into
     # the configuration test read-only, and removes it on teardown; *what goes
     # in it* is the contributing capability's business, written by that
-    # capability's own role. The shared contract every edge role reads never
-    # names a capability, since that capability may not be installed.
+    # capability's own role. No member here names a capability's files: the
+    # shared contract every edge role reads must not carry the name of a
+    # capability that may not be installed.
     data: /var/lib/blitzecdn/edge-data
 
   # Always served, and read from three places: the Compose healthcheck, the

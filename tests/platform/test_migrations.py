@@ -295,21 +295,21 @@ def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
 
 
 def test_a_database_from_the_retired_single_baseline_is_refused(tmp_path):
-    """Revision "0001" names no current revision.
+    """Before the split, revision "0001" held the whole schema.
 
-    A file or backup stamped with it is refused as unknown rather than
-    half-upgraded on top of tables that already exist.
+    No current revision reuses that id, so such a file or backup is refused as
+    unknown rather than half-upgraded on top of tables that already exist.
     """
     assert not DatabaseSchema.known("0001")
-    stale = tmp_path / "stale.db"
-    DatabaseSchema.migrate(stale)
-    with closing(sqlite3.connect(stale)) as connection:
+    retired = tmp_path / "retired.db"
+    DatabaseSchema.migrate(retired)
+    with closing(sqlite3.connect(retired)) as connection:
         connection.execute("UPDATE alembic_version SET version_num = '0001'")
         connection.commit()
-    before = stale.read_bytes()
+    before = retired.read_bytes()
     with pytest.raises(ConfigurationError, match="unknown schema revision '0001'"):
-        DatabaseSchema.migrate(stale)
-    assert stale.read_bytes() == before
+        DatabaseSchema.migrate(retired)
+    assert retired.read_bytes() == before
 
 
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):

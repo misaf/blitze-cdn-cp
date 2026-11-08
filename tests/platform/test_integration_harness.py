@@ -164,10 +164,11 @@ def test_the_edge_image_is_built_with_the_modules_the_capabilities_declare():
 def test_the_harness_converges_the_shipped_edge_play_from_a_release():
     """A test play is a copy, and a copy drifts.
 
-    A harness-only play would not follow the shipped one as releases change.
-    The edge is converged by `edge.yml` itself, from a release the control
-    plane's renderer produced, and committed only after the edge answers with
-    that release — the rollout's own order.
+    A harness-only play would not select a candidate tree the way a release
+    does, so the stack would mount configuration paths nothing writes. The
+    edge is converged by `edge.yml` itself, from a release
+    the control plane's renderer produced, and committed only after the edge
+    answers with that release — the rollout's own order.
     """
     commands = _commands()
     assert (REPO_ROOT / EDGE_PLAYBOOK).is_file(), "the edge play moved"
