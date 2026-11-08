@@ -114,6 +114,25 @@ argument_specs:
         type: str
         required: true
         description: Name of the http-context log_format the managed sites use.
+      blitzecdn_nginx_log_query_strings:
+        type: bool
+        required: true
+        description: >-
+          Keep query strings in the request line and referer. Off logs the
+          path only.
+      blitzecdn_nginx_log_client_ip:
+        type: str
+        required: true
+        choices: [full, truncated]
+        description: >-
+          How much of the client address an access record keeps: all of it, or
+          an IPv4 /24 and at most an IPv6 /48.
+      blitzecdn_nginx_log_retention_days:
+        type: int
+        required: true
+        description: >-
+          Days rotated access and error logs are kept, and the most archives
+          kept per file. At least 1.
       blitzecdn_nginx_status_allow:
         type: list
         elements: str

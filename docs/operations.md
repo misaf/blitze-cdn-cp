@@ -450,7 +450,8 @@ timezone, the actual requested `hostname`, and the configured `server_name`
 `bytes_sent`, `body_bytes_sent` and `status` are JSON integers;
 `request_time` is a JSON number in seconds. Diagnostic fields include client IP,
 request line, cache status, upstream address and response time, referer and user
-agent. String fields use Nginx JSON escaping; unavailable upstream values may be
+agent; see [what access logs keep](#what-access-logs-keep) for how much of each
+is recorded. String fields use Nginx JSON escaping; unavailable upstream values may be
 `"-"`, and `cache_status` (`$upstream_cache_status`) is empty when the cache
 was not consulted. Error logs retain Nginx's native
 text format.
@@ -477,10 +478,34 @@ errors before Nginx has selected a hostname appear in the global `error.log`.
 hostnames, while error logging remains enabled. Release identity probes continue
 to suppress access logging.
 
+### What access logs keep
+
+Access records hold personal data and, in URLs, sometimes credentials, so by
+default they keep less than Nginx would. Three fleet settings control it, each
+changed with `blitzecdn config set` and applied by the next release:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `blitzecdn_nginx_log_query_strings` | `false` | `false` logs `request` as method, path and protocol, and `referer` up to its `?` or `#`. Query strings carry password-reset tokens, signed-URL signatures and API keys. The path is the one the visitor sent, before rewrites. `true` logs both in full. |
+| `blitzecdn_nginx_log_client_ip` | `truncated` | `truncated` logs an IPv4 address as its /24 (`192.0.2.0`) and an IPv6 address as at most its /48 (`2001:db8:85a3::`). A `::` within the first three hextets keeps only what precedes it, which may be shorter than 48 bits but never longer. `full` logs the address. |
+| `blitzecdn_nginx_log_retention_days` | `14` | How long rotated hostname logs and `error.log` are kept, in days, and the most archives kept per file. At least 1. |
+
+The user agent, hostname, timestamps, byte counters, status and cache outcome
+are always recorded. Traffic accounting and cache statistics read none of the
+redacted fields, so these settings change no count. Changing them affects new
+records only; existing files and archives keep what they were written with
+until rotation removes them. Error logs are Nginx's own text and may include a
+client address and request line regardless of these settings; they share the
+retention setting.
+
+### Rotation
+
 The Nginx role installs `logrotate`, enables its host timer, and manages
 `/etc/logrotate.d/blitzecdn-nginx`. Hostname logs and the global `error.log`
-rotate daily, or when larger than 100 MiB at a scheduled check, with up to 14
-archives per file. Older archives are compressed; compression of the newest
+rotate daily, or when larger than 100 MiB at a scheduled check. Archives older
+than `blitzecdn_nginx_log_retention_days` are deleted, and no more than that
+many are kept per file, so a file that rotates early for size is kept for less
+time rather than more. Older archives are compressed; compression of the newest
 archive is delayed. Rotation renames the file and asks the running container's
 Nginx master to reopen logs, avoiding `copytruncate` and an Nginx restart. The
 size threshold is checked when logrotate runs, so it is not a hard disk quota.

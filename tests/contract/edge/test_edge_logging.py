@@ -55,13 +55,45 @@ def test_disabling_access_logs_keeps_hostname_error_logs():
         )
 
 
+def _http_conf(**overrides: object) -> str:
+    context = role_defaults()
+    context.update(overrides)
+    return AnsibleTemplates(context).render(ROLE_DIR / "templates/http.conf.j2")
+
+
+def _record_format(rendered: str) -> str:
+    declaration = rendered.split("log_format blitzecdn_json escape=json", 1)[1]
+    return "".join(re.findall(r"'([^']*)'", declaration.split(";", 1)[0]))
+
+
+def _map(rendered: str, source: str, target: str) -> list[tuple[str, str]]:
+    """One rendered map's regex entries, as Python patterns and replacements."""
+    body = rendered.split(f"map {source} {target} {{", 1)[1].split("}\n", 1)[0]
+    entries = []
+    for line in body.strip().splitlines():
+        key, value = line.strip().rstrip(";").rsplit(None, 1)
+        key = key.strip('"')
+        if key == "default":
+            continue
+        flags = "(?i)" if key.startswith("~*") else ""
+        pattern = flags + key.lstrip("~*").replace("(?<", "(?P<")
+        entries.append((pattern, value))
+    return entries
+
+
+def _apply_map(entries: list[tuple[str, str]], value: str) -> str:
+    for pattern, replacement in entries:
+        if match := re.search(pattern, value):
+            return re.sub(r"\$(\w+)", lambda m: match.group(m.group(1)), replacement)
+    return ""
+
+
 @pytest.mark.parametrize("bytes_sent", [0, 1234, 2**53 + 1])
 def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_sent):
-    rendered = AnsibleTemplates(role_defaults()).render(
-        ROLE_DIR / "templates/http.conf.j2"
+    rendered = _http_conf(
+        blitzecdn_nginx_log_query_strings=True, blitzecdn_nginx_log_client_ip="full"
     )
-    declaration = rendered.split("log_format blitzecdn_json escape=json", 1)[1]
-    record = "".join(re.findall(r"'([^']*)'", declaration))
+    record = _record_format(rendered)
     # Substitute JSON-escaped variable values into the shipped format to check
     # its JSON structure and types. Native Nginx escaping is checked in Docker.
     variables = {
@@ -100,6 +132,58 @@ def test_hostname_json_records_have_numeric_counters_and_actual_hostnames(bytes_
     assert result["upstream_response_time"] == "-"
     assert result["user_agent"] == variables["http_user_agent"]
     assert result["request"] == variables["request"]
+    assert result["client_ip"] == variables["remote_addr"]
+
+
+def test_records_drop_query_strings_and_truncate_addresses_by_default():
+    defaults = role_defaults()
+    assert defaults["blitzecdn_nginx_log_query_strings"] is False
+    assert defaults["blitzecdn_nginx_log_client_ip"] == "truncated"
+    rendered = _http_conf()
+    record = _record_format(rendered)
+    for raw in ('$request"', "$remote_addr", "$http_referer"):
+        assert raw not in record
+    assert '"request":"$request_method $blitzecdn_log_path $server_protocol"' in record
+    assert '"client_ip":"$blitzecdn_log_client_ip"' in record
+    assert '"referer":"$blitzecdn_log_referer"' in record
+
+    path = _map(rendered, "$request_uri", "$blitzecdn_log_path")
+    assert _apply_map(path, "/reset?token=secret") == "/reset"
+    assert _apply_map(path, "/a%3Fb?x=1?y=2") == "/a%3Fb"
+    assert _apply_map(path, "/plain") == "/plain"
+    referer = _map(rendered, "$http_referer", "$blitzecdn_log_referer")
+    assert _apply_map(referer, "https://a.test/p?sig=1#f") == "https://a.test/p"
+    assert _apply_map(referer, "") == ""
+
+
+@pytest.mark.parametrize(
+    "address,logged",
+    [
+        ("192.0.2.123", "192.0.2.0"),
+        ("2001:db8:85a3:8d3:1319:8a2e:370:7348", "2001:db8:85a3::"),
+        ("2001:DB8:1::7", "2001:DB8:1::"),
+        ("2001:db8::1", "2001:db8::"),
+        # `::` after the first hextet may hide a non-zero third one: keep less.
+        ("2001::2:3:4:5:6:7", "2001::"),
+        ("::1", "::"),
+        ("::ffff:192.0.2.1", "::"),
+        ("unix:", ""),
+    ],
+)
+def test_truncated_addresses_keep_at_most_a_24_or_48(address, logged):
+    entries = _map(_http_conf(), "$remote_addr", "$blitzecdn_log_client_ip")
+    assert _apply_map(entries, address) == logged
+
+
+def test_full_logging_keeps_raw_fields_and_renders_no_redaction_maps():
+    rendered = _http_conf(
+        blitzecdn_nginx_log_query_strings=True, blitzecdn_nginx_log_client_ip="full"
+    )
+    record = _record_format(rendered)
+    assert '"request":"$request"' in record
+    assert '"client_ip":"$remote_addr"' in record
+    assert '"referer":"$http_referer"' in record
+    assert "$blitzecdn_log_" not in rendered
 
 
 def test_log_formats_follow_the_configured_name_and_access_logging_switch():
@@ -148,6 +232,7 @@ def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
         "daily",
         "maxsize 100M",
         "rotate 14",
+        "maxage 14",
         "missingok",
         "notifempty",
         "compress",
@@ -160,6 +245,26 @@ def test_rotation_uses_the_persistent_log_root_and_reopens_nginx():
     assert "copytruncate" not in rendered
     assert "--format '{{.State.Running}}'" in rendered
     assert 'kill -USR1 "$(cat /var/run/nginx.pid)"' in rendered
+
+
+def test_rotation_keeps_logs_for_the_configured_retention():
+    context = role_defaults()
+    context["blitzecdn_nginx_log_retention_days"] = 3
+    rendered = AnsibleTemplates(context).render(ROLE_DIR / "templates/logrotate.j2")
+    assert "    rotate 3\n" in rendered
+    assert "    maxage 3\n" in rendered
+
+
+@pytest.mark.parametrize("days,valid", [(0, False), (1, True), (14, True)])
+def test_retention_below_one_day_is_refused(days, valid):
+    tasks = yaml.safe_load((ROLE_DIR / "tasks/validate.yml").read_text())
+    check = next(t for t in tasks if t["name"].startswith("Validate log retention"))
+    context = AnsibleTemplates({"blitzecdn_nginx_log_retention_days": days})
+    results = [
+        context.expression("{{ " + condition + " }}")
+        for condition in check["ansible.builtin.assert"]["that"]
+    ]
+    assert all(results) is valid
 
 
 @pytest.mark.parametrize(

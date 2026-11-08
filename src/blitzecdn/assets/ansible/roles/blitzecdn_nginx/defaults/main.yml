@@ -112,6 +112,18 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # and request totals independently.
 blitzecdn_nginx_access_log_enabled: true
 blitzecdn_nginx_log_format_name: blitzecdn_json
+# What an access record keeps about the visitor. Query strings often carry
+# tokens (password resets, signed URLs, API keys), so by default the request
+# line and referer keep the path only. Client addresses are personal data:
+# `truncated` keeps an IPv4 /24 and at most an IPv6 /48, `full` the address.
+# Traffic accounting and cache statistics read neither field.
+blitzecdn_nginx_log_query_strings: false
+blitzecdn_nginx_log_client_ip: truncated
+# Days an access or error log is kept after rotation. Also the archive count,
+# so a file rotated early for size is not kept longer than this either. Logs
+# must outlive the longest traffic collection gap: records rotated away first
+# are never counted.
+blitzecdn_nginx_log_retention_days: 14
 
 # Where the status endpoint listens is blitzecdn_edge_runtime.status: the
 # Compose healthcheck, health.yml and blitzecdn_cache_stats all read the same

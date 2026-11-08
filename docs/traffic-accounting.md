@@ -189,8 +189,11 @@ difference between the two. Memory does not grow with the budget: records
 stream through, and only one bucket per hostname, hour and outcome is kept.
 
 Logs must outlive the longest expected collection gap. The managed logrotate
-policy keeps 14 archives per hostname file and rotates daily, or above 100 MiB
-when logrotate runs; the newest archive stays uncompressed. Records that are
+policy rotates daily, or above 100 MiB when logrotate runs, and keeps
+`blitzecdn_nginx_log_retention_days` archives per hostname file (14 by default),
+none older than that many days; the newest archive stays uncompressed. Keep it
+comfortably above the collection interval: a short retention suits privacy but
+leaves less room to catch up after an outage. Records that are
 rotated away before they are collected are lost for both traffic and cache
 statistics, and `GET /v3/traffic/status/{edge}` reports `backlogged` while a pass
 ends with work remaining. Watch it rather than relying on retention alone.
@@ -228,7 +231,9 @@ Restoring an expired stream after its checkpoint was removed cannot resurrect
 expired totals: the persisted cutoff rejects its old buckets. New, retained hours
 from the same stream are still collected.
 
-Retention changes controller data only; edge logrotate keeps its existing policy.
+Retention changes controller data only; edge log retention is
+`blitzecdn_nginx_log_retention_days`, described with the other access log
+privacy settings in [operations](operations.md#what-access-logs-keep).
 It does not prune queue or audit history. Deleted SQLite pages become reusable;
 this job does not run blocking `VACUUM` or promise an immediate file-size decrease.
 Back up `traffic_hours`, `traffic_cursors`, `traffic_retention`, and
