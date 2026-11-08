@@ -194,7 +194,10 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_enabled	type=bool requir
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_max_age	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_http3_listener_owner	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_listen_backlog	type=int required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_client_ip	type=str required choices=[full,truncated]
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_format_name	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_query_strings	type=bool required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_retention_days	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_managed_sites_file	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_module_directory	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules	type=list elements=dict required
