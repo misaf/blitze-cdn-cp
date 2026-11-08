@@ -123,8 +123,9 @@ def header_tags(lines: bytes, name: bytes) -> set[bytes]:
     for raw in lines.split(b"\n"):
         line = raw.rstrip(b"\r")
         if line[:1] in (b" ", b"\t"):
-            # Obsolete line folding: a continuation of the previous header.
-            if current is not None:
+            # Obsolete line folding: a continuation of the previous header,
+            # which only extends a tag value if that header was the tag one.
+            if current == name:
                 values[-1] += b" " + line.strip()
             continue
         field, colon, value = line.partition(b":")
