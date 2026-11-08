@@ -10,6 +10,7 @@ from blitzecdn.core.runtime import filesystem
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
     atomic_write_yaml,
+    create_private_file,
     read_log_tail,
 )
 
@@ -55,6 +56,51 @@ def test_atomic_bytes_restricts_the_mode_before_any_content_exists(
     monkeypatch.setattr(filesystem.os, "fchmod", fchmod)
     atomic_write_bytes(tmp_path / "secret", b"material", mode=0o600)
     assert observed == [(0, 0o600)]
+
+
+def test_private_file_is_born_at_its_mode(tmp_path, monkeypatch):
+    """The file exists at 0600 before any secret byte reaches it, whatever the umask."""
+    observed: list[tuple[int, int]] = []
+    real_fdopen = os.fdopen
+
+    def fdopen(descriptor, *args, **kwargs):
+        status = os.fstat(descriptor)
+        observed.append((status.st_size, status.st_mode & 0o777))
+        return real_fdopen(descriptor, *args, **kwargs)
+
+    monkeypatch.setattr(filesystem.os, "fdopen", fdopen)
+    previous = os.umask(0o002)
+    try:
+        create_private_file(tmp_path / ".env", "SECRET=1\n")
+    finally:
+        os.umask(previous)
+    assert observed == [(0, 0o600)]
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == "SECRET=1\n"
+    assert os.stat(tmp_path / ".env").st_mode & 0o777 == 0o600
+
+
+def test_private_file_never_replaces_an_existing_file(tmp_path):
+    target = tmp_path / ".env"
+    target.write_text("keep", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        create_private_file(target, "SECRET=1\n")
+    assert target.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_private_file_never_follows_a_symlink(tmp_path, dangling):
+    real = tmp_path / "real"
+    if not dangling:
+        real.write_text("keep", encoding="utf-8")
+    link = tmp_path / ".env"
+    link.symlink_to(real)
+    with pytest.raises(FileExistsError):
+        create_private_file(link, "SECRET=1\n")
+    assert link.is_symlink()
+    if dangling:
+        assert not real.exists()
+    else:
+        assert real.read_text(encoding="utf-8") == "keep"
 
 
 def _umask() -> int:
