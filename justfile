@@ -23,8 +23,8 @@ collections := ".state/collections"
 # Ansible's role search path is deliberately not a variable here.
 # `blitzecdn ansible roles-path` composes it from the installed distributions
 # with the function the composition root calls, so the path a lint step checks
-# against is the path a deployment resolves against. Spelling it out was a
-# second answer to a question that already had one, and it could disagree
+# against is the path a deployment resolves against. Spelling it out would be a
+# second answer to a question that already has one, and it could disagree
 # with the first without anything saying so.
 
 # List the available recipes.
@@ -242,8 +242,8 @@ test-profile *args:
 # distributions with the very functions the composition root calls at run time
 # — so what this recipe checks is what a deployment would actually resolve.
 #
-# Literals here would drift unseen: a slot is declared by the contributing
-# package, and this file cannot see a declaration.
+# Literals here would drift without anyone noticing: a slot is declared by the
+# contributing package, and this file cannot see a declaration.
 #
 # A shebang recipe so both values are resolved once and shared by every command
 # below, rather than reloading the plugin tree per line.

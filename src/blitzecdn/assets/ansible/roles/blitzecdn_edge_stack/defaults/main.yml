@@ -20,9 +20,9 @@
 # Nginx upgrade.
 #
 # The reference itself is blitzecdn_edge_runtime.image, which blitzecdn_nginx
-# also validates configuration against. Validating a configuration against
-# one image and serving it from another is exactly the drift a single value
-# cannot produce.
+# also validates configuration against. One value serves both roles, because
+# validating a configuration against one image and serving it from another is
+# exactly the drift a single value cannot produce.
 #
 # Fetch the image from its registry when this host does not already have it.
 # Off for an air-gapped fleet, or one whose images are pre-seeded with

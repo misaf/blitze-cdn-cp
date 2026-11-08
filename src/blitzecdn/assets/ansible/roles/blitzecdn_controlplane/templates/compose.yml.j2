@@ -3,8 +3,7 @@
 #
 # Three services and no message broker. Durable work is rows in the control
 # plane's own database, so the worker and the API share the state volume rather
-# than a queue server, which would be a fourth service with its own volume,
-# its own healthcheck and a `depends_on` from every other service to it.
+# than a queue server.
 name: {{ blitzecdn_controlplane_compose_project | to_json }}
 
 x-blitzecdn-runtime: &blitzecdn-runtime

@@ -48,8 +48,8 @@ blitzecdn_firewall_enabled: false
 #       --ssh-source 94.183.119.90/32
 #
 # The port is published from the same field as ansible_port, so the firewall
-# cannot close the port Ansible connects on, as two separate settings in two
-# files would allow.
+# cannot close the port Ansible connects on — which is exactly what
+# maintaining them as two separate settings in two files would invite.
 #
 # Host variables outrank this file, so re-adding either key here would have no
 # effect. Use `blitzecdn edge update` instead.
