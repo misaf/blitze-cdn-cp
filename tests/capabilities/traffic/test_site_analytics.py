@@ -15,6 +15,7 @@ from support.control_plane import (
     serve,
 )
 from support.paths import SOURCE
+from support.stores import Stores
 
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
@@ -24,7 +25,6 @@ from blitzecdn.capabilities.traffic.domain import (
     UsageQuery,
 )
 from blitzecdn.capabilities.traffic.domain.analytics import SiteQuery
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 DAY = datetime(2026, 10, 27, tzinfo=UTC)
@@ -168,7 +168,7 @@ def seed(store):
 
 @pytest.fixture
 def repository(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     seed(repository.traffic)
     yield repository
     repository.close()
@@ -256,7 +256,7 @@ def test_paths_keep_each_hours_busiest_and_sum_across_hours(repository):
 
 
 def test_two_batches_of_one_hour_trim_paths_in_one_transaction(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     def batch(stream, **counts):
         paths = tuple(
@@ -303,7 +303,7 @@ def test_expired_hours_leave_analytics_with_their_paths(repository, monkeypatch)
 @pytest.fixture
 def client(settings, monkeypatch):
     control = cli_control_plane(settings, monkeypatch)
-    seed(control.container.get(Repository).traffic)
+    seed(control.repository.traffic)
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
         yield client
