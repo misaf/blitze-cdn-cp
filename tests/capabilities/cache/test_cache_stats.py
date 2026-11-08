@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from support.control_plane import FakeRunner, ansible_run, build_application, host_run
+from support.stores import Stores
 
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
@@ -9,7 +10,6 @@ from blitzecdn.capabilities.traffic.domain import (
     UsageBatch,
     UsageQuery,
 )
-from blitzecdn.composition import Repository
 
 HOUR = datetime(2026, 10, 27, 9, tzinfo=UTC)
 
@@ -44,7 +44,7 @@ def _collect(store, edge, *buckets, stream="a", start=None, offset=100):
 
 
 def _control(settings, runner=None):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=runner or FakeRunner([])
     )
@@ -230,7 +230,7 @@ def test_connection_reads_are_recorded_in_the_audit_trail(settings):
     control, _ = _control(settings, FakeRunner([ansible_run(_reporting("edge-a"))]))
 
     control.cache.connections("alice")
-    event = Repository(settings.database_path).audit_log.list_audit_events()[0]
+    event = Stores(settings.database_path).audit_log.list_audit_events()[0]
 
     assert event.action == "cache.connections_collected"
     assert event.details["reporting"] == ["edge-a"]

@@ -2,11 +2,18 @@
 
 from collections.abc import Callable, Sequence
 
+from dishka import Provider, Scope, provide
+
+from blitzecdn.capabilities.traffic.adapters.persistence import (
+    TrafficStore as TrafficTable,
+)
 from blitzecdn.capabilities.traffic.adapters.playbooks import TrafficPlaybooks
-from blitzecdn.capabilities.traffic.ports import TrafficStore
+from blitzecdn.capabilities.traffic.ports import EdgeNames, TrafficStore
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
-from blitzecdn.capabilities.traffic.settings import TrafficConfig
+from blitzecdn.capabilities.traffic.settings import CONFIGURATION, TrafficConfig
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
@@ -74,3 +81,40 @@ def traffic_operations(
             ),
         ),
     )
+
+
+class TrafficProvider(Provider):
+    """The usage table, the collection configuration, and the collector."""
+
+    scope = Scope.APP
+
+    @provide
+    def config(self, capability_config: ResolvedCapabilityEnvironment) -> TrafficConfig:
+        return capability_config.for_feature(CONFIGURATION.feature).as_model(
+            TrafficConfig
+        )
+
+    @provide
+    def store(self, database: Database) -> TrafficStore:
+        return TrafficTable(database)
+
+    @provide
+    def service(
+        self,
+        store: TrafficStore,
+        fleet: PlaybookRunner,
+        events: EventRecorder,
+        uow: UnitOfWork,
+        config: TrafficConfig,
+        edge_names: EdgeNames,
+        clock: Clock,
+    ) -> TrafficService:
+        return build_traffic_service(
+            store=store,
+            fleet=fleet,
+            events=events,
+            uow=uow,
+            config=config,
+            edge_names=edge_names,
+            clock=clock,
+        )

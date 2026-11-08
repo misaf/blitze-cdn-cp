@@ -19,6 +19,7 @@ from support.control_plane import (
     seed_record,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_WORKFLOW,
@@ -30,20 +31,19 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import Repository
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
 
 
 def test_remote_rollout_runs_after_admission_commits(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     observed = []
 
     class Runner(FakeRunner):
         def run(self, **kwargs):
             assert repository.database.current_session() is None
-            other = Repository(settings.database_path)
+            other = Stores(settings.database_path)
             try:
                 observed.extend(other.deployments.list_deployments())
             finally:
@@ -64,7 +64,7 @@ def test_remote_rollout_runs_after_admission_commits(settings):
 
 
 def test_submit_deployment_queues_and_converges_on_a_worker(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class Queue:
         def __init__(self):
@@ -93,7 +93,7 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings):
 
 
 def test_durable_queue_receives_only_the_deployment_id(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class Queue:
         def __init__(self):
@@ -125,7 +125,7 @@ def test_durable_queue_receives_only_the_deployment_id(settings):
 
 
 def test_durable_queue_delivery_is_idempotent(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class Queue:
         def enqueue(self, deployment_id):
@@ -159,7 +159,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings):
     The run outlives the call that started it, so a restart in between is what the
     journal exists to make legible.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -187,12 +187,12 @@ def test_a_synchronous_run_names_its_deployment_while_it_runs(settings, rollback
     The record is read from another connection during the rollout, which is what a
     restarted controller would find.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     open_workflows = []
 
     class Runner(FakeRunner):
         def run(self, **kwargs):
-            other = Repository(settings.database_path)
+            other = Stores(settings.database_path)
             try:
                 open_workflows.extend(
                     workflow
@@ -233,7 +233,7 @@ def test_a_synchronous_run_names_its_deployment_while_it_runs(settings, rollback
 
 def test_a_failed_queued_deployment_fails_its_workflow(settings):
     """A workflow that succeeded while its deployment failed would mislead."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -265,7 +265,7 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings):
 def test_terminal_deployment_failure_fails_its_real_job_without_retry(
     settings, monkeypatch, rollback, failure
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner()
     probe = FakeServingProbe()
     control = build_application(
@@ -328,7 +328,7 @@ def test_terminal_deployment_failure_fails_its_real_job_without_retry(
     ],
 )
 def test_redelivered_job_reports_the_saved_terminal_deployment(settings, terminal):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner()
     control = build_application(
         settings=settings,
@@ -374,7 +374,7 @@ def test_redelivered_job_reports_the_saved_terminal_deployment(settings, termina
 def test_delivery_errors_before_deployment_execution_remain_retryable(
     settings, monkeypatch, failure
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -414,7 +414,7 @@ def test_delivery_errors_before_deployment_execution_remain_retryable(
 
 def test_submit_rollback_reports_conflicts_synchronously(settings):
     """Nothing to roll back to must surface as an error, not a queued record."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -423,7 +423,7 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
 
 
 def test_submit_releases_the_lock_after_queue_publication(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -449,7 +449,7 @@ def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rol
         def lock(self):
             return DeploymentLock(deployment_lock(settings))
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -496,7 +496,7 @@ def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rol
 
 
 def test_a_queued_deployment_converges_when_its_identifier_is_delivered(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -521,7 +521,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     commit together, so a refused enqueue rolls the deployment back: no QUEUED row
     nothing will deliver, and the lock is free.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     refusing = RefusingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -551,7 +551,7 @@ def test_runner_errors_are_recorded_and_reraised(settings):
         def run(self, *, check, host_limit=None, tags=()):
             raise ExecutionError("unable to execute Ansible")
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=ExplodingRunner()
     )
@@ -581,7 +581,7 @@ def test_runner_errors_are_recorded_and_reraised(settings):
 
 def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
     """An exception in a worker must not strand the deployment lock."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     calls: list[int] = []
 
     class ExplodingOnceRunner(FakeRunner):
@@ -624,7 +624,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
 
 def test_a_deployment_its_worker_died_in_resumes_on_redelivery(settings):
     """An expired job resumes the deployment and reconciles only its journal."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -666,7 +666,7 @@ def test_a_deployment_its_worker_died_in_resumes_on_redelivery(settings):
 
 def test_startup_republishes_an_interrupted_deployment_for_resumption(settings):
     """Startup and worker redelivery use the same durable recovery path."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -696,7 +696,7 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(
     The deployment and its job are one commit; this holds that with the job
     already in the session when the failure comes.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -747,7 +747,7 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(
 def test_submission_allows_an_independent_writer_during_rendering(
     settings, monkeypatch, check
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -784,7 +784,7 @@ def test_submission_allows_an_independent_writer_during_rendering(
 
 
 def test_rendering_failure_leaves_no_deployment_or_job(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -810,7 +810,7 @@ def test_rendering_failure_leaves_no_deployment_or_job(settings, monkeypatch):
 
 
 def test_admission_records_targets_before_worker_delivery(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner()
     control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control, name="edge-a")
@@ -831,7 +831,7 @@ def test_admission_records_targets_before_worker_delivery(settings):
 
 
 def test_removing_an_admitted_target_refuses_execution(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner()
     control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control, name="edge-a")
@@ -850,7 +850,7 @@ def test_removing_an_admitted_target_refuses_execution(settings):
 def test_worker_resumes_checkpoints_and_reobserves_completed_edges(
     settings, still_serving
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner()
     verifier = FakeServingProbe(served=still_serving)
     control = build_application(

@@ -7,14 +7,19 @@ is ever handed the composition root.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import MISSING, fields
 from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from dishka import Provider
 from fastapi import APIRouter
 from support.control_plane import FakeRunner, build_application
+from support.paths import SOURCE
 from support.policy import site_from_settings
+from support.stores import Stores
 from typer import Typer
 
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
@@ -27,7 +32,6 @@ from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
     ROSTER,
-    Repository,
     load_registry,
 )
 from blitzecdn.core.domain.site import CdnSite
@@ -179,6 +183,64 @@ def test_the_roster_names_each_feature_module_once():
     }
 
 
+def _slice(module: str) -> Path:
+    """The directory a feature module's capability slice lives in."""
+    return SOURCE.joinpath(*module.removesuffix(".feature").split(".")[1:])
+
+
+def _has_service(root: Path) -> bool:
+    """Whether a slice, not counting a nested slice with its own feature, has
+    a `service` module or package."""
+    for path in root.iterdir():
+        if path.name in {"service", "service.py"}:
+            return True
+        if path.is_dir() and not (path / "feature.py").is_file() and _has_service(path):
+            return True
+    return False
+
+
+def test_every_capability_with_services_brings_its_own_provider():
+    """The composition root assembles providers from the roster.
+
+    A capability with a service builds it in a provider of its own, declared in
+    its own `wiring.py`, so adding one means adding a roster row rather than
+    teaching the composition root its constructors.
+    """
+    missing = [
+        entry.module
+        for entry in ROSTER
+        if _has_service(_slice(entry.module)) and entry.provider is None
+    ]
+    assert missing == []
+    misplaced = [
+        f"{entry.module}: {entry.provider.__module__}"
+        for entry in ROSTER
+        if entry.provider is not None
+        and entry.provider.__module__
+        != entry.module.removesuffix(".feature") + ".wiring"
+    ]
+    assert misplaced == []
+
+
+def test_every_capability_provider_is_on_the_roster():
+    """A provider nobody lists would build nothing: the root only reads the roster."""
+    listed = {entry.provider for entry in ROSTER if entry.provider is not None}
+    declared = {
+        candidate
+        for path in (SOURCE / "capabilities").rglob("wiring.py")
+        for module in [
+            import_module(
+                ".".join(("blitzecdn", *path.relative_to(SOURCE).with_suffix("").parts))
+            )
+        ]
+        for _, candidate in inspect.getmembers(module, inspect.isclass)
+        if issubclass(candidate, Provider)
+        and candidate is not Provider
+        and candidate.__module__ == module.__name__
+    }
+    assert declared == listed
+
+
 def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
     """A row's builders belong to the features its module declares.
 
@@ -186,7 +248,7 @@ def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     declared = {
@@ -436,7 +498,7 @@ def test_deployment_recovery_runs_when_the_api_starts_and_not_the_worker(
     """Node startup is the API's; the worker only publishes schedules."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     calls: list[str] = []

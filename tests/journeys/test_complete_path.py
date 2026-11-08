@@ -29,6 +29,7 @@ from support.control_plane import (
     seed_edge,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.domain import (
@@ -39,7 +40,6 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 
 _SERVERS: dict[int, http.server.HTTPServer] = {}
@@ -138,7 +138,7 @@ def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
     runner.run = run
     return build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner,
         serving_probe=probe_on(port),
     )

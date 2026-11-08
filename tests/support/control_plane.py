@@ -64,10 +64,10 @@ from blitzecdn.composition import (
     FleetRunner,
     InfrastructureProvider,
     Repository,
-    ServiceProvider,
     Worker,
     WorkerProvider,
     load_registry,
+    service_providers,
 )
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
@@ -98,6 +98,7 @@ from support.policy import (
     domain_from_settings,
     site_from_settings,
 )
+from support.stores import Stores
 
 
 @pytest.fixture(autouse=True)
@@ -692,7 +693,7 @@ def record_create_payload(record_payload: dict[str, object]) -> dict[str, object
 
 
 @pytest.fixture
-def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
+def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Stores]]:
     """A control plane holding one site with one hostname routed to it.
 
     Returns ``(control, repository)``.
@@ -700,8 +701,8 @@ def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]
 
     def build(
         runner: FleetRunner | None = None,
-    ) -> tuple[ControlPlane, Repository]:
-        repository = Repository(settings.database_path)
+    ) -> tuple[ControlPlane, Stores]:
+        repository = Stores(settings.database_path)
         control = build_application(
             settings=settings,
             repository=repository,
@@ -797,7 +798,7 @@ def cli_control_plane(
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner_double or FakeRunner(),
         providers=providers,
     )
@@ -828,7 +829,6 @@ class ControlPlane:
         self.container = container
 
     settings = _Resolved(Settings)
-    repository = _Resolved(Repository)
     features = _Resolved(FeatureRegistry)
     edge_contributions = _Resolved(EdgeContributions)
     certificate_store = _Resolved(CertificateStore)
@@ -870,7 +870,12 @@ class ControlPlane:
         return cast(AuditTrail, self.container.get(AuditTrail))
 
     @property
-    def transactions(self) -> Repository:
+    def repository(self) -> Stores:
+        """Every store on the container's database, for seeding and reading."""
+        return Stores.sharing(self.container.get(Repository))
+
+    @property
+    def transactions(self) -> Stores:
         return self.repository
 
     @property
@@ -897,7 +902,7 @@ def build_application(
     return ControlPlane(
         make_container(
             InfrastructureProvider(),
-            ServiceProvider(),
+            *service_providers(),
             ApiProvider(),
             WorkerProvider(),
             FastapiProvider(),
@@ -965,13 +970,13 @@ def advance(
     return cast(Deployment, deployments.save(current, after))
 
 
-def repository_on(settings: Settings) -> Repository:
+def repository_on(settings: Settings) -> Stores:
     """A second handle on the test database, for seeding and reading back.
 
     The control plane does not hand out its stores, so a test opens its own handle
     on the same file.
     """
-    return Repository(settings.database_path)
+    return Stores(settings.database_path)
 
 
 def control_plane_app(settings: Settings) -> FastAPI:

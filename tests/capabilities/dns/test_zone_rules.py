@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import pytest
 from support.control_plane import FakeRunner, build_application, seed_site
 from support.policy import TEST_CERTIFICATE_VERSION
+from support.stores import Stores
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import (
@@ -23,7 +24,6 @@ from blitzecdn.capabilities.dns.domain import (
 )
 from blitzecdn.capabilities.dns.service import DnsService, RuleService
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode, TlsPolicy
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
@@ -60,7 +60,7 @@ def test_a_zone_refuses_what_a_site_refused(settings):
 
 
 def test_the_zone_policy_is_stored_and_read_back_whole(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(
         Domain(
@@ -79,7 +79,7 @@ def test_the_zone_policy_is_stored_and_read_back_whole(settings):
 
 def test_a_zone_patch_merges_rather_than_replaces(settings):
     """Half a pair is what a patch validated alone would let through."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(
         Domain(
@@ -100,7 +100,7 @@ def test_a_zone_patch_merges_rather_than_replaces(settings):
 
 
 def test_a_zone_patch_that_would_break_a_pair_is_refused(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -119,7 +119,7 @@ def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
     `derive_hosts` drops such a host. A zone derives several hosts, so only the
     entry point knows who is asking.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -140,7 +140,7 @@ def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
 
 def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
     """`existing` is the operator's mode, and the guard must not take it away."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -168,7 +168,7 @@ def test_a_rule_cannot_claim_a_controller_managed_certificate(settings):
     Asked by the service, not by `Rule`: `_validate_overrides` runs on every
     rehydrated rule, and the issuer's own rules legitimately carry the mode.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -190,7 +190,7 @@ def test_a_rule_the_issuer_wrote_still_reads_back(settings):
     `SiteEditing.activate_managed_certificate` records an issued certificate as a
     rule override, so the store legitimately holds that mode.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
@@ -367,7 +367,7 @@ def test_a_rule_that_merges_into_an_impossible_zone_is_refused():
 
 
 def test_rules_are_stored_ordered_and_resolved_end_to_end(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
@@ -401,7 +401,7 @@ def test_rules_are_stored_ordered_and_resolved_end_to_end(settings):
 
 def test_a_rule_for_a_zone_we_do_not_serve_is_refused_by_name(settings):
     """Named, rather than surfacing as the foreign key's integrity error."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
 
     with pytest.raises(NotFoundError, match=r"example\.com"):
@@ -412,7 +412,7 @@ def test_a_rule_for_a_zone_we_do_not_serve_is_refused_by_name(settings):
 
 
 def test_two_rules_cannot_share_a_name_in_one_zone(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     rule = Rule(domain="example.com", name="r", overrides={"cache_enabled": False})
@@ -424,7 +424,7 @@ def test_two_rules_cannot_share_a_name_in_one_zone(settings):
 
 def test_a_patch_replaces_the_overrides_rather_than_merging_them(settings):
     """Otherwise a rule could never stop overriding a setting it once did."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
@@ -460,7 +460,7 @@ def test_a_rule_its_zone_could_not_serve_is_refused_on_create(
     settings, overrides, reason
 ):
     """Stored, it would drop every hostname it matches out of `derive_hosts`."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -476,7 +476,7 @@ def test_a_rule_its_zone_could_not_serve_is_refused_on_create(
 def test_a_rule_its_zone_could_not_serve_is_refused_on_patch(
     settings, overrides, reason
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     original = control.rules.create_rule(
@@ -494,7 +494,7 @@ def test_a_rule_its_zone_could_not_serve_is_refused_on_patch(
 
 def test_a_disabled_rule_is_still_checked_against_its_zone(settings):
     """Switching it on later would otherwise be the edit that breaks the hosts."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
 
@@ -528,7 +528,7 @@ def _zone_serving_tls(control):
 
 def test_a_rule_the_zone_can_serve_is_stored(settings):
     """The same override is fine where the zone supplies what it needs."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone_serving_tls(control)
 
@@ -547,7 +547,7 @@ def test_a_zone_edit_that_would_break_a_stored_rule_is_refused(settings):
     Accepted, the rule's hostnames would leave the derived host list on the next
     deploy with no error at the edit that caused it.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone_serving_tls(control)
     control.rules.create_rule(
@@ -568,7 +568,7 @@ def test_a_zone_edit_that_would_break_a_stored_rule_is_refused(settings):
 
 def test_deleting_a_zone_takes_its_rules_with_it(settings):
     """They are overrides on a policy that no longer exists."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
@@ -589,7 +589,7 @@ def test_a_rollback_restores_the_rules_the_release_was_compiled_from(settings):
     """
     from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
@@ -615,7 +615,7 @@ def test_a_rollback_restores_the_settings_the_release_was_compiled_from(settings
     """The release carries the fleet settings its edges were converged with."""
     from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _control(settings, repository)
     repository.ansible_settings.set_setting("blitzecdn_nginx_hsts_enabled", True)
     inputs = repository.release_inputs()
@@ -656,7 +656,7 @@ def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
 
     Reading inside the boundary builds the write from the document it replaces.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
@@ -690,7 +690,7 @@ def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settin
     An operator changing only ``match`` must not drop a certificate the issuer
     wrote in between.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     seed_site(control, name="rule-host", record="api")
 
@@ -718,7 +718,7 @@ def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings)
 
     `expected` refuses a stale document however it was assembled.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     # `cache_enabled` makes the update a real change: a patch to the current value
     # moves nothing.
@@ -749,7 +749,7 @@ def test_a_compare_and_swap_outside_a_unit_of_work_is_refused(settings):
     SQLite would answer with a snapshot-busy error instead of the conflict, so
     the store refuses up front.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     zone = Domain(name="a.test")
     control.dns.create_domain(zone, "alice")

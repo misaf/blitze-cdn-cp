@@ -26,6 +26,7 @@ from support.control_plane import (
     seed_record,
     with_capability_settings,
 )
+from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.adapters import (
@@ -55,7 +56,7 @@ from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import BACKUP_STATUS, build_backup_service
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.composition import Repository, load_registry
+from blitzecdn.composition import load_registry
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.clock import system_clock
@@ -77,7 +78,7 @@ def _populate(
 ) -> None:
     """Give a controller the state a disaster-recovery backup has to capture."""
     if database:
-        store = Repository(settings.database_path)
+        store = Stores(settings.database_path)
         control = build_application(
             settings=settings, repository=store, runner=FakeRunner()
         )
@@ -1062,7 +1063,7 @@ def test_later_restore_failure_recovers_all_previous_components_before_restart(
     archive = source.create(destination=tmp_path / "restore.tar.gz")
     if existing:
         target = populated
-        store = Repository(target.database_path)
+        store = Stores(target.database_path)
         store.zones.create_domain(Domain(name="newer.example"))
         store.close()
         key = certificate_dir(target) / "example-com/privkey-aa.pem"
@@ -1342,7 +1343,7 @@ def test_a_restored_database_is_consistent_and_migrated(populated):
         configuration=load_registry().configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
-    store = Repository(populated.database_path)
+    store = Stores(populated.database_path)
     control = build_application(
         settings=populated, repository=store, runner=FakeRunner()
     )
@@ -1458,7 +1459,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     came back and can regenerate the rest.
     """
     _populate(settings)
-    store = Repository(settings.database_path)
+    store = Stores(settings.database_path)
     original = build_application(
         settings=settings, repository=store, runner=FakeRunner()
     )
@@ -1484,7 +1485,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     ).restore(archive)
     assert set(manifest.components) == set(BackupComponent)
 
-    store = Repository(rebuilt.database_path)
+    store = Stores(rebuilt.database_path)
     control = build_application(settings=rebuilt, repository=store, runner=FakeRunner())
     try:
         assert [domain.name for domain in control.dns.list_domains()] == ["example.com"]

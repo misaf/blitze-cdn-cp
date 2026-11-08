@@ -14,10 +14,10 @@ from support.control_plane import (
     seed_edge,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments import cli as deployments_cli
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.entrypoints.cli import main as cli
@@ -35,7 +35,7 @@ def _fleet(settings, monkeypatch, runner_double=None):
 
 
 def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner(
         [
             ansible_run(host_run("edge-a")),
@@ -68,7 +68,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
 
 
 def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     # `validate` reads the first result without consuming it, so one entry
     # serves both it and the preview; the second is the apply.
     fake = FakeRunner(
@@ -159,7 +159,7 @@ def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
 
 
 def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -198,7 +198,7 @@ def test_interactive_deploy_refuses_to_preview_an_invalid_configuration(
 def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     settings, monkeypatch
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
@@ -250,7 +250,7 @@ def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkey
         ]
     )
     control = build_application(
-        settings=settings, repository=Repository(settings.database_path), runner=fake
+        settings=settings, repository=Stores(settings.database_path), runner=fake
     )
     seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
@@ -269,7 +269,7 @@ def test_skip_preflight_is_what_gives_up_the_checks(settings, monkeypatch):
     """The escape hatch still exists; it just has to be asked for by name."""
     fake = FakeRunner([ansible_run(host_run("edge-a"))])
     control = build_application(
-        settings=settings, repository=Repository(settings.database_path), runner=fake
+        settings=settings, repository=Stores(settings.database_path), runner=fake
     )
     seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

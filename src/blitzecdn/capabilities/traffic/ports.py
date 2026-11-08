@@ -55,3 +55,9 @@ class TrafficRunner(Protocol):
         top_paths: int = 0,
         host_limit: str | None = None,
     ) -> AnsibleRun: ...
+
+
+class EdgeNames(Protocol):
+    """The registered edges, by name: whom a collection pass asks."""
+
+    def __call__(self) -> Sequence[str]: ...

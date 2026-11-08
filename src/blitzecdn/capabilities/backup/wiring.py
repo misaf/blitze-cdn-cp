@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 
+from dishka import Provider, Scope, provide
+
 from blitzecdn.capabilities.backup.adapters import (
     AcmeComponent,
     BackupStatusFile,
@@ -21,7 +23,7 @@ from blitzecdn.capabilities.backup.ports import ServiceControl
 from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
 from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.core.config import Settings
-from blitzecdn.core.features import ConfigurationContribution
+from blitzecdn.core.features import ConfigurationContribution, FeatureRegistry
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.resources import distribution_version
@@ -84,6 +86,23 @@ def build_backup_service(
 
 __all__ = [
     "BACKUP_STATUS",
+    "BackupProvider",
     "__version__",
     "build_backup_service",
 ]
+
+
+class BackupProvider(Provider):
+    """Backup and restore: no repository opened; the host timer runs it."""
+
+    scope = Scope.APP
+
+    @provide
+    def service(
+        self, settings: Settings, features: FeatureRegistry, clock: Clock
+    ) -> BackupService:
+        return build_backup_service(
+            settings,
+            configuration=features.configuration_contributions(),
+            clock=clock,
+        )

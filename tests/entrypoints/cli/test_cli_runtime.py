@@ -11,9 +11,9 @@ from support.control_plane import (
     FakeRunner,
     build_application,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 from blitzecdn.entrypoints.cli import setup as setup_commands
 
@@ -93,7 +93,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
     """`run()` is outside Click, so it must exit rather than raise."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

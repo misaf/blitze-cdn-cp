@@ -7,7 +7,7 @@ zone behind it. Helpers used by one module stay beside its tests.
 import pytest
 from typer.testing import CliRunner
 
-from blitzecdn.composition import FleetRunner, Repository
+from blitzecdn.composition import FleetRunner
 from blitzecdn.core.config import Settings
 from blitzecdn.entrypoints.cli import main as cli
 from support.control_plane import (
@@ -15,6 +15,7 @@ from support.control_plane import (
     cli_control_plane,
     repository_on,
 )
+from support.stores import Stores
 
 runner = CliRunner()
 
@@ -56,5 +57,5 @@ def cli_control(
     return cli_control_plane(settings, monkeypatch, runner_double)
 
 
-def store(settings: Settings) -> Repository:
+def store(settings: Settings) -> Stores:
     return repository_on(settings)
