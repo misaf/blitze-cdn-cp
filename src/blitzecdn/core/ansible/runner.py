@@ -9,12 +9,12 @@ from pathlib import Path
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.execution import PlaybookExecutor, PlaybookRun
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.ports.fleet import FleetRoster
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 __all__ = ["AnsibleRunner"]
 

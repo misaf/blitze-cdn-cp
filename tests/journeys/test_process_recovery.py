@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import pytest
 from support.paths import REPO_ROOT
 
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 pytestmark = pytest.mark.skipif(
     os.name != "posix" or Path("/.dockerenv").exists(),
