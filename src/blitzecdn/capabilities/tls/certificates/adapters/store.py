@@ -30,7 +30,7 @@ from blitzecdn.capabilities.tls.settings import certificate_dir
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 from blitzecdn.core.runtime.process import terminate_process_group
 
@@ -39,7 +39,7 @@ _MAX_PRIVATE_KEY_BYTES = 262_144
 
 
 class CertificateStore:
-    def __init__(self, settings: Settings, *, clock: Clock = system_clock) -> None:
+    def __init__(self, settings: Settings, *, clock: Clock) -> None:
         self._settings = settings
         self._clock = clock
 

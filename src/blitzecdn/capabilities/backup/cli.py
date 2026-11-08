@@ -79,6 +79,7 @@ def create(
     service = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     )
     created = service.create(only=only, destination=destination)
     typer.echo(f"Backup created: {created}")
@@ -110,6 +111,7 @@ def prune(
     removed = build_backup_service(
         settings,
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     ).prune(keep=retain)
     if not retain:
         typer.echo("Retention is off (keep 0); no archive was removed.")
@@ -127,6 +129,7 @@ def inspect(
     manifest = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     ).inspect(archive)
     typer.echo(f"Created: {manifest.created_at:%Y-%m-%d %H:%M:%S} UTC")
     typer.echo(f"BlitzeCDN version: {manifest.blitzecdn_version}")
@@ -152,6 +155,7 @@ def restore(
     service = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     )
     manifest = service.inspect(archive)
     listed = ", ".join(component.value for component in manifest.components)

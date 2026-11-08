@@ -27,7 +27,7 @@ from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 
@@ -41,7 +41,7 @@ class CacheService:
         events: EventRecorder,
         runner: CacheRunner,
         usage: CacheUsage,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         #: Read to decide which hostnames may be purged. This service never
         #: writes a site; purging is not a change to desired state.

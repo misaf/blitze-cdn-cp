@@ -370,9 +370,13 @@ class ServiceProvider(Provider):
     # -- backup opens no repository; the host timer runs it, diagnostics reads it.
 
     @provide
-    def backups(self, settings: Settings, features: FeatureRegistry) -> BackupService:
+    def backups(
+        self, settings: Settings, features: FeatureRegistry, adapters: Adapters
+    ) -> BackupService:
         return build_backup_service(
-            settings, configuration=features.configuration_contributions()
+            settings,
+            configuration=features.configuration_contributions(),
+            clock=adapters.clock,
         )
 
     @provide

@@ -14,7 +14,7 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.core.features import ScheduledJob
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 __all__ = [
     "build_job_queue",
@@ -51,7 +51,7 @@ def build_job_queue(
     jobs: JobStore,
     retention: int,
     handlers: Mapping[str, JobHandler] | None = None,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> JobQueue:
     """Wire the queue; ``handlers`` is empty for a publish-only process like the API."""
     return JobQueue(
@@ -68,7 +68,7 @@ def build_job_scheduler(
     schedules: ScheduleStore,
     queue: JobQueue,
     uow: UnitOfWork,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> JobScheduler:
     """Wire the scheduler to the schedule table and the queue it publishes to."""
     return JobScheduler(schedules=schedules, queue=queue, uow=uow, clock=clock)

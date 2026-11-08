@@ -60,7 +60,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class DeploymentService:
         dns: ZoneEditor,
         releases: Releases,
         workflows: Workflows,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.clock = clock
         self.policy = policy

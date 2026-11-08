@@ -15,7 +15,7 @@ from blitzecdn.capabilities.jobs.domain import JobClaim
 from blitzecdn.capabilities.jobs.ports import WorkerProgress
 from blitzecdn.capabilities.jobs.service.queue import SCHEDULED_JOB, JobQueue
 from blitzecdn.capabilities.jobs.service.scheduling import JobScheduler
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 __all__ = ["JobRunner"]
 
@@ -31,7 +31,7 @@ class JobRunner:
         queue: JobQueue,
         scheduler: JobScheduler,
         poll_seconds: float = 1.0,
-        clock: Clock = system_clock,
+        clock: Clock,
         progress: WorkerProgress | None = None,
     ) -> None:
         self.queue = queue
