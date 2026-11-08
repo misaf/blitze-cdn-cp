@@ -233,6 +233,33 @@ A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
 then run the standalone command of the release you want.
 
+## API network access
+
+`allowed_ips` (`BLITZE_ALLOWED_IPS`, or `--allowed-ips` to `install.sh`) decides
+which clients the API answers at all. It is not authentication: an allowed
+client still presents `X-API-Key` on every control endpoint. Empty keeps the
+listener on loopback, reachable only through an SSH tunnel. A non-empty list
+binds the API publicly and answers 403 to every unlisted client, `/health` and
+`/docs` included.
+
+**Loopback is always allowed**, whatever the list says, so local health probes
+and SSH tunnels keep working after a list change. The installed API runs with
+`network_mode: host`, so this has two consequences:
+
+- Any process on the controller host reaches the API as an allowed client.
+  Treat local accounts on that host as inside the allowlist.
+- A reverse proxy or TLS terminator on the same host makes every external
+  request arrive from `127.0.0.1`, and the allowlist then filters nothing.
+  Never put an unrestricted local proxy in front of the listener. If you need
+  one, restrict client addresses in the proxy itself, or run it on another
+  host and list that host's address.
+
+The decision uses the transport peer only. `X-Forwarded-For`, `Forwarded` and
+`X-Real-IP` never grant access, and uvicorn runs with proxy headers disabled.
+When `allowed_ips` is set and a loopback request carries `X-Forwarded-For` or
+`Forwarded`, the API logs one warning per process that a same-host proxy is
+defeating the allowlist. The warning reports; it changes no decision.
+
 ## Edge SSH host keys
 
 The controller connects to every edge with strict host key checking and
