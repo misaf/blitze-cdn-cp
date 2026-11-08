@@ -20,7 +20,9 @@ dependencies = [
   "PyYAML>=6.0.2,<7",
   "python-multipart>=0.0.20,<1",
   # Persistence. The ORM owns storage and schema; pydantic remains the
-  # validation authority, so nothing in domain/ or application/ imports these.
+  # validation authority, so nothing in a capability's domain/ or service/
+  # imports these (enforced by the capability-values and capability-services
+  # contracts in .importlinter).
   "alembic>=1.16,<2",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.52.3,<1",
