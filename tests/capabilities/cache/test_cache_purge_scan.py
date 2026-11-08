@@ -330,3 +330,16 @@ def test_a_file_without_a_key_line_is_unchecked(tmp_path, scanner, monkeypatch, 
 
     assert report == {"scanned": 1, "removed": 0, "unchecked": 1}
     assert path.exists()
+
+
+def test_a_folded_line_of_another_header_is_not_part_of_a_tag(scanner):
+    tags = scanner["header_tags"]
+    assert tags(
+        b"Cache-Tag: product-42\r\nX-Other: first\r\n continuation\r\n", b"cache-tag"
+    ) == {b"product-42"}
+    # Folded before any tag header: ignored, not an IndexError.
+    assert tags(
+        b"X-Other: first\r\n continuation\r\nCache-Tag: home\r\n", b"cache-tag"
+    ) == {b"home"}
+    # A folded Cache-Tag continues its own value.
+    assert tags(b"Cache-Tag: a,\r\n b\r\n", b"cache-tag") == {b"a", b"b"}
