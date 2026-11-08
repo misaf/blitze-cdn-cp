@@ -5,11 +5,10 @@
 # Keys without a database override fall through to the values here.
 #
 # The ACME webroot, the cache and log directories, the public listener sets,
-# the status endpoint and the container names are no longer set here. They are
+# the status endpoint and the container names are not set here. They are
 # the blitzecdn_edge role's, in ansible/roles/blitzecdn_edge/defaults —
 # one contract read by blitzecdn_nginx, blitzecdn_edge_stack and
-# blitzecdn_firewall alike, rather than values composed here for roles that
-# then reached into each other for the rest.
+# blitzecdn_firewall alike.
 
 blitzecdn_base_timezone: Asia/Tehran
 
@@ -42,15 +41,15 @@ blitzecdn_edge_image: >-
   }}
 blitzecdn_firewall_enabled: false
 # blitzecdn_firewall_ssh_port and blitzecdn_firewall_ssh_sources are NOT set
-# here any more. Both describe an edge, so both are recorded on the edge and
+# here. Both describe an edge, so both are recorded on the edge and
 # published by the `blitzecdn` inventory plugin as host variables:
 #
 #   blitzecdn edge add edge-01 --host 192.0.2.10 --port 7845 \
 #       --ssh-source 94.183.119.90/32
 #
 # The port is published from the same field as ansible_port, so the firewall
-# can no longer close the port Ansible connects on — which is exactly what
-# maintaining them as two separate settings in two files invited.
+# cannot close the port Ansible connects on, as two separate settings in two
+# files would allow.
 #
 # Host variables outrank this file, so re-adding either key here would have no
 # effect. Use `blitzecdn edge update` instead.

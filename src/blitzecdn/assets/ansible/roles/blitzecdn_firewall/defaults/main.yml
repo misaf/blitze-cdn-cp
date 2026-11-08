@@ -5,9 +5,9 @@ blitzecdn_firewall_ssh_sources: []
 # Which public ports to open is not this role's to decide: it is
 # blitzecdn_edge_runtime.listeners, the same sets blitzecdn_nginx binds and
 # blitzecdn_edge_stack verifies. This role's job is the host policy that admits
-# them. It used to keep a second literal copy of both lists — not even coupled
-# to the Nginx role, just duplicated — and a listener added to one and not the
-# other is either an unreachable port or an open one that can never serve.
+# them. A second copy of the lists here would drift, and a listener added to
+# one and not the other is either an unreachable port or an open one that can
+# never serve.
 #
 # HTTP/3 comes from the same place, as listeners.http3. It is fixed to UDP/443:
 # the alternate HTTPS ports stay TCP-only.
