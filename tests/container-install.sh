@@ -65,7 +65,7 @@ cleanup() {
   # DIAGNOSTICS_DIR collects the host's journal and container logs from a
   # failed run before the host goes; CI keeps them as an artifact.
   if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
-    bash "${project_dir}/tests/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${container}"
+    bash "${project_dir}/scripts/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${container}"
   fi
   # KEEP_CONTAINER=1 leaves the host up to inspect a failure; remove it with
   # `docker rm -f -v` afterwards.

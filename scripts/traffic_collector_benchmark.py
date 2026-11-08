@@ -6,7 +6,7 @@ call per pass, each bounded by ``max_bytes``, resuming from the cursors the
 previous pass returned. Reports MiB/s and records/s on one core, which is what
 `docs/traffic-accounting.md` sizes the collection budget from.
 
-    uv run python tests/traffic_collector_benchmark.py [--records N] [--max-bytes B]
+    uv run python scripts/traffic_collector_benchmark.py [--records N] [--max-bytes B]
 """
 
 from __future__ import annotations
@@ -124,7 +124,10 @@ def main() -> None:
             began = time.perf_counter()
             passes, counted = drain(collect, directory, arguments.max_bytes)
             elapsed = time.perf_counter() - began
-        assert counted == arguments.records, (counted, arguments.records)
+        if counted != arguments.records:
+            raise SystemExit(
+                f"collector counted {counted} of {arguments.records} records"
+            )
         label = "gzip " if compressed else "plain"
         print(
             f"{label}: {counted} records, {size / 2**20:.1f} MiB in {passes} passes, "

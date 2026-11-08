@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Report which development tasks this machine can run, and how to fix the rest.
 #
-#   tests/doctor.sh [TASK...]     TASK: local (default), docker-lint, integration, ci, all
+#   scripts/doctor.sh [TASK...]     TASK: local (default), docker-lint, integration, ci, all
 #
 # Every task is always reported, so a contributor sees at a glance what runs
 # here and what has to run in GitHub Actions. Only the tasks named on the

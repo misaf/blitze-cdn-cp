@@ -100,8 +100,9 @@ addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --co
 filterwarnings = ["error"]
 # All capability and provider tests live in the application suite.
 testpaths = ["tests"]
-# Shared helpers are the `support` package under it.
-pythonpath = ["tests"]
+# Shared helpers are the `support` package under it; `scripts` holds the
+# developer tooling a few tests import (`installer_sync`).
+pythonpath = ["tests", "scripts"]
 
 [tool.coverage.run]
 branch = true
@@ -155,8 +156,8 @@ max-statements = 60
 [tool.mypy]
 python_version = "3.12"
 strict = true
-# Check application source and shared test helpers.
-files = ["src", "tests/*.py", "tests/support"]
+# Check application source, developer scripts and shared test helpers.
+files = ["src", "scripts", "tests/*.py", "tests/support"]
 
 # The dynamic inventory plugin is Ansible's code, not the control plane's. It
 # ships inside the package because Ansible loads inventory plugins by directory
