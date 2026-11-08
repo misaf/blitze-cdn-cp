@@ -346,9 +346,36 @@ class SiteFirewall(OmittedWhenEmpty):
     denied_paths: tuple[str, ...] = Field(
         default=(), max_length=100, description="URI prefixes answered with 403."
     )
+    case_insensitive_paths: bool = Field(
+        default=False,
+        description=(
+            "Match allowed_paths and denied_paths regardless of ASCII letter "
+            "case, so a denied /admin also refuses /Admin and /ADMIN/login. "
+            "Off by default: paths match exactly as written. Turn it on when "
+            "the origin treats paths case-insensitively (IIS, ASP.NET, many "
+            "CMSs), or a different spelling reaches the denied path there."
+        ),
+    )
 
-    def replacing(self, lists: Mapping[str, Sequence[str]]) -> SiteFirewall:
-        """This firewall with the named lists replaced and the rest kept.
+    @property
+    def empty(self) -> bool:
+        """No rule lists: the matching flag alone filters nothing."""
+        return not any(
+            getattr(self, field)
+            for field in type(self).model_fields
+            if field != "case_insensitive_paths"
+        )
+
+    @property
+    def rule_count(self) -> int:
+        return sum(
+            len(getattr(self, field))
+            for field in type(self).model_fields
+            if field != "case_insensitive_paths"
+        )
+
+    def replacing(self, lists: Mapping[str, object]) -> SiteFirewall:
+        """This firewall with the named lists (or flag) replaced and the rest kept.
 
         Per list, as an operator editing one rule means; ``PATCH`` replaces the whole
         block, deliberately. Revalidated, since every list reaches an nginx directive.

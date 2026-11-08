@@ -146,4 +146,5 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         "denied_methods": ["DELETE"],
         "allowed_paths": [],
         "denied_paths": [],
+        "case_insensitive_paths": False,
     }

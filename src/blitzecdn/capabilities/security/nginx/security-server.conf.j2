@@ -1,7 +1,17 @@
 {% if not default_server %}
 {% set firewall = site.firewall | default({}, true) or {} %}
+{#
+  A prefix location is case-sensitive. With case_insensitive_paths a `~*`
+  regex anchored the same way takes its place: the site declares no other
+  regex location, so it is checked after `location /` is chosen as the longest
+  prefix, while the acme and /.blitzecdn/ `^~` prefixes still win before it.
+#}
 {% for path in firewall.denied_paths | default([], true) %}
+{% if firewall.case_insensitive_paths | default(false) %}
+    location ~* "^{{ path | regex_escape }}" { return 403; }
+{% else %}
     location ^~ {{ path }} { return 403; }
+{% endif %}
 {% endfor %}
 {% if site.under_attack_mode | default(false) %}
     location = /.blitzecdn/challenge {
