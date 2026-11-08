@@ -97,7 +97,7 @@ def _listener(*, tls_context: ssl.SSLContext | None = None):
 def test_a_listening_http_origin_is_reachable(settings, monkeypatch):
     with _listener() as port:
         monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTP, port)
-        result = OriginProbe(settings).check(_site())
+        result = OriginProbe(timeout_seconds=5).check(_site())
 
     assert result.reachable is True
     assert result.tls_verified is None, "TLS is not a question for an http origin"
@@ -112,7 +112,7 @@ def test_a_closed_port_is_not_reachable(settings, monkeypatch):
     probe.close()
 
     monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTP, port)
-    result = OriginProbe(settings).check(_site())
+    result = OriginProbe(timeout_seconds=5).check(_site())
 
     assert result.reachable is False
     assert result.ok is False
@@ -120,7 +120,7 @@ def test_a_closed_port_is_not_reachable(settings, monkeypatch):
 
 
 def test_an_origin_that_does_not_resolve_says_so(settings):
-    result = OriginProbe(settings).check(_site(origin_host="origin.invalid"))
+    result = OriginProbe(timeout_seconds=5).check(_site(origin_host="origin.invalid"))
 
     assert result.reachable is False
     assert result.detail and "does not resolve" in result.detail
@@ -138,7 +138,7 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
 
     with _listener(tls_context=context) as port:
         monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
-        result = OriginProbe(settings).check(
+        result = OriginProbe(timeout_seconds=5).check(
             _site(
                 ssl_mode=SslMode.FULL_STRICT,
                 origin_sni="origin.example.com",
@@ -162,7 +162,7 @@ def test_full_accepts_an_unverifiable_origin_certificate(
 
     with _listener(tls_context=context) as port:
         monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
-        result = OriginProbe(settings).check(
+        result = OriginProbe(timeout_seconds=5).check(
             _site(
                 ssl_mode=SslMode.FULL,
                 origin_sni="origin.example.com",
@@ -176,7 +176,7 @@ def test_full_accepts_an_unverifiable_origin_certificate(
 
 def test_the_probe_uses_the_same_sni_the_edge_template_would(settings, monkeypatch):
     """site.conf.j2 falls back origin_sni -> origin_request_host -> origin_host."""
-    probe = OriginProbe(settings)
+    probe = OriginProbe(timeout_seconds=5)
     with _listener() as port:
         monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
         base = {"ssl_mode": SslMode.FULL}
@@ -201,7 +201,7 @@ def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
         site.policy[OriginPolicy].effective_sni(site.origin_host)
         == "origin.example.com"
     )
-    assert OriginProbe(settings).check(site).sni == "origin.example.com"
+    assert OriginProbe(timeout_seconds=5).check(site).sni == "origin.example.com"
 
 
 def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
@@ -209,7 +209,7 @@ def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
     controller's advisory one agree on a site's origin.
     """
     site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FULL_STRICT)
-    rendered = OriginProbe(settings).to_probe(site)
+    rendered = OriginProbe(timeout_seconds=5).to_probe(site)
 
     assert rendered == {
         "name": site.name,
@@ -228,7 +228,7 @@ def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
 def test_an_origin_without_a_port_uses_the_scheme_default(
     settings, mode, expected_port
 ):
-    result = OriginProbe(settings).check(
+    result = OriginProbe(timeout_seconds=5).check(
         _site(origin_host="origin.invalid", ssl_mode=mode)
     )
     assert result.origin.endswith(f":{expected_port}")
@@ -256,8 +256,11 @@ def test_preflight_probes_the_canonical_endpoint_and_not_every_proxy_port(
     site = _site(origin_host="origin.example.com", ssl_mode=mode)
 
     assert site.policy[TlsPolicy].canonical_origin_scheme is scheme
-    assert OriginProbe(settings).to_probe(site)["origin_port"] == port
-    assert OriginProbe(settings).check(site).origin == f"origin.example.com:{port}"
+    assert OriginProbe(timeout_seconds=5).to_probe(site)["origin_port"] == port
+    assert (
+        OriginProbe(timeout_seconds=5).check(site).origin
+        == f"origin.example.com:{port}"
+    )
 
 
 def test_the_probe_never_addresses_an_alternate_proxy_port(settings):
@@ -265,7 +268,7 @@ def test_the_probe_never_addresses_an_alternate_proxy_port(settings):
     alternates = [8080, 8880, 2052, 2082, 2086, 2095, 2053, 2083, 2087, 2096, 8443]
     for mode in SslMode:
         site = _site(origin_host="origin.example.com", ssl_mode=mode)
-        origin = OriginProbe(settings).check(site).origin
+        origin = OriginProbe(timeout_seconds=5).check(site).origin
         assert origin.rsplit(":", 1)[1] in {"80", "443"}
         for port in alternates:
             assert not origin.endswith(f":{port}")
@@ -279,7 +282,7 @@ def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings)
     demand.
     """
     site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FLEXIBLE)
-    rendered = OriginProbe(settings).to_probe(site)
+    rendered = OriginProbe(timeout_seconds=5).to_probe(site)
 
     assert site.policy[TlsPolicy].canonical_origin_scheme is HttpScheme.HTTP
     assert rendered["origin_port"] == 80

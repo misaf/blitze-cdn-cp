@@ -3,7 +3,7 @@
 import pytest
 from support.application import seed_proxied_record
 from support.certificates import certificate_control_plane
-from support.control_plane import FakeRunner
+from support.control_plane import FakeRunner, certificate_dir
 
 from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
@@ -119,7 +119,7 @@ def test_canonical_reference_protects_material_even_without_metadata_or_a_releas
     seed_proxied_record(control)
     first = _upload(control, certificate_pair)
     paths = CertificateStore(settings).sources(first.site)
-    (settings.certificate_dir / first.site / "metadata.json").unlink()
+    (certificate_dir(settings) / first.site / "metadata.json").unlink()
     assert control.certificates.collect_material("alice") == ()
     assert all(path.exists() for path in paths)
     assert control.releases.compile().sites
@@ -151,7 +151,7 @@ def test_inactive_rule_override_remains_a_material_root(settings, certificate_pa
     certificate, key = certificate_pair(("api.example.com",))
     info = control.certificates.upload_certificate(site.name, certificate, key, "alice")
     files = control.certificates.installed_sources(control.sites.get_site(site.name))
-    (settings.certificate_dir / site.name / "metadata.json").unlink()
+    (certificate_dir(settings) / site.name / "metadata.json").unlink()
     control.rules.update_rule(
         "example.com", "api", RulePatch(match="unused.example.com"), "alice"
     )
@@ -172,7 +172,7 @@ def test_damaged_retained_inputs_abort_collection_before_any_deletion(
     seed_proxied_record(control)
     _upload(control, certificate_pair)
     control.releases.prepare()
-    orphan = settings.certificate_dir / "orphan" / f"fullchain-{'a' * 64}.pem"
+    orphan = certificate_dir(settings) / "orphan" / f"fullchain-{'a' * 64}.pem"
     orphan.parent.mkdir()
     orphan.write_bytes(b"orphan")
     with control.transactions.database.session() as session:
@@ -189,7 +189,7 @@ def test_damaged_retained_inputs_abort_collection_before_any_deletion(
 def test_interrupted_collection_can_be_retried(settings, monkeypatch):
     from pathlib import Path
 
-    directory = settings.certificate_dir / "orphan"
+    directory = certificate_dir(settings) / "orphan"
     directory.mkdir(parents=True)
     files = [directory / f"fullchain-{digest * 64}.pem" for digest in ("a", "b")]
     for path in files:
@@ -210,7 +210,7 @@ def test_interrupted_collection_can_be_retried(settings, monkeypatch):
 
 
 def test_collector_fails_closed_on_corrupt_metadata_before_deleting_anything(settings):
-    root = settings.certificate_dir
+    root = certificate_dir(settings)
     first = root / "a"
     first.mkdir(parents=True)
     orphan = first / f"fullchain-{'a' * 64}.pem"
@@ -224,7 +224,7 @@ def test_collector_fails_closed_on_corrupt_metadata_before_deleting_anything(set
 
 
 def test_collector_ignores_external_links_and_unknown_files(settings, tmp_path):
-    root = settings.certificate_dir
+    root = certificate_dir(settings)
     directory = root / "example-com"
     directory.mkdir(parents=True)
     external = tmp_path / "external.pem"
@@ -340,7 +340,7 @@ def test_cli_collect_reports_reclaimed_files(settings, monkeypatch):
     from blitzecdn.entrypoints.cli import main as cli
 
     certificate_cli_control_plane(settings, monkeypatch)
-    directory = settings.certificate_dir / "orphan"
+    directory = certificate_dir(settings) / "orphan"
     directory.mkdir(parents=True)
     orphan = directory / f"fullchain-{'a' * 64}.pem"
     orphan.write_bytes(b"unreferenced")

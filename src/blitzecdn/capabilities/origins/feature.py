@@ -8,6 +8,7 @@ from blitzecdn.capabilities.origins.contract import (
     OriginPolicy,
     private_origin_needs_opt_in,
 )
+from blitzecdn.capabilities.origins.settings import CONFIGURATION
 from blitzecdn.core.features import (
     AnsibleContribution,
     CliCommandGroup,
@@ -25,6 +26,7 @@ FEATURES = (
             summary="Origin request identity and probes from the proxying edges.",
         ),
         api_routers=(routes.router,),
+        configuration=(CONFIGURATION,),
         cli_commands=(
             CliCommandGroup(feature="origins", name="origin", app=cli.origin_app),
         ),

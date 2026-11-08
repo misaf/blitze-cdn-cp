@@ -18,7 +18,6 @@ from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.tls.contract import TlsPolicy
-from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.site import CdnSite
 
 
@@ -33,8 +32,9 @@ class OriginProbe:
     five ports from every Flexible origin would be worse.
     """
 
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+    def __init__(self, *, timeout_seconds: int) -> None:
+        # The origins capability's budget, handed over by the composition root.
+        self._timeout_seconds = timeout_seconds
 
     def to_probe(self, site: CdnSite) -> dict[str, object]:
         """Render one site's canonical origin for the edge-side check.
@@ -58,7 +58,7 @@ class OriginProbe:
         # The name the edge will put in the TLS handshake; probing with a
         # different one would verify a certificate the edge never asks for.
         sni = site.policy[OriginPolicy].effective_sni(site.origin_host)
-        timeout = self._settings.origin_check_timeout_seconds
+        timeout = self._timeout_seconds
         result = OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:{port}",

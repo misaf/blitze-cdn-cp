@@ -12,6 +12,7 @@ from support.control_plane import (
     advance,
     ansible_run,
     build_application,
+    deployment_lock,
     host_run,
     install_worker,
     seed_edge,
@@ -446,7 +447,7 @@ def test_submit_releases_the_lock_after_queue_publication(settings):
 def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rollback):
     class LockedRunner(FakeRunner):
         def lock(self):
-            return DeploymentLock(settings.deployment_lock_path)
+            return DeploymentLock(deployment_lock(settings))
 
     repository = Repository(settings.database_path)
     control = build_application(
@@ -466,7 +467,7 @@ def test_a_busy_lock_defers_the_same_job_until_execution_can_start(settings, rol
     control.job_queue.clock = lambda: now
     (original,) = control.job_queue.list_jobs()
 
-    with DeploymentLock(settings.deployment_lock_path):
+    with DeploymentLock(deployment_lock(settings)):
         for _ in range(original.max_attempts + 2):
             assert control.job_runner.tick()
             (waiting,) = control.job_queue.list_jobs()

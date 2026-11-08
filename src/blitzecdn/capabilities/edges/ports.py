@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Protocol
 
 from blitzecdn.capabilities.edges.domain import Edge, HostKey
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.domain.site import CdnSite
+
+
+class FleetPlaybooks(Protocol):
+    """Run one named play across the edges in scope, without the deployment lock."""
+
+    def run_playbook(
+        self,
+        *,
+        name: str,
+        playbook: Path,
+        variables: Mapping[str, object],
+        host_limit: str | None = None,
+    ) -> AnsibleRun: ...
 
 
 class EdgeRunner(Protocol):
@@ -62,4 +77,10 @@ class OriginProbe(Protocol):
     def check(self, site: CdnSite) -> OriginCheck: ...
 
 
-__all__ = ["EdgeRunner", "EdgeStore", "HostKeyStore", "OriginProbe"]
+__all__ = [
+    "EdgeRunner",
+    "EdgeStore",
+    "FleetPlaybooks",
+    "HostKeyStore",
+    "OriginProbe",
+]

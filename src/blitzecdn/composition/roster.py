@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
 from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
@@ -35,7 +36,6 @@ from blitzecdn.capabilities.tls.wiring import (
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.capabilities.traffic.wiring import traffic_operations
-from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.features import (
@@ -76,8 +76,8 @@ class RenderingInputs:
 class OperationInputs:
     """What operations call, available once every service exists."""
 
-    settings: Settings
     deployments: DeploymentService
+    deployments_config: DeploymentsConfig
     certificates: CertificateService
     automatic_ssl: AutomaticSslService
     certificate_config: CertificateConfig
@@ -120,7 +120,9 @@ def _geoip_operations(inputs: OperationInputs) -> FeatureOperations:
 def _deployments_operations(inputs: OperationInputs) -> FeatureOperations:
     return deployments_operations(
         deployments=inputs.deployments,
-        drift_check_interval_seconds=inputs.settings.drift_check_interval_seconds,
+        drift_check_interval_seconds=(
+            inputs.deployments_config.drift_check_interval_seconds
+        ),
     )
 
 
@@ -135,7 +137,7 @@ def _certificates_operations(inputs: OperationInputs) -> FeatureOperations:
         certificates=inputs.certificates,
         automatic_ssl=inputs.automatic_ssl,
         config=inputs.certificate_config,
-        deployment_timeout_seconds=inputs.settings.deployment_timeout_seconds,
+        deployment_timeout_seconds=inputs.deployments_config.timeout_seconds,
     )
 
 
@@ -144,7 +146,7 @@ def _traffic_operations(inputs: OperationInputs) -> FeatureOperations:
         traffic=inputs.traffic,
         config=inputs.traffic_config,
         has_edges=inputs.has_edges,
-        deployment_timeout_seconds=inputs.settings.deployment_timeout_seconds,
+        deployment_timeout_seconds=inputs.deployments_config.timeout_seconds,
     )
 
 
