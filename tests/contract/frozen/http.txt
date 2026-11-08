@@ -364,8 +364,11 @@ blitzecdn	schema	PreflightReport.site	string required
 blitzecdn	schema	PurgeEntry.host	string required
 blitzecdn	schema	PurgeEntry.scheme	HttpScheme optional
 blitzecdn	schema	PurgeEntry.uri	string required
+blitzecdn	schema	PurgePrefix.host	string required
+blitzecdn	schema	PurgePrefix.prefix	string optional
 blitzecdn	schema	PurgeRequest.entries	array[PurgeEntry] optional
 blitzecdn	schema	PurgeRequest.host_limit	string|null optional
+blitzecdn	schema	PurgeRequest.prefixes	array[PurgePrefix] optional
 blitzecdn	schema	PurgeRequest.purge_all	boolean optional
 blitzecdn	schema	QueueStatistics.counts	object optional
 blitzecdn	schema	QueueStatistics.expired_leases	integer optional

@@ -8,7 +8,7 @@ to the variables the purge role reads fails a test.
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from support.control_plane import FakeRunner
 
 
@@ -27,4 +27,16 @@ def purges(fake: FakeRunner) -> list[tuple[tuple[PurgeEntry, ...], bool, str | N
                 limit,
             )
         )
+    return purged
+
+
+def purged_prefixes(fake: FakeRunner) -> list[tuple[PurgePrefix, ...]]:
+    """The hostname and path prefixes of every cache purge the fleet ran."""
+    purged = []
+    for name, _playbook, variables, _limit in fake.playbooks:
+        if name != "cache-purge":
+            continue
+        prefixes = variables["blitzecdn_cache_purge_prefixes"]
+        assert isinstance(prefixes, list)
+        purged.append(tuple(PurgePrefix.model_validate(prefix) for prefix in prefixes))
     return purged

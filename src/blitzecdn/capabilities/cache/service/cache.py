@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import NamedTuple
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import (
@@ -16,6 +17,7 @@ from blitzecdn.capabilities.cache.domain import (
     EdgeConnections,
     OutcomeCounters,
     PurgeEntry,
+    PurgePrefix,
     PurgeResult,
 )
 from blitzecdn.capabilities.cache.ports import CacheRunner, CacheUsage
@@ -29,6 +31,13 @@ from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
+
+
+class PurgeTargets(NamedTuple):
+    """A purge request as the edges will match it, after the sites have vetted it."""
+
+    entries: tuple[PurgeEntry, ...] = ()
+    prefixes: tuple[PurgePrefix, ...] = ()
 
 
 class CacheService:
@@ -56,6 +65,7 @@ class CacheService:
         operator: str,
         *,
         entries: Sequence[PurgeEntry] = (),
+        prefixes: Sequence[PurgePrefix] = (),
         purge_all: bool = False,
         host_limit: str | None = None,
     ) -> PurgeResult:
@@ -63,15 +73,19 @@ class CacheService:
 
         A purge that silently matches nothing looks the same as one that worked.
         """
-        resolved_entries = self.check_purge(entries=entries, purge_all=purge_all)
+        targets = self.check_purge(
+            entries=entries, prefixes=prefixes, purge_all=purge_all
+        )
         run = self.runner.run_cache_purge(
-            entries=resolved_entries,
+            entries=targets.entries,
+            prefixes=targets.prefixes,
             purge_all=purge_all,
             host_limit=host_limit,
         )
         report = PurgeResult(
             purged_at=self.clock(),
-            entries=resolved_entries,
+            entries=targets.entries,
+            prefixes=targets.prefixes,
             purge_all=purge_all,
             host_limit=host_limit,
             hosts=run.hosts,
@@ -85,7 +99,10 @@ class CacheService:
                 {
                     "purge_all": purge_all,
                     "entries": [
-                        entry.model_dump(mode="json") for entry in resolved_entries
+                        entry.model_dump(mode="json") for entry in targets.entries
+                    ],
+                    "prefixes": [
+                        prefix.model_dump(mode="json") for prefix in targets.prefixes
                     ],
                     "host_limit": host_limit,
                     "complete": report.complete,
@@ -98,34 +115,35 @@ class CacheService:
         return report
 
     def check_purge(
-        self, *, entries: Sequence[PurgeEntry] = (), purge_all: bool = False
-    ) -> tuple[PurgeEntry, ...]:
+        self,
+        *,
+        entries: Sequence[PurgeEntry] = (),
+        prefixes: Sequence[PurgePrefix] = (),
+        purge_all: bool = False,
+    ) -> PurgeTargets:
         """Refuse a purge that could only report success having removed nothing.
 
-        Returns the entries as the edges will key them. Run before queueing a
-        purge, so a bad request fails when it is made.
+        Returns the entries and prefixes as the edges will match them. Run
+        before queueing a purge, so a bad request fails when it is made.
         """
-        if purge_all and entries:
+        if purge_all and (entries or prefixes):
             raise ConflictError(
-                "purge everything and purge named entries are different "
-                "operations; ask for one or the other"
+                "purge everything and purge named entries or prefixes are "
+                "different operations; ask for one or the other"
             )
-        if not purge_all and not entries:
+        if not purge_all and not entries and not prefixes:
             raise ConflictError(
-                "nothing to purge: give at least one entry or purge all"
+                "nothing to purge: give at least one entry or prefix, or purge all"
             )
-        return self._resolve_purge_entries(entries) if entries else ()
+        owners = self._site_owners()
+        return PurgeTargets(
+            entries=self._resolve_purge_entries(entries, owners) if entries else (),
+            prefixes=(
+                self._resolve_purge_prefixes(prefixes, owners) if prefixes else ()
+            ),
+        )
 
-    def _resolve_purge_entries(
-        self, entries: Sequence[PurgeEntry]
-    ) -> tuple[PurgeEntry, ...]:
-        """Refuse impossible entries and reproduce each owning site's cache key.
-
-        The hostname must match a site, wildcards as nginx matches them. The scheme
-        must be one the site serves, since ``$scheme`` leads the key. Under ``ignore``
-        query mode the query is stripped. Otherwise the purge hashes a key nginx never
-        wrote and reports success.
-        """
+    def _site_owners(self) -> _SiteOwners:
         exact: dict[str, CdnSite] = {}
         wildcards: list[tuple[str, CdnSite]] = []
         for site in self.sites.list_sites():
@@ -136,19 +154,53 @@ class CacheService:
                     wildcards.append((name[2:], site))
                 else:
                     exact.setdefault(name, site)
+        return _SiteOwners(exact, tuple(wildcards))
 
+    def _resolve_purge_prefixes(
+        self, prefixes: Sequence[PurgePrefix], owners: _SiteOwners
+    ) -> tuple[PurgePrefix, ...]:
+        """Refuse prefixes for hostnames no site serves, or that no key can start with.
+
+        A site that ignores the query string keys by path alone, so a prefix
+        reaching into the query would match nothing it stored.
+        """
+        unknown: set[str] = set()
+        queried: set[str] = set()
+        for prefix in prefixes:
+            owner = owners.owner_of(prefix.host)
+            if owner is None:
+                unknown.add(prefix.host)
+            elif "?" in prefix.prefix and (
+                owner.policy[CachePolicy].cache_query_string_mode
+                is CacheQueryStringMode.IGNORE
+            ):
+                queried.add(f"{prefix.host}{prefix.prefix} ({owner.name})")
+        _refuse_unknown_hosts(unknown)
+        if queried:
+            raise ConflictError(
+                "these sites cache by path and ignore the query string, so no "
+                "cache key contains the query in: "
+                + "; ".join(sorted(queried))
+                + ". Drop the query from the prefix."
+            )
+        # Order kept, duplicates dropped: each prefix is a pass over the cache.
+        return tuple(dict.fromkeys(prefixes))
+
+    def _resolve_purge_entries(
+        self, entries: Sequence[PurgeEntry], owners: _SiteOwners
+    ) -> tuple[PurgeEntry, ...]:
+        """Refuse impossible entries and reproduce each owning site's cache key.
+
+        The hostname must match a site, wildcards as nginx matches them. The scheme
+        must be one the site serves, since ``$scheme`` leads the key. Under ``ignore``
+        query mode the query is stripped. Otherwise the purge hashes a key nginx never
+        wrote and reports success.
+        """
         unknown: set[str] = set()
         mismatched: set[str] = set()
         resolved: list[PurgeEntry] = []
         for entry in entries:
-            owner = exact.get(entry.host) or next(
-                (
-                    candidate
-                    for suffix, candidate in wildcards
-                    if entry.host.endswith(f".{suffix}")
-                ),
-                None,
-            )
+            owner = owners.owner_of(entry.host)
             if owner is None:
                 unknown.add(entry.host)
                 continue
@@ -166,13 +218,7 @@ class CacheService:
             ):
                 uri = uri.partition("?")[0]
             resolved.append(PurgeEntry(host=entry.host, uri=uri, scheme=entry.scheme))
-        if unknown:
-            raise NotFoundError(
-                "no enabled site serves: "
-                + ", ".join(sorted(unknown))
-                + ". A purge for a hostname nothing serves would report success "
-                "having removed nothing."
-            )
+        _refuse_unknown_hosts(unknown)
         if mismatched:
             raise ConflictError(
                 "nothing is cached under the scheme requested for: "
@@ -270,3 +316,26 @@ def _edge_connections(host: HostRun) -> EdgeConnections:
         nginx_reachable=bool(document.get("nginx_reachable")),
         connections=connections,
     )
+
+
+class _SiteOwners(NamedTuple):
+    """Which enabled site answers for a hostname, wildcards as nginx matches them."""
+
+    exact: dict[str, CdnSite]
+    wildcards: tuple[tuple[str, CdnSite], ...]
+
+    def owner_of(self, host: str) -> CdnSite | None:
+        return self.exact.get(host) or next(
+            (site for suffix, site in self.wildcards if host.endswith(f".{suffix}")),
+            None,
+        )
+
+
+def _refuse_unknown_hosts(unknown: set[str]) -> None:
+    if unknown:
+        raise NotFoundError(
+            "no enabled site serves: "
+            + ", ".join(sorted(unknown))
+            + ". A purge for a hostname nothing serves would report success "
+            "having removed nothing."
+        )

@@ -1,7 +1,7 @@
 import re
 
 import pytest
-from support.cache import purges
+from support.cache import purged_prefixes, purges
 from support.control_plane import (
     FakeRunner,
     ansible_run,
@@ -11,7 +11,7 @@ from support.control_plane import (
 )
 from support.stores import Stores
 
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
@@ -195,6 +195,91 @@ def test_a_purge_with_nothing_to_do_is_refused(settings):
     )
     with pytest.raises(ConflictError):
         control.cache.purge_cache("alice")
+
+
+def test_a_prefix_purge_reaches_the_edges_without_any_named_entry(settings):
+    repository = Stores(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = build_application(settings=settings, repository=repository, runner=fake)
+    _site(control)
+
+    result = control.cache.purge_cache(
+        "alice",
+        prefixes=[
+            PurgePrefix(host="cdn.example.com", prefix="/blog/"),
+            PurgePrefix(host="CDN.example.com."),
+            PurgePrefix(host="cdn.example.com", prefix="/blog/"),
+        ],
+    )
+
+    assert result.complete is True
+    # Normalised and de-duplicated: each prefix is a pass over the cache.
+    expected = (
+        PurgePrefix(host="cdn.example.com", prefix="/blog/"),
+        PurgePrefix(host="cdn.example.com", prefix="/"),
+    )
+    assert purged_prefixes(fake) == [expected]
+    assert result.prefixes == expected
+    assert purges(fake)[0][0] == ()
+
+
+def test_a_prefix_purge_for_a_hostname_no_site_serves_is_refused(settings):
+    repository = Stores(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = build_application(settings=settings, repository=repository, runner=fake)
+    _site(control)
+
+    with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
+        control.cache.purge_cache(
+            "alice", prefixes=[PurgePrefix(host="other.example.com")]
+        )
+    assert purges(fake) == []
+
+
+def test_a_prefix_into_an_ignored_query_string_is_refused(settings):
+    """The site keys by path alone, so no stored key contains a '?'."""
+    repository = Stores(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = build_application(settings=settings, repository=repository, runner=fake)
+    _site(control, cache_query_string_mode="ignore")
+
+    with pytest.raises(ConflictError, match="query"):
+        control.cache.purge_cache(
+            "alice",
+            prefixes=[PurgePrefix(host="cdn.example.com", prefix="/search?q=")],
+        )
+    assert purges(fake) == []
+
+
+def test_purging_everything_and_prefixes_at_once_is_refused(settings):
+    repository = Stores(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    _site(control)
+
+    with pytest.raises(ConflictError):
+        control.cache.purge_cache(
+            "alice",
+            prefixes=[PurgePrefix(host="cdn.example.com")],
+            purge_all=True,
+        )
+
+
+def test_named_entries_and_prefixes_purge_together(settings):
+    repository = Stores(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = build_application(settings=settings, repository=repository, runner=fake)
+    _site(control)
+
+    control.cache.purge_cache(
+        "alice",
+        entries=[PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)],
+        prefixes=[PurgePrefix(host="cdn.example.com", prefix="/blog/")],
+    )
+
+    assert len(purges(fake)[0][0]) == 1
+    assert len(purged_prefixes(fake)[0]) == 1
 
 
 def test_purging_everything_needs_no_site_to_exist(settings):

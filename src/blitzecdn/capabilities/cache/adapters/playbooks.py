@@ -5,16 +5,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from blitzecdn.capabilities.cache import ansible
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.ports import FleetPlaybooks
 from blitzecdn.core.domain.runs import AnsibleRun
 
-__all__ = ["CachePlaybooks", "purge_entry_to_ansible"]
+__all__ = ["CachePlaybooks", "purge_entry_to_ansible", "purge_prefix_to_ansible"]
 
 
 def purge_entry_to_ansible(entry: PurgeEntry) -> dict[str, str]:
     """One cached response, as the purge role reads it."""
     return {"host": entry.host, "uri": entry.uri, "scheme": entry.scheme.value}
+
+
+def purge_prefix_to_ansible(prefix: PurgePrefix) -> dict[str, str]:
+    """One hostname and request-target prefix, as the purge role reads it."""
+    return {"host": prefix.host, "prefix": prefix.prefix}
 
 
 class CachePlaybooks:
@@ -30,6 +35,7 @@ class CachePlaybooks:
         self,
         *,
         entries: Sequence[PurgeEntry],
+        prefixes: Sequence[PurgePrefix] = (),
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun:
@@ -39,6 +45,9 @@ class CachePlaybooks:
             variables={
                 "blitzecdn_cache_purge_entries": [
                     purge_entry_to_ansible(entry) for entry in entries
+                ],
+                "blitzecdn_cache_purge_prefixes": [
+                    purge_prefix_to_ansible(prefix) for prefix in prefixes
                 ],
                 "blitzecdn_cache_purge_all": purge_all,
             },
