@@ -53,7 +53,6 @@ blitzecdn	command	blitzecdn edge remove	<name> type=str required --yes/-y type=b
 blitzecdn	command	blitzecdn edge update	<name> type=str required --host type=str --user type=str --port type=int range --private-key-file type=str --public-address type=str --ssh-source type=str --capability type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn features	--json type=boolean default=False
 blitzecdn	command	blitzecdn geoip update	--json type=boolean default=False
-blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
 blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=boolean default=False
@@ -78,7 +77,7 @@ blitzecdn	command	blitzecdn rule remove	<domain> type=str required <name> type=s
 blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
 blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
-blitzecdn	command	blitzecdn setup
+blitzecdn	command	blitzecdn setup	--env-file type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
 blitzecdn	command	blitzecdn traffic status	<edge> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn traffic usage	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
