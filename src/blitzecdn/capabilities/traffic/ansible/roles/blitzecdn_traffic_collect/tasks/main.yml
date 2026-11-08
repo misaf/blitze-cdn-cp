@@ -27,6 +27,7 @@
         stdin: >-
           {{ {'log_directory': blitzecdn_traffic_collect_log_directory,
               'max_bytes': blitzecdn_traffic_collect_max_bytes,
+              'top_paths': blitzecdn_traffic_collect_top_paths,
               'checkpoints': blitzecdn_traffic_collect_checkpoints.get(inventory_hostname, [])} | to_json }}
       register: blitzecdn_traffic_collect_result
       check_mode: false

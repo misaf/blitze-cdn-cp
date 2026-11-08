@@ -3,4 +3,6 @@
 blitzecdn_traffic_collect_log_directory: /var/log/nginx/domains
 # The control plane passes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES on every run.
 blitzecdn_traffic_collect_max_bytes: 268435456
+# BLITZE_TRAFFIC_TOP_PATHS, also passed on every run; 0 collects no paths.
+blitzecdn_traffic_collect_top_paths: 20
 blitzecdn_traffic_collect_checkpoints: {}

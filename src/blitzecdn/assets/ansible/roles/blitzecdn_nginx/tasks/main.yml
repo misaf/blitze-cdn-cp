@@ -9,6 +9,9 @@
       worker_connections must be positive and below the edge nofile limit,
       leaving file descriptors for logs, cache files and listeners. Backlog must be positive.
 
+- name: Validate visitor-side limits
+  ansible.builtin.import_tasks: visitor-limits.yml
+
 # Host state the release's configuration depends on. The configuration tree
 # itself is rendered on the controller, stored with the release, and staged by
 # blitzecdn_config_release: this role writes nothing into it. Its templates and

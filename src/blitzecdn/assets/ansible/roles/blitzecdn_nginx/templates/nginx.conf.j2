@@ -23,7 +23,21 @@ http {
     # 200ms Nagle would wait.
     tcp_nopush on;
     tcp_nodelay on;
-    keepalive_timeout 65;
+    keepalive_timeout {{ blitzecdn_nginx_keepalive_timeout }};
+    keepalive_requests {{ blitzecdn_nginx_keepalive_requests }};
+    # Visitor-side limits for every server on the edge, the first line of
+    # defence before a request reaches a cache or an origin. The timeouts close
+    # slowloris and slow-POST clients; see the role defaults.
+    client_header_timeout {{ blitzecdn_nginx_client_header_timeout }};
+    client_body_timeout {{ blitzecdn_nginx_client_body_timeout }};
+    send_timeout {{ blitzecdn_nginx_send_timeout }};
+    large_client_header_buffers {{ blitzecdn_nginx_large_client_header_buffers }};
+{% if blitzecdn_nginx_limit_conn_per_ip | int > 0 %}
+    limit_conn_zone $binary_remote_addr zone=blitzecdn_conn_per_ip:{{ blitzecdn_nginx_limit_conn_zone_size }};
+    limit_conn blitzecdn_conn_per_ip {{ blitzecdn_nginx_limit_conn_per_ip }};
+    limit_conn_status 429;
+    limit_conn_log_level warn;
+{% endif %}
     include {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/*.conf;
     include {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/*;
 }

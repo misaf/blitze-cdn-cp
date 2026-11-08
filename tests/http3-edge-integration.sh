@@ -292,6 +292,19 @@ http2=$("${client[@]}" --http2 -o /dev/null -w 'protocol=%{http_version} code=%{
 printf '%s' "${http2}"
 grep -q 'protocol=2 code=200' <<<"${http2}"
 
+say "Edge-wide visitor limits do not throttle ordinary traffic"
+in_edge "docker exec blitzecdn-edge nginx -T -c ${ACTIVE_CONF} 2>&1 | grep -q 'limit_conn blitzecdn_conn_per_ip'"
+in_edge "docker exec blitzecdn-edge nginx -T -c ${ACTIVE_CONF} 2>&1 | grep -q 'client_body_timeout 10s'"
+# A page load's worth of parallel requests from one address, well under the
+# per-address ceiling: every one must be served, none refused with 429.
+# Bodies go to throwaway files in the --rm client container: one `-o` covers
+# only the first URL of a glob, `#1` names one file per request.
+burst=$("${client[@]}" --http1.1 --parallel --parallel-max 40 -o '/tmp/burst-#1' -w '%{http_code}\n' 'https://site-one.test/?burst=[1-80]' || true)
+if grep -vqx 200 <<<"${burst}"; then
+  printf '%s\n' "${burst}" | sort | uniq -c
+  fail "ordinary parallel traffic was not all served 200"
+fi
+
 say "HTTP/3 request over UDP/443"
 http3=$("${client[@]}" --http3-only -D - -o /dev/null -w 'protocol=%{http_version} code=%{http_code}\n' https://site-one.test/)
 printf '%s' "${http3}"
