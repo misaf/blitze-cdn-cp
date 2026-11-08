@@ -130,7 +130,7 @@ def test_metrics_are_authenticated_and_readable(settings):
     assert 'blitzecdn_workers{state="busy"} 0' in body
 
 
-@pytest.mark.parametrize("failure", ["start", "stop", "pool", "drain"])
+@pytest.mark.parametrize("failure", ["start", "stop"])
 def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
     settings, monkeypatch, failure
 ):
@@ -150,21 +150,12 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         get=lambda _kind: node, close=lambda: operation("close")
     )
 
-    def pool(**kwargs):
-        operation("pool")
-        return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
-
     monkeypatch.setattr(
         "blitzecdn.entrypoints.api.app.api_container", lambda *a, **k: container
     )
-    monkeypatch.setattr("blitzecdn.entrypoints.api.app.ThreadPoolExecutor", pool)
     with (
         pytest.raises(RuntimeError, match=f"failed {failure}"),
         TestClient(create_app(settings)),
     ):
         pass
-    assert events == (
-        ["pool", "close"]
-        if failure == "pool"
-        else ["pool", "start", "drain", "stop", "close"]
-    )
+    assert events == ["start", "stop", "close"]

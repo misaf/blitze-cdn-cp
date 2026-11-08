@@ -82,19 +82,6 @@ class RenewRequest(Model):
     )
 
 
-class RenewalResult(Model):
-    renewed: tuple[str, ...] = ()
-    skipped: tuple[str, ...] = ()
-    failed: tuple[str, ...] = ()
-
-
-class ReconciliationResult(Model):
-    issued: tuple[str, ...] = ()
-    skipped: dict[str, str] = Field(default_factory=dict)
-    failed: dict[str, str] = Field(default_factory=dict)
-    deployment: Deployment | None = None
-
-
 class SslAutomaticReconciliation(Model):
     scanned: tuple[str, ...] = ()
     upgraded: dict[str, SslMode] = Field(default_factory=dict)

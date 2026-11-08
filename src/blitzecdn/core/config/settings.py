@@ -39,7 +39,6 @@ class Settings(BaseSettings):
             "history_retention",
             "allow_empty_sites",
             "worker_poll_seconds",
-            "api_worker_threads",
             "api_max_body_bytes",
             "allowed_ips",
             "api_keys",
@@ -106,10 +105,6 @@ class Settings(BaseSettings):
     #: How often an idle worker polls for durable work: one indexed SELECT,
     #: rather than a broker for one convergence at a time.
     worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
-    #: Size of the API's own pool for long blocking handlers, kept off the
-    #: server's so a renewal sweep cannot starve `/health`. Small, because the
-    #: work serialises on the deployment lock anyway.
-    api_worker_threads: int = Field(default=2, ge=1, le=16)
     #: Total HTTP body budget, including multipart framing. The default fits a
     #: 1 MiB certificate chain and 256 KiB private key with framing overhead.
     api_max_body_bytes: int = Field(default=2_097_152, ge=1)
