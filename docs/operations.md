@@ -181,7 +181,7 @@ source tree, virtualenv or Git checkout is left on the host.
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
-gh attestation verify install.sh --repo misaf/blitze-cdn-cp
+gh attestation verify install.sh --repo misaf/blitze-cdn-cp --source-ref refs/tags/vX.Y.Z
 sudo bash install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
 
@@ -244,7 +244,8 @@ host's PID namespace, so nothing it fetches is trusted on first sight:
 
 - **install.sh.** Each release's image workflow attests the `install.sh` of its
   tag. `gh attestation verify` (run anywhere `gh` is signed in) shows the file
-  is the one that release was built from; the workflow's run summary also
+  is the one that release was built from; `--source-ref` is what ties it to the
+  release you asked for, since `--repo` alone accepts any release's installer; the workflow's run summary also
   prints its SHA-256 for `sha256sum --check`.
 - **The control-plane image.** The same workflow signs the image it publishes
   with cosign, keylessly, as itself for that tag. After pulling, the installer
