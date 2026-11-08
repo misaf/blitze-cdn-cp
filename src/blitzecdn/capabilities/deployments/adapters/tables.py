@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, ForeignKey, Index
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 
 class DeploymentRow(Base):
@@ -43,9 +43,7 @@ class DeploymentRow(Base):
     check_mode: Mapped[bool] = mapped_column()
     rollback_of: Mapped[str | None] = mapped_column(ForeignKey("deployments.id"))
     host_limit: Mapped[str | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, default=utcnow, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
@@ -101,7 +99,7 @@ class DeploymentRequirementRow(Base):
     __tablename__ = "deployment_requirements"
 
     kind: Mapped[str] = mapped_column(primary_key=True)
-    requested_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    requested_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 class DeploymentOutcomeRow(Base):

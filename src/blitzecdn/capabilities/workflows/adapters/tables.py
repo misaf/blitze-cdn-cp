@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, Index
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 __all__ = ["WorkflowRow"]
 
@@ -42,8 +42,8 @@ class WorkflowRow(Base):
     resource_id: Mapped[str | None] = mapped_column()
     status: Mapped[str] = mapped_column()
     operator: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
     #: An append-only list of checkpoints. Ordered, read whole, never queried
     #: into — a child table would buy nothing but joins.
     steps: Mapped[list[Any]] = mapped_column(JSON, default=list)

@@ -11,6 +11,10 @@ status, timestamps, anything in a ``WHERE`` or ``ORDER BY``. Value objects no
 query reaches, such as a site's policy or an ``AnsibleRun``, stay whole in a
 JSON column, so the domain model stays their only definition. Tables hold no
 invariants; stores round-trip through the domain models.
+
+Timestamp columns have no default. A store writes each one from
+`Database.now()`, so every instant in a row comes from the injected clock and a
+forgotten one fails the `NOT NULL` constraint instead of reading the wall clock.
 """
 
 from __future__ import annotations
@@ -54,10 +58,6 @@ class UtcDateTime(TypeDecorator[datetime]):
         return parsed
 
 
-def utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
 class Base(DeclarativeBase):
     """Declarative base for every table in the control-plane database."""
 
@@ -69,7 +69,7 @@ class AnsibleSettingRow(Base):
 
     name: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[Any] = mapped_column(JSON)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 class AuditEventRow(Base):
@@ -78,7 +78,7 @@ class AuditEventRow(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
     operator: Mapped[str] = mapped_column()
     action: Mapped[str] = mapped_column()
     resource_type: Mapped[str] = mapped_column()
