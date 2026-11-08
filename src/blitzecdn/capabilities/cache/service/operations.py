@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service.cache import CacheService
 
 __all__ = [
@@ -31,12 +31,14 @@ def purge_payload(
     operator: str,
     *,
     entries: Sequence[PurgeEntry],
+    prefixes: Sequence[PurgePrefix] = (),
     purge_all: bool,
     host_limit: str | None,
 ) -> dict[str, Any]:
     return {
         "operator": operator,
         "entries": [entry.model_dump(mode="json") for entry in entries],
+        "prefixes": [prefix.model_dump(mode="json") for prefix in prefixes],
         "purge_all": purge_all,
         "host_limit": host_limit,
     }
@@ -55,6 +57,11 @@ def operation_handlers(
         result = cache.purge_cache(
             str(payload["operator"]),
             entries=[PurgeEntry.model_validate(entry) for entry in payload["entries"]],
+            # Purges queued before prefixes existed carry no such field.
+            prefixes=[
+                PurgePrefix.model_validate(prefix)
+                for prefix in payload.get("prefixes", ())
+            ],
             purge_all=bool(payload["purge_all"]),
             host_limit=payload.get("host_limit"),
         )

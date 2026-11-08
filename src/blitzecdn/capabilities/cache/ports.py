@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.traffic.domain import TrafficUsage, UsageQuery
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
@@ -48,6 +48,7 @@ class CacheRunner(Protocol):
         self,
         *,
         entries: Sequence[PurgeEntry],
+        prefixes: Sequence[PurgePrefix],
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun: ...

@@ -10,7 +10,7 @@ blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
 blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn cache connections	--limit type=str --json type=boolean default=False
-blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cache purge	--url type=str --prefix type=str --hostname type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn cache stats	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn cert acme-hook	<action> type=str required
 blitzecdn	command	blitzecdn cert collect	--json type=boolean default=False

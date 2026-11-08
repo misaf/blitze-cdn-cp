@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import typer
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
@@ -37,6 +37,23 @@ def cache_purge(
             ),
         ),
     ] = None,
+    prefix: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--prefix",
+            help=(
+                "Purge everything cached under a hostname and path prefix, e.g. "
+                "cdn.example.com/blog/. Both schemes match. Repeatable."
+            ),
+        ),
+    ] = None,
+    hostname: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--hostname",
+            help="Purge everything cached for a hostname. Repeatable.",
+        ),
+    ] = None,
     everything: Annotated[
         bool,
         typer.Option(
@@ -49,6 +66,11 @@ def cache_purge(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Remove cached responses from the edges.
+
+    Name URLs with --url, or whole areas with --prefix and --hostname. A prefix
+    is matched as plain text, so /blog also matches /blogroll; end it with /
+    to name a directory. Prefix and hostname purges scan every cached file on
+    each edge, so they take longer than named URLs.
 
     Every variant of a URL goes: nginx keys entries by method and by content
     encoding, so one URL is several entries and leaving any behind would keep
@@ -68,8 +90,15 @@ def cache_purge(
     ):
         raise typer.Abort()
     entries = [_purge_entry(value) for value in url or []]
+    prefixes = [_purge_prefix(value) for value in prefix or []] + [
+        _purge_hostname(value) for value in hostname or []
+    ]
     result = common.service(CacheService).purge_cache(
-        "cli", entries=entries, purge_all=everything, host_limit=limit
+        "cli",
+        entries=entries,
+        prefixes=prefixes,
+        purge_all=everything,
+        host_limit=limit,
     )
     common.emit(result, json_output=json_output)
     if not json_output:
@@ -98,6 +127,30 @@ def _purge_entry(value: str) -> PurgeEntry:
     if parsed.query:
         uri = f"{uri}?{parsed.query}"
     return PurgeEntry(host=parsed.hostname, uri=uri, scheme=HttpScheme(parsed.scheme))
+
+
+def _purge_prefix(value: str) -> PurgePrefix:
+    """Read ``host/path`` or a URL into a hostname and request-target prefix.
+
+    The scheme is accepted and ignored: a prefix purge covers both.
+    """
+    parsed = urlsplit(value if "//" in value else f"https://{value}")
+    if not parsed.hostname:
+        raise typer.BadParameter(f"{value!r} has no hostname")
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    try:
+        return PurgePrefix(host=parsed.hostname, prefix=target)
+    except ValueError as error:
+        raise typer.BadParameter(f"{value!r}: {error}") from error
+
+
+def _purge_hostname(value: str) -> PurgePrefix:
+    try:
+        return PurgePrefix(host=value)
+    except ValueError as error:
+        raise typer.BadParameter(f"{value!r}: {error}") from error
 
 
 @cache_app.command("stats")

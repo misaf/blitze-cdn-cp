@@ -3,7 +3,9 @@ argument_specs:
   main:
     short_description: Remove cached responses from a BlitzeCDN edge.
     description:
-      - Deletes cache entries by key, or empties the cache entirely.
+      - >-
+        Deletes cache entries by key, every entry for a hostname and path
+        prefix, or empties the cache entirely.
       - >-
         nginx open source has no proxy_cache_purge directive, so an entry is
         removed by deleting the file proxy_cache_path stores it in. The path is
@@ -37,6 +39,16 @@ argument_specs:
           host: {type: str, required: true}
           uri: {type: str, required: true}
           scheme: {type: str, choices: [http, https], default: https}
+      blitzecdn_cache_purge_prefixes:
+        type: list
+        elements: dict
+        required: true
+        description: >-
+          Matched against the key nginx stored in each cache file, so purging
+          one scans the whole cache once per run, not once per prefix.
+        options:
+          host: {type: str, required: true}
+          prefix: {type: str, default: /}
       blitzecdn_cache_purge_all: {type: bool, required: true}
       blitzecdn_cache_purge_methods:
         type: list
