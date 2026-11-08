@@ -653,14 +653,31 @@ started_after=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn
 [[ ${started_before} != "${started_after}" ]] ||
   fail "the API was not replaced, so it is still running the old configuration"
 
-# Issuance is an API operation. The key is read inside the container and never
-# crosses into this shell.
+# Issuance is a queued API operation: submit it, then poll the Location until
+# the worker records an outcome. The key is read inside the container and never
+# crosses into this shell; the result printed is the operation's `result`.
 # shellcheck disable=SC2016
 issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env)
   [ -n "${key}" ] || { printf "no operator API key in blitzecdn.env\n" >&2; exit 1; }
-  curl -sS --max-time 600 -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
+  location=$(curl -sS --fail-with-body --max-time 30 -o /dev/null -w "%header{location}" \
+    -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
     -d "{\"skip_preflight\": true}" \
-    http://127.0.0.1:8000/v3/hosts/'"${ACME_SITE}"'/certificate/request') || {
+    http://127.0.0.1:8000/v3/hosts/'"${ACME_SITE}"'/certificate/request) || exit 1
+  [ -n "${location}" ] || { printf "the request was not accepted\n" >&2; exit 1; }
+  deadline=$(( $(date +%s) + 600 ))
+  while :; do
+    operation=$(curl -sS --fail-with-body --max-time 30 -H "X-API-Key: ${key}" \
+      "http://127.0.0.1:8000${location}") || exit 1
+    state=$(printf "%s" "${operation}" | python3 -c "import json, sys; print(json.load(sys.stdin)[\"status\"])")
+    case ${state} in
+      succeeded)
+        printf "%s" "${operation}" | python3 -c "import json, sys; print(json.dumps(json.load(sys.stdin)[\"result\"]))"
+        exit 0 ;;
+      failed) printf "%s\n" "${operation}" >&2; exit 1 ;;
+    esac
+    [ "$(date +%s)" -lt "${deadline}" ] || { printf "timed out: %s\n" "${operation}" >&2; exit 1; }
+    sleep 2
+  done') || {
   # certbot's own log first: it names the ACME server it contacted and the
   # problem document it got back, which is the difference between "the CA
   # refused" and "the CA was never the one this stage started".

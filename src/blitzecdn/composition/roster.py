@@ -54,6 +54,9 @@ from blitzecdn.capabilities.security.wiring import security_rendering
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
+from blitzecdn.capabilities.tls.certificates.service import (
+    operations as certificate_operations,
+)
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import (
     TlsProvider,
@@ -226,6 +229,10 @@ ROSTER: tuple[RosterEntry, ...] = (
         provider=TlsProvider,
         rendering=_certificates_rendering,
         operations=_certificates_operations,
+        queued=lambda inputs: certificate_operations.operation_handlers(
+            inputs.certificates,
+            renewal_budget_seconds=inputs.certificate_config.renewal_budget_seconds,
+        ),
     ),
     RosterEntry(
         "blitzecdn.capabilities.maintenance.feature", provider=MaintenanceProvider

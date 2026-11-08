@@ -2,26 +2,38 @@ from typing import Annotated
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 
+from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.capabilities.tls.api.models import (
     CertificateInfo,
     CertificateRequest,
     CertificateStatus,
     PreflightReport,
-    ReconciliationResult,
-    RenewalResult,
     RenewRequest,
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.certificates.service.operations import (
+    RECONCILE_DEDUPE_KEY,
+    RECONCILE_OPERATION,
+    RENEW_DEDUPE_KEY,
+    RENEW_OPERATION,
+    REQUEST_OPERATION,
+    reconcile_payload,
+    renew_payload,
+    request_dedupe_key,
+    request_payload,
+)
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
-    WorkerPoolDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import as_operation
+from blitzecdn.entrypoints.api.models import Operation, as_operation, as_queued
 from blitzecdn.entrypoints.api.pagination import Page, paginate
+from blitzecdn.entrypoints.api.responses import (
+    ACCEPTED_RESPONSE,
+    polling_headers,
+)
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
@@ -48,38 +60,64 @@ def list_certificates(
     return paginate(statuses, lambda item: as_operation(item, CertificateStatus))
 
 
-@router.post("/v3/certificates/renew", response_model=RenewalResult)
+@router.post(
+    "/v3/certificates/renew",
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
+)
 def renew_certificates(
+    response: Response,
     request: RenewRequest,
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
-    certificate_config: FromDishka[CertificateConfig],
-    worker_pool: WorkerPoolDependency,
-) -> RenewalResult:
-    """Reissue ACME certificates close to expiry within a bounded worker pool."""
-    renewal = worker_pool.submit(
-        certificates.renew_certificates,
-        operator,
-        within_days=request.within_days,
-        force=request.force,
-        sites=request.sites,
-        budget_seconds=certificate_config.renewal_budget_seconds,
-    )
-    return as_operation(renewal.result(), RenewalResult)
+    queued_operations: FromDishka[OperationService],
+) -> Operation:
+    """Queue reissuing ACME certificates due renewal; the result is a RenewalResult.
 
-
-@router.post("/v3/certificates/reconcile", response_model=ReconciliationResult)
-def reconcile_certificates(
-    operator: OperatorDependency, certificates: FromDishka[CertificateService]
-) -> ReconciliationResult:
-    """Issue first certificates for ready sites and queue their deployment.
-
-    Poll GET /v3/deployments/{id} for the queued deployment's outcome. Every
-    waiting site is checked, even one the scheduled run is backing off.
+    The sweep stops between sites once the configured renewal budget is spent
+    and reports the rest as skipped. One sweep runs at a time.
     """
-    return as_operation(
-        certificates.reconcile_certificates(operator, force=True),
-        ReconciliationResult,
+    certificates.admit_renewal(sites=request.sites)
+    return _accepted(
+        response,
+        queued_operations.submit(
+            RENEW_OPERATION,
+            renew_payload(
+                operator,
+                within_days=request.within_days,
+                force=request.force,
+                sites=request.sites,
+            ),
+            dedupe_key=RENEW_DEDUPE_KEY,
+        ),
+    )
+
+
+@router.post(
+    "/v3/certificates/reconcile",
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
+)
+def reconcile_certificates(
+    response: Response,
+    operator: OperatorDependency,
+    queued_operations: FromDishka[OperationService],
+) -> Operation:
+    """Queue issuing ready first certificates; the result is a ReconciliationResult.
+
+    Every waiting site is checked, even one the scheduled run is backing off.
+    A result naming a ``deployment`` has queued it: poll
+    ``GET /v3/deployments/{id}`` for its outcome.
+    """
+    return _accepted(
+        response,
+        queued_operations.submit(
+            RECONCILE_OPERATION,
+            reconcile_payload(operator),
+            dedupe_key=RECONCILE_DEDUPE_KEY,
+        ),
     )
 
 
@@ -102,21 +140,38 @@ def upload_certificate(
     )
 
 
-@router.post("/v3/hosts/{name}/certificate/request", response_model=CertificateInfo)
+@router.post(
+    "/v3/hosts/{name}/certificate/request",
+    response_model=Operation,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={202: ACCEPTED_RESPONSE},
+)
 def request_certificate(
+    response: Response,
     name: str,
     request: CertificateRequest,
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
-) -> CertificateInfo:
-    return as_operation(
-        certificates.request_certificate(
-            name,
-            operator,
-            request.email,
-            skip_preflight=request.skip_preflight,
+    queued_operations: FromDishka[OperationService],
+) -> Operation:
+    """Queue issuing this site's certificate; the result is a CertificateInfo.
+
+    Preflight runs in the job: a blocked check fails the operation, with the
+    reason in ``error``. One request per site runs at a time.
+    """
+    certificates.admit_request(name, request.email)
+    return _accepted(
+        response,
+        queued_operations.submit(
+            REQUEST_OPERATION,
+            request_payload(
+                operator,
+                name=name,
+                email=request.email,
+                skip_preflight=request.skip_preflight,
+            ),
+            dedupe_key=request_dedupe_key(name),
         ),
-        CertificateInfo,
     )
 
 
@@ -126,3 +181,9 @@ def certificate_preflight(
 ) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
     return as_operation(certificates.certificate_preflight(name), PreflightReport)
+
+
+def _accepted(response: Response, job: object) -> Operation:
+    queued = as_queued(job)
+    polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
+    return queued
