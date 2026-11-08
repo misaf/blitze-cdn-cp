@@ -27,9 +27,9 @@ from support.control_plane import (
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 
 class LoopbackProbe(ServingProbe):
