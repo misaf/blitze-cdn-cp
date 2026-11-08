@@ -37,6 +37,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "domain cache-query-string", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain compression", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain firewall", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain rate-limit", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain under-attack", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain visitor-headers", "PATCH /v3/domains/{domain}", ""),
     # -- Derived hosts: read-only on both sides ----------------------------
