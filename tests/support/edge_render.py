@@ -264,3 +264,26 @@ def rendered_upstreams(rendered: str, *, within: str | None = None) -> set[str]:
         assert server is not None, f"proxy_pass names {name}, which is not rendered"
         origins.add(f"{scheme}://{server.group(1)}")
     return origins
+
+
+def nginx_hash_bucket_size(directive: str) -> int:
+    """The bucket size nginx.conf sets for one of Nginx's name hashes."""
+    rendered = (
+        nginx_environment()
+        .get_template("nginx.conf.j2")
+        .render(blitzecdn_release_digest="test", **role_defaults())
+    )
+    match = re.search(rf"^\s*{directive} (\d+);$", rendered, re.M)
+    assert match, f"nginx.conf sets no {directive}"
+    return int(match.group(1))
+
+
+def nginx_hash_entry_size(name: str) -> int:
+    """Bytes one name needs in a bucket of an Nginx hash, on 64-bit.
+
+    NGX_HASH_ELT_SIZE, 8 + align(len + 2, 8), plus the 8-byte terminator
+    ngx_hash_init reserves in every bucket. A name needing more than the
+    bucket size fails `nginx -t` with "could not build …_hash". A variable's
+    name is counted without its "$".
+    """
+    return 8 + ((len(name) + 2 + 7) & ~7) + 8
