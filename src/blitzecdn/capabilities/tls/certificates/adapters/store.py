@@ -126,7 +126,7 @@ class CertificateStore:
                 continue
             try:
                 found.append(self.get(directory.name))
-            except (NotFoundError, OSError, ValueError):
+            except NotFoundError, OSError, ValueError:
                 continue
         return sorted(found, key=lambda info: info.not_after)
 

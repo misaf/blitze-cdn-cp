@@ -69,7 +69,7 @@ def _as_bool(value: object) -> bool:
 def _as_int(value: object) -> int | None:
     try:
         return int(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

@@ -32,12 +32,18 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
       # The Python uv builds the environment around. Pinned here rather than
-      # left to uv so CI and a server install agree on the interpreter.
+      # left to uv so CI and the control-plane image agree on the interpreter.
+      #
+      # 3.12 is the edge Python floor, not a control-plane interpreter: the
+      # edge-script contract (tests/contract/test_edge_python.py) runs the
+      # standalone scripts Ansible copies to edges under it, and
+      # BLITZE_REQUIRE_EDGE_PYTHON turns a missing interpreter into a failure
+      # instead of a skip.
       - name: Install Python
-        run: uv python install 3.14
+        run: uv python install 3.15.2 3.12
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -73,6 +79,8 @@ jobs:
       - name: Shell lint
         run: just shell-lint
       - name: Tests and coverage
+        env:
+          BLITZE_REQUIRE_EDGE_PYTHON: "1"
         run: just test --cov-report=xml --junitxml=reports/pytest-junit.xml
       # The test gate includes the isolated single-wheel installation contract.
       # The reports were produced and then thrown away with the runner. Kept as
@@ -98,53 +106,13 @@ jobs:
       - name: Build package
         run: just build
 
-  # The quality job exercises the newest supported interpreter. These smaller
-  # jobs make the rest of the declared Python range executable without
-  # repeating format, lint, audit, and build work for every version.
-  python-compatibility:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.12', '3.13']
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: "0.12.3"
-          enable-cache: true
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
-      - name: Install Python
-        run: uv python install ${{ matrix.python-version }}
-      # Install the same application under each supported interpreter.
-      - name: Install the workspace
-        run: uv sync --frozen --python ${{ matrix.python-version }}
-      - name: Install collection dependencies
-        run: just collections
-      - name: Run tests
-        run: >-
-          uv run --python ${{ matrix.python-version }} pytest --no-cov
-          --junitxml=reports/pytest-junit.xml
-      - name: Keep the test report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: python-${{ matrix.python-version }}-reports
-          path: reports/pytest-junit.xml
-          retention-days: 14
-          if-no-files-found: error
-
   # The only job that runs `install.sh standalone` against a real init on a real
   # distribution. Everything in the job above asserts on the scripts' shape or
   # runs them with the privileged commands stubbed, and neither can catch a
   # platform that cannot host the control plane at all.
   #
   # A standalone host is also an edge, so it uses the release's one supported
-  # fresh-edge platform rather than the control-plane-only compatibility range.
+  # fresh-edge platform rather than the wider range of control-plane hosts.
   #
   # The harness's suites run side by side, each on its own host: lifecycle
   # alone takes most of the timeout, and rollback adds a second install.
@@ -190,8 +158,12 @@ jobs:
       # by hand on any host with Docker; all this job owes it is uv.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
+      # `.python-version` asks for 3.15.2; install it rather than leave the
+      # harness's first `uv sync` to discover there is none.
+      - name: Install Python
+        run: uv python install 3.15.2
       - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
         env:
           DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
@@ -213,7 +185,7 @@ jobs:
   summary:
     name: Summary
     if: always()
-    needs: [quality, python-compatibility, install, http3-integration]
+    needs: [quality, install, http3-integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

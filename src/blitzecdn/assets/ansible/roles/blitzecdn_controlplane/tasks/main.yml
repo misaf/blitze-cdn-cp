@@ -1,5 +1,7 @@
 ---
-# The control plane needs Python 3.12 or newer. This gate is intentionally
+# The control plane runs its own Python 3.15 inside the control-plane image, so
+# this gate is about the host Ansible manages, not the application's interpreter
+# (the host's python3 only has to run Ansible modules). It is intentionally
 # separate from the edge play's Ubuntu 26.04 managed-stack contract.
 - name: Validate supported operating system
   ansible.builtin.assert:
@@ -10,9 +12,8 @@
         (ansible_facts.distribution == 'Ubuntu' and
          ansible_facts.distribution_major_version | int >= 24)
     fail_msg: >-
-      The BlitzeCDN control plane supports Debian 13+ and Ubuntu 24.04+, because
-      it needs Python 3.12 or newer. BlitzeCDN edges separately require Ubuntu
-      26.04 LTS.
+      The BlitzeCDN control plane supports Debian 13+ and Ubuntu 24.04+ hosts.
+      BlitzeCDN edges separately require Ubuntu 26.04 LTS.
 
 - name: Install control-plane packages
   ansible.builtin.apt:

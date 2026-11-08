@@ -8,11 +8,7 @@ import typer
 
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.security.contract import (
-    RATE_LIMIT_RATES,
-    SecurityPolicy,
-    SiteFirewall,
-)
+from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES, SecurityPolicy
 from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.domain_editing import report, update
@@ -110,6 +106,16 @@ def domain_firewall(
         list[str] | None,
         typer.Option("--deny-path", help="URI prefix answered with 403."),
     ] = None,
+    case_insensitive_paths: Annotated[
+        bool | None,
+        typer.Option(
+            "--case-insensitive-paths/--case-sensitive-paths",
+            help=(
+                "Match --allow-path and --deny-path regardless of letter case, "
+                "for origins that treat /Admin as /admin. Off by default."
+            ),
+        ),
+    ] = None,
     clear: Annotated[
         bool, typer.Option("--clear", help="Remove every rule and serve everyone.")
     ] = False,
@@ -134,6 +140,10 @@ def domain_firewall(
         blitzecdn domain firewall example.com \\
             --allow-method GET --allow-path /api/ --deny-path /api/admin
 
+    Paths match case-sensitively, as written. When the origin treats /Admin
+    as /admin (IIS, ASP.NET, many CMSs), add --case-insensitive-paths, or a
+    different spelling reaches the path a rule was meant to refuse.
+
     Each option replaces its own list; the lists you do not name are kept. That
     differs from the equivalent PATCH on the HTTP API, which replaces the whole
     block. Country rules need the 'geoip' capability, and
@@ -149,6 +159,7 @@ def domain_firewall(
         "denied_methods": deny_method,
         "allowed_paths": allow_path,
         "denied_paths": deny_path,
+        "case_insensitive_paths": case_insensitive_paths,
     }
     named = {field: value for field, value in supplied.items() if value is not None}
     if clear and named:
@@ -160,10 +171,7 @@ def domain_firewall(
     zone = common.service(DnsService).update_domain(
         name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
     )
-    rules = sum(
-        len(getattr(zone.policy[SecurityPolicy].firewall, f))
-        for f in SiteFirewall.model_fields
-    )
+    rules = zone.policy[SecurityPolicy].firewall.rule_count
     report(
         zone,
         f"{zone.name} now carries {rules} firewall rule(s)."

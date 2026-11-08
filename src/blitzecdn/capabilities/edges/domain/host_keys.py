@@ -77,7 +77,7 @@ def normalize_fingerprint(value: str) -> str:
         digest = base64.b64decode(
             candidate + "=" * (-len(candidate) % 4), validate=True
         )
-    except (binascii.Error, ValueError):
+    except binascii.Error, ValueError:
         digest = b""
     if len(digest) != hashlib.sha256().digest_size:
         raise ConfigurationError(

@@ -33,7 +33,9 @@ geo $blitzecdn_firewall_exempt_{{ firewalled.name | replace('-', '_') }} {
   Each limited site gets a map yielding its key, "<site>:<client>", or "" for a
   request the limit does not count, which Nginx does not track: a client its
   firewall exempts, or a path outside rate_limit.paths. The site's access
-  fragment copies it into the zones' shared key. A map rather than `if … set`
+  fragment copies it into the zones' shared key. firewall.case_insensitive_paths
+  makes the path match `~*`, as it does for the firewall's own path rules, so
+  /LOGIN cannot dodge a /login limit on an origin that ignores case. A map rather than `if … set`
   in the location, because a matching `if` loses the location's try_files.
 #}
 {% set rates = namespace(used=[]) %}
@@ -44,14 +46,15 @@ geo $blitzecdn_firewall_exempt_{{ firewalled.name | replace('-', '_') }} {
 {% set rates.used = rates.used + [rate_limit.rate] %}
 {% endif %}
 {% set suffix = limited.name | replace('-', '_') %}
-{% set exempt = (limited.firewall | default({}, true) or {}).allow_sources | default([], true) %}
+{% set limited_firewall = limited.firewall | default({}, true) or {} %}
+{% set exempt = limited_firewall.allow_sources | default([], true) %}
 {% set patterns = namespace(items=[]) %}
 {% for path in rate_limit.paths | default([], true) %}
 {% set patterns.items = patterns.items + [(path | regex_escape) ~ ('' if path.endswith('/') else '$')] %}
 {% endfor %}
 map "{{ ('$blitzecdn_firewall_exempt_' ~ suffix) if exempt else '0' }}:$uri" $blitzecdn_rate_limit_key_{{ suffix }} {
     default "";
-    "~^0:{% if patterns.items %}({{ patterns.items | join('|') }}){% endif %}" "{{ limited.name }}:$binary_remote_addr";
+    "~{{ '*' if limited_firewall.case_insensitive_paths | default(false) else '' }}^0:{% if patterns.items %}({{ patterns.items | join('|') }}){% endif %}" "{{ limited.name }}:$binary_remote_addr";
 }
 {% endif %}
 {% endfor %}

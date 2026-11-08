@@ -25,6 +25,7 @@ class EditFirewall(BaseModel):
     denied_methods: tuple[str, ...] | None = None
     allowed_paths: tuple[str, ...] | None = None
     denied_paths: tuple[str, ...] | None = None
+    case_insensitive_paths: bool | None = None
     clear: bool = False
 
     @model_validator(mode="after")

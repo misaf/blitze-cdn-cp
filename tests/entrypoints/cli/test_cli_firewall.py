@@ -153,3 +153,41 @@ def test_cli_firewall_sets_method_and_path_allowlists(settings, monkeypatch):
         cli.app, ["domain", "firewall", "example.com", "--deny-method", "DELETE"]
     )
     assert conflicting.exit_code != 0
+
+
+def test_cli_firewall_switches_case_insensitive_path_matching(settings, monkeypatch):
+    control = build_application(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )
+    monkeypatch.setattr(cli.common, "container", lambda: control.container)
+    runner.invoke(cli.app, ["domain", "add", "example.com"])
+    seed_cli_site(control, "api", "198.51.100.20")
+
+    on = runner.invoke(
+        cli.app,
+        [
+            "domain",
+            "firewall",
+            "example.com",
+            "--deny-path",
+            "/admin",
+            "--case-insensitive-paths",
+            "--json",
+        ],
+    )
+    assert on.exit_code == 0, on.output
+    firewall = json.loads(on.stdout)["firewall"]
+    assert firewall["case_insensitive_paths"] is True
+    assert firewall["denied_paths"] == ["/admin"]
+
+    # The flag on its own is an edit, and it keeps the lists it does not name.
+    off = runner.invoke(
+        cli.app,
+        ["domain", "firewall", "example.com", "--case-sensitive-paths", "--json"],
+    )
+    assert off.exit_code == 0, off.output
+    firewall = json.loads(off.stdout)["firewall"]
+    assert firewall["case_insensitive_paths"] is False
+    assert firewall["denied_paths"] == ["/admin"]
