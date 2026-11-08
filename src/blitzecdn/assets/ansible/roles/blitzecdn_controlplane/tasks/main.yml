@@ -604,6 +604,36 @@
             else 'before the services were stopped'
           }}
 
+    # The recreate may already have started this release's containers, and a
+    # worker can run while the API is unhealthy. On a schema that may be
+    # migrated nothing may keep writing to it, so both are stopped through the
+    # project this run wrote, before its files give way to the previous one's.
+    - name: Stop this release's services on a migrated schema
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - stop
+          - blitzecdn-api
+          - blitzecdn-worker
+      register: blitzecdn_controlplane_failed_stopped
+      changed_when: true
+      failed_when: false
+      when: blitzecdn_controlplane_recovery_migrated | bool
+
+    - name: Say whether this release's services are stopped
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_recovery_stop_note: >-
+          {{
+            'The API and worker are stopped; edges keep serving.'
+            if blitzecdn_controlplane_failed_stopped.rc | default(1) == 0
+            else 'Stopping the API and worker failed: stop them first with '
+              ~ '`sudo docker stop blitzecdn-api blitzecdn-worker`. Edges keep serving.'
+          }}
+      when: blitzecdn_controlplane_recovery_migrated | bool
+
     # Put back in every case, migrated or not: the host then holds one release's
     # files, and the wrapper, the installer and `update` all name the release
     # an operator returns to rather than the one that failed. A file the
@@ -660,7 +690,7 @@
           '{{ blitzecdn_controlplane_schema_before.stdout | default('') | trim }}' before,
           '{{ blitzecdn_controlplane_schema_after.stdout | default('') | trim }}' after),
           so {{ blitzecdn_controlplane_previous_image }} cannot simply be
-          started on it. The API and worker are stopped; edges keep serving.
+          started on it. {{ blitzecdn_controlplane_recovery_stop_note }}
           This host's files name {{ blitzecdn_controlplane_previous_image }}
           again. To return to it, restore {{ blitzecdn_controlplane_recovery_backup }}
           and start the services:
