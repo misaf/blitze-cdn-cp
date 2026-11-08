@@ -16,6 +16,7 @@ from pathlib import Path
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_WORKFLOW,
     ROLLBACK_WORKFLOW,
+    ConvergenceKind,
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -24,6 +25,7 @@ from blitzecdn.capabilities.deployments.domain import (
     aborted_run,
 )
 from blitzecdn.capabilities.deployments.ports import (
+    ConvergenceOutcomes,
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
@@ -89,6 +91,8 @@ class DeploymentPersistence:
     settings: SettingRestore
     uow: UnitOfWork
     requirements: DeploymentRequirements
+    #: The running outcome per kind of convergence that alerting reads.
+    outcomes: ConvergenceOutcomes
 
 
 @dataclass(frozen=True)
@@ -380,11 +384,18 @@ class DeploymentService:
         """
         # Normalised before storing, so a malformed limit is refused before any row.
         limit = validate_edge_limit(host_limit)
-        release = (
-            self.releases.get(release_id)
-            if release_id is not None
-            else self.releases.prepare(host_limit=limit)
-        )
+        if release_id is not None:
+            release = self.releases.get(release_id)
+        else:
+            try:
+                release = self.releases.prepare(host_limit=limit)
+            except Exception:
+                # Refused before any deployment row exists: without this, a
+                # setting that blocks every compile would leave no trace of the
+                # failures an alert could count.
+                if limit is None:
+                    self._record_outcome(check=check, succeeded=False)
+                raise
         with self.persistence.uow.transaction():
             deployment = self.persistence.deployments.create_deployment(
                 operator,
@@ -545,6 +556,7 @@ class DeploymentService:
             )
             if target_status is DeploymentStatus.SUCCEEDED:
                 requirement_policy.settle(self.persistence.requirements, deployment)
+            self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
@@ -588,6 +600,7 @@ class DeploymentService:
                     result=aborted_run(exc, interrupted=interrupted, now=now),
                 ),
             )
+            self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
@@ -598,6 +611,23 @@ class DeploymentService:
                 )
             )
         return deployment, interrupted
+
+    def _record_finished(self, deployment: Deployment) -> None:
+        """Count a finished full-fleet run; a canary says nothing about the fleet."""
+        if deployment.host_limit is None:
+            self.persistence.outcomes.record(
+                ConvergenceKind.of(check=deployment.check_mode),
+                succeeded=deployment.status is DeploymentStatus.SUCCEEDED,
+            )
+
+    def _record_outcome(self, *, check: bool, succeeded: bool) -> None:
+        """Record an outcome outside a transaction, never masking the caller's error."""
+        try:
+            self.persistence.outcomes.record(
+                ConvergenceKind.of(check=check), succeeded=succeeded
+            )
+        except Exception:
+            _LOGGER.exception("could not record the convergence outcome")
 
     def publish_artifact(self, release: Release, path: Path) -> None:
         """Put a release's artifact, plus its digest, where Ansible reads it."""

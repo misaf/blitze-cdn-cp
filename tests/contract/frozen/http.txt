@@ -158,6 +158,10 @@ blitzecdn	schema	CollectionStatus.stale	boolean required
 blitzecdn	schema	CollectionStatus.stale_after_seconds	integer required
 blitzecdn	schema	CollectionStatus.state	FreshnessState required
 blitzecdn	schema	ConnectionsRequest.host_limit	string|null optional
+blitzecdn	schema	ConvergenceHealth.consecutive_failures	integer optional
+blitzecdn	schema	ConvergenceHealth.kind	ConvergenceKind required
+blitzecdn	schema	ConvergenceHealth.last_failure_at	string|null optional
+blitzecdn	schema	ConvergenceHealth.last_success_at	string|null optional
 blitzecdn	schema	DeployRequest.check	boolean optional
 blitzecdn	schema	DeployRequest.host_limit	string|null optional
 blitzecdn	schema	Deployment.canonical_digest	string|null optional
@@ -276,6 +280,7 @@ blitzecdn	schema	Operation.result	object|null optional
 blitzecdn	schema	Operation.status	enum[pending,running,succeeded,failed] required
 blitzecdn	schema	OperationalStatus.backups	BackupStatistics required
 blitzecdn	schema	OperationalStatus.certificates	CertificateStatistics required
+blitzecdn	schema	OperationalStatus.convergence	array[ConvergenceHealth] required
 blitzecdn	schema	OperationalStatus.observed_at	string required
 blitzecdn	schema	OperationalStatus.queue	QueueStatistics required
 blitzecdn	schema	OperationalStatus.unreadable_worker_records	integer required

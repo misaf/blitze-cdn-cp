@@ -113,6 +113,9 @@ deployment metrics and adds:
 | `blitzecdn_certificates_preflight_blocked` | Sites awaiting a first certificate whose last preflight blocked |
 | `blitzecdn_backup_last_success_timestamp_seconds` | Completion time of the last full backup, or zero when none is recorded |
 | `blitzecdn_backup_last_success_size_bytes` | Size of that archive, or zero when none is recorded |
+| `blitzecdn_convergence_last_success_timestamp_seconds{kind}` | Time of the last successful full-fleet run of that kind, or zero when none |
+| `blitzecdn_convergence_last_failure_timestamp_seconds{kind}` | Time of the last failed full-fleet run of that kind, or zero when none |
+| `blitzecdn_convergence_consecutive_failures{kind}` | Full-fleet runs of that kind failed since its last success |
 
 These metrics are **gauges**. History pruning can reduce job/workflow counts and
 change average duration; do not apply `rate()` as if they were lifetime counters.
@@ -128,6 +131,46 @@ after two missed daily runs, and immediately on a controller that has never
 recorded one). Choose durations and severity from
 your operational recovery requirements. `/health` retains its existing database
 and queue readiness checks; historical failures do not make it fail.
+
+### Deployment and drift-check alerts
+
+The `blitzecdn_convergence_*` metrics carry a fixed `kind` label: `applied` for
+real deployments and rollbacks, `drift_check` for check-mode runs such as the
+scheduled drift check. Only full-fleet runs count; a canary (`--limit`) neither
+raises nor resets the streak. An attempt refused before any deployment was
+recorded, for example a release that would not compile, counts as a failure, so
+a bad setting that blocks every deploy is still visible. The same figures are in
+`GET /v3/status` and `blitzecdn overview` under `convergence`.
+
+Example Prometheus rules; tune thresholds to your drift-check interval and how
+often you deploy:
+
+```yaml
+groups:
+  - name: blitzecdn-convergence
+    rules:
+      - alert: BlitzeCdnDriftCheckFailing
+        expr: blitzecdn_convergence_consecutive_failures{kind="drift_check"} >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: The drift check has failed 3 or more times in a row.
+      - alert: BlitzeCdnDeploymentsFailing
+        expr: blitzecdn_convergence_consecutive_failures{kind="applied"} >= 2
+        labels:
+          severity: critical
+        annotations:
+          summary: Deployments keep failing; desired state is not reaching the edges.
+      - alert: BlitzeCdnNoSuccessfulDeployment
+        # Failing, and nothing has succeeded for 3 days.
+        expr: |
+          blitzecdn_convergence_consecutive_failures{kind="applied"} > 0
+          and time() - blitzecdn_convergence_last_success_timestamp_seconds{kind="applied"} > 3 * 86400
+        labels:
+          severity: critical
+        annotations:
+          summary: No deployment has succeeded for 3 days while attempts fail.
+```
 
 ## Installing, updating and removing a server
 
