@@ -168,7 +168,7 @@ def _certificate_covers(der: bytes, hostname: str) -> bool:
         names = certificate.extensions.get_extension_for_class(
             x509.SubjectAlternativeName
         ).value
-    except (ValueError, x509.ExtensionNotFound):
+    except ValueError, x509.ExtensionNotFound:
         return False
     try:
         address = ipaddress.ip_address(hostname)

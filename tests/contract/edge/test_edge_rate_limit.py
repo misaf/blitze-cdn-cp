@@ -15,6 +15,7 @@ REQUIRES_CAPABILITIES = {
     "test_a_site_without_a_rate_limit_renders_no_limit": ("security",),
     "test_allowed_sources_and_unlisted_paths_are_not_counted": ("security",),
     "test_without_exemptions_or_paths_every_request_counts": ("security",),
+    "test_case_insensitive_firewall_paths_apply_to_the_limit": ("security",),
     "test_the_acme_challenge_path_is_never_rate_limited": ("security",),
     "test_sites_on_one_rate_share_one_zone": ("security",),
     "test_every_zone_a_site_reads_is_declared": ("security",),
@@ -92,6 +93,21 @@ def test_without_exemptions_or_paths_every_request_counts():
     snippet = render_http_fragment("security-http.conf.j2", [site])
     assert 'map "0:$uri" $blitzecdn_rate_limit_key_whole_site {' in snippet
     assert '"~^0:" "whole-site:$binary_remote_addr";' in snippet
+
+
+def test_case_insensitive_firewall_paths_apply_to_the_limit():
+    """/LOGIN must not dodge a /login limit on an origin that ignores case."""
+    site = _site(
+        rate_limit={"rate": "10r/m", "paths": ["/login"]},
+        firewall={"denied_paths": ["/admin"], "case_insensitive_paths": True},
+    )
+    snippet = render_http_fragment("security-http.conf.j2", [site])
+    assert '"~*^0:(/login$)" "limited:$binary_remote_addr";' in snippet
+    sensitive = render_http_fragment(
+        "security-http.conf.j2",
+        [_site(rate_limit={"rate": "10r/m", "paths": ["/login"]})],
+    )
+    assert '"~^0:(/login$)" "limited:$binary_remote_addr";' in sensitive
 
 
 def test_the_acme_challenge_path_is_never_rate_limited():

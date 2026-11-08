@@ -427,6 +427,7 @@ blitzecdn	schema	SiteFirewall.allow_sources	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_countries	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_methods	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_paths	array[string] optional
+blitzecdn	schema	SiteFirewall.case_insensitive_paths	boolean optional
 blitzecdn	schema	SiteFirewall.denied_countries	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_methods	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_paths	array[string] optional

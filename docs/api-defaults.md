@@ -68,6 +68,7 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `compression` | `brotli` |
 | `origin_request_host`, `origin_sni` | `null` (no explicit override) |
 | Every `firewall` list | Empty |
+| `firewall.case_insensitive_paths` | `false` (paths match case-sensitively, as written) |
 | `rate_limit` | Empty (no limit); with a `rate`, `burst: 0`, `status: 429`, `paths: []` |
 | `visitor_headers.connecting_ip`, `visitor_headers.ip_country` | `true`, `false` |
 
@@ -91,7 +92,8 @@ For example:
 {"firewall": {"deny_sources": ["192.0.2.0/24"]}}
 ```
 
-This replaces every firewall list: lists not supplied become empty. Omit the
+This replaces every firewall list: lists not supplied become empty, and
+`case_insensitive_paths` returns to `false`. Omit the
 entire `firewall` field to preserve existing rules; send `{}` to clear them.
 `rate_limit: {}` removes the limit. Likewise, `visitor_headers: {}` restores both header switches to their defaults.
 Read the current block and include all values you want to retain when replacing
@@ -112,7 +114,8 @@ site and client; the ladder keeps an edge's rate-limit memory bounded (5 MiB
 per rate in use, 60 MiB at most) however many sites enable it. `burst` requests
 above the rate are served at once rather than queued; beyond that a client gets
 `status` (`429` or `503`). `paths` narrows the limit to the same exact or
-`/`-terminated prefix paths as `firewall.allowed_paths`. Addresses in
+`/`-terminated prefix paths as `firewall.allowed_paths`, and like them match
+regardless of case when `firewall.case_insensitive_paths` is on. Addresses in
 `firewall.allow_sources` are never limited, and the ACME challenge path is not
 rate-limited. Refused requests appear in the access log and traffic accounting.
 

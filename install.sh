@@ -45,7 +45,7 @@ Whole-host operations:
 Run './install.sh SUBCOMMAND --help' for the options of a subcommand. On an
 installed server the same commands are `sudo blitzecdn-install SUBCOMMAND`.
 
-For local development, install Python 3.12+, uv and just, then run:
+For local development, install Python 3.15.2+, uv and just, then run:
   just install
   uv run blitzecdn setup
 See README.md for the local development workflow.

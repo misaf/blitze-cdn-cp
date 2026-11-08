@@ -31,26 +31,31 @@ def test_migrate_initializes_database_without_scaffolding(tmp_path, monkeypatch)
     assert not (tmp_path / ".env").exists()
 
 
-def test_init_creates_a_private_environment_file(tmp_path):
-    target = tmp_path / ".env"
+def test_setup_writes_the_environment_file_named_by_env_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "config" / "controller.env"
+    target.parent.mkdir()
 
-    result = runner.invoke(cli.app, ["init", "--output", str(target)])
+    result = runner.invoke(cli.app, ["setup", "--env-file", str(target)])
 
     assert result.exit_code == 0
+    assert f"Created: {target}" in result.stdout
     assert os.stat(target).st_mode & 0o777 == 0o600
     assert target.read_text(encoding="utf-8").startswith("BLITZE_API_KEYS=local:")
+    assert not (tmp_path / ".env").exists()
 
 
-def test_init_refuses_an_existing_file_or_symlink(tmp_path):
+def test_setup_preserves_an_existing_env_file_or_symlink(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     existing = tmp_path / "existing.env"
     existing.write_text("keep", encoding="utf-8")
     link = tmp_path / "link.env"
     link.symlink_to(tmp_path / "elsewhere")
 
     for target in (existing, link):
-        result = runner.invoke(cli.app, ["init", "--output", str(target)])
-        assert result.exit_code != 0
-        assert "refusing to overwrite" in result.output
+        result = runner.invoke(cli.app, ["setup", "--env-file", str(target)])
+        assert result.exit_code == 0
+        assert "already set up" in result.stdout
 
     assert existing.read_text(encoding="utf-8") == "keep"
     assert not (tmp_path / "elsewhere").exists()

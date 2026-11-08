@@ -239,20 +239,19 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- The install itself ------------------------------------------------
     (
         "blitzecdn",
-        "init",
+        "setup",
         None,
-        "writes the `.env` this control plane reads. It runs before there is a "
-        "control plane to serve anything, which is what keeps all four of "
-        "these off the API.",
+        "creates local schema and writes the `.env` this control plane reads. "
+        "It runs before there is a control plane to serve anything, which is "
+        "what keeps all three of these off the API.",
     ),
-    ("blitzecdn", "setup", None, "creates local schema and credentials; see `init`."),
     ("blitzecdn", "migrate", None, "offline schema maintenance before services start."),
     ("blitzecdn", "serve", None, "starts the API. It cannot be one of its own routes."),
     (
         "blitzecdn",
         "config list",
         None,
-        "reads and writes the `.env`; see `init`. Exposing it would also let "
+        "reads and writes the `.env`; see `setup`. Exposing it would also let "
         "an API caller change the credentials the API authenticates with.",
     ),
     ("blitzecdn", "config set", None, "see `config list`."),

@@ -19,8 +19,9 @@ failure-threshold: warning
 ignored:
   # Pin versions in apt-get install.
   #
-  # The four packages are `ca-certificates`, `certbot`, `git` and
-  # `openssh-client` from Debian trixie. Resolve them from the current apt
+  # The control-plane image installs `ca-certificates`, `certbot`, `git`,
+  # `libyaml-0-2` and `openssh-client` from Debian trixie, and its build stage
+  # `gcc`, `libc6-dev` and `libyaml-dev`. Resolve them from the current apt
   # repositories so rebuilds receive security updates without requiring
   # package-version edits. The Python image digest pins the base filesystem;
   # it does not pin packages installed by the subsequent apt-get update.
