@@ -23,6 +23,7 @@ from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import ConfigurationContribution
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 #: The installed distribution's version, read from package metadata.
@@ -45,7 +46,10 @@ def build_restore_guard() -> ServiceControl:
 
 
 def build_backup_service(
-    settings: Settings, *, configuration: Sequence[ConfigurationContribution]
+    settings: Settings,
+    *,
+    configuration: Sequence[ConfigurationContribution],
+    clock: Clock,
 ) -> BackupService:
     """Wire backup and restore, which need no repository and open none."""
     machine_specific = frozenset(
@@ -74,6 +78,7 @@ def build_backup_service(
         workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
         recovery=build_restore_journal(settings),
         history=BackupStatusFile(settings.state_dir / BACKUP_STATUS),
+        clock=clock,
     )
 
 

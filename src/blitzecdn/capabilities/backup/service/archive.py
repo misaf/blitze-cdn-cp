@@ -8,7 +8,7 @@ anywhere real. Retention removes only archives this capability named.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,7 +36,7 @@ from blitzecdn.capabilities.backup.ports import (
     Workspace,
 )
 from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
-from blitzecdn.core.ports.clock import system_clock
+from blitzecdn.core.ports.clock import Clock
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ class BackupService:
         workspace: Workspace,
         recovery: RestoreRecovery,
         history: BackupHistory,
-        clock: Callable[[], datetime] | None = None,
+        clock: Clock,
     ) -> None:
         self.policy = policy
         self.archive = archive
@@ -72,7 +72,7 @@ class BackupService:
         self.workspace = workspace
         self.recovery = recovery
         self.history = history
-        self.clock = clock or system_clock
+        self.clock = clock
         self._components = {gateway.component: gateway for gateway in components}
 
     # -- Creating ------------------------------------------------------

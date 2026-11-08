@@ -41,7 +41,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
     atomic_write_yaml,
@@ -139,7 +139,7 @@ def build_deployment_service(
     workflows: Workflows,
     events: EventRecorder,
     uow: UnitOfWork,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> DeploymentService:
     """Assemble the capability from its policy, its state, and its runners.
 
