@@ -40,6 +40,27 @@
     label: "{{ item.name }}"
   when: item.firewall | default({}, true) | length > 0
 
+# The contract offers rates from a fixed ladder so the edge's shared-memory
+# zones stay bounded; a hand-written rate outside it would declare a zone more.
+- name: Validate per-site rate limits
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.rate_limit.rate in ['10r/m', '30r/m', '1r/s', '2r/s', '5r/s',
+        '10r/s', '20r/s', '50r/s', '100r/s', '200r/s', '500r/s', '1000r/s']
+      - item.rate_limit.burst | default(0) | int >= 0
+      - item.rate_limit.burst | default(0) | int <= 10000
+      - item.rate_limit.status | default(429) | int in [429, 503]
+      - >-
+        item.rate_limit.paths | default([])
+        | reject('match', '^/[^\\s;{}"''\\\\]*$')
+        | list | length == 0
+    fail_msg: "Site {{ item.name }} has an invalid rate limit."
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.rate_limit | default({}, true) | length > 0
+
 # Asked here rather than in blitzecdn_nginx, which would mean core's role
 # naming a capability that may not be installed. The control plane refuses such
 # a site earlier still, by name; both controls stay, because this role has to
