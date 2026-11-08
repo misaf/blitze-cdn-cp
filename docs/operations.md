@@ -203,6 +203,32 @@ backup unless given `--no-backup`. Set `BLITZECDN_CONTROL_PLANE_IMAGE` to a
 tagged reference to name the target instead, for example from a mirror; it is
 still refused unless it moves the way the command does.
 
+### When an update fails
+
+Edges keep serving through a failed update; only the API and worker are
+affected. Before it rewrites anything, the update keeps the installed release's
+Compose project, Compose environment, `blitzecdn.toml`, `blitzecdn` wrapper and
+`blitzecdn-install` in `/etc/blitzecdn/previous-release`, and reads the
+database's schema revision before it stops the services. If any step after that
+fails, the host's files are put back to the installed release, and what happens
+next depends on the schema:
+
+- **Unchanged** (the update failed before migrating, or the migration rolled
+  back): the previous release is started again on the database it left, and the
+  update exits with the error that stopped it. Fix the cause and rerun
+  `blitzecdn-install update`.
+- **Migrated**: the previous release's code cannot run on the new schema, so the
+  API and worker stay stopped. The message names the backup the update took;
+  restore it with the previous release's wrapper and start the services:
+
+  ```sh
+  sudo blitzecdn backup restore /var/backups/blitzecdn/ARCHIVE.tar.gz --yes
+  sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml up --detach --wait
+  ```
+
+  Or fix the cause and rerun `blitzecdn-install update`. An update run with
+  `--no-backup` has no archive to restore.
+
 A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
 then run the standalone command of the release you want.

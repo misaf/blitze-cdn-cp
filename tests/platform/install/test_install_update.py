@@ -218,6 +218,17 @@ def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
     assert order == ["backup"]
 
 
+def test_update_names_its_backup_to_the_role():
+    """A failed update that migrated prints this archive in its recovery steps."""
+    update = script_function("cmd_update")
+    assert "sed -n 's/^Backup created: //p'" in update
+    assert (
+        '--extra-vars "blitzecdn_controlplane_update_backup=${backup_archive}"'
+        in update
+    )
+    assert update.index("backup_archive=$(") < update.index("converge_control_plane")
+
+
 def test_update_backs_up_only_the_database(tmp_path: Path):
     backup_args = tmp_path / "backup-args.log"
     _update(tmp_path, "--yes", UPDATE_BACKUP_ARGS_LOG=str(backup_args))

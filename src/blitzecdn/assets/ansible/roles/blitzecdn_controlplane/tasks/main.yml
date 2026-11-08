@@ -168,269 +168,549 @@
     group: "65534"
     mode: "0600"
 
-# --- the CLI wrapper and the service environment -----------------------------
+# --- the release this run replaces -----------------------------------------
+#
+# Everything from the CLI wrapper to the health wait below runs in one block,
+# because each of those steps rewrites a file the installed release depends on
+# and the later ones stop its services. Its files are kept first, so a run that
+# fails anywhere in the block can put that release back instead of leaving the
+# host half on each (#175). Only an existing installation has anything to keep;
+# a first installation that fails has no previous release to return to.
 
-- name: Install the blitzecdn command
-  ansible.builtin.template:
-    src: blitzecdn-cli.j2
-    dest: "{{ blitzecdn_controlplane_cli_wrapper }}"
-    owner: root
-    group: root
-    mode: "0755"
-
-# Copied from the image this play runs in, so the host always holds the
-# installer of the release it runs: an update replaces it with the target's.
-- name: Install the blitzecdn-install command
-  ansible.builtin.copy:
-    src: "{{ blitzecdn_controlplane_install_dir }}/install.sh"
-    dest: "{{ blitzecdn_controlplane_installer }}"
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Create the configuration directory
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_config_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0700"
-
-- name: Inspect the environment file
+- name: Inspect the installed Compose project
   ansible.builtin.stat:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-  register: blitzecdn_controlplane_environment
+    path: "{{ blitzecdn_controlplane_compose_file }}"
+  register: blitzecdn_controlplane_installed_project
 
-- name: Inspect the service configuration
-  ansible.builtin.stat:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
-  register: blitzecdn_controlplane_configuration
-
-- name: Read the existing service configuration
-  ansible.builtin.slurp:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
-  register: blitzecdn_controlplane_existing_configuration
-  when: blitzecdn_controlplane_configuration.stat.exists
-
-- name: Resolve the ACME address without losing an existing installation value
+# Every file the block below rewrites that the running release reads. The
+# generated Compose environment is one of them, since Compose reads it at `up`.
+- name: Name the files the installed release runs from
   ansible.builtin.set_fact:
-    blitzecdn_controlplane_effective_acme_email: >-
-      {{
-        blitzecdn_controlplane_acme_email
-        if blitzecdn_controlplane_acme_email | length > 0
-        else (
-          blitzecdn_controlplane_existing_configuration.content
-          | default('')
-          | b64decode
-          | regex_findall('(?m)^acme_default_email\\s*=\\s*"([^"]*)"')
-          | first
-          | default('', true)
-        )
-      }}
-  no_log: true
+    blitzecdn_controlplane_release_files:
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - "{{ blitzecdn_controlplane_config_dir }}/compose.env"
+      - "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
+      - "{{ blitzecdn_controlplane_cli_wrapper }}"
+      - "{{ blitzecdn_controlplane_installer }}"
 
-- name: Require an ACME address for a first installation
-  ansible.builtin.assert:
-    that:
-      - blitzecdn_controlplane_effective_acme_email | length > 0
-    fail_msg: >-
-      No environment file exists yet and no ACME account address was given.
-      Run the installer with --email ADDRESS.
-  when: not blitzecdn_controlplane_environment.stat.exists
-
-- name: Write the non-secret service configuration
-  ansible.builtin.template:
-    src: blitzecdn.toml.j2
-    dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Generate the API credential for a first installation
-  ansible.builtin.set_fact:
-    blitzecdn_controlplane_api_key: >-
-      {{ lookup('ansible.builtin.password', '/dev/null', chars=['hexdigits'], length=64) | lower }}
-  when: not blitzecdn_controlplane_environment.stat.exists
-  no_log: true
-
-# Never rewritten: re-running the installer must not rotate the API credential
-# an operator is already using. The `when` is what enforces that, not `force`
-# alone — a template task still renders its source to decide whether the file
-# would change, and the credential only exists as a fact on a first run.
-- name: Write the service environment
-  ansible.builtin.template:
-    src: blitzecdn.env.j2
-    dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    force: false
-    owner: root
-    group: root
-    mode: "0600"
-  when: not blitzecdn_controlplane_environment.stat.exists
-  no_log: true
-
-- name: Enforce the environment file ownership
+# Cleared first, so a file an older run kept never stands in for one this
+# installation does not have.
+- name: Clear the previous release's kept files
   ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    owner: root
-    group: root
-    mode: "0600"
+    path: "{{ blitzecdn_controlplane_previous_release_dir }}"
+    state: absent
 
-# The template above writes this line only on a first installation, and the file
-# is never rewritten after that. Without this task `--allowed-ips` would work
-# once and then silently do nothing on every later run — the worst shape for a
-# flag about who may reach the API. Supplying it is the operator naming the list
-# on the command line; omitting it leaves whatever the file says, hand edits
-# included. The regexp cannot match the commented example the template ships:
-# the name has to start the line, which is the rule the firewall composition
-# below reads by as well.
-- name: Set the API access list this run was given
-  ansible.builtin.lineinfile:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    regexp: '^[ \t]*BLITZE_ALLOWED_IPS[ \t]*='
-    line: "BLITZE_ALLOWED_IPS={{ blitzecdn_controlplane_allowed_ips }}"
-    owner: root
-    group: root
-    mode: "0600"
-  when: blitzecdn_controlplane_allowed_ips | length > 0
+- name: Keep the installed release's files
+  when: blitzecdn_controlplane_installed_project.stat.exists
+  block:
+    - name: Create the directory for the installed release's files
+      ansible.builtin.file:
+        path: "{{ blitzecdn_controlplane_previous_release_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
 
-# --- Compose runtime ---------------------------------------------------------
+    - name: Inspect the installed release's files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ blitzecdn_controlplane_release_files }}"
+      register: blitzecdn_controlplane_release_file_state
 
-# Parse once in the image, using the same literal environment format as backups.
-# Compose reads this generated file raw; dollars and quotes are credentials,
-# never interpolation syntax. The original operator file remains authoritative.
-- name: Prepare the literal Compose environment
-  ansible.builtin.command:
-    argv:
-      - docker
-      - run
-      - --rm
-      - --network
-      - none
-      - --user
-      - "0:0"
-      - --security-opt
-      - no-new-privileges:true
-      - --volume
-      - "{{ blitzecdn_controlplane_config_dir }}:{{ blitzecdn_controlplane_config_dir }}"
-      - --entrypoint
-      - python
-      - "{{ blitzecdn_controlplane_image }}"
-      - -m
-      - blitzecdn.host.compose_files
-      - --config-dir
-      - "{{ blitzecdn_controlplane_config_dir }}"
-      - environment
-  register: blitzecdn_controlplane_compose_environment
-  changed_when: "'Updated' in blitzecdn_controlplane_compose_environment.stdout"
-  no_log: true
+    # compose.env holds the credentials, so the copy keeps its 0600.
+    - name: Copy the installed release's files aside
+      ansible.builtin.copy:
+        src: "{{ item.item }}"
+        dest: "{{ blitzecdn_controlplane_previous_release_dir }}/{{ item.item | basename }}"
+        remote_src: true
+        mode: preserve
+      loop: "{{ blitzecdn_controlplane_release_file_state.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stat.exists
 
-- name: Render the control-plane Compose project
-  ansible.builtin.template:
-    src: compose.yml.j2
-    dest: "{{ blitzecdn_controlplane_compose_file }}"
-    owner: root
-    group: root
-    mode: "0600"
-    validate: docker compose --file %s config --quiet
+- name: Converge the release this run installs
+  block:
+    # --- the CLI wrapper and the service environment -----------------------------
 
-# Never pulled or built here: install.sh obtained the image before this play,
-# which runs inside it. Asserted rather than assumed, so a role run with some
-# other reference fails before a service is stopped, not at `up`.
-- name: Require the control-plane runtime image
-  ansible.builtin.command:
-    argv:
-      - docker
-      - image
-      - inspect
-      - --format
-      - "{{ '{{' }}.Id{{ '}}' }}"
-      - "{{ blitzecdn_controlplane_image }}"
-  changed_when: false
+    - name: Install the blitzecdn command
+      ansible.builtin.template:
+        src: blitzecdn-cli.j2
+        dest: "{{ blitzecdn_controlplane_cli_wrapper }}"
+        owner: root
+        group: root
+        mode: "0755"
 
-# Prove the exact identity and mounts used by API/worker/CLI can use the
-# controller key. No host service account participates in this trust chain.
-- name: Verify the container can reach this host as the deployment account
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --file
-      - "{{ blitzecdn_controlplane_compose_file }}"
-      - run
-      - --rm
-      - --no-deps
-      - --entrypoint
-      - ssh
-      - blitzecdn-cli
-      - -F
-      - /opt/blitzecdn/.state/.ssh/config
-      - -o
-      - BatchMode=yes
-      - "{{ blitzecdn_controlplane_deploy_user }}@localhost"
-      - sudo
-      - -n
-      - "true"
-  changed_when: false
+    # Copied from the image this play runs in, so the host always holds the
+    # installer of the release it runs: an update replaces it with the target's.
+    - name: Install the blitzecdn-install command
+      ansible.builtin.copy:
+        src: "{{ blitzecdn_controlplane_install_dir }}/install.sh"
+        dest: "{{ blitzecdn_controlplane_installer }}"
+        owner: root
+        group: root
+        mode: "0755"
 
-# The one place the services are stopped, for a first install, an update, an
-# upgrade, or a repair run of this role alike: after the image is in place, so
-# downtime is only the migration and the restart. install.sh takes its backup
-# before calling this play.
-- name: Stop application services before schema migration
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --file
-      - "{{ blitzecdn_controlplane_compose_file }}"
-      - stop
-      - blitzecdn-api
-      - blitzecdn-worker
-  changed_when: true
+    - name: Create the configuration directory
+      ansible.builtin.file:
+        path: "{{ blitzecdn_controlplane_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
 
-# The API and worker both open the repository during startup. Migrating before
-# Compose starts them gives both processes an already validated schema.
-- name: Initialize the application schema before starting services
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --file
-      - "{{ blitzecdn_controlplane_compose_file }}"
-      - run
-      - --rm
-      - --no-deps
-      - blitzecdn-cli
-      - migrate
-  changed_when: false
+    - name: Inspect the environment file
+      ansible.builtin.stat:
+        path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+      register: blitzecdn_controlplane_environment
 
-- name: Recreate and start the control-plane services
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --file
-      - "{{ blitzecdn_controlplane_compose_file }}"
-      - up
-      - --detach
-      - --remove-orphans
-      - --force-recreate
-  changed_when: true
+    - name: Inspect the service configuration
+      ansible.builtin.stat:
+        path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
+      register: blitzecdn_controlplane_configuration
 
-- name: Wait for the API and worker containers to become healthy
-  ansible.builtin.command:
-    argv:
-      - docker
-      - inspect
-      - --format
-      - "{{ '{{' }}.State.Health.Status{{ '}}' }}"
-      - "{{ item }}"
-  loop: [blitzecdn-api, blitzecdn-worker]
-  register: blitzecdn_controlplane_health
-  changed_when: false
-  retries: 24
-  delay: 5
-  until: blitzecdn_controlplane_health.stdout == 'healthy'
+    - name: Read the existing service configuration
+      ansible.builtin.slurp:
+        path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
+      register: blitzecdn_controlplane_existing_configuration
+      when: blitzecdn_controlplane_configuration.stat.exists
+
+    - name: Resolve the ACME address without losing an existing installation value
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_effective_acme_email: >-
+          {{
+            blitzecdn_controlplane_acme_email
+            if blitzecdn_controlplane_acme_email | length > 0
+            else (
+              blitzecdn_controlplane_existing_configuration.content
+              | default('')
+              | b64decode
+              | regex_findall('(?m)^acme_default_email\\s*=\\s*"([^"]*)"')
+              | first
+              | default('', true)
+            )
+          }}
+      no_log: true
+
+    - name: Require an ACME address for a first installation
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_controlplane_effective_acme_email | length > 0
+        fail_msg: >-
+          No environment file exists yet and no ACME account address was given.
+          Run the installer with --email ADDRESS.
+      when: not blitzecdn_controlplane_environment.stat.exists
+
+    - name: Write the non-secret service configuration
+      ansible.builtin.template:
+        src: blitzecdn.toml.j2
+        dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Generate the API credential for a first installation
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_api_key: >-
+          {{ lookup('ansible.builtin.password', '/dev/null', chars=['hexdigits'], length=64) | lower }}
+      when: not blitzecdn_controlplane_environment.stat.exists
+      no_log: true
+
+    # Never rewritten: re-running the installer must not rotate the API credential
+    # an operator is already using. The `when` is what enforces that, not `force`
+    # alone — a template task still renders its source to decide whether the file
+    # would change, and the credential only exists as a fact on a first run.
+    - name: Write the service environment
+      ansible.builtin.template:
+        src: blitzecdn.env.j2
+        dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+        force: false
+        owner: root
+        group: root
+        mode: "0600"
+      when: not blitzecdn_controlplane_environment.stat.exists
+      no_log: true
+
+    - name: Enforce the environment file ownership
+      ansible.builtin.file:
+        path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+        owner: root
+        group: root
+        mode: "0600"
+
+    # The template above writes this line only on a first installation, and the file
+    # is never rewritten after that. Without this task `--allowed-ips` would work
+    # once and then silently do nothing on every later run — the worst shape for a
+    # flag about who may reach the API. Supplying it is the operator naming the list
+    # on the command line; omitting it leaves whatever the file says, hand edits
+    # included. The regexp cannot match the commented example the template ships:
+    # the name has to start the line, which is the rule the firewall composition
+    # below reads by as well.
+    - name: Set the API access list this run was given
+      ansible.builtin.lineinfile:
+        path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+        regexp: '^[ \t]*BLITZE_ALLOWED_IPS[ \t]*='
+        line: "BLITZE_ALLOWED_IPS={{ blitzecdn_controlplane_allowed_ips }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: blitzecdn_controlplane_allowed_ips | length > 0
+
+    # --- Compose runtime ---------------------------------------------------------
+
+    # Parse once in the image, using the same literal environment format as backups.
+    # Compose reads this generated file raw; dollars and quotes are credentials,
+    # never interpolation syntax. The original operator file remains authoritative.
+    - name: Prepare the literal Compose environment
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --network
+          - none
+          - --user
+          - "0:0"
+          - --security-opt
+          - no-new-privileges:true
+          - --volume
+          - "{{ blitzecdn_controlplane_config_dir }}:{{ blitzecdn_controlplane_config_dir }}"
+          - --entrypoint
+          - python
+          - "{{ blitzecdn_controlplane_image }}"
+          - -m
+          - blitzecdn.host.compose_files
+          - --config-dir
+          - "{{ blitzecdn_controlplane_config_dir }}"
+          - environment
+      register: blitzecdn_controlplane_compose_environment
+      changed_when: "'Updated' in blitzecdn_controlplane_compose_environment.stdout"
+      no_log: true
+
+    - name: Render the control-plane Compose project
+      ansible.builtin.template:
+        src: compose.yml.j2
+        dest: "{{ blitzecdn_controlplane_compose_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        validate: docker compose --file %s config --quiet
+
+    # Never pulled or built here: install.sh obtained the image before this play,
+    # which runs inside it. Asserted rather than assumed, so a role run with some
+    # other reference fails before a service is stopped, not at `up`.
+    - name: Require the control-plane runtime image
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - --format
+          - "{{ '{{' }}.Id{{ '}}' }}"
+          - "{{ blitzecdn_controlplane_image }}"
+      changed_when: false
+
+    # Prove the exact identity and mounts used by API/worker/CLI can use the
+    # controller key. No host service account participates in this trust chain.
+    - name: Verify the container can reach this host as the deployment account
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - run
+          - --rm
+          - --no-deps
+          - --entrypoint
+          - ssh
+          - blitzecdn-cli
+          - -F
+          - /opt/blitzecdn/.state/.ssh/config
+          - -o
+          - BatchMode=yes
+          - "{{ blitzecdn_controlplane_deploy_user }}@localhost"
+          - sudo
+          - -n
+          - "true"
+      changed_when: false
+
+    # Read before anything stops, so a run that fails later can tell the
+    # database the previous release left from one this release has migrated.
+    - name: Read the schema revision before the migration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - run
+          - --rm
+          - --no-deps
+          - --entrypoint
+          - python
+          - blitzecdn-cli
+          - -I
+          - -m
+          - blitzecdn.host.schema_revision
+      register: blitzecdn_controlplane_schema_before
+      changed_when: false
+
+    # Set before the stop rather than after it: a stop that fails halfway may
+    # still have stopped one service.
+    - name: Record that this run stops the services
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_services_stopped: true
+
+    # The one place the services are stopped, for a first install, an update, an
+    # upgrade, or a repair run of this role alike: after the image is in place, so
+    # downtime is only the migration and the restart. install.sh takes its backup
+    # before calling this play.
+    - name: Stop application services before schema migration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - stop
+          - blitzecdn-api
+          - blitzecdn-worker
+      changed_when: true
+
+    # The API and worker both open the repository during startup. Migrating before
+    # Compose starts them gives both processes an already validated schema.
+    - name: Initialize the application schema before starting services
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - run
+          - --rm
+          - --no-deps
+          - blitzecdn-cli
+          - migrate
+      changed_when: false
+
+    - name: Recreate and start the control-plane services
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - up
+          - --detach
+          - --remove-orphans
+          - --force-recreate
+      changed_when: true
+
+    - name: Wait for the API and worker containers to become healthy
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{' }}.State.Health.Status{{ '}}' }}"
+          - "{{ item }}"
+      loop: [blitzecdn-api, blitzecdn-worker]
+      register: blitzecdn_controlplane_health
+      changed_when: false
+      retries: 24
+      delay: 5
+      until: blitzecdn_controlplane_health.stdout == 'healthy'
+
+  rescue:
+    - name: Report the step that failed
+      ansible.builtin.debug:
+        msg: >-
+          {{ ansible_failed_task.name | default('A control-plane step') }} failed:
+          {{ ansible_failed_result.msg | default(ansible_failed_result.stderr | default('no message')) }}
+
+    # Read again only when this run stopped the services: before that, the
+    # migration cannot have run. Through the Compose project this run wrote,
+    # whose image is the one that migrated, if anything did.
+    - name: Read the schema revision the failed run left
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - run
+          - --rm
+          - --no-deps
+          - --entrypoint
+          - python
+          - blitzecdn-cli
+          - -I
+          - -m
+          - blitzecdn.host.schema_revision
+      register: blitzecdn_controlplane_schema_after
+      changed_when: false
+      failed_when: false
+      when: blitzecdn_controlplane_services_stopped | default(false) | bool
+
+    # Untouched only when both readings succeeded and agree. A reading that
+    # failed proves nothing, so it counts as migrated: the safe answer is to
+    # leave the services stopped rather than start old code on a new schema.
+    - name: Decide what the failed run changed
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_recovery_previous: >-
+          {{ blitzecdn_controlplane_installed_project.stat.exists }}
+        blitzecdn_controlplane_recovery_stopped: >-
+          {{ blitzecdn_controlplane_services_stopped | default(false) | bool }}
+        blitzecdn_controlplane_recovery_migrated: >-
+          {{
+            (blitzecdn_controlplane_services_stopped | default(false) | bool)
+            and not (
+              blitzecdn_controlplane_schema_before.rc | default(1) == 0
+              and blitzecdn_controlplane_schema_after.rc | default(1) == 0
+              and blitzecdn_controlplane_schema_before.stdout | trim
+                == blitzecdn_controlplane_schema_after.stdout | trim
+            )
+          }}
+
+    - name: Read the previous release's image
+      ansible.builtin.slurp:
+        path: "{{ blitzecdn_controlplane_previous_release_dir }}/{{ blitzecdn_controlplane_compose_file | basename }}"
+      register: blitzecdn_controlplane_previous_project
+      when: blitzecdn_controlplane_recovery_previous | bool
+
+    - name: Name the previous release's image
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_previous_image: >-
+          {{
+            blitzecdn_controlplane_previous_project.content
+            | default('')
+            | b64decode
+            | regex_findall('(?m)^  image: "(.*)"$')
+            | first
+            | default('the previous release', true)
+          }}
+        blitzecdn_controlplane_recovery_backup: >-
+          {{
+            blitzecdn_controlplane_update_backup
+            if blitzecdn_controlplane_update_backup | length > 0
+            else 'the backup taken before this update (the newest archive in '
+              ~ blitzecdn_controlplane_backup_dir ~ ')'
+          }}
+        blitzecdn_controlplane_recovery_point: >-
+          {{
+            'with the database schema unchanged'
+            if blitzecdn_controlplane_recovery_stopped | bool
+            else 'before the services were stopped'
+          }}
+
+    # The recreate may already have started this release's containers, and a
+    # worker can run while the API is unhealthy. On a schema that may be
+    # migrated nothing may keep writing to it, so both are stopped through the
+    # project this run wrote, before its files give way to the previous one's.
+    - name: Stop this release's services on a migrated schema
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - stop
+          - blitzecdn-api
+          - blitzecdn-worker
+      register: blitzecdn_controlplane_failed_stopped
+      changed_when: true
+      failed_when: false
+      when: blitzecdn_controlplane_recovery_migrated | bool
+
+    - name: Say whether this release's services are stopped
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_recovery_stop_note: >-
+          {{
+            'The API and worker are stopped; edges keep serving.'
+            if blitzecdn_controlplane_failed_stopped.rc | default(1) == 0
+            else 'Stopping the API and worker failed: stop them first with '
+              ~ '`sudo docker stop blitzecdn-api blitzecdn-worker`. Edges keep serving.'
+          }}
+      when: blitzecdn_controlplane_recovery_migrated | bool
+
+    # Put back in every case, migrated or not: the host then holds one release's
+    # files, and the wrapper, the installer and `update` all name the release
+    # an operator returns to rather than the one that failed. A file the
+    # previous release did not have is left as this run wrote it.
+    - name: Restore the previous release's files
+      ansible.builtin.copy:
+        src: "{{ blitzecdn_controlplane_previous_release_dir }}/{{ item | basename }}"
+        dest: "{{ item }}"
+        remote_src: true
+        mode: preserve
+      loop: >-
+        {{
+          blitzecdn_controlplane_release_file_state.results
+          | default([])
+          | selectattr('stat.exists')
+          | map(attribute='item')
+          | list
+        }}
+      when: blitzecdn_controlplane_recovery_previous | bool
+
+    # `up` recreates only what differs from the restored project, so services
+    # this run never stopped keep running untouched, and stopped ones start on
+    # the previous image against the database it left.
+    - name: Start the previous release again
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --file
+          - "{{ blitzecdn_controlplane_compose_file }}"
+          - up
+          - --detach
+          - --remove-orphans
+          - --wait
+          - --wait-timeout
+          - "180"
+      register: blitzecdn_controlplane_previous_started
+      changed_when: true
+      failed_when: false
+      when:
+        - blitzecdn_controlplane_recovery_previous | bool
+        - not blitzecdn_controlplane_recovery_migrated | bool
+
+    - name: Stop with what happened and how to recover
+      ansible.builtin.fail:
+        msg: >-
+          {% if not blitzecdn_controlplane_recovery_previous | bool -%}
+          The control-plane installation failed, and there is no previous
+          release on this host to return to. Fix the cause above and rerun the
+          installer.
+          {%- elif blitzecdn_controlplane_recovery_migrated | bool -%}
+          The control-plane update failed after the database schema may have
+          been migrated (revision
+          '{{ blitzecdn_controlplane_schema_before.stdout | default('') | trim }}' before,
+          '{{ blitzecdn_controlplane_schema_after.stdout | default('') | trim }}' after),
+          so {{ blitzecdn_controlplane_previous_image }} cannot simply be
+          started on it. {{ blitzecdn_controlplane_recovery_stop_note }}
+          This host's files name {{ blitzecdn_controlplane_previous_image }}
+          again. To return to it, restore {{ blitzecdn_controlplane_recovery_backup }}
+          and start the services:
+          `sudo blitzecdn backup restore ARCHIVE --yes`, then
+          `sudo docker compose --file {{ blitzecdn_controlplane_compose_file }} up --detach --wait`.
+          Or fix the cause above and rerun `sudo {{ blitzecdn_controlplane_installer | basename }} update`.
+          {%- elif blitzecdn_controlplane_previous_started.rc | default(1) == 0 -%}
+          The control-plane update failed {{ blitzecdn_controlplane_recovery_point }},
+          and this host is back on {{ blitzecdn_controlplane_previous_image }}:
+          its files are restored and the API and worker are healthy. Fix the
+          cause above and rerun `sudo {{ blitzecdn_controlplane_installer | basename }} update`.
+          {%- else -%}
+          The control-plane update failed with the database schema unchanged,
+          and this host's files name {{ blitzecdn_controlplane_previous_image }}
+          again, but its services did not become healthy:
+          {{ blitzecdn_controlplane_previous_started.stderr | default('') | trim }}.
+          Inspect `sudo docker compose --file {{ blitzecdn_controlplane_compose_file }} ps`
+          and start them with
+          `sudo docker compose --file {{ blitzecdn_controlplane_compose_file }} up --detach --wait`.
+          {%- endif %}
 
 # --- scheduled backups -------------------------------------------------------
 
