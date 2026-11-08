@@ -12,6 +12,9 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+    # Keep the nginx version out of the Server header and built-in error pages,
+    # so a scanner cannot match the edge against a version's CVEs.
+    server_tokens off;
     sendfile on;
     # With sendfile, send the response headers and the start of the body in one
     # full packet rather than a header-only one first. tcp_nodelay is Nginx's
