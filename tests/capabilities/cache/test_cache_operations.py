@@ -12,6 +12,10 @@ from support.control_plane import (
 from support.stores import Stores
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
+from blitzecdn.capabilities.cache.service.operations import (
+    PURGE_OPERATION,
+    operation_handlers,
+)
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
@@ -280,6 +284,22 @@ def test_named_entries_and_prefixes_purge_together(settings):
 
     assert len(purges(fake)[0][0]) == 1
     assert len(purged_prefixes(fake)[0]) == 1
+
+
+def test_a_purge_queued_before_prefixes_existed_still_runs(settings):
+    """Its stored payload has no prefixes field, and it is not retried."""
+    control = build_application(
+        settings=settings,
+        repository=Stores(settings.database_path),
+        runner=FakeRunner([_purge_run()]),
+    )
+
+    result = operation_handlers(control.cache)[PURGE_OPERATION](
+        {"operator": "alice", "entries": [], "purge_all": True, "host_limit": None}
+    )
+
+    assert result["prefixes"] == []
+    assert result["purge_all"] is True
 
 
 def test_purging_everything_needs_no_site_to_exist(settings):

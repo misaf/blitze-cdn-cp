@@ -57,8 +57,10 @@ def operation_handlers(
         result = cache.purge_cache(
             str(payload["operator"]),
             entries=[PurgeEntry.model_validate(entry) for entry in payload["entries"]],
+            # Purges queued before prefixes existed carry no such field.
             prefixes=[
-                PurgePrefix.model_validate(prefix) for prefix in payload["prefixes"]
+                PurgePrefix.model_validate(prefix)
+                for prefix in payload.get("prefixes", ())
             ],
             purge_all=bool(payload["purge_all"]),
             host_limit=payload.get("host_limit"),

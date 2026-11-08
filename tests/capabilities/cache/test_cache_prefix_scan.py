@@ -103,6 +103,26 @@ def test_a_hostname_purge_leaves_other_hostnames_and_the_levels(
     assert gone.parent.is_dir()
 
 
+def test_a_key_longer_than_the_read_still_matches_by_its_start(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    """nginx caches request targets up to its 8k header buffer, past HEAD_BYTES."""
+    cache = tmp_path / "cache"
+    long_key = "https443GETcdn.example.com/blog/" + "a" * 8100
+    gone = _store(cache, long_key)
+
+    report = _run(
+        scanner,
+        cache,
+        [{"host": "cdn.example.com", "prefix": "/blog/"}],
+        monkeypatch,
+        capsys,
+    )
+
+    assert report == {"scanned": 1, "removed": 1}
+    assert not gone.exists()
+
+
 def test_a_missing_cache_directory_is_a_failure_not_an_empty_purge(
     tmp_path, scanner, monkeypatch
 ):
