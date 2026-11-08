@@ -68,6 +68,27 @@ def test_an_unconfigured_firewall_is_empty_and_a_configured_one_is_not():
     assert SecurityPolicy(firewall={"denied_paths": ("/admin",)}).required_capabilities
 
 
+def test_case_insensitive_matching_alone_filters_nothing():
+    """The flag only changes how path rules match; without them it is a no-op."""
+    assert not SiteFirewall().case_insensitive_paths
+    flag_only = SiteFirewall(case_insensitive_paths=True)
+    assert flag_only.empty
+    assert flag_only.rule_count == 0
+    assert SecurityPolicy(firewall=flag_only).required_capabilities == frozenset()
+    with_paths = SiteFirewall(denied_paths=("/admin",), case_insensitive_paths=True)
+    assert not with_paths.empty
+    assert with_paths.rule_count == 1
+
+
+def test_replacing_can_switch_case_insensitive_matching():
+    firewall = SiteFirewall(denied_paths=("/admin",))
+    switched = firewall.replacing({"case_insensitive_paths": True})
+    assert switched.case_insensitive_paths
+    assert switched.denied_paths == ("/admin",)
+    assert not switched.replacing({"denied_paths": []}).denied_paths
+    assert switched.replacing({"denied_paths": []}).case_insensitive_paths
+
+
 def test_a_firewall_survives_a_round_trip_through_its_serialised_form():
     """Persisted policy JSON and the deployment snapshots both take this path."""
     policy = SecurityPolicy(
@@ -77,6 +98,7 @@ def test_a_firewall_survives_a_round_trip_through_its_serialised_form():
             "denied_countries": ("RU",),
             "denied_methods": ("TRACE",),
             "denied_paths": ("/.git",),
+            "case_insensitive_paths": True,
         },
     )
 

@@ -68,6 +68,7 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `compression` | `brotli` |
 | `origin_request_host`, `origin_sni` | `null` (no explicit override) |
 | Every `firewall` list | Empty |
+| `firewall.case_insensitive_paths` | `false` (paths match case-sensitively, as written) |
 | `visitor_headers.connecting_ip`, `visitor_headers.ip_country` | `true`, `false` |
 
 `ssl_automatic_mode: auto` allows automatic SSL policy selection; it does not
@@ -89,7 +90,8 @@ For example:
 {"firewall": {"deny_sources": ["192.0.2.0/24"]}}
 ```
 
-This replaces every firewall list: lists not supplied become empty. Omit the
+This replaces every firewall list: lists not supplied become empty, and
+`case_insensitive_paths` returns to `false`. Omit the
 entire `firewall` field to preserve existing rules; send `{}` to clear them.
 Likewise, `visitor_headers: {}` restores both header switches to their defaults.
 Read the current block and include all values you want to retain when replacing
