@@ -11,6 +11,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 
 from blitzecdn.capabilities.deployments.adapters.persistence import (
+    DeploymentOutcomeStore,
     DeploymentRequirementStore,
     DeploymentStore,
     DeploymentTargetStore,
@@ -61,6 +62,7 @@ class Repository:
         self.ansible_settings = AnsibleSettingStore(self.database)
         self.deployments = DeploymentStore(self.database)
         self.deployment_requirements = DeploymentRequirementStore(self.database)
+        self.deployment_outcomes = DeploymentOutcomeStore(self.database)
         self.deployment_targets = DeploymentTargetStore(self.database)
         # Release pruning asks the deployments store which releases are
         # still rollback targets, through the port it declared.

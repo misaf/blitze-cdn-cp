@@ -9,12 +9,15 @@ from sqlalchemy import CursorResult, Result, delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from blitzecdn.capabilities.deployments.adapters.tables import (
+    DeploymentOutcomeRow,
     DeploymentRequirementRow,
     DeploymentRow,
     DeploymentTargetRow,
 )
 from blitzecdn.capabilities.deployments.domain import (
     TERMINAL_STATUSES,
+    ConvergenceHealth,
+    ConvergenceKind,
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -372,7 +375,55 @@ class DeploymentRequirementStore:
             return None if row is None else row.requested_at
 
 
+class DeploymentOutcomeStore:
+    """The running outcome of each kind of convergence, updated in one statement."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def record(self, kind: ConvergenceKind, *, succeeded: bool) -> None:
+        now = self._db.now()
+        # An upsert, so concurrent recorders never lose an increment to a
+        # read-modify-write.
+        if succeeded:
+            values: dict[str, Any] = {"last_success_at": now, "consecutive_failures": 0}
+            update_values: dict[str, Any] = dict(values)
+        else:
+            values = {"last_failure_at": now, "consecutive_failures": 1}
+            update_values = {
+                "last_failure_at": now,
+                "consecutive_failures": DeploymentOutcomeRow.consecutive_failures + 1,
+            }
+        with self._db.session() as session:
+            session.execute(
+                sqlite_insert(DeploymentOutcomeRow)
+                .values(kind=kind.value, **values)
+                .on_conflict_do_update(
+                    index_elements=[DeploymentOutcomeRow.kind], set_=update_values
+                )
+            )
+
+    def health(self) -> tuple[ConvergenceHealth, ...]:
+        """Every kind, in declaration order; one never recorded reads as empty."""
+        with self._db.session() as session:
+            rows = {
+                row.kind: row for row in session.scalars(select(DeploymentOutcomeRow))
+            }
+        return tuple(
+            ConvergenceHealth(
+                kind=kind,
+                last_success_at=row.last_success_at,
+                last_failure_at=row.last_failure_at,
+                consecutive_failures=row.consecutive_failures,
+            )
+            if (row := rows.get(kind.value)) is not None
+            else ConvergenceHealth(kind=kind)
+            for kind in ConvergenceKind
+        )
+
+
 __all__ = [
+    "DeploymentOutcomeStore",
     "DeploymentRequirementStore",
     "DeploymentStore",
     "DeploymentTargetStore",

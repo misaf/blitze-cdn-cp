@@ -10,6 +10,7 @@ from support.control_plane import cli_control_plane, control_plane_app
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.domain import BackupComponent, BackupRecord
+from blitzecdn.capabilities.deployments.domain import ConvergenceKind
 from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
@@ -88,8 +89,15 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
                 components=(BackupComponent.DATABASE,),
             )
         ),
+        convergence=repository.deployment_outcomes,
         clock=lambda: now,
     )
+    repository.deployment_outcomes.record(ConvergenceKind.APPLIED, succeeded=True)
+    for _ in range(3):
+        moment[0] += timedelta(hours=1)
+        repository.deployment_outcomes.record(
+            ConvergenceKind.DRIFT_CHECK, succeeded=False
+        )
     report = diagnostics.status()
     assert [worker.state for worker in report.workers] == ["idle", "stale"]
     assert report.workers[1].current_job_age_seconds == 60
@@ -112,6 +120,20 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
     completed = (now - timedelta(hours=2)).timestamp()
     assert f"blitzecdn_backup_last_success_timestamp_seconds {completed}" in metrics
     assert "blitzecdn_backup_last_success_size_bytes 4096" in metrics
+    applied = (now + timedelta(seconds=12)).timestamp()
+    assert (
+        f'blitzecdn_convergence_last_success_timestamp_seconds{{kind="applied"}} '
+        f"{applied}"
+    ) in metrics
+    assert 'blitzecdn_convergence_consecutive_failures{kind="applied"} 0' in metrics
+    assert (
+        'blitzecdn_convergence_last_success_timestamp_seconds{kind="drift_check"} 0'
+    ) in metrics
+    assert 'blitzecdn_convergence_consecutive_failures{kind="drift_check"} 3' in metrics
+    assert (
+        'blitzecdn_convergence_last_failure_timestamp_seconds{kind="drift_check"} '
+        f"{moment[0].timestamp()}"
+    ) in metrics
     for identifier in (
         "private-host",
         "private-job",
@@ -137,6 +159,11 @@ def test_status_api_requires_authentication_and_reports_an_empty_controller(sett
         assert not (settings.state_dir / "workers").exists()
         metrics = client.get("/metrics", headers={"X-API-Key": "x" * 32}).text
         assert "blitzecdn_backup_last_success_timestamp_seconds 0" in metrics
+        assert [item["consecutive_failures"] for item in document["convergence"]] == [
+            0,
+            0,
+        ]
+        assert 'blitzecdn_convergence_consecutive_failures{kind="applied"} 0' in metrics
 
 
 def test_status_cli_uses_the_same_service(settings, monkeypatch):

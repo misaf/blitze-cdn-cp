@@ -102,3 +102,28 @@ class DeploymentRequirementRow(Base):
 
     kind: Mapped[str] = mapped_column(primary_key=True)
     requested_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class DeploymentOutcomeRow(Base):
+    """The running outcome of one kind of convergence, one row per kind.
+
+    Kept apart from ``deployments`` because a failure can come before any
+    deployment row exists, and because history pruning must not reset a streak.
+    """
+
+    __tablename__ = "deployment_outcomes"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('applied', 'drift_check')",
+            name="deployment_outcomes_kind_check",
+        ),
+        CheckConstraint(
+            "consecutive_failures >= 0",
+            name="deployment_outcomes_failures_check",
+        ),
+    )
+
+    kind: Mapped[str] = mapped_column(primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_failure_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    consecutive_failures: Mapped[int] = mapped_column(default=0)
