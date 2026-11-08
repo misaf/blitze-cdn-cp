@@ -7,7 +7,11 @@ import yaml
 
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.runtime import filesystem
-from blitzecdn.core.runtime.filesystem import atomic_write_bytes, atomic_write_yaml
+from blitzecdn.core.runtime.filesystem import (
+    atomic_write_bytes,
+    atomic_write_yaml,
+    read_log_tail,
+)
 
 
 def test_atomic_yaml_is_restrictive(tmp_path):
@@ -141,3 +145,21 @@ def test_a_refused_chmod_closes_the_temporary_descriptor(existing, monkeypatch):
     with pytest.raises(OSError) as closed:
         os.fstat(descriptor)
     assert closed.value.errno == errno.EBADF
+
+
+def test_a_log_tail_degrades_to_nothing_without_a_readable_log(tmp_path):
+    assert read_log_tail(None, limit=10) == ""
+    assert read_log_tail(tmp_path / "missing.log", limit=10) == ""
+
+
+def test_a_short_log_is_returned_whole(tmp_path):
+    log = tmp_path / "run.log"
+    log.write_bytes(b"  done\n")
+    assert read_log_tail(str(log), limit=100) == "done"
+
+
+def test_a_long_log_keeps_its_end_and_points_at_the_rest(tmp_path):
+    log = tmp_path / "run.log"
+    log.write_bytes(b"early\n" + b"x" * 50 + b"\nlast \xff line\n")
+    tail = read_log_tail(log, limit=12)
+    assert tail == f"[earlier output omitted; full log at {log}]\nlast \ufffd line"
