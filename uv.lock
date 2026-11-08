@@ -294,7 +294,7 @@ requires-dist = [
     { name = "ansible-core", specifier = ">=2.21,<2.22" },
     { name = "ansible-runner", specifier = ">=2.4,<3" },
     { name = "cryptography", specifier = ">=45,<51" },
-    { name = "dishka", specifier = ">=1.10.1" },
+    { name = "dishka", specifier = ">=1.10.1,<2" },
     { name = "dnspython", specifier = ">=2.7,<3" },
     { name = "fastapi", extras = ["opentelemetry"], specifier = ">=0.162,<1" },
     { name = "fastapi-pagination", specifier = ">=0.16,<0.17" },

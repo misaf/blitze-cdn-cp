@@ -36,7 +36,7 @@ dependencies = [
   "pydantic-settings>=2.12,<3",
   "sqlalchemy>=2.0.52,<2.1",
   "ansible-runner>=2.4,<3",
-  "dishka>=1.10.1",
+  "dishka>=1.10.1,<2",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
