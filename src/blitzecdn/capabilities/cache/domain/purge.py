@@ -3,17 +3,58 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, computed_field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    computed_field,
+    field_validator,
+)
 
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.validation import hostname
 
-__all__ = ["PurgeEntry", "PurgePrefix", "PurgeResult"]
+__all__ = [
+    "MAX_TAG",
+    "PurgeEntry",
+    "PurgePrefix",
+    "PurgeResult",
+    "PurgeTag",
+    "purge_tag",
+]
 
 #: The longest request target nginx logs that a purge will name.
 MAX_URI = 2048
+#: The longest tag a purge will name, as Cloudflare caps one Cache-Tag value.
+MAX_TAG = 1024
+
+
+def purge_tag(value: str) -> str:
+    """One tag as the origin names it in ``Cache-Tag``, folded to lowercase.
+
+    Tags are case-insensitive: the edge lowercases what it reads from the
+    stored header too, so ``Product-42`` purges entries tagged ``product-42``.
+    A tag is one comma-separated item of the header's value, so it cannot
+    contain a comma, and the edge trims whitespace around it, so it cannot
+    contain any.
+    """
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError("a tag cannot be empty")
+    if len(candidate) > MAX_TAG:
+        raise ValueError(f"a tag must be at most {MAX_TAG} characters")
+    if "," in candidate or any(c.isspace() for c in candidate):
+        raise ValueError("a tag cannot contain commas or whitespace")
+    if not candidate.isascii() or not candidate.isprintable():
+        raise ValueError("a tag must be printable ASCII")
+    return candidate.lower()
+
+
+#: Every cached response whose stored ``Cache-Tag`` header names this tag.
+PurgeTag = Annotated[str, AfterValidator(purge_tag)]
 
 
 def _request_target(value: str, field: str) -> str:
@@ -90,6 +131,7 @@ class PurgeResult(BaseModel):
     purged_at: datetime
     entries: tuple[PurgeEntry, ...] = ()
     prefixes: tuple[PurgePrefix, ...] = ()
+    tags: tuple[PurgeTag, ...] = ()
     purge_all: bool = False
     host_limit: str | None = None
     hosts: tuple[HostRun, ...] = ()

@@ -4,6 +4,8 @@ from blitzecdn.capabilities.cache.domain.purge import (
     PurgeEntry,
     PurgePrefix,
     PurgeResult,
+    PurgeTag,
+    purge_tag,
 )
 from blitzecdn.capabilities.cache.domain.statistics import (
     CACHE_CONSULTED_OUTCOMES,
@@ -24,4 +26,6 @@ __all__ = [
     "PurgeEntry",
     "PurgePrefix",
     "PurgeResult",
+    "PurgeTag",
+    "purge_tag",
 ]

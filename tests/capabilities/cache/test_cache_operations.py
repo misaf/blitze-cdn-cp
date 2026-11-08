@@ -1,7 +1,7 @@
 import re
 
 import pytest
-from support.cache import purged_prefixes, purges
+from support.cache import purged_prefixes, purged_tags, purges
 from support.control_plane import (
     FakeRunner,
     ansible_run,
@@ -299,6 +299,7 @@ def test_a_purge_queued_before_prefixes_existed_still_runs(settings):
     )
 
     assert result["prefixes"] == []
+    assert result["tags"] == []
     assert result["purge_all"] is True
 
 
@@ -374,3 +375,95 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     assert event.action == "cache.purged"
     assert event.details["complete"] is True
     assert event.details["entries"][0]["uri"] == "/app.js"
+
+
+# ----------------------------------------------------------------------
+# Purge by tag
+# ----------------------------------------------------------------------
+
+
+def test_a_tag_purge_reaches_the_edges_lowercased_and_once_each(settings):
+    """No site owns a tag, so none has to exist for a tag purge."""
+    fake = FakeRunner([_purge_run()])
+    control = build_application(
+        settings=settings, repository=Stores(settings.database_path), runner=fake
+    )
+
+    result = control.cache.purge_cache(
+        "alice", tags=["Product-42", " listing ", "product-42"]
+    )
+
+    assert result.complete is True
+    assert purged_tags(fake) == [("product-42", "listing")]
+    assert result.tags == ("product-42", "listing")
+    assert purges(fake)[0][0] == ()
+    assert purged_prefixes(fake) == [()]
+
+
+def test_a_tag_purge_is_recorded_in_the_audit_trail(settings):
+    repository = Stores(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner([_purge_run()])
+    )
+
+    control.cache.purge_cache("alice", tags=["home"])
+
+    event = repository.audit_log.list_audit_events()[0]
+    assert event.details["tags"] == ["home"]
+
+
+@pytest.mark.parametrize(
+    "tag", ["", "a,b", "two words", "x" * 1025, "caf\u00e9", "tab\there"]
+)
+def test_a_tag_no_cache_tag_header_item_can_be_is_refused(settings, tag):
+    fake = FakeRunner([_purge_run()])
+    control = build_application(
+        settings=settings, repository=Stores(settings.database_path), runner=fake
+    )
+
+    with pytest.raises(ConflictError, match="invalid purge tags"):
+        control.cache.purge_cache("alice", tags=[tag])
+    assert purges(fake) == []
+
+
+def test_more_tags_than_one_purge_scans_for_are_refused(settings):
+    fake = FakeRunner([_purge_run()])
+    control = build_application(
+        settings=settings, repository=Stores(settings.database_path), runner=fake
+    )
+
+    with pytest.raises(ConflictError, match="at most 50"):
+        control.cache.purge_cache("alice", tags=[f"t{n}" for n in range(51)])
+    assert purges(fake) == []
+
+
+def test_purging_everything_and_tags_at_once_is_refused(settings):
+    fake = FakeRunner([_purge_run()])
+    control = build_application(
+        settings=settings, repository=Stores(settings.database_path), runner=fake
+    )
+
+    with pytest.raises(ConflictError, match="different operations"):
+        control.cache.purge_cache("alice", tags=["home"], purge_all=True)
+    assert purges(fake) == []
+
+
+def test_a_queued_tag_purge_runs_with_its_tags(settings):
+    fake = FakeRunner([_purge_run()])
+    control = build_application(
+        settings=settings, repository=Stores(settings.database_path), runner=fake
+    )
+
+    result = operation_handlers(control.cache)[PURGE_OPERATION](
+        {
+            "operator": "alice",
+            "entries": [],
+            "prefixes": [],
+            "tags": ["home"],
+            "purge_all": False,
+            "host_limit": None,
+        }
+    )
+
+    assert result["tags"] == ["home"]
+    assert purged_tags(fake) == [("home",)]

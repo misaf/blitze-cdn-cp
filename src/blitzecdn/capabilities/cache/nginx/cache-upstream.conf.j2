@@ -46,6 +46,11 @@
         proxy_cache_background_update on;
         proxy_cache_lock on;
         proxy_cache_revalidate on;
+        # The origin names an entry's purge tags in Cache-Tag. They are for the
+        # edge, not visitors, so they are not passed on; nginx still stores the
+        # header with the cached entry, which is where blitzecdn_cache_purge's
+        # scanner reads them back from to purge by tag.
+        proxy_hide_header Cache-Tag;
 {#
   The key names the encoding, so the origin must be asked for exactly that
   one. The compression capability sends the same header whenever it is
