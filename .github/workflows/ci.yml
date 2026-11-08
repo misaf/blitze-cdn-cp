@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
       # The Python uv builds the environment around. Pinned here rather than
       # left to uv so CI and the control-plane image agree on the interpreter.
@@ -158,8 +158,12 @@ jobs:
       # by hand on any host with Docker; all this job owes it is uv.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
+      # `.python-version` asks for 3.15.2; install it rather than leave the
+      # harness's first `uv sync` to discover there is none.
+      - name: Install Python
+        run: uv python install 3.15.2
       - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
         env:
           DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
