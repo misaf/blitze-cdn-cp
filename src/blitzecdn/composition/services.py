@@ -129,6 +129,7 @@ class ServiceProvider(Provider):
             certificates=certificates,
             workers=workers,
             backups=backups,
+            convergence=repository.deployment_outcomes,
             clock=adapters.clock,
         )
 
@@ -250,6 +251,7 @@ class ServiceProvider(Provider):
             rules=repository.rules,
             fleet_settings=repository.ansible_settings,
             requirements=repository.deployment_requirements,
+            outcomes=repository.deployment_outcomes,
             releases=releases,
             targets=repository.deployment_targets,
             edges=edges,

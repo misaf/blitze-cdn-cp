@@ -8,6 +8,8 @@ from types import TracebackType
 from typing import Any, Protocol
 
 from blitzecdn.capabilities.deployments.domain import (
+    ConvergenceHealth,
+    ConvergenceKind,
     Deployment,
     DeploymentRequirementKind,
     DeploymentTarget,
@@ -54,6 +56,14 @@ class DeploymentRequirements(Protocol):
     def pending(self, kind: DeploymentRequirementKind) -> bool: ...
 
     def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None: ...
+
+
+class ConvergenceOutcomes(Protocol):
+    """Whether each kind of convergence keeps succeeding, for alerting."""
+
+    def record(self, kind: ConvergenceKind, *, succeeded: bool) -> None: ...
+
+    def health(self) -> tuple[ConvergenceHealth, ...]: ...
 
 
 class DeploymentStore(Protocol):
