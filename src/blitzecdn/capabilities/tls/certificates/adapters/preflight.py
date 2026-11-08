@@ -145,13 +145,24 @@ class CertificatePreflight:
         for name in resolvable:
             addresses = _resolve(name, resolver)
             note = self._resolver_note(resolver, name)
-            notes.append(f"{name} resolves{note} to an edge")
+            notes.append(f"{name} resolves{note} only to edges")
+            stray = addresses - edges
             if not addresses:
                 problems.append(f"{name} does not resolve{note}")
-            elif not addresses & edges:
+            elif stray == addresses:
                 problems.append(
                     f"{name} resolves{note} to {_join(addresses)}, which is not "
                     f"an edge address ({_join(edges)})"
+                )
+            elif stray:
+                # The CA validates against any address it resolves (preferring
+                # IPv6), so one stale record is enough to fail the challenge.
+                if len(stray) == 1:
+                    verdict = "which is not an edge; remove that record"
+                else:
+                    verdict = "which are not edges; remove those records"
+                problems.append(
+                    f"{name} also resolves{note} to {_join(stray)}, {verdict}"
                 )
         if problems:
             return _failed("dns", PreflightSeverity.BLOCKING, "; ".join(problems))
