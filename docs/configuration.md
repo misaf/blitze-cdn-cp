@@ -60,6 +60,10 @@ the newest archives `blitzecdn backup prune` keeps; 0 keeps all of them. The
 daily schedule is a host timer, not an application setting; see
 [Backups](operations.md#backups).
 
+`allowed_ips` restricts which client addresses the API answers, but loopback is
+always allowed, so a reverse proxy on the controller host defeats it. See
+[API network access](operations.md#api-network-access) before exposing the API.
+
 ## Adding a built-in setting
 
 Add a Pydantic field to the owner's `ConfigurationModel`:
