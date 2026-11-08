@@ -105,7 +105,7 @@ class QueueReadiness:
         # A `TypeError` is a bug and is not swallowed.
         try:
             self.queue.list_jobs(limit=1)
-        except (SQLAlchemyError, OSError):
+        except SQLAlchemyError, OSError:
             return False
         return True
 

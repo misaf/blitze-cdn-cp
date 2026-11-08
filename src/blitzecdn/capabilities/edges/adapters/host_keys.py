@@ -128,7 +128,7 @@ def _matches(name: str, pattern: str) -> bool:
     try:
         salt = base64.b64decode(parts[2], validate=True)
         digest = base64.b64decode(parts[3], validate=True)
-    except (binascii.Error, ValueError):
+    except binascii.Error, ValueError:
         return False
     expected = hmac.new(salt, pattern.encode(), hashlib.sha1).digest()
     return hmac.compare_digest(expected, digest)

@@ -59,7 +59,7 @@ class WorkerMonitor:
                 if path.is_symlink():
                     raise ValueError("worker record is a symlink")
                 workers.append(WorkerHeartbeat.model_validate_json(path.read_bytes()))
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 unreadable += 1
         return WorkerObservations(workers=tuple(workers), unreadable=unreadable)
 
@@ -133,7 +133,7 @@ class WorkerMonitor:
             self._state = self._state.model_copy(update={"heartbeat_at": self.clock()})
             try:
                 atomic_write_bytes(self._path, self._state.model_dump_json().encode())
-            except (OSError, ConfigurationError):
+            except OSError, ConfigurationError:
                 _LOGGER.exception("could not publish worker heartbeat")
 
     def _prune(self) -> None:

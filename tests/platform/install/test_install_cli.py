@@ -158,8 +158,7 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 @pytest.mark.parametrize(
     ("distribution", "version", "accepted"),
     [
-        # Debian 12 is not a supported controller: it ships Python 3.11 and the
-        # control plane needs 3.12+.
+        # Debian 12 is not a supported controller host.
         ("Debian", "12", False),
         ("Debian", "13", True),
         ("Debian", "14", True),

@@ -226,7 +226,7 @@ class CertificatePreflight:
         for candidate in _ancestors(name):
             try:
                 answer = resolver.resolve(candidate, dns.rdatatype.CAA)
-            except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            except dns.resolver.NoAnswer, dns.resolver.NXDOMAIN:
                 continue
             tags = [
                 (
@@ -291,7 +291,7 @@ def check_resolver(config: CertificateConfig) -> PreflightCheck:
     probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
     try:
         answer = resolver.resolve(probe, dns.rdatatype.A)
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer:
         return _passed("resolver", f"resolver{where} rejects names that cannot exist")
     except dns.exception.DNSException:
         # No answer at all is not evidence of dishonesty, and preflight already
@@ -406,7 +406,7 @@ def _resolve_with(candidate: str, resolver: Lookup) -> set[str]:
     for rdatatype in (dns.rdatatype.A, dns.rdatatype.AAAA):
         try:
             answer = resolver.resolve(candidate, rdatatype)
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        except dns.resolver.NoAnswer, dns.resolver.NXDOMAIN:
             continue
         except dns.exception.DNSException:
             # An unanswering resolver reads as "does not resolve", correctly either way.
