@@ -1,13 +1,13 @@
 from support.control_plane import FakeRunner, build_application
+from support.stores import Stores
 
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.install_handoff import finalize_standalone
 
 
 def test_finalize_standalone_registers_and_updates_the_local_edge(settings):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
 

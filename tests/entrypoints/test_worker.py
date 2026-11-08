@@ -11,10 +11,11 @@ import signal
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from support.stores import Stores
 
 import blitzecdn.composition as composition
 from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
-from blitzecdn.composition import Repository, Worker
+from blitzecdn.composition import Worker
 from blitzecdn.core.config import Settings
 from blitzecdn.entrypoints.worker import run_worker
 
@@ -62,7 +63,7 @@ def test_sigterm_during_a_claimed_job_finishes_it_then_stops(
     settings, monkeypatch, stops
 ):
     """The job in hand is recorded whole; the next one is left for a worker."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     seen: list[str] = []
     built: list[_RecordingContainer] = []
 

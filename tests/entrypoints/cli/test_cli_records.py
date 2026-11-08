@@ -12,9 +12,9 @@ from support.control_plane import (
     FakeRunner,
     build_application,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 
@@ -27,7 +27,7 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
@@ -72,7 +72,7 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
 def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatch):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

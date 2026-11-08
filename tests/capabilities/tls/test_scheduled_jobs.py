@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 from support.control_plane import with_capability_settings
+from support.stores import Stores
 
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.api import create_app
 
 
@@ -23,7 +23,7 @@ def schedules(settings) -> dict[str, tuple[int, int]]:
         pass
     return {
         item.name: (item.interval_seconds, item.lease_seconds)
-        for item in Repository(settings.database_path).schedules.list_schedules()
+        for item in Stores(settings.database_path).schedules.list_schedules()
     }
 
 

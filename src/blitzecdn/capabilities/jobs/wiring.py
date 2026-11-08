@@ -4,19 +4,41 @@ from __future__ import annotations
 
 import os
 import socket
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 
-from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore, ScheduleStore
+from dishka import Provider, Scope, provide
+from sqlalchemy.exc import SQLAlchemyError
+
+from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
+from blitzecdn.capabilities.jobs.adapters.persistence import JobStore as JobTable
+from blitzecdn.capabilities.jobs.adapters.persistence import (
+    ScheduleStore as ScheduleTable,
+)
+from blitzecdn.capabilities.jobs.ports import (
+    JobHandler,
+    JobStore,
+    OperationRuns,
+    ScheduleStore,
+    WorkerHistory,
+    WorkerProgress,
+)
 from blitzecdn.capabilities.jobs.service import (
     JobQueue,
+    JobRunner,
     JobScheduler,
+    OperationService,
     ScheduleSpec,
 )
+from blitzecdn.core.config import Settings
 from blitzecdn.core.features import ScheduledJob
+from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock
 
 __all__ = [
+    "JobsProvider",
+    "QueueReadiness",
     "build_job_queue",
     "build_job_scheduler",
     "schedule_specs",
@@ -72,3 +94,89 @@ def build_job_scheduler(
 ) -> JobScheduler:
     """Wire the scheduler to the schedule table and the queue it publishes to."""
     return JobScheduler(schedules=schedules, queue=queue, uow=uow, clock=clock)
+
+
+@dataclass(frozen=True, slots=True)
+class QueueReadiness:
+    """Whether the job table answers; an unmigrated database has no ``jobs``."""
+
+    queue: JobQueue
+
+    def __call__(self) -> bool:
+        # A `TypeError` is a bug and is not swallowed.
+        try:
+            self.queue.list_jobs(limit=1)
+        except SQLAlchemyError, OSError:
+            return False
+        return True
+
+
+class JobsProvider(Provider):
+    """The job tables, the queue over them, its scheduler and the worker loop."""
+
+    scope = Scope.APP
+
+    @provide
+    def jobs(self, database: Database) -> JobStore:
+        return JobTable(database)
+
+    @provide
+    def schedules(self, database: Database) -> ScheduleStore:
+        return ScheduleTable(database)
+
+    @provide
+    def queue(self, settings: Settings, jobs: JobStore, clock: Clock) -> JobQueue:
+        return build_job_queue(
+            jobs=jobs, retention=settings.history_retention, clock=clock
+        )
+
+    @provide
+    def scheduler(
+        self, schedules: ScheduleStore, queue: JobQueue, uow: UnitOfWork, clock: Clock
+    ) -> JobScheduler:
+        return build_job_scheduler(
+            schedules=schedules, queue=queue, uow=uow, clock=clock
+        )
+
+    @provide
+    def readiness(self, queue: JobQueue) -> QueueReadiness:
+        return QueueReadiness(queue)
+
+    @provide
+    def monitor(self, settings: Settings, clock: Clock) -> Iterator[WorkerMonitor]:
+        monitor = WorkerMonitor(settings.state_dir / "workers", clock=clock)
+        try:
+            yield monitor
+        finally:
+            monitor.stop()
+
+    @provide
+    def worker_history(self, monitor: WorkerMonitor) -> WorkerHistory:
+        return monitor
+
+    @provide
+    def worker_progress(self, monitor: WorkerMonitor) -> WorkerProgress:
+        return monitor
+
+    @provide
+    def queued_operations(
+        self, queue: JobQueue, runs: OperationRuns
+    ) -> OperationService:
+        return OperationService(queue=queue, kinds=runs)
+
+    @provide
+    def runner(
+        self,
+        settings: Settings,
+        queue: JobQueue,
+        scheduler: JobScheduler,
+        progress: WorkerProgress,
+        clock: Clock,
+    ) -> JobRunner:
+        return JobRunner(
+            queue=queue,
+            scheduler=scheduler,
+            poll_seconds=settings.worker_poll_seconds,
+            clock=clock,
+            progress=progress,
+        )

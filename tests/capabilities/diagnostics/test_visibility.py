@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from support.control_plane import cli_control_plane, control_plane_app
+from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.domain import BackupComponent, BackupRecord
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.capabilities.workflows.service.coordinator import WorkflowCoordinator
-from blitzecdn.composition import Repository
 from blitzecdn.core.ports.clock import system_clock
 from blitzecdn.entrypoints.cli.main import app
 
@@ -30,7 +30,7 @@ from blitzecdn.entrypoints.cli.main import app
 def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp_path):
     now = datetime(2026, 1, 1, tzinfo=UTC)
     moment = [now]
-    repository = Repository(settings.database_path, clock=lambda: moment[0])
+    repository = Stores(settings.database_path, clock=lambda: moment[0])
     repository.workflows.create("finished", "certificate", "operator")
     moment[0] += timedelta(seconds=12)
     repository.workflows.advance("finished", WorkflowStatus.SUCCEEDED)
@@ -179,7 +179,7 @@ def test_status_cli_uses_the_same_service(settings, monkeypatch):
 
 
 def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "operator", "site-a")
     coordinator = WorkflowCoordinator(
         journal=repository.workflows,

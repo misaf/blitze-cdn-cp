@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dishka import Provider, Scope, provide
+
 from blitzecdn.capabilities.cache.adapters import CachePlaybooks
 from blitzecdn.capabilities.cache.ports import CacheUsage
 from blitzecdn.capabilities.cache.service import CacheService
@@ -33,4 +35,23 @@ def build_cache_service(
     )
 
 
-__all__ = ["__version__", "build_cache_service"]
+__all__ = ["CacheProvider", "__version__", "build_cache_service"]
+
+
+class CacheProvider(Provider):
+    """Purging and cache statistics."""
+
+    scope = Scope.APP
+
+    @provide
+    def service(
+        self,
+        sites: SiteReader,
+        events: EventRecorder,
+        fleet: PlaybookRunner,
+        usage: CacheUsage,
+        clock: Clock,
+    ) -> CacheService:
+        return build_cache_service(
+            sites=sites, events=events, fleet=fleet, usage=usage, clock=clock
+        )

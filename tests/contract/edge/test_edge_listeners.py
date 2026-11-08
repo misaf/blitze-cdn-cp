@@ -24,6 +24,7 @@ from support.edge_render import (
     seed_site,
 )
 from support.policy import site_from_settings
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import Domain
@@ -34,7 +35,6 @@ from blitzecdn.capabilities.http.contract import (
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
-from blitzecdn.composition import Repository
 
 REQUIRES_CAPABILITIES = {
     "test_http3_is_additive_and_limited_to_udp_443": ("http3",),
@@ -163,7 +163,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
     are required by the edge and Nginx argument specs, so core writes the
     baseline and the HTTP/3 provider overrides the values, tested there.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     for name in ("zeta", "alpha"):

@@ -17,6 +17,7 @@ from support.control_plane import (
     host_run,
     seed_site,
 )
+from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry
@@ -26,7 +27,6 @@ from blitzecdn.capabilities.traffic.domain import (
     LogCursor,
     UsageBatch,
 )
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
@@ -149,7 +149,7 @@ def test_cache_purge_reports_an_unserved_host_without_a_traceback(
 
 def _seed_stats(settings):
     hour = datetime(2026, 10, 27, 9, tzinfo=UTC)
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.traffic.apply(
         "edge-a",
         CollectedUsage(

@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.pool import NullPool, QueuePool
 from support.control_plane import advance, build_application
 from support.policy import domain_from_settings, site_from_settings
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
@@ -21,6 +22,7 @@ from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.http.contract import HeaderPolicy
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.releases.wiring import StoredCanonicalState
 from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
@@ -67,7 +69,7 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
     Change a row and the hosts change; stop producing a name and it stops
     existing. Nothing can write a host directly.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
@@ -95,7 +97,7 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
 
 
 def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_payload):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     site = site_from_settings(site_payload)
 
     event = repository.audit_log.audit(
@@ -110,7 +112,7 @@ def test_the_audit_log_keeps_only_its_retention(settings):
 
     The count stops climbing and the newest entries survive.
     """
-    repository = Repository(settings.database_path, audit_retention=5)
+    repository = Stores(settings.database_path, audit_retention=5)
 
     for index in range(20):
         repository.audit_log.audit("alice", f"site.updated.{index}", "site", "s")
@@ -124,7 +126,7 @@ def test_the_audit_log_keeps_only_its_retention(settings):
 
 def test_pruning_the_audit_log_leaves_the_ids_of_survivors_alone(settings):
     """An id is what `get_audit_event` is called with, so it has to stay put."""
-    repository = Repository(settings.database_path, audit_retention=3)
+    repository = Stores(settings.database_path, audit_retention=3)
 
     for index in range(10):
         repository.audit_log.audit("alice", f"a{index}", "site", "s")
@@ -137,7 +139,7 @@ def test_pruning_the_audit_log_leaves_the_ids_of_survivors_alone(settings):
 
 def test_an_audit_log_under_its_retention_loses_nothing(settings):
     """The common case: the delete runs on every append and finds no row."""
-    repository = Repository(settings.database_path, audit_retention=1000)
+    repository = Stores(settings.database_path, audit_retention=1000)
 
     for index in range(25):
         repository.audit_log.audit("alice", f"a{index}", "site", "s")
@@ -209,7 +211,7 @@ def test_visitor_headers_survive_persistence_and_compilation(
 
     So it can only be lost by a round trip that drops unknown keys.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _seed(
         repository,
         domain_payload,
@@ -233,7 +235,7 @@ def test_visitor_headers_survive_persistence_and_compilation(
 def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
     settings, domain_payload, record_payload, site_payload
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
@@ -258,7 +260,7 @@ def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
 def test_deployment_transitions_releases_and_recovery(
     settings, domain_payload, record_payload, site_payload
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _seed(repository, domain_payload, record_payload, site_payload)
     release = _release(repository)
     deployment = repository.deployments.create_deployment(
@@ -296,7 +298,7 @@ def test_a_transition_waits_out_another_writer_instead_of_failing(
     and SQLite fails its upgrade to a writer at once with "database is locked",
     whatever the busy timeout. One conditional UPDATE waits and then applies.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _seed(repository, domain_payload, record_payload, site_payload)
     release = _release(repository)
     deployment = repository.deployments.create_deployment(
@@ -325,7 +327,7 @@ def test_a_transition_waits_out_another_writer_instead_of_failing(
 def test_rollback_target_requires_different_success(
     settings, domain_payload, record_payload, site_payload
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     _seed(repository, domain_payload, record_payload, site_payload)
     current = _release(repository)
     deployment = repository.deployments.create_deployment(
@@ -338,7 +340,7 @@ def test_rollback_target_requires_different_success(
 
 
 def test_release_inputs_read_every_table_in_one_transaction(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     connections: list[int] = []
 
     def observe(method):
@@ -357,7 +359,12 @@ def test_release_inputs_read_every_table_in_one_transaction(settings, monkeypatc
         repository.zones, "list_records", observe(repository.zones.list_records)
     )
 
-    repository.release_inputs()
+    StoredCanonicalState(
+        zones=repository.zones,
+        rules=repository.rules,
+        settings=repository.ansible_settings,
+        uow=repository,
+    ).release_inputs()
 
     assert len(connections) == 2
     assert len(set(connections)) == 1
@@ -365,10 +372,10 @@ def test_release_inputs_read_every_table_in_one_transaction(settings, monkeypatc
 
 def test_transactions_never_leak_between_repository_instances(settings):
     """An ambient session is scoped to its database, not merely its context."""
-    first = Repository(settings.database_path)
+    first = Stores(settings.database_path)
     other = settings.database_path.with_name("other-control-plane.db")
     DatabaseSchema.migrate(other)
-    second = Repository(other)
+    second = Stores(other)
 
     with first.transaction():
         first.zones.create_domain(Domain(name="first.example"))
@@ -379,7 +386,7 @@ def test_transactions_never_leak_between_repository_instances(settings):
 
 
 def test_failed_nested_use_case_rolls_back_every_store_and_resets_the_session(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     with pytest.raises(RuntimeError, match="nested failure"), repository.transaction():
         repository.zones.create_domain(Domain(name="example.com"))
@@ -396,7 +403,7 @@ def test_failed_nested_use_case_rolls_back_every_store_and_resets_the_session(se
 
 
 def test_workflow_progress_is_durable(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     workflow = repository.workflows.create(
         "workflow-1", "certificate", "alice", "example-com"
     )
@@ -411,12 +418,12 @@ def test_workflow_progress_is_durable(settings):
 
 def test_deployment_requirements_are_durable_and_idempotent(settings):
     kind = DeploymentRequirementKind.CERTIFICATES
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.deployment_requirements.require(kind)
     repository.deployment_requirements.require(kind)
     repository.close()
 
-    reopened = Repository(settings.database_path)
+    reopened = Stores(settings.database_path)
     assert reopened.deployment_requirements.pending(kind)
     reopened.deployment_requirements.clear(kind, through=datetime.now(UTC))
     assert not reopened.deployment_requirements.pending(kind)
@@ -426,7 +433,7 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
     """Clearing is bounded, so material newer than a deployment stays owed."""
     kind = DeploymentRequirementKind.CERTIFICATES
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     before = datetime.now(UTC)
     repository.deployment_requirements.require(kind)
 
@@ -442,7 +449,7 @@ def test_a_requirement_raised_after_the_bound_survives_a_clear(settings):
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):
     """The column stores the enum's string value, asserted directly."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.deployment_requirements.require(DeploymentRequirementKind.CERTIFICATES)
     connection = sqlite3.connect(settings.database_path)
     try:
@@ -457,7 +464,7 @@ def test_a_requirement_is_stored_under_its_enum_value(settings):
 
 
 def test_begin_immediate_reserves_the_cross_process_writer(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     other = sqlite3.connect(settings.database_path, timeout=0.01)
     try:
         with (
@@ -470,7 +477,7 @@ def test_begin_immediate_reserves_the_cross_process_writer(settings):
 
 
 def test_record_updates_detect_a_stale_expected_version(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.zones.create_domain(Domain(name="example.com"))
     original = repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", proxied=False, value="192.0.2.1")
@@ -497,7 +504,7 @@ def test_edge_updates_detect_a_stale_expected_version(settings):
     read, so a racing edit is refused. Against the real store, since the read,
     comparison and write must happen inside one `BEGIN IMMEDIATE`.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     original = repository.edges.create_edge(
         Edge.model_validate({"name": "edge-a", "host": "edge-a.example.net"})
     )
@@ -537,7 +544,7 @@ def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
     could reach a connection variable and a reserved one could override a derived
     value.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     with pytest.raises(ValueError, match=message):
         repository.ansible_settings.set_setting(name, "anything")
@@ -561,7 +568,7 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
 
     Real deployments within their own, separate bound survive.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     release = _release(repository)
     real = [
         repository.deployments.create_deployment(
@@ -588,7 +595,7 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
 
 @pytest.mark.parametrize("running", [False, True])
 def test_history_retention_preserves_unfinished_drift_progress(settings, running):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     release = _release(repository)
     unfinished = repository.deployments.create_deployment(
         "scheduler", release_id=release.id, check_mode=True
@@ -633,7 +640,7 @@ def test_deployment_retention_bounds_real_runs_and_keeps_rollback_targets(settin
     Within the newest runs nothing goes. Beyond them only each recent release's
     newest successful full-fleet run stays, which is what rollback picks from.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     old, middle, current = (
         _release_marked(repository, marker) for marker in ("old", "middle", "now")
     )
@@ -669,7 +676,7 @@ def test_deployment_retention_bounds_real_runs_and_keeps_rollback_targets(settin
 
 
 def test_deployment_retention_bounds_rollback_targets_to_recent_releases(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     releases = [_release_marked(repository, str(index)) for index in range(5)]
     runs = [
         _finish(repository, "alice", release, DeploymentStatus.SUCCEEDED)
@@ -683,7 +690,7 @@ def test_deployment_retention_bounds_rollback_targets_to_recent_releases(setting
 
 def test_deployment_retention_keeps_what_a_surviving_rollback_names(settings):
     """``rollback_of`` is a foreign key: the run it names must outlive it."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     first, second = (_release_marked(repository, marker) for marker in ("a", "b"))
     origin = _finish(repository, "alice", second, DeploymentStatus.FAILED)
     for _ in range(3):
@@ -703,7 +710,7 @@ def test_deployment_retention_keeps_what_a_surviving_rollback_names(settings):
 
 def test_deployment_retention_never_drops_an_unfinished_real_run(settings):
     """Unfinished runs are kept apart from the bound, so they never use it up."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     release = _release(repository)
     finished = [
         _finish(repository, "alice", release, DeploymentStatus.FAILED) for _ in range(3)
@@ -723,7 +730,7 @@ def test_deployment_retention_never_drops_an_unfinished_real_run(settings):
 
 def test_workflow_retention_never_drops_an_unfinished_one(settings):
     """An unfinished workflow is the record of ambiguous external work."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     for index in range(6):
         workflow = repository.workflows.create(
             f"workflow-{index}", "certificate", "alice", "example-com"
@@ -740,7 +747,7 @@ def test_workflow_retention_never_drops_an_unfinished_one(settings):
 
 def test_workflow_retention_keeps_needs_review_until_it_is_reviewed(settings):
     """Interrupted external work survives pruning until an operator signs off."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "alice")
     repository.workflows.advance("interrupted", WorkflowStatus.NEEDS_REVIEW)
     for index in range(3):
@@ -760,7 +767,7 @@ def test_a_compare_and_swap_outside_a_transaction_is_refused(settings):
     """Outside a Unit of Work the read and write are not atomic, so the store
     refuses rather than risk a lost update or a snapshot-busy error.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.zones.create_domain(Domain(name="example.com"))
     original = repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", proxied=False, value="192.0.2.1")

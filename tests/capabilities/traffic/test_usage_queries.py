@@ -14,6 +14,7 @@ from support.control_plane import (
     control_plane_app,
     serve,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.traffic.domain import (
     UsageBatch,
     UsageQuery,
 )
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 START = "2026-10-27T09:00:00Z"
@@ -63,7 +63,7 @@ def seed(store):
 
 
 def test_database_filters_boundaries_order_and_sql_pagination(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     seed(repository.traffic)
     statements = []
     event.listen(
@@ -107,7 +107,7 @@ def test_database_filters_boundaries_order_and_sql_pagination(settings):
 @pytest.fixture
 def usage_client(settings, monkeypatch):
     control = cli_control_plane(settings, monkeypatch)
-    repository = control.container.get(Repository)
+    repository = control.repository
     seed(repository.traffic)
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:

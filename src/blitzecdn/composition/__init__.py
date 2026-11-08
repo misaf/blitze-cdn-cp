@@ -1,10 +1,11 @@
 """Where the application is put together, and the only place that decides.
 
-``roster`` lists the features and what each binds; ``infrastructure`` provides
-the concrete adapters; ``services`` the service graph; ``processes`` one
-dishka container per process; ``installation`` database maintenance;
-``repository`` which stores share the database. Import only the names
-re-exported here.
+``roster`` lists the features, the provider each builds its services with, and
+what each binds; ``infrastructure`` provides the concrete adapters;
+``bindings`` which capability satisfies another's port; ``services`` binds the
+features' behaviour; ``processes`` one dishka container per process;
+``installation`` database maintenance; ``repository`` the database and the
+stores no single capability owns. Import only the names re-exported here.
 """
 
 from blitzecdn.composition.infrastructure import (
@@ -31,7 +32,7 @@ from blitzecdn.composition.roster import (
     compose_registry,
     load_registry,
 )
-from blitzecdn.composition.services import ServiceProvider
+from blitzecdn.composition.services import ServiceProvider, service_providers
 
 __all__ = [
     "BUILTIN_FEATURES",
@@ -52,5 +53,6 @@ __all__ = [
     "handoff_container",
     "load_registry",
     "migrate_database",
+    "service_providers",
     "worker_container",
 ]

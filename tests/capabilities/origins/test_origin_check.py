@@ -14,8 +14,7 @@ from support.control_plane import (
     origin_report,
     seed_site,
 )
-
-from blitzecdn.composition import Repository
+from support.stores import Stores
 
 
 def origin_checks(
@@ -40,7 +39,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     answer one and not the other. The controller only describes the origin (port
     and SNI), so the two probes agree on what it is.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control)
@@ -58,7 +57,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
 
 def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
     """The distinction a single vantage point could never have made."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -82,7 +81,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
 
 def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
     """An edge that said nothing has not confirmed anything."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -98,7 +97,7 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
 
 def test_a_disabled_site_is_not_probed(settings, site_payload):
     """The edge will not proxy to it, so its origin being down says nothing."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control, enabled=False)
@@ -111,7 +110,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
 
 def test_the_check_takes_no_deployment_lock(settings, site_payload):
     """An origin check that had to wait for a deploy is useless before one."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control)
