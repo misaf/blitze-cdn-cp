@@ -66,10 +66,10 @@ if have git; then ok git; else missing local git 'install Git'; fi
 if have just; then ok just; else missing local just 'https://just.systems/man/en/packages.html'; fi
 if have uv; then
   ok "uv $(uv --version 2>/dev/null | awk '{print $2}')"
-  if uv python find '>=3.12' >/dev/null 2>&1; then
-    ok "Python $(uv run --no-sync python -c 'import platform; print(platform.python_version())' 2>/dev/null || uv python find '>=3.12')"
+  if uv python find '>=3.15.2' >/dev/null 2>&1; then
+    ok "Python $(uv run --no-sync python -c 'import platform; print(platform.python_version())' 2>/dev/null || uv python find '>=3.15.2')"
   else
-    missing local 'Python 3.12 or later' 'uv python install 3.14'
+    missing local 'Python 3.15.2 or later' 'uv python install 3.15.2'
   fi
   if uv sync --frozen --check >/dev/null 2>&1; then
     ok 'project environment matches uv.lock'

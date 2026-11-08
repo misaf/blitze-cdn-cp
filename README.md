@@ -13,9 +13,11 @@ Collection endpoints share the [pagination contract](docs/api-pagination.md).
 
 ## Local development
 
-Use Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and
-[just](https://just.systems/). CI runs the main quality gate on Python 3.14 and
-compatibility tests on 3.12 and 3.13. Run commands from the repository root.
+Use Python 3.15.2 or later, [uv](https://docs.astral.sh/uv/), and
+[just](https://just.systems/). `.python-version` makes uv pick 3.15.2, the
+interpreter CI and the control-plane image run. Scripts that run on edges keep
+a lower floor; see the [Ansible quick start](src/blitzecdn/assets/ansible/README.md).
+Run commands from the repository root.
 
 Docker and a global Ansible are not required: Ansible comes from the project
 environment, and the checks that need Docker run in GitHub Actions. See

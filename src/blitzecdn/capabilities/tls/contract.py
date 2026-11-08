@@ -38,7 +38,7 @@ class CertificateVersion(BaseModel):
     @classmethod
     def from_paths(
         cls, site_name: str, certificate: str, key: str
-    ) -> "CertificateVersion":
+    ) -> CertificateVersion:
         prefix = f"{MANAGED_TLS_ROOT}/{site_name}/"
         chain = re.fullmatch(
             re.escape(prefix) + r"fullchain-([0-9a-f]{64})\.pem", certificate
