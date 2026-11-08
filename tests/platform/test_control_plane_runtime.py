@@ -8,6 +8,7 @@ from typing import Any
 
 import jinja2
 import yaml
+from support.install import role_tasks
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.assets.docker import (
@@ -153,7 +154,7 @@ def test_host_wrapper_passes_the_empty_sites_override_only_when_set():
 
 
 def test_firewall_reads_the_same_normalized_environment_as_compose():
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
+    tasks = role_tasks()
     read = next(
         task
         for task in tasks
@@ -163,7 +164,7 @@ def test_firewall_reads_the_same_normalized_environment_as_compose():
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = role_tasks()
     probe = next(
         task
         for task in tasks
@@ -194,10 +195,10 @@ def test_container_ssh_uses_the_mounted_controller_configuration():
 
 
 def test_upgrade_recreates_containers_and_uninstall_removes_the_project():
-    role_tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks_in_role = role_tasks()
     recreate = next(
         task
-        for task in role_tasks
+        for task in tasks_in_role
         if task.get("name") == "Recreate and start the control-plane services"
     )
     assert recreate["ansible.builtin.command"]["argv"][-4:] == [
@@ -252,7 +253,7 @@ def test_host_has_no_blitzecdn_service_account_contract():
     ):
         assert obsolete not in document
 
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = role_tasks()
     users = [
         task["ansible.builtin.user"] for task in tasks if "ansible.builtin.user" in task
     ]
@@ -266,7 +267,7 @@ def test_host_has_no_blitzecdn_service_account_contract():
 
 
 def test_host_permissions_match_container_write_requirements():
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = role_tasks()
 
     def file_task(name: str) -> dict[str, Any]:
         return next(
@@ -333,7 +334,7 @@ def test_scheduled_backups_run_through_the_host_wrapper_and_prune_after():
 
 
 def test_the_backup_timer_follows_its_schedule_and_the_services():
-    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = role_tasks()
     names = [task["name"] for task in tasks]
     install = names.index("Install the scheduled backup units")
     assert names.index("Wait for the API and worker containers to become healthy") < (
