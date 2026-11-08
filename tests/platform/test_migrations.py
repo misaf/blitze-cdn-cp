@@ -18,9 +18,9 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from support.paths import REPO_ROOT, SOURCE
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.schema import DatabaseSchema
@@ -61,7 +61,7 @@ def test_migrating_an_empty_file_produces_a_usable_database(tmp_path):
     path = tmp_path / "control-plane.db"
     command.upgrade(_config(path), "head")
 
-    repository = Repository(path)
+    repository = Stores(path)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", value="203.0.113.10")
@@ -316,7 +316,7 @@ def test_a_database_from_the_retired_single_baseline_is_refused(tmp_path):
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):
     path = tmp_path / "missing" / "controller.db"
     with pytest.raises(ConfigurationError, match="blitzecdn setup"):
-        Repository(path)
+        Stores(path)
     assert not path.parent.exists()
 
 
@@ -334,7 +334,7 @@ def test_repository_refuses_an_unprepared_schema_without_modifying_it(
         connection.commit()
     before = path.read_bytes()
     with pytest.raises(ConfigurationError, match="blitzecdn migrate"):
-        Repository(path)
+        Stores(path)
     assert path.read_bytes() == before
     assert sorted(item.name for item in tmp_path.iterdir()) == [path.name]
 
@@ -349,7 +349,7 @@ def test_validated_startup_is_read_only_and_never_calls_upgrade(tmp_path, monkey
         pytest.fail("repository startup attempted schema migration")
 
     monkeypatch.setattr(command, "upgrade", forbidden)
-    Repository(path).close()
+    Stores(path).close()
     assert path.read_bytes() == before
     assert sorted(item.name for item in tmp_path.iterdir()) == [path.name]
 
@@ -364,7 +364,7 @@ def test_migration_and_inspection_support_uri_and_interpolation_characters(tmp_p
             _config(tmp_path / "unused.db")
         ).get_current_head()
     )
-    repository = Repository(path)
+    repository = Stores(path)
     repository.zones.create_domain(Domain(name="example.com"))
     assert repository.zones.get_domain("example.com").name == "example.com"
     repository.close()
@@ -393,7 +393,7 @@ def test_concurrent_migration_processes_initialize_one_database(tmp_path):
     for process in processes:
         _, error = process.communicate(timeout=30)
         assert process.returncode == 0, error.decode()
-    Repository(path).close()
+    Stores(path).close()
 
 
 def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
@@ -403,7 +403,7 @@ def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
     DatabaseSchema.migrate(path)
 
     def open_and_close(_):
-        repository = Repository(path)
+        repository = Stores(path)
         try:
             assert repository.zones.list_domains() == []
         finally:
@@ -416,7 +416,7 @@ def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
 def test_runtime_connection_cannot_recreate_a_removed_database(tmp_path):
     path = tmp_path / "controller.db"
     DatabaseSchema.migrate(path)
-    repository = Repository(path)
+    repository = Stores(path)
     path.unlink()
     from sqlalchemy.exc import OperationalError
 

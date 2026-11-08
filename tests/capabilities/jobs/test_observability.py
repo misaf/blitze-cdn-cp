@@ -7,18 +7,18 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.adapters import monitor as monitor_module
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
 from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
 from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner
-from blitzecdn.composition import Repository
 from blitzecdn.core.ports.clock import system_clock
 
 
 def test_queue_aggregates_cover_all_rows_and_exclude_future_jobs(settings):
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    repository = Repository(settings.database_path, clock=lambda: now)
+    repository = Stores(settings.database_path, clock=lambda: now)
     with repository.transaction():
         for index in range(150):
             repository.jobs.enqueue(
@@ -45,7 +45,7 @@ def test_queue_aggregates_cover_all_rows_and_exclude_future_jobs(settings):
 
 
 def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     entered, release, pulsed = threading.Event(), threading.Event(), threading.Event()
     observed = []
     write = monitor_module.atomic_write_bytes
@@ -134,7 +134,7 @@ def test_reporting_failure_does_not_stop_the_worker(tmp_path, monkeypatch, caplo
 
 @pytest.mark.parametrize("status", ["failed", "succeeded"])
 def test_completed_jobs_remain_in_retained_counts(settings, status):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     now = repository.database.now()
     repository.jobs.enqueue(kind="example", payload={}, available_at=now)
     claim = repository.jobs.claim(worker="worker-a", now=now, lease_seconds=5)
@@ -149,7 +149,7 @@ def test_completed_jobs_remain_in_retained_counts(settings, status):
 
 
 def test_job_logs_have_correlation_and_duration_without_payloads(settings, caplog):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = JobQueue(
         jobs=repository.jobs,
         handlers={"example": lambda _: DONE},

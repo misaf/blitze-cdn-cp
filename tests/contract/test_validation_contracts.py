@@ -17,9 +17,9 @@ from support.contracts import (
 )
 from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import Rule
-from blitzecdn.composition import Repository
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 
 # ----------------------------------------------------------------------
@@ -363,7 +363,7 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
     A host exists because hostnames resolve to it, so one with none cannot be
     published; this checks the derivation leaves them out.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     seed_site(repository, name="example-com", label="cdn", origin="198.51.100.20")
     # A rule matching a hostname no record claims: the "awaiting DNS" case.

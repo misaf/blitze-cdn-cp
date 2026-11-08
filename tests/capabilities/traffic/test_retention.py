@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, insert, select
 from support.control_plane import build_application, with_capability_settings
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.traffic.adapters.tables import (
@@ -16,7 +17,6 @@ from blitzecdn.capabilities.traffic.adapters.tables import (
 from blitzecdn.capabilities.traffic.domain import CollectedUsage, UsageQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
-from blitzecdn.composition import Repository
 from blitzecdn.core.ports.clock import system_clock
 
 NOW = datetime(2027, 2, 1, 12, 30, tzinfo=UTC)
@@ -25,7 +25,7 @@ CUTOFF = datetime(2027, 1, 2, 12, tzinfo=UTC)
 
 @pytest.fixture
 def retention_store(settings):
-    repository = Repository(settings.database_path, clock=lambda: NOW)
+    repository = Stores(settings.database_path, clock=lambda: NOW)
     yield repository.traffic, repository
     repository.close()
 
@@ -63,9 +63,7 @@ def test_cutoff_is_hour_aligned_inclusive_and_persists_across_restarts(
     assert rows(store).total == 1
     assert rows(store).items[0].hour == CUTOFF
     repository.close()
-    with_restart = Repository(
-        settings.database_path, clock=lambda: NOW - timedelta(days=5)
-    )
+    with_restart = Stores(settings.database_path, clock=lambda: NOW - timedelta(days=5))
     try:
         # Longer retention and clock rollback cannot reopen discarded history.
         assert with_restart.traffic.prune(90).cutoff == CUTOFF

@@ -17,11 +17,11 @@ from support.control_plane import (
     seed_edge,
     serve,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.traffic.domain import EdgeCollection
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli import main as cli
@@ -203,7 +203,7 @@ def test_disabled_retired_and_unknown_edges_and_restart(tracked, settings):
     control.repository.edges.delete_edge("edge-a")
     status = service.status("edge-a")
     assert not status.registered and status.state == "disabled"
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     try:
         assert repository.traffic.collection_status("edge-a").last_caught_up_at == NOW
     finally:

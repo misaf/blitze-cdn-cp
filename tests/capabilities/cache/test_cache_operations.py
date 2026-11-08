@@ -9,10 +9,10 @@ from support.control_plane import (
     host_run,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 
@@ -35,7 +35,7 @@ def _site(control, name="cdn", domain="example.com", **policy):
 
 
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control)
@@ -57,7 +57,7 @@ def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
 
 def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     """Otherwise it reports success having removed nothing."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control)
@@ -71,7 +71,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
 
 def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     """nginx matches *.example.com to a.example.com, so purge must too."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control, name="*", domain="assets.example.com")
@@ -88,7 +88,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
 
 
 def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control, cache_query_string_mode="ignore")
@@ -115,7 +115,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     Purging an unserved scheme would delete nothing while every edge reports
     success.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control)
@@ -134,7 +134,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
 
 def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     """Port 80 only answers 301 for a TLS site, so it caches nothing."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(
@@ -159,7 +159,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
 
 
 def test_a_purge_for_a_disabled_site_is_refused(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = build_application(settings=settings, repository=repository, runner=fake)
     _site(control, name="off", enabled=False)
@@ -171,7 +171,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
 
 
 def test_purging_everything_and_named_entries_at_once_is_refused(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -190,7 +190,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
 def test_a_purge_with_nothing_to_do_is_refused(settings):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     with pytest.raises(ConflictError):
@@ -201,7 +201,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
     """--all is about the cache on disk, not about what is currently declared."""
     fake = FakeRunner([_purge_run()])
     control = build_application(
-        settings=settings, repository=Repository(settings.database_path), runner=fake
+        settings=settings, repository=Stores(settings.database_path), runner=fake
     )
 
     result = control.cache.purge_cache("alice", purge_all=True)
@@ -212,7 +212,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
 
 def test_a_partial_purge_is_reported_as_incomplete(settings):
     """Some edges dropped the object and some did not: clients see both."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     partial = ansible_run(
         host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
@@ -234,7 +234,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
 
 def test_a_purge_no_edge_answered_is_an_error(settings):
     """Silence is not success: the object may still be served everywhere."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -252,7 +252,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
 
 
 def test_a_purge_is_recorded_in_the_audit_trail(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner([_purge_run()])
     )

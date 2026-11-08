@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Protocol
+from typing import Any, NewType, Protocol
 
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentGateway,
@@ -28,6 +28,10 @@ from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
+
+#: How long one Certbot run may take. Issuance runs under the deployment lock,
+#: so the composition root hands it the deployment budget.
+CertbotTimeout = NewType("CertbotTimeout", int)
 
 
 class SiteWriter(Protocol):
@@ -130,6 +134,7 @@ class WorkflowCoordinator(Protocol):
 
 
 __all__ = [
+    "CertbotTimeout",
     "CertificateStore",
     "DeploymentGateway",
     "DeploymentLocker",

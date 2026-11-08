@@ -40,7 +40,7 @@ def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
     deployments it can never run.
     """
     monkeypatch.setattr(
-        "blitzecdn.composition.infrastructure.QueueReadiness.__call__",
+        "blitzecdn.capabilities.jobs.wiring.QueueReadiness.__call__",
         lambda _readiness: False,
     )
     with TestClient(control_plane_app(settings)) as client:

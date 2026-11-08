@@ -194,18 +194,20 @@ are internal composition interfaces.
 
 For a new capability, follow the skeleton and dependency rules in
 `tests/architecture/` and declare contributions in `feature.py`. Routes and
-commands then reach the API and CLI through the feature registry, but the
-composition root wires every capability by name. A new capability touches:
+commands then reach the API and CLI through the feature registry, and the
+capability builds its own stores and services in a dishka `Provider` in its
+`wiring.py`. A new capability touches:
 
 - [composition/roster.py](src/blitzecdn/composition/roster.py): a
-  `RosterEntry` for its feature module, with its rendering and operations
-  binders if it has any.
-- [composition/repository.py](src/blitzecdn/composition/repository.py): its
-  persistence stores, if it keeps state in the controller database.
-- [composition/services.py](src/blitzecdn/composition/services.py): providers
-  for its services, built by the capability's own `wiring.py`.
+  `RosterEntry` for its feature module, with its provider and its rendering,
+  operations and queued-operation binders if it has any.
 - An Alembic migration under `src/blitzecdn/assets/migrations/versions/` for
   any new tables (see below).
+
+Its provider asks for its own ports. When another capability's object
+satisfies one and the declared capability graph does not let either provider
+name the other, [composition/bindings.py](src/blitzecdn/composition/bindings.py)
+binds the port to it.
 
 Keep API and CLI handlers thin and test their shared behavior through the
 service.

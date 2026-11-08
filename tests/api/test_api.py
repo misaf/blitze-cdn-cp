@@ -11,12 +11,12 @@ from support.control_plane import (
     seed_site_over_http,
     serve,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.dns.api.models import CdnSite as CdnSiteModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import (
     ConfigurationError,
@@ -62,7 +62,7 @@ def test_the_api_carries_every_policy_field_the_domain_has():
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     workflow = repository.workflows.create(
         "interrupted", "certificate", "alice", "example-com"
     )
@@ -80,7 +80,7 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
 
 
 def test_an_interrupted_workflow_is_acknowledged_once(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     workflow = repository.workflows.create(
         "interrupted", "certificate", "alice", "example-com"
     )
@@ -544,7 +544,7 @@ def _queued_removal(settings, monkeypatch, path):
     """DELETE an edge, run the queued removal as the worker would, and read it."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     serve(monkeypatch, control)

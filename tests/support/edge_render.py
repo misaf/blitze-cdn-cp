@@ -23,7 +23,7 @@ from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
-from blitzecdn.composition import Repository, load_registry
+from blitzecdn.composition import load_registry
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_nginx_resources
@@ -38,6 +38,7 @@ from support.contracts import (
 )
 from support.paths import CORE_ANSIBLE
 from support.policy import domain_from_settings, site_from_settings
+from support.stores import Stores
 
 #: The roles ship with this control plane, so these tests never skip.
 ROLES_DIR = CORE_ANSIBLE / "roles"
@@ -132,7 +133,7 @@ def _capability_defaults() -> dict[str, Any]:
 
 
 def seed_site(
-    repository: Repository, *, name: str, label: str, origin: str, **policy: Any
+    repository: Stores, *, name: str, label: str, origin: str, **policy: Any
 ) -> None:
     """A zone carrying the policy, and one proxied hostname in it.
 

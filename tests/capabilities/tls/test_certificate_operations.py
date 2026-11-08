@@ -28,6 +28,7 @@ from support.control_plane import (
     seed_site,
     with_capability_settings,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
@@ -45,7 +46,6 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode, TlsPolicy
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.ports.clock import system_clock
 
@@ -65,7 +65,7 @@ def test_issuance_is_outside_activation_transaction_and_failure_keeps_evidence(
     class Issuer:
         def issue(self, site, email):
             assert control.transactions.database.current_session() is None
-            other = Repository(settings.database_path)
+            other = Stores(settings.database_path)
             try:
                 (workflow,) = other.workflows.list_workflows()
                 assert workflow.status is WorkflowStatus.RUNNING
@@ -163,7 +163,7 @@ def test_upload_and_request_certificate_activate_material(settings, certificate_
 def test_first_certificate_for_an_auto_host_releases_https(settings, certificate_pair):
     """An Auto host serves HTTPS from the release after its first certificate,
     without waiting for the scheduled Automatic SSL scan."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner([ansible_run(host_run("edge-a"))]),
@@ -234,7 +234,7 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
     Storing a certificate does not put it on an edge. The gap is recorded
     durably, so a crash cannot lose it, and a check-mode run must not clear it.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(
@@ -343,7 +343,7 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
             ansible_run(host_run("edge-a")),
         ]
     )
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = certificate_control_plane(settings, runner=runner)
     seed_automatic_ssl_record(control)
 
@@ -674,7 +674,7 @@ def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
 
 
 def test_certificate_statuses_report_time_left(settings, certificate_pair):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = certificate_control_plane(settings, runner=FakeRunner())
     proxied_site_with_certificate(control, repository, certificate_pair, days=10)
 
@@ -687,7 +687,7 @@ def test_certificate_statuses_report_time_left(settings, certificate_pair):
 
 
 def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate_pair):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = certificate_control_plane(settings, runner=FakeRunner())
     proxied_site_with_certificate(control, repository, certificate_pair, days=89)
 
@@ -789,7 +789,7 @@ def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
 def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
     settings, certificate_pair
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,
@@ -919,7 +919,7 @@ def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_
 
 
 def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_pair):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     issuer = RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
         settings,

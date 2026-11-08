@@ -27,7 +27,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
-from blitzecdn.composition import FleetRunner, Repository
+from blitzecdn.composition import FleetRunner
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.site import CdnSite
@@ -40,6 +40,7 @@ from support.control_plane import (
     host_run,
     seed_site,
 )
+from support.stores import Stores
 
 #: What `certificate_pair` hands back: a callable making a certificate and its
 #: key. Spelled once because three signatures below take it.
@@ -125,7 +126,7 @@ def certificate_control_plane(
     """
     return build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner if runner is not None else FakeRunner(),
         providers=[
             _Seams(
@@ -253,7 +254,7 @@ class RecordingIssuer:
 
 def proxied_site_with_certificate(
     control: ControlPlane,
-    repository: Repository,
+    repository: Stores,
     certificate_pair: CertificatePair,
     *,
     days: int,

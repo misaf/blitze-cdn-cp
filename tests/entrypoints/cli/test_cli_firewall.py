@@ -10,8 +10,8 @@ from support.control_plane import (
     FakeRunner,
     build_application,
 )
+from support.stores import Stores
 
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 
@@ -22,7 +22,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
@@ -68,7 +68,7 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
     """203.0.113.5/24 means one address to the operator and 256 to nginx."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
@@ -93,7 +93,7 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
 def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
@@ -120,7 +120,7 @@ def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
 def test_cli_firewall_sets_method_and_path_allowlists(settings, monkeypatch):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)
@@ -158,7 +158,7 @@ def test_cli_firewall_sets_method_and_path_allowlists(settings, monkeypatch):
 def test_cli_firewall_switches_case_insensitive_path_matching(settings, monkeypatch):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

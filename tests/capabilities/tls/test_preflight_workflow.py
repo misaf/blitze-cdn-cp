@@ -16,9 +16,9 @@ from support.control_plane import (
     host_run,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError
 
 # ----------------------------------------------------------------------
@@ -34,7 +34,7 @@ def _preflight_control(settings, certificate_pair, failures=()):
     control = certificate_control_plane(
         settings, runner=FakeRunner(), issuer=issuer, preflight=preflight
     )
-    return control, Repository(settings.database_path), issuer, preflight
+    return control, Stores(settings.database_path), issuer, preflight
 
 
 def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificate_pair):
@@ -162,7 +162,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     A deploy in another process owns `generated_vars_path` between writing it and
     Ansible reading it.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     fake = FakeRunner()
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_proxied_record(control)

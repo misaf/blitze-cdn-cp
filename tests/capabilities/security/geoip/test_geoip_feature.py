@@ -121,6 +121,7 @@ def test_a_refreshed_database_reaches_the_fleet_with_the_next_deployment(
 ) -> None:
     """The requirement is owed until a forward fleet run ships the new file."""
     from support.control_plane import FakeRunner, seed_site
+    from support.stores import Stores
 
     from blitzecdn.capabilities.deployments.domain import (
         DeploymentRequirementKind,
@@ -130,9 +131,8 @@ def test_a_refreshed_database_reaches_the_fleet_with_the_next_deployment(
         DATABASE_SHA256_VARIABLE,
     )
     from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
-    from blitzecdn.composition import Repository
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )

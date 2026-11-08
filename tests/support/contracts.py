@@ -19,12 +19,13 @@ import yaml
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
-from blitzecdn.composition import Repository, load_registry
+from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 from support.policy import domain_from_settings
+from support.stores import Stores
 
 jinja2 = pytest.importorskip("jinja2")
 
@@ -256,7 +257,7 @@ def run_role_tasks(
 
 
 def seed_site(
-    repository: Repository,
+    repository: Stores,
     *,
     name: str,
     label: str,
@@ -294,7 +295,7 @@ def seed_site(
 
 @pytest.fixture
 def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     seed_site(

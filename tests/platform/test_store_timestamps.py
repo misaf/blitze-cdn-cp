@@ -12,12 +12,12 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.persistence.tables import AnsibleSettingRow, Base, UtcDateTime
@@ -69,12 +69,12 @@ def test_record_timestamps_are_required():
 def repository(tmp_path):
     path = tmp_path / "control-plane.db"
     DatabaseSchema.migrate(path)
-    repository = Repository(path, clock=lambda: _FROZEN)
+    repository = Stores(path, clock=lambda: _FROZEN)
     yield repository
     repository.close()
 
 
-def _write_through_every_store(repository: Repository) -> None:
+def _write_through_every_store(repository: Stores) -> None:
     repository.ansible_settings.set_setting("blitzecdn_timestamp_probe", 1)
     repository.audit_log.audit("operator", "probe", "test")
     repository.zones.create_domain(Domain(name="example.com"))

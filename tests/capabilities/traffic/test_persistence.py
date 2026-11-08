@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from support.stores import Stores
 
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
@@ -9,7 +10,6 @@ from blitzecdn.capabilities.traffic.domain import (
     LogCursor,
     UsageBatch,
 )
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError
 
 HOUR = datetime(2026, 10, 27, 9, tzinfo=UTC)
@@ -39,7 +39,7 @@ def totals(store, edge="edge-a"):
 
 
 def test_retries_restarts_and_append_only_progress_count_once(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     store = repository.traffic
     first = batch()
     report = CollectedUsage(batches=(first,))
@@ -49,14 +49,14 @@ def test_retries_restarts_and_append_only_progress_count_once(settings):
     store.apply("edge-a", CollectedUsage(batches=(second,)))
     assert store.apply("edge-a", report).requests == 0
     repository.close()
-    reopened = Repository(settings.database_path)
+    reopened = Stores(settings.database_path)
     assert totals(reopened.traffic)[0].requests == 2
     assert reopened.traffic.checkpoints()["edge-a"] == (second.end,)
     reopened.close()
 
 
 def test_edges_and_stream_generations_remain_separate(settings):
-    store = Repository(settings.database_path).traffic
+    store = Stores(settings.database_path).traffic
     store.apply("edge-a", CollectedUsage(batches=(batch("a"), batch("b"))))
     store.apply("edge-b", CollectedUsage(batches=(batch("a"),)))
     assert totals(store)[0].requests == 2
@@ -64,7 +64,7 @@ def test_edges_and_stream_generations_remain_separate(settings):
 
 
 def test_stale_overlapping_batches_are_rejected_without_partial_commits(settings):
-    store = Repository(settings.database_path).traffic
+    store = Stores(settings.database_path).traffic
     first = batch()
     store.apply("edge-a", CollectedUsage(batches=(first,)))
     with pytest.raises(ConflictError, match="progress changed"):
@@ -77,7 +77,7 @@ def test_stale_overlapping_batches_are_rejected_without_partial_commits(settings
 
 
 def test_counter_overflow_rolls_back_cursor_and_all_increments(settings):
-    store = Repository(settings.database_path).traffic
+    store = Stores(settings.database_path).traffic
     first = batch(sent=2**63 - 1)
     store.apply("edge-a", CollectedUsage(batches=(first,)))
     with pytest.raises(ConflictError, match="integer range"):
@@ -87,7 +87,7 @@ def test_counter_overflow_rolls_back_cursor_and_all_increments(settings):
 
 
 def test_outer_failure_rolls_back_totals_and_checkpoint(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     with pytest.raises(RuntimeError), repository.transaction():
         repository.traffic.apply("edge-a", CollectedUsage(batches=(batch(),)))
         raise RuntimeError("audit failed")
@@ -96,7 +96,7 @@ def test_outer_failure_rolls_back_totals_and_checkpoint(settings):
 
 
 def test_independent_database_connections_serialize_duplicate_collections(settings):
-    one, two = Repository(settings.database_path), Repository(settings.database_path)
+    one, two = Stores(settings.database_path), Stores(settings.database_path)
     report = CollectedUsage(batches=(batch(),))
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
