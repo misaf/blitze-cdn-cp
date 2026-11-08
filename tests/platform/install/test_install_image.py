@@ -296,9 +296,14 @@ def engine(tmp_path: Path) -> Path:
         'image="${*: -1}"\n'
         'case "$1 $2" in\n'
         '  "image inspect")\n'
-        '    grep -qxF "${image}" "${state}/present" || exit 1\n'
+        # Like the engine, a tag@digest reference finds the tagged image.
+        '    grep -qxF -e "${image}" -e "${image%@*}" "${state}/present" || exit 1\n'
         '    if [[ "$*" == *RepoDigests* ]]; then\n'
         '      printf "%s\\n" "${REPO_DIGESTS:-}"\n'
+        "    fi\n"
+        # Every present image has the same ID unless IMAGE_ID says otherwise.
+        '    if [[ "$*" == *.Id* ]]; then\n'
+        '      printf "%s\\n" "sha256:${IMAGE_ID:-0123}"\n'
         "    fi\n"
         "    exit 0 ;;\n"
         "  pull*)\n"
@@ -391,6 +396,34 @@ def test_an_image_already_present_is_not_pulled_again_but_is_checked(engine: Pat
     assert _verifications(engine) == [
         _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@{digest}")
     ]
+
+
+def test_a_repair_does_not_recheck_the_image_the_services_run(
+    engine: Path, tmp_path: Path
+):
+    """Installed from an archive, say: a re-run finds what is already running."""
+    digest = "sha256:" + "2" * 64
+    (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
+    compose = tmp_path / "control-plane.compose.yml"
+    compose.write_text(f'  image: "{_pin()}"\n', encoding="utf-8")
+    script = tmp_path / "install.sh"
+    script.write_text(
+        SCRIPT.read_text(encoding="utf-8").replace(
+            "/etc/blitzecdn/control-plane.compose.yml", str(compose)
+        ),
+        encoding="utf-8",
+    )
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}"},
+        script=script,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{_pin()}@{digest}\n"
+    assert _verifications(engine) == []
 
 
 def test_an_image_with_no_registry_digest_is_refused_unchecked(engine: Path):

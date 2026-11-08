@@ -550,15 +550,30 @@ obtain_control_plane_image() {
     return 0
   fi
 
+  local pulled=0
   if ! docker image inspect "${image}" >/dev/null 2>&1; then
     echo "Pulling ${image}..." >&2
     pull_image "${image}" || die 1 \
       "error: could not pull the control-plane image ${image}" \
       "Retry, or load it with BLITZECDN_CONTROL_PLANE_ARCHIVE."
+    pulled=1
   fi
   image=$(resolve_image_digest "${image}")
-  verify_control_plane_image "${image}"
+  # A repair re-run finds the image the services already run; it was checked,
+  # or loaded by the operator, when it was installed. Anything else is checked.
+  if [[ ${pulled} -eq 1 ]] || ! is_installed_image "${image}"; then
+    verify_control_plane_image "${image}"
+  fi
   printf '%s\n' "${image}"
+}
+
+# Whether an image is, by ID, the one the installed Compose project runs.
+is_installed_image() {
+  local installed wanted current
+  installed=$(installed_control_plane_image) || return 1
+  wanted=$(docker image inspect --format '{{.Id}}' "$1" 2>/dev/null) || return 1
+  current=$(docker image inspect --format '{{.Id}}' "${installed}" 2>/dev/null) || return 1
+  [[ -n ${wanted} && ${wanted} == "${current}" ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -597,7 +612,8 @@ copy of the source. Fetch this script for the release to install, and check it
 was built by that release before running it:
 
   curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
-  gh attestation verify install.sh --repo misaf/blitze-cdn-cp
+  gh attestation verify install.sh --repo misaf/blitze-cdn-cp \
+    --source-ref refs/tags/vX.Y.Z
 
 The installation leaves that release's installer on the host as
 blitzecdn-install. Re-running standalone repairs the release that is installed
