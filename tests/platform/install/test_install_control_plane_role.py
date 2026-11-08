@@ -178,3 +178,143 @@ def test_edge_platform_is_pinned_to_ubuntu_26_04():
         "ansible_facts.distribution_version == '26.04'",
     ]
     assert "Ubuntu 26.04 LTS" in edge_gate["fail_msg"]
+
+
+# --- recovering from a failed run (#175) ---------------------------------------
+
+
+def _converge_block() -> dict:
+    return role_task("Converge the release this run installs")
+
+
+def test_the_installed_release_is_kept_before_anything_replaces_it():
+    """Each file the release runs from is copied aside before the first writer."""
+    tasks = role_tasks()
+    kept = role_task("Copy the installed release's files aside")
+    named = role_task("Name the files the installed release runs from")
+    files = named["ansible.builtin.set_fact"]["blitzecdn_controlplane_release_files"]
+    for path in (
+        "{{ blitzecdn_controlplane_compose_file }}",
+        "{{ blitzecdn_controlplane_config_dir }}/compose.env",
+        "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.toml",
+        "{{ blitzecdn_controlplane_cli_wrapper }}",
+        "{{ blitzecdn_controlplane_installer }}",
+    ):
+        assert path in files
+    first_writer = role_task("Install the blitzecdn command")
+    assert tasks.index(kept) < tasks.index(first_writer)
+    assert kept["ansible.builtin.copy"]["remote_src"] is True
+    assert kept["ansible.builtin.copy"]["mode"] == "preserve"
+    # An older run's copies never stand in for this installation's.
+    cleared = role_task("Clear the previous release's kept files")
+    assert tasks.index(cleared) < tasks.index(kept)
+
+
+def test_every_step_that_replaces_the_release_is_inside_the_rescued_block():
+    block = _converge_block()["block"]
+    names = [task["name"] for task in block]
+    for step in (
+        "Install the blitzecdn command",
+        "Install the blitzecdn-install command",
+        "Write the non-secret service configuration",
+        "Render the control-plane Compose project",
+        "Read the schema revision before the migration",
+        "Stop application services before schema migration",
+        "Initialize the application schema before starting services",
+        "Recreate and start the control-plane services",
+        "Wait for the API and worker containers to become healthy",
+    ):
+        assert step in names, f"{step!r} is outside the rescued block"
+    assert names.index("Read the schema revision before the migration") < names.index(
+        "Record that this run stops the services"
+    )
+    assert names.index("Record that this run stops the services") < names.index(
+        "Stop application services before schema migration"
+    )
+
+
+def test_the_schema_revision_is_read_by_the_image_helper_on_both_sides():
+    for name in (
+        "Read the schema revision before the migration",
+        "Read the schema revision the failed run left",
+    ):
+        argv = role_task(name)["ansible.builtin.command"]["argv"]
+        assert argv[-6:] == [
+            "--entrypoint",
+            "python",
+            "blitzecdn-cli",
+            "-I",
+            "-m",
+            "blitzecdn.host.schema_revision",
+        ]
+        assert "--no-deps" in argv
+
+
+def test_a_failed_run_restarts_the_previous_release_only_on_an_unchanged_schema():
+    rescue = _converge_block()["rescue"]
+    names = [task["name"] for task in rescue]
+    restore = names.index("Restore the previous release's files")
+    start = names.index("Start the previous release again")
+    assert names.index("Decide what the failed run changed") < restore < start
+    started = rescue[start]
+    assert "not blitzecdn_controlplane_recovery_migrated | bool" in started["when"]
+    argv = started["ansible.builtin.command"]["argv"]
+    assert "up" in argv and "--wait" in argv
+    # Recreated only where the restored project differs: services this run never
+    # stopped keep running.
+    assert "--force-recreate" not in argv
+    # The run still fails: an operator must learn the update did not happen.
+    assert names[-1] == "Stop with what happened and how to recover"
+    assert "ansible.builtin.fail" in rescue[-1]
+
+
+def test_an_unreadable_revision_counts_as_migrated():
+    """Starting old code on a schema it does not know is the one wrong answer."""
+    decision = role_task("Decide what the failed run changed")
+    migrated = decision["ansible.builtin.set_fact"][
+        "blitzecdn_controlplane_recovery_migrated"
+    ]
+    assert "blitzecdn_controlplane_schema_before.rc | default(1) == 0" in migrated
+    assert "blitzecdn_controlplane_schema_after.rc | default(1) == 0" in migrated
+
+
+def test_a_migrated_failure_names_the_backup_and_the_restore_commands():
+    message = role_task("Stop with what happened and how to recover")[
+        "ansible.builtin.fail"
+    ]["msg"]
+    assert "blitzecdn_controlplane_recovery_backup" in message
+    named = role_task("Name the previous release's image")["ansible.builtin.set_fact"]
+    assert (
+        "blitzecdn_controlplane_update_backup"
+        in (named["blitzecdn_controlplane_recovery_backup"])
+    )
+    assert "blitzecdn backup restore ARCHIVE --yes" in message
+    assert "up --detach --wait" in message
+
+
+def test_the_kept_files_are_root_only_and_go_with_the_uninstall():
+    """compose.env among them holds the credentials."""
+    created = role_task("Create the directory for the installed release's files")
+    assert created["ansible.builtin.file"]["mode"] == "0700"
+    assert created["ansible.builtin.file"]["owner"] == "root"
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    assert defaults["blitzecdn_controlplane_previous_release_dir"].startswith(
+        defaults["blitzecdn_controlplane_config_dir"] + "/"
+    )
+    assert defaults["blitzecdn_controlplane_update_backup"] == ""
+
+
+def test_a_migrated_failure_stops_the_services_the_recreate_started():
+    """A worker of the failed release must not keep writing a migrated schema."""
+    rescue = _converge_block()["rescue"]
+    names = [task["name"] for task in rescue]
+    stop = names.index("Stop this release's services on a migrated schema")
+    assert names.index("Decide what the failed run changed") < stop
+    assert stop < names.index("Restore the previous release's files")
+    task = rescue[stop]
+    assert task["when"] == "blitzecdn_controlplane_recovery_migrated | bool"
+    assert task["ansible.builtin.command"]["argv"][-3:] == [
+        "stop",
+        "blitzecdn-api",
+        "blitzecdn-worker",
+    ]

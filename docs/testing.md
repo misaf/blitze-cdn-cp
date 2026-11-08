@@ -126,6 +126,7 @@ separate machines over a real network.
 | Edge convergence through the installed control plane | install job | The local edge, the shipped roles, run through the CLI |
 | ACME issue and renewal | install job | Pebble and challenge DNS inside the host |
 | Refusing an update outside the release line | install job | `blitzecdn-install update` named at `0.0.1` |
+| Recovering from an update that fails health | install job, rollback suite | `update` to a newer-tagged image whose API cannot start; the host is back on the installed image, healthy, with its Compose project and installer, and the state unchanged |
 | Rolling back to a backup through a reinstall | install job, rollback suite | Full backup, uninstall, `standalone` again, restore, then `standalone` once more to authorize the restored controller key; configuration, credentials, zones, edges and fleet settings compared before and after, and SSH to the local edge checked |
 | Fresh edge convergence and idempotence | HTTP/3 job | The shipped edge play, from a rendered release |
 | HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli, Under Attack Mode | HTTP/3 job | A real client on the outer Docker network |
