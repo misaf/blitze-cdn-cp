@@ -18,6 +18,31 @@ and an origin connection. Raising a connection setting does not guarantee that
 CPU, memory, network bandwidth, or origin capacity can sustain the resulting
 traffic. Changing the container limit recreates the container on converge.
 
+## Visitor limits
+
+Every server on the edge inherits these from the `http` context, so they apply
+before a request reaches the cache or an origin. Change them like any other
+fleet setting (`blitzecdn config set <name> <value>`); they reach the edges with
+the next deployment.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `blitzecdn_nginx_client_header_timeout` | 10s | Longest pause while a visitor sends headers (slowloris) |
+| `blitzecdn_nginx_client_body_timeout` | 10s | Longest pause between two reads of a request body (slow POST) |
+| `blitzecdn_nginx_send_timeout` | 10s | Longest pause between two writes to a visitor that stopped reading |
+| `blitzecdn_nginx_keepalive_timeout` | 65s | Idle visitor connection lifetime |
+| `blitzecdn_nginx_keepalive_requests` | 1000 | Requests per visitor connection before it is closed |
+| `blitzecdn_nginx_large_client_header_buffers` | `4 8k` | Request line and header buffers: count and size |
+| `blitzecdn_nginx_limit_conn_per_ip` | 256 | Concurrent connections per client address; 0 disables |
+| `blitzecdn_nginx_limit_conn_zone_size` | 20m | Shared memory tracking per-address connections |
+
+The timeouts measure the gap between two reads or writes, not a whole transfer,
+so a large upload or download that keeps moving is unaffected. Over HTTP/2 and
+HTTP/3 the per-address limit counts each in-flight request; connections above
+it are answered `429`. The ceiling is generous on purpose, because a corporate
+or carrier-grade NAT puts many visitors behind one address. Under Attack Mode
+remains the per-site, manual response to an attack these limits do not stop.
+
 The host must support the requested process limit through `fs.nr_open` and have
 sufficient system-wide file capacity through `fs.file-max`. BlitzeCDN does not
 replace these with fixed values that could lower a host's existing capacity.

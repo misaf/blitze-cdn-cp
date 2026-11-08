@@ -1,0 +1,20 @@
+---
+# Rendered verbatim into nginx.conf, so anything but a plain Nginx time or size
+# could carry a second directive. Checked here so a bad setting fails before
+# the release, not as an `nginx -t` error naming a line the operator never saw.
+- name: Require well-formed visitor limits
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_client_header_timeout is match('^[0-9]+(ms|s|m|h)?$')
+      - blitzecdn_nginx_client_body_timeout is match('^[0-9]+(ms|s|m|h)?$')
+      - blitzecdn_nginx_send_timeout is match('^[0-9]+(ms|s|m|h)?$')
+      - blitzecdn_nginx_keepalive_timeout is match('^[0-9]+(ms|s|m|h)?$')
+      - blitzecdn_nginx_keepalive_requests | int > 0
+      - blitzecdn_nginx_large_client_header_buffers is match('^[1-9][0-9]* [1-9][0-9]*[kKmM]?$')
+      - blitzecdn_nginx_limit_conn_per_ip | int >= 0
+      - blitzecdn_nginx_limit_conn_zone_size is match('^[1-9][0-9]*[kKmM]?$')
+    fail_msg: >-
+      Visitor timeouts must be Nginx times (for example 10s), keepalive_requests
+      positive, large_client_header_buffers a count and a size (for example
+      "4 8k"), limit_conn_per_ip zero or more, and limit_conn_zone_size an Nginx
+      size (for example 20m).
