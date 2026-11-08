@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,7 +20,7 @@ import jinja2
 import pytest
 import yaml
 from support.install import BASH, SCRIPT, script_function, workspace_version
-from support.paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
 from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
 
@@ -132,6 +133,53 @@ def test_the_bootstrap_restarts_a_reconfigured_daemon_before_using_it():
     ) < install.index("systemctl restart docker")
 
 
+@pytest.mark.skipif(shutil.which("gpg") is None, reason="needs gpg")
+@pytest.mark.parametrize(
+    ("keys", "trusted"),
+    [
+        (["docker.asc"], True),
+        # apt would trust the second key for Docker's repository too.
+        (["docker.asc", "other.asc"], False),
+        (["other.asc"], False),
+        ([], False),
+    ],
+)
+def test_only_dockers_own_apt_key_is_installed(
+    tmp_path: Path, keys: list[str], trusted: bool
+):
+    key = tmp_path / "gpg"
+    key.write_text(
+        "".join(
+            (FIXTURES / "apt-keys" / name).read_text(encoding="utf-8") for name in keys
+        ),
+        encoding="utf-8",
+    )
+
+    result = _bash(f'docker_key_trusted "{key}"')
+
+    assert (result.returncode == 0) is trusted, result.stderr
+
+
+def test_the_bootstrap_and_the_role_trust_the_same_docker_key():
+    """The fingerprint is the role's, carried by `just installer-sync`."""
+    defaults = yaml.safe_load(
+        (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
+    )
+    assert (
+        _script_constant("DOCKER_KEY_FINGERPRINT")
+        == (defaults["blitzecdn_docker_gpg_fingerprint"])
+    )
+    install = script_function("ensure_docker")
+    # Checked before it is installed where apt reads it.
+    assert install.index('docker_key_trusted "${key}"') < install.index(
+        'install -o root -g root -m 0644 "${key}" "${DOCKER_KEYRING}"'
+    )
+    tasks = (DOCKER_ROLE / "tasks/main.yml").read_text(encoding="utf-8")
+    assert tasks.index("Require Docker's own apt signing key") < tasks.index(
+        "Configure the Docker apt repository"
+    )
+
+
 # --- the pin and the workflow that publishes it -------------------------------
 
 
@@ -178,6 +226,49 @@ def test_the_workflow_publishes_the_pinned_repository_from_the_shipped_dockerfil
     assert build["with"]["push"] == "${{ github.event_name != 'pull_request' }}"
 
 
+def test_the_workflow_signs_what_the_installer_checks():
+    """Signed keylessly by this workflow, by digest, with the same cosign line.
+
+    The installer's signer is this workflow file at the release tag; a rename
+    of the file or a move to another repository would leave every install
+    refusing the image.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["image"]
+    assert job["permissions"]["id-token"] == "write"
+    steps = job["steps"]
+    sign = next(
+        step for step in steps if step.get("name") == "Sign the published image"
+    )
+    assert sign["run"] == 'cosign sign --yes "${IMAGE}@${DIGEST}"'
+    assert sign["env"]["DIGEST"] == "${{ steps.build.outputs.digest }}"
+    installer = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("sigstore/cosign-installer@")
+    )
+    workflow_cosign = installer["with"]["cosign-release"]
+    script_cosign = re.search(r":(v\d+)\.", _script_constant("COSIGN_IMAGE"))
+    assert script_cosign is not None
+    assert workflow_cosign.split(".")[0] == script_cosign.group(1)
+    assert _script_constant("CONTROL_PLANE_SIGNER") == (
+        "https://github.com/misaf/blitze-cdn-cp/"
+        f"{WORKFLOW.relative_to(REPO_ROOT)}@refs/tags/v"
+    )
+    attest = next(
+        step for step in steps if step.get("name") == "Attest the release's installer"
+    )
+    assert attest["with"]["subject-path"] == "install.sh"
+    assert attest["if"] == "startsWith(github.ref, 'refs/tags/')"
+
+
+def test_the_checker_is_pinned_by_digest():
+    assert re.fullmatch(
+        r"ghcr\.io/sigstore/cosign/cosign:v[\d.]+@sha256:[0-9a-f]{64}",
+        _script_constant("COSIGN_IMAGE"),
+    )
+
+
 def test_a_source_build_uses_the_dockerfile_the_package_ships():
     script = SCRIPT.read_text(encoding="utf-8")
     assert (
@@ -217,6 +308,10 @@ def engine(tmp_path: Path) -> Path:
         '    printf "%s\\n" "${LOADED_IMAGE}" >> "${state}/present"; exit 0 ;;\n'
         "  build*)\n"
         "    exit 0 ;;\n"
+        # cosign, checking a signature: VERIFY_FAILS makes it refuse.
+        '  "run --rm")\n'
+        '    [[ -z "${VERIFY_FAILS:-}" ]] || exit 1\n'
+        "    exit 0 ;;\n"
         "esac\n"
         "exit 0\n",
         encoding="utf-8",
@@ -236,6 +331,27 @@ def _pin() -> str:
     return f"ghcr.io/misaf/blitzecdn-control-plane:{workspace_version()}"
 
 
+def _script_constant(name: str) -> str:
+    result = _bash(f'printf "%s" "${{{name}}}"')
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _verifications(engine: Path) -> list[str]:
+    return [call for call in _calls(engine) if call.startswith("run --rm")]
+
+
+def _cosign(reference: str) -> str:
+    """The one signature check the installer may run for ``reference``."""
+    return (
+        f"run --rm --network=host {_script_constant('COSIGN_IMAGE')} verify"
+        " --certificate-identity https://github.com/misaf/blitze-cdn-cp/"
+        f".github/workflows/control-plane-image.yml@refs/tags/v{workspace_version()}"
+        " --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+        f" {reference}"
+    )
+
+
 def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path):
     digest = "sha256:" + "a" * 64
     result = _bash(
@@ -252,18 +368,80 @@ def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path)
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"{_pin()}@{digest}\n"
     assert f"pull {_pin()}" in _calls(engine)
+    # Checked by the digest it is then run by, before anything runs it.
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@{digest}")
+    ]
 
 
-def test_an_image_already_present_is_not_pulled_again(engine: Path):
-    """A re-run, or a host whose operator loaded the image by hand."""
+def test_an_image_already_present_is_not_pulled_again_but_is_checked(engine: Path):
+    """A re-run: the image is on the engine, and still has to be the signed one."""
+    digest = "sha256:" + "e" * 64
+    (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{_pin()}@{digest}\n"
+    assert not any(call.startswith("pull") for call in _calls(engine))
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@{digest}")
+    ]
+
+
+def test_an_image_with_no_registry_digest_is_refused_unchecked(engine: Path):
+    """Loaded or tagged by hand, it has no digest a signature could name."""
     (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
 
     result = _bash(f'obtain_control_plane_image "{_pin()}"', path=engine / "bin")
 
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "no registry digest" in result.stderr
+    assert "BLITZECDN_CONTROL_PLANE_ARCHIVE" in result.stderr
+    assert _verifications(engine) == []
+
+
+def test_an_image_the_release_workflow_did_not_sign_is_never_run(engine: Path):
+    digest = "sha256:" + "f" * 64
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={
+            "REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}",
+            "VERIFY_FAILS": "1",
+        },
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"is not signed by the v{workspace_version()} release workflow" in (
+        result.stderr
+    )
+
+
+def test_the_signature_check_can_be_waived_for_a_mirror(engine: Path):
+    """Explicit, loud, and still run by the digest the registry served."""
+    digest = "sha256:" + "1" * 64
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={
+            "REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}",
+            "BLITZECDN_CONTROL_PLANE_VERIFY": "0",
+        },
+    )
+
     assert result.returncode == 0, result.stderr
-    # No registry digest for a loaded image: the reference is kept as given.
-    assert result.stdout == f"{_pin()}\n"
-    assert not any(call.startswith("pull") for call in _calls(engine))
+    assert result.stdout == f"{_pin()}@{digest}\n"
+    assert "without checking its signature" in result.stderr
+    assert _verifications(engine) == []
 
 
 def test_an_image_named_by_digest_is_pulled_as_named(engine: Path):
@@ -274,6 +452,9 @@ def test_an_image_named_by_digest_is_pulled_as_named(engine: Path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"{pinned}\n"
     assert f"pull {pinned}" in _calls(engine)
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@sha256:{'c' * 64}")
+    ]
 
 
 def test_a_failed_pull_is_retried_and_then_names_the_fallback(engine: Path):
@@ -303,6 +484,8 @@ def test_an_archive_is_loaded_instead_of_pulled(engine: Path, tmp_path: Path):
     assert result.stdout == f"{_pin()}\n"
     assert f"load --input {archive}" in _calls(engine)
     assert not any(call.startswith("pull") for call in _calls(engine))
+    # The operator's own bytes, with no registry signature to look up.
+    assert _verifications(engine) == []
 
 
 def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path: Path):
@@ -337,6 +520,7 @@ def test_the_source_fallback_builds_this_checkout_and_pulls_nothing(engine: Path
         f"--tag blitzecdn-control-plane:local {REPO_ROOT}"
     ]
     assert not any(call.startswith("pull") for call in _calls(engine))
+    assert _verifications(engine) == []
 
 
 def test_a_lone_installer_cannot_build_the_image_it_has_no_source_for(
