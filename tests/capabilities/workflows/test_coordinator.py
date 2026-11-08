@@ -21,6 +21,7 @@ from blitzecdn.capabilities.workflows.domain import (
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.core.domain.events import DomainEvent
 from blitzecdn.core.exceptions import ConflictError, ExecutionError
+from blitzecdn.core.ports.clock import system_clock
 
 
 class FakeJournal:
@@ -125,7 +126,9 @@ def events() -> RecordingEvents:
 
 @pytest.fixture
 def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork, events):
-    return WorkflowCoordinator(journal=journal, uow=uow, events=events, retention=5)
+    return WorkflowCoordinator(
+        journal=journal, uow=uow, events=events, retention=5, clock=system_clock
+    )
 
 
 def test_a_workflow_opens_running_and_closes_succeeded(coordinator, journal):

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.core.persistence.schema import DatabaseSchema
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 _SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -83,7 +83,7 @@ class Database:
         path: Path,
         *,
         pool_connections: bool = False,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         DatabaseSchema.validate(path)
         #: Every timestamp a store writes comes from here.

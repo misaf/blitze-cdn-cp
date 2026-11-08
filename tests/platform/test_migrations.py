@@ -25,6 +25,7 @@ from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.persistence.tables import Base
+from blitzecdn.core.ports.clock import system_clock
 
 
 def _config(path) -> Config:
@@ -81,7 +82,7 @@ def test_an_unmigrated_database_is_refused_rather_than_half_used(tmp_path):
     connection.close()
 
     with pytest.raises(ConfigurationError) as error:
-        Database(path)
+        Database(path, clock=system_clock)
 
     assert "incompatible or damaged schema" in str(error.value)
     assert "private_key_file" in str(error.value)
@@ -97,7 +98,7 @@ def test_a_database_missing_a_whole_table_is_refused_too(tmp_path):
     connection.close()
 
     with pytest.raises(ConfigurationError) as error:
-        Database(path)
+        Database(path, clock=system_clock)
 
     assert "incompatible or damaged schema" in str(error.value)
     assert "workflows" in str(error.value)
@@ -175,7 +176,10 @@ INITIAL = (
 
 #: Revisions after the initial chain, in upgrade order, with the tables each
 #: one adds. A table here is not its capability's initial revision's to create.
-LATER = (("0010_deployment_outcomes", {"deployment_outcomes"}),)
+LATER = (
+    ("0010_deployment_outcomes", {"deployment_outcomes"}),
+    ("0011_traffic_analytics", {"traffic_path_hours"}),
+)
 LATER_TABLES = {table for _, tables in LATER for table in tables}
 
 

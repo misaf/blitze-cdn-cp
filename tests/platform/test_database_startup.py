@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 
 from blitzecdn.core.persistence import engine as persistence
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.ports.clock import system_clock
 
 
 def configured_engine(path, failures):
@@ -100,7 +101,8 @@ def test_startup_contention_has_a_deadline_and_closes_failed_connection(
 @pytest.mark.parametrize("pooled", [False, True])
 def test_simultaneous_first_connections_preserve_all_writes(settings, pooled):
     databases = [
-        Database(settings.database_path, pool_connections=pooled) for _ in range(6)
+        Database(settings.database_path, pool_connections=pooled, clock=system_clock)
+        for _ in range(6)
     ]
     try:
         with closing(sqlite3.connect(settings.database_path)) as setup:

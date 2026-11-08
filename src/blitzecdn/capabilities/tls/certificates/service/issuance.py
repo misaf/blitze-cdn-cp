@@ -58,7 +58,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     NotFoundError,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ class CertificateService:
         site_editor: SiteEditor,
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.clock = clock
         self.material_references = material_references

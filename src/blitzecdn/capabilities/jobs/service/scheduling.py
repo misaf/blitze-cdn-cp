@@ -14,7 +14,7 @@ from blitzecdn.capabilities.jobs.domain import Schedule, next_due
 from blitzecdn.capabilities.jobs.ports import ScheduleStore
 from blitzecdn.capabilities.jobs.service.queue import JobQueue
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 __all__ = ["JobScheduler", "ScheduleSpec"]
 
@@ -49,7 +49,7 @@ class JobScheduler:
         schedules: ScheduleStore,
         queue: JobQueue,
         uow: UnitOfWork,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.schedules = schedules
         self.queue = queue

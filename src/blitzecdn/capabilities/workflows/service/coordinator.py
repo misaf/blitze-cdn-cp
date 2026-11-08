@@ -23,7 +23,7 @@ from blitzecdn.capabilities.workflows.ports import WorkflowJournal
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import BlitzeError, ConflictError
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 __all__ = ["WorkflowCoordinator", "WorkflowProgress"]
@@ -70,7 +70,7 @@ class WorkflowCoordinator:
         uow: UnitOfWork,
         events: EventRecorder,
         retention: int = 1000,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.journal = journal
         self.events = events

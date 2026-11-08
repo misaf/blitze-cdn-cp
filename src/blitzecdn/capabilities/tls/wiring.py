@@ -54,7 +54,7 @@ from blitzecdn.core.features import (
     SiteStateContribution,
     ValidationIssue,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -120,7 +120,7 @@ def build_certificate_service(
     uow: UnitOfWork,
     preflight_attempts: PreflightAttempts,
     certbot_timeout_seconds: int,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
     return CertificateService(
