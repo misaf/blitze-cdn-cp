@@ -659,7 +659,9 @@ Updating the BlitzeCDN control plane on this host:
   to    ${target}
 
 The containers are stopped, the schema is migrated, and they are recreated on
-the new image. State is preserved; a migration is not reversible.
+the new image. State is preserved; a migration is not reversible. An update
+that fails before migrating returns this host to ${current}; one that fails
+after it stops and names the backup to restore.
 EOF
   else
     cat >&2 <<EOF
@@ -738,13 +740,18 @@ cmd_update() {
     backup_label="the backup"
     backup_args=(backup create)
   fi
+  # The archive's path goes to the role, which names it in the recovery steps
+  # of an update that fails after migrating.
+  local backup_output='' backup_archive=''
   if [[ ${parsed_no_backup} -eq 1 ]]; then
     echo "Skipping ${backup_label} (--no-backup)."
   elif [[ -x ${CLI_WRAPPER} ]]; then
     echo "Taking ${backup_label}..."
-    "${CLI_WRAPPER}" "${backup_args[@]}" ||
+    backup_output=$("${CLI_WRAPPER}" "${backup_args[@]}") ||
       die 1 "error: ${backup_label} failed; nothing was changed" \
         "Fix the failure, or rerun with --no-backup if the data is expendable."
+    printf '%s\n' "${backup_output}"
+    backup_archive=$(sed -n 's/^Backup created: //p' <<<"${backup_output}" | tail -n 1)
   else
     die 1 "error: ${CLI_WRAPPER} is missing, so ${backup_label} cannot be taken; nothing was changed" \
       "Repair with '${INSTALLER_COMMAND##*/} standalone', or rerun with --no-backup if the data is expendable."
@@ -753,12 +760,17 @@ cmd_update() {
   # The same steps as standalone, with the target's image. The play runs
   # inside that image, and the role stops the services, migrates, recreates
   # them on it, replaces this installer with the target's, and waits until
-  # both services are healthy.
+  # both services are healthy. If any of that fails, the role puts ${current}'s
+  # files back and starts it again while the schema is unchanged, or leaves
+  # the services stopped and prints how to restore the backup once it is not.
   ensure_docker
   image=$(obtain_control_plane_image "${image}") || die 1 \
     "error: the services were not stopped and still run ${current}; fix the cause and rerun"
   converge_control_plane "${image}" \
-    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
+    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}" \
+    --extra-vars "blitzecdn_controlplane_update_backup=${backup_archive}" ||
+    die 1 "error: the update to ${target} did not complete" \
+      "The play's last message says whether this host is back on ${current} and how to recover."
 
   echo
   echo "Updated to ${target}; the API and worker are healthy."

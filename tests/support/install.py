@@ -372,10 +372,22 @@ def update_sandbox(tmp_path: Path) -> tuple[Path, Path, Path]:
 ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 
 
+def flatten_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every task in document order: a block, then its block, rescue and always."""
+    flat: list[dict[str, Any]] = []
+    for task in tasks:
+        flat.append(task)
+        for section in ("block", "rescue", "always"):
+            flat.extend(flatten_tasks(task.get(section) or []))
+    return flat
+
+
 def role_tasks() -> list[dict[str, Any]]:
-    return cast(
-        list[dict[str, Any]],
-        yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8")),
+    return flatten_tasks(
+        cast(
+            list[dict[str, Any]],
+            yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8")),
+        )
     )
 
 

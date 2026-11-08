@@ -238,6 +238,55 @@ database_state() {
 }
 
 if [[ ${SUITE} != lifecycle ]]; then
+  say "Recovering from an update that fails health"
+  # The next patch release of the image under test, whose API exits at start.
+  # The role and the migrations are this commit's own, so the update stops the
+  # services, finds nothing to migrate, recreates them, and fails the health
+  # wait with the schema unchanged: the case that must return the host to the
+  # installed release on its own (#175).
+  installed_version=${pinned_image##*:}
+  broken_image="${pinned_image%:*}:${installed_version%.*}.$((${installed_version##*.} + 1))"
+  image_user=$(docker image inspect --format '{{.Config.User}}' "${pinned_image}")
+  broken_archive=$(mktemp -t blitzecdn-broken-control-plane-XXXXXX).tar
+  docker build --quiet --tag "${broken_image}" - >/dev/null <<EOF ||
+FROM ${pinned_image}
+USER 0:0
+RUN printf 'raise SystemExit("broken by the failed-update test")\n' > "\$(python -c 'import importlib.util; print(importlib.util.find_spec("blitzecdn.entrypoints.api").submodule_search_locations[0])')/__main__.py"
+USER ${image_user}
+EOF
+    fail "could not build the broken control-plane image"
+  docker save --output "${broken_archive}" "${broken_image}" ||
+    fail "could not export the broken control-plane image"
+  docker cp "${broken_archive}" "${container}:/root/broken-control-plane.tar" >/dev/null
+  rm -f -- "${broken_archive}"
+  docker image rm "${broken_image}" >/dev/null 2>&1 || true
+
+  state_before_update=$(database_state) || fail "could not read the state before the update"
+  update_output=$(in_container "BLITZECDN_CONTROL_PLANE_IMAGE=${broken_image} \
+    BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/broken-control-plane.tar \
+    blitzecdn-install update --yes" 2>&1) && {
+    printf '%s\n' "${update_output}"
+    fail "an update whose API cannot start succeeded"
+  }
+  grep -q "back on ${pinned_image}" <<<"${update_output}" || {
+    printf '%s\n' "${update_output}"
+    fail "the failed update did not say it returned to the installed release"
+  }
+  for service in blitzecdn-api blitzecdn-worker; do
+    in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
+      fail "${service} is not healthy after the failed update"
+    in_container "docker inspect -f '{{.Config.Image}}' ${service} | grep -qF '${pinned_image}'" ||
+      fail "${service} does not run the installed image after the failed update"
+  done
+  in_container "grep -qF '${pinned_image}' /etc/blitzecdn/control-plane.compose.yml" ||
+    fail "the failed update left the Compose project on the broken image"
+  in_container "grep -qF '${pinned_image}' /usr/local/bin/blitzecdn" ||
+    fail "the failed update left the CLI wrapper on the broken image"
+  [[ $(database_state) == "${state_before_update}" ]] ||
+    fail "the failed update changed the database state"
+  in_container "docker image rm ${broken_image} >/dev/null && rm -f /root/broken-control-plane.tar" ||
+    fail "could not remove the broken image"
+
   say "Rolling back to a backup through a reinstall"
   # `update` never moves backwards and `standalone` refuses another release, so
   # going back is the documented recovery: uninstall, which keeps the backups,

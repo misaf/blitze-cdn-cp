@@ -38,6 +38,21 @@ argument_specs:
           Where the image's own install.sh is installed on the host, so later
           updates and the uninstall run the installed release's installer.
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}
+      blitzecdn_controlplane_previous_release_dir:
+        type: path
+        required: true
+        description: >-
+          Where a run keeps the installed release's Compose project, Compose
+          environment, configuration, CLI wrapper and installer before it
+          replaces them, so a run that fails can put that release back.
+      blitzecdn_controlplane_update_backup:
+        type: str
+        required: false
+        default: ""
+        description: >-
+          The archive install.sh update took before this run, named in the
+          recovery steps a failed update prints. Empty names the backup
+          directory instead.
       blitzecdn_controlplane_compose_file: {type: path, required: true}
       blitzecdn_controlplane_compose_project: {type: str, required: true}
       blitzecdn_controlplane_image:

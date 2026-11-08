@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 from support.contracts import PROJECT_DIR, jinja2, role_path
+from support.install import role_tasks
 from support.role_contracts import (
     defaults_of,
 )
@@ -108,7 +109,7 @@ def test_the_control_plane_applies_a_given_access_list_on_every_run():
     leaves the template's commented example alone.
     """
     role = role_path("blitzecdn_controlplane")
-    tasks = yaml.safe_load((role / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = role_tasks()
     names = [task["name"] for task in tasks]
     setter = tasks[names.index("Set the API access list this run was given")]
 
