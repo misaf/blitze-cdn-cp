@@ -28,7 +28,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     PreflightReport,
     PreflightSeverity,
 )
-from blitzecdn.core.config import Settings
+from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.core.domain.site import CdnSite
 
 #: CAA tags we understand. A wildcard order consults ``issuewild``, falling
@@ -42,16 +42,14 @@ class CertificatePreflight:
 
     def __init__(
         self,
-        settings: Settings,
+        config: CertificateConfig,
         edges: EdgeStore,
         *,
-        ca_domain: str,
         origin_probe: OriginProbe | None = None,
     ) -> None:
-        self._settings = settings
+        # The DNS budget, the resolvers, and which CA is predicted.
+        self._config = config
         self._edges = edges
-        # The DNS budget and resolvers are core's; which CA is predicted is ours.
-        self._ca_domain = ca_domain
         self._origin_probe = origin_probe
 
     def _resolver(self) -> Lookup:
@@ -61,26 +59,23 @@ class CertificatePreflight:
         the CA asks; a recursive resolver may answer from a cache or a private
         view. ``host`` keeps the controller's own resolver, by explicit opt-in.
         """
-        recursive = _recursive_resolver(self._settings)
-        if self._settings.preflight_dns_servers:
+        recursive = _recursive_resolver(self._config)
+        if self._config.dns_servers:
             return recursive
-        if self._settings.preflight_dns_source == "host":
+        if self._config.preflight_dns_source == "host":
             return recursive
-        timeout = float(self._settings.preflight_dns_timeout_seconds)
+        timeout = float(self._config.preflight_dns_timeout_seconds)
         return AuthoritativeResolver(timeout=timeout, bootstrap=recursive)
 
     def _address_resolver(self) -> Lookup | None:
         """``None`` only for ``host``, which keeps A/AAAA on ``getaddrinfo``."""
-        if (
-            not self._settings.preflight_dns_servers
-            and self._settings.preflight_dns_source == "host"
-        ):
+        if not self._config.dns_servers and self._config.preflight_dns_source == "host":
             return None
         return self._resolver()
 
     def _resolver_note(self, resolver: Lookup | None, name: str) -> str:
         """Who answered for ``name``, so a report can be checked by hand."""
-        servers = self._settings.preflight_dns_servers
+        servers = self._config.dns_servers
         if servers:
             return f" via {_join_names(servers)}"
         if resolver is None:
@@ -195,7 +190,7 @@ class CertificatePreflight:
     # ------------------------------------------------------------------
 
     def _check_caa(self, site: CdnSite) -> PreflightCheck:
-        issuer = self._ca_domain
+        issuer = self._config.ca_domain
         for name in site.server_names:
             wildcard = name.startswith("*.")
             base = name[2:] if wildcard else name
@@ -285,14 +280,14 @@ class CertificatePreflight:
         )
 
 
-def check_resolver(settings: Settings) -> PreflightCheck:
+def check_resolver(config: CertificateConfig) -> PreflightCheck:
     """Detect a resolver that invents answers for names that cannot exist.
 
     Such a resolver looks healthy until an address comparison fails, blaming the
     zone. ``.invalid`` can never be delegated (RFC 2606), so any answer is invented.
     """
-    where = _recursive_description(settings)
-    resolver = _recursive_resolver(settings)
+    where = _recursive_description(config)
+    resolver = _recursive_resolver(config)
     probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
     try:
         answer = resolver.resolve(probe, dns.rdatatype.A)
@@ -317,22 +312,22 @@ def check_resolver(settings: Settings) -> PreflightCheck:
 Lookup = dns.resolver.Resolver | AuthoritativeResolver
 
 
-def _recursive_resolver(settings: Settings) -> dns.resolver.Resolver:
+def _recursive_resolver(config: CertificateConfig) -> dns.resolver.Resolver:
     """The configured servers, or the host's; for answers or for bootstrapping."""
     resolver = dns.resolver.Resolver()
-    timeout = float(settings.preflight_dns_timeout_seconds)
+    timeout = float(config.preflight_dns_timeout_seconds)
     resolver.lifetime = timeout
     resolver.timeout = timeout
-    if settings.preflight_dns_servers:
-        resolver.nameservers = list(settings.preflight_dns_servers)
+    if config.dns_servers:
+        resolver.nameservers = list(config.dns_servers)
     return resolver
 
 
-def _recursive_description(settings: Settings) -> str:
-    servers = settings.preflight_dns_servers
+def _recursive_description(config: CertificateConfig) -> str:
+    servers = config.dns_servers
     if servers:
         return f" ({_join_names(servers)})"
-    if settings.preflight_dns_source == "host":
+    if config.preflight_dns_source == "host":
         return " (host resolver)"
     return " (host resolver, used to find authoritative nameservers)"
 

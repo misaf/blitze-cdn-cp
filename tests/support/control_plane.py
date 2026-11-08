@@ -21,6 +21,10 @@ from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
+from blitzecdn.capabilities.deployments.settings import (
+    lock_path as deployment_lock_path,
+)
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -50,6 +54,9 @@ from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import CertificateMode
+from blitzecdn.capabilities.tls.settings import (
+    certificate_dir as tls_certificate_dir,
+)
 from blitzecdn.composition import (
     Adapters,
     ApiNode,
@@ -62,6 +69,7 @@ from blitzecdn.composition import (
     WorkerProvider,
     load_registry,
 )
+from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
@@ -81,6 +89,7 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.ports.fleet import FleetRoster
 from blitzecdn.core.ports.operations import AuditTrail
 from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common as cli_common
@@ -473,11 +482,11 @@ class FakeRunner:
         variables: Mapping[str, object],
         host_limit: str | None = None,
     ) -> AnsibleRun:
-        self.playbooks.append((name, playbook, dict(variables), host_limit))
-        return self.results.pop(0)
-
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
-        self.decommissions.append(host_limit)
+        # The edges capability's teardown is a named play like any other.
+        if name == "decommission" and host_limit is not None:
+            self.decommissions.append(host_limit)
+        else:
+            self.playbooks.append((name, playbook, dict(variables), host_limit))
         return self.results.pop(0)
 
 
@@ -588,15 +597,43 @@ def settings(tmp_path: Path) -> Settings:
         inventory_path=inventory,
         playbook_path=playbook,
         generated_vars_path=state / "desired-state.yml",
-        deployment_lock_path=state / "deployment.lock",
-        certificate_dir=state / "certificates",
         environment_path=tmp_path / ".env",
-        decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": SecretStr("x" * 32)},
     )
     DatabaseSchema.migrate(configured.database_path)
     return configured
+
+
+def certificate_dir(settings: Settings) -> Path:
+    """Where the tls capability keeps installed material for ``settings``."""
+    return tls_certificate_dir(settings.state_dir)
+
+
+def deployment_lock(settings: Settings) -> Path:
+    """The deployment lock file for ``settings``."""
+    return deployment_lock_path(settings.state_dir)
+
+
+def fleet_runner(
+    settings: Settings,
+    fleet: FleetRoster,
+    contributions: EdgeContributions | None = None,
+    *,
+    timeout_seconds: int | None = None,
+) -> AnsibleRunner:
+    """Core's runner, configured as the composition root configures it."""
+    return AnsibleRunner(
+        settings,
+        fleet,
+        contributions,
+        timeout_seconds=(
+            DeploymentsConfig().timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        ),
+        lock_path=deployment_lock(settings),
+    )
 
 
 def with_capability_settings(settings: Settings, **values: object) -> Settings:
