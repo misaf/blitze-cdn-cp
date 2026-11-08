@@ -257,10 +257,10 @@ if [[ ${SUITE} != lifecycle ]]; then
     fail "could not seed a zone"
   in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 --skip-host-key >/dev/null' ||
     fail "could not register a second edge"
-  in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"192.0.2.53\"]|" \
+  in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"192.0.2.53\"|" \
     /etc/blitzecdn/blitzecdn.toml' ||
     fail "could not change the configuration file"
-  in_container 'grep -q "^preflight_dns_servers = \[\"192.0.2.53\"\]$" /etc/blitzecdn/blitzecdn.toml' ||
+  in_container 'grep -q "^preflight_dns_servers = \"192.0.2.53\"$" /etc/blitzecdn/blitzecdn.toml' ||
     fail "the configuration file was not changed"
   # Configuration is read at start; recreate so the services run what is saved.
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
@@ -585,10 +585,10 @@ in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebbl
 # Preflight asks public DNS, which knows nothing of this edge, and renewal
 # has no override, so preflight is pointed at the CA's DNS server. Replaced
 # rather than appended: a duplicate TOML key is a parse error.
-in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"127.0.0.1\"]|" \
+in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"127.0.0.1\"|" \
   /etc/blitzecdn/blitzecdn.toml' ||
   fail "could not point preflight at the challenge DNS server"
-in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /etc/blitzecdn/blitzecdn.toml' ||
+in_container 'grep -q "^preflight_dns_servers = \"127.0.0.1\"$" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the preflight resolver was not rewritten"
 # Configuration is read at start, and nothing in the Compose file changed, so
 # `--force-recreate` is needed; plain `up` would leave the old processes on the

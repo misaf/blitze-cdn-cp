@@ -97,7 +97,7 @@ def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
     monkeypatch.setattr(
         diagnostics_cli,
         "check_resolver",
-        lambda _settings: diagnostics_cli.ResolverCheck(
+        lambda **_dns: diagnostics_cli.ResolverCheck(
             passed=False,
             detail="resolver (host resolver) invents addresses",
         ),

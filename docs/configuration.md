@@ -5,10 +5,19 @@ settings live beside their owner:
 
 | Group | Definition |
 | --- | --- |
-| Certificates and Automatic SSL | `capabilities/tls/settings.py` |
+| Certificates, Automatic SSL and preflight DNS | `capabilities/tls/settings.py` |
+| Deployment timeout, retention and drift checks | `capabilities/deployments/settings.py` |
+| Controller origin-probe timeout | `capabilities/origins/settings.py` |
+| Edge teardown play | `capabilities/edges/settings.py` |
 | Under Attack Mode | `capabilities/security/settings.py` |
 | MaxMind credentials and GeoIP refresh | `capabilities/security/geoip/settings.py` |
 | Backup location and retention | `capabilities/backup/settings.py` |
+
+Core keeps only process-wide values: the project, state and database paths,
+the API and worker, run logs, and retention for shared tables. A path a
+capability derives from the state directory, such as the deployment lock or
+installed certificate material, is the capability's own and is not
+configurable.
 
 These are application settings. Database-managed domain policy, cache policy,
 and other desired CDN state remain separate.
@@ -30,7 +39,11 @@ the environment. Existing environment names and flat TOML keys remain valid:
 [blitzecdn]
 certificate_renewal_interval_seconds = 43200
 backup_dir = "backups"
+preflight_dns_servers = "1.1.1.1,1.0.0.1"
 ```
+
+A capability setting is one scalar. A list, such as `preflight_dns_servers`, is
+written comma-separated, in the environment and in TOML alike.
 
 Secrets may come from the environment or `.env`, never TOML. Values remain
 masked as `SecretStr`, and only declared capability secrets are forwarded to

@@ -23,6 +23,7 @@ from support.certificates import (
 from support.control_plane import (
     FakeRunner,
     ansible_run,
+    certificate_dir,
     host_run,
     seed_site,
     with_capability_settings,
@@ -859,7 +860,7 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
         # Restamp the stored metadata as an ACME issue registered to an
         # address, which is what a real renewable certificate looks like.
         info = control.certificates.persistence.certificates.get(site.name)
-        path = settings.certificate_dir / site.name / "metadata.json"
+        path = certificate_dir(settings) / site.name / "metadata.json"
         path.write_text(
             info.model_copy(
                 update={"source": CertificateSource.ACME, "email": "ops@example.com"}
