@@ -291,8 +291,8 @@ grep -qi 'content-encoding: br' <<<"${brotli}"
 say "Hostname access/error isolation and log rotation"
 alias_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS)
 "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
-  -A 'quoted" backslash\ client' \
-  -o /dev/null https://site-alias.test/hostname-access-probe
+  -A 'quoted" backslash\ client' -e 'https://site-alias.test/from?reset=probe-secret' \
+  -o /dev/null 'https://site-alias.test/hostname-access-probe?token=probe-secret'
 # Flexible mode uses TLS to the origin on alternate HTTPS ports. The test
 # origin has no listener on 2053, so this deliberately produces an upstream
 # failure in the alias's server block without changing the running edge.
@@ -345,6 +345,12 @@ for hostname in ('site-one.test', 'site-alias.test'):
     if hostname == 'site-alias.test':
         probe = next(r for r in records if '/hostname-access-probe ' in r['request'])
         assert probe['user_agent'] == 'quoted" backslash\\ client'
+        # Default privacy settings: no query strings and a truncated address.
+        assert probe['request'].startswith('GET /hostname-access-probe HTTP/')
+        assert probe['referer'] == 'https://site-alias.test/from'
+        assert probe['client_ip'].endswith(('.0', '::')), probe['client_ip']
+for path in root.glob('*.access.log*'):
+    assert b'probe-secret' not in path.read_bytes(), path
 PY
 
 # --------------------------------------------------------------------------
