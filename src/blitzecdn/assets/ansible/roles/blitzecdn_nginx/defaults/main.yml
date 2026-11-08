@@ -22,6 +22,37 @@ blitzecdn_nginx_modules: []
 # capability names a shared object, this names the directory it lands in, and
 # neither has to know the other's answer.
 blitzecdn_nginx_module_directory: /usr/lib/nginx/modules
+# Visitor-side limits, applied to every server on the edge. Nginx's own 60s
+# client timeouts let a slowloris or slow-POST client hold a connection and a
+# worker slot for a minute per byte it trickles; 10s is still far longer than
+# any real client pauses between header lines or body packets. Each timeout is
+# the gap allowed between two reads or writes, not the whole transfer, so a
+# large upload or a slow download that keeps moving is unaffected.
+blitzecdn_nginx_client_header_timeout: 10s
+blitzecdn_nginx_client_body_timeout: 10s
+blitzecdn_nginx_send_timeout: 10s
+# How long an idle visitor connection is kept, and how many requests it may
+# carry before Nginx closes it so per-connection memory is released.
+blitzecdn_nginx_keepalive_timeout: 65s
+blitzecdn_nginx_keepalive_requests: 1000
+# The buffers a request line and its header lines must fit in: count and size,
+# as `large_client_header_buffers` takes them. A request line or a single header
+# longer than the size is refused with 414 or 400, and the whole header block
+# cannot exceed count × size. 4 × 8k is Nginx's default, stated so it is a
+# setting rather than an image's choice.
+blitzecdn_nginx_large_client_header_buffers: 4 8k
+# Concurrent connections one client address may hold across the whole edge.
+# Over HTTP/2 and HTTP/3 every in-flight request counts as one. The ceiling is
+# deliberately generous — a corporate NAT or a carrier-grade NAT puts many
+# visitors behind one address — so it stops one host opening thousands of idle
+# sockets, not ordinary browsing. Excess connections are answered 429. 0 turns
+# the limit off.
+blitzecdn_nginx_limit_conn_per_ip: 256
+# Shared memory for that per-address count. A megabyte holds about 16,000
+# addresses with IPv4 keys and fewer with IPv6; when it is full, new addresses
+# are refused rather than tracked, so it is sized well above the active-client
+# count of a busy edge.
+blitzecdn_nginx_limit_conn_zone_size: 20m
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
 # Idle connections to an origin each worker keeps open per upstream group, for

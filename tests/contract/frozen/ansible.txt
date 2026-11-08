@@ -186,6 +186,8 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_access_log_enabled	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_allow_empty_sites	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_certificate_path_pattern	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_client_body_timeout	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_client_header_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_config_test_image	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_config_test_volumes	type=list elements=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_default_server	type=bool required
@@ -193,6 +195,11 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_default_site_file	type=path r
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_enabled	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_hsts_max_age	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_http3_listener_owner	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_keepalive_requests	type=int required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_keepalive_timeout	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_large_client_header_buffers	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_limit_conn_per_ip	type=int required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_limit_conn_zone_size	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_listen_backlog	type=int required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_client_ip	type=str required choices=[full,truncated]
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_format_name	type=str required
@@ -212,6 +219,7 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolver_timeout	type=str req
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolver_valid	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolvers	type=list elements=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resources	type=dict required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_send_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites	type=list elements=dict required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_ciphers	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_stapling	type=bool required
