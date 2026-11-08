@@ -54,7 +54,10 @@ blitzecdn_controlplane_certificate_reconcile_seconds: 600
 blitzecdn_controlplane_ssl_automatic_scan_seconds: 2592000
 blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
-blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
+# Preflight asks each zone's authoritative nameservers by default; `host` opts
+# into the controller's own resolver. Servers, comma-separated, replace both.
+blitzecdn_controlplane_preflight_dns_source: authoritative
+blitzecdn_controlplane_preflight_dns_servers: ""
 
 # The API listener, and the host firewall rules that admit it.
 #
