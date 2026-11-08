@@ -60,3 +60,16 @@
 {% for source in firewall.deny_sources | default([], true) %}
         deny {{ source }};
 {% endfor %}
+{#
+  The rate limit counts per site and client address in the shared zone of its
+  rate. The key comes from the site's map in security-http.conf.j2, which
+  leaves it empty, and so uncounted, for allow_sources and for paths outside
+  the limited ones. A plain `set`, never one inside `if`: an `if` block that
+  matches takes the request out of this location's try_files.
+#}
+{% set rate_limit = site.rate_limit | default({}, true) or {} %}
+{% if rate_limit.rate | default('', true) %}
+        set $blitzecdn_rate_limit_key $blitzecdn_rate_limit_key_{{ site.name | replace('-', '_') }};
+        limit_req zone=blitzecdn_rate_{{ rate_limit.rate | replace('/', '') }}{% if rate_limit.burst | default(0) | int > 0 %} burst={{ rate_limit.burst | int }}{% endif %} nodelay;
+        limit_req_status {{ rate_limit.status | default(429) | int }};
+{% endif %}

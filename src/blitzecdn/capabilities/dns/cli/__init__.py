@@ -42,4 +42,5 @@ DOMAIN_ORDER = (
     "compression",
     "visitor-headers",
     "firewall",
+    "rate-limit",
 )
