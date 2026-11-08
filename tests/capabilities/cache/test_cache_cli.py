@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 
 import pytest
-from support.cache import purged_prefixes, purges
+from support.cache import purged_prefixes, purged_tags, purges
 from support.control_plane import (
     FakeRunner,
     ansible_run,
@@ -91,6 +91,28 @@ def test_cache_purge_by_prefix_and_hostname(settings, monkeypatch):
         )
     ]
     assert purges(fake)[0][0] == ()
+
+
+def test_cache_purge_by_tag(settings, monkeypatch):
+    fake = FakeRunner([_purge_ok()])
+    cli_control_plane(settings, monkeypatch, fake)
+
+    result = runner.invoke(
+        cli.app, ["cache", "purge", "--tag", "Product-42", "--tag", "listing"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert purged_tags(fake) == [("product-42", "listing")]
+
+
+def test_cache_purge_refuses_a_tag_with_a_comma(settings, monkeypatch):
+    fake = FakeRunner([_purge_ok()])
+    cli_control_plane(settings, monkeypatch, fake)
+
+    result = runner.invoke(cli.app, ["cache", "purge", "--tag", "a,b"])
+
+    assert result.exit_code != 0
+    assert purges(fake) == []
 
 
 def test_cache_purge_refuses_a_prefix_without_a_hostname(settings, monkeypatch):

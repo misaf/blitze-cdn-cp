@@ -36,6 +36,7 @@ class CachePlaybooks:
         *,
         entries: Sequence[PurgeEntry],
         prefixes: Sequence[PurgePrefix] = (),
+        tags: Sequence[str] = (),
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun:
@@ -49,6 +50,7 @@ class CachePlaybooks:
                 "blitzecdn_cache_purge_prefixes": [
                     purge_prefix_to_ansible(prefix) for prefix in prefixes
                 ],
+                "blitzecdn_cache_purge_tags": list(tags),
                 "blitzecdn_cache_purge_all": purge_all,
             },
             host_limit=host_limit,

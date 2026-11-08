@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry as DomainPurgeEntry
 from blitzecdn.capabilities.cache.domain import PurgePrefix as DomainPurgePrefix
+from blitzecdn.capabilities.cache.domain import PurgeTag
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.entrypoints.api.models import Model
 from blitzecdn.entrypoints.api.requests import FleetRequest
@@ -57,6 +58,10 @@ class PurgeRequest(FleetRequest):
     entries: list[PurgeEntry] = Field(default_factory=list, max_length=500)
     #: Each one is a pass over every cached file on every edge, so few are allowed.
     prefixes: list[PurgePrefix] = Field(default_factory=list, max_length=50)
+    #: Every cached response whose ``Cache-Tag`` header names one of these, on
+    #: any hostname. Case-insensitive. Matched in the same pass over every
+    #: cached file on every edge as the prefixes, so as few are allowed.
+    tags: list[PurgeTag] = Field(default_factory=list, max_length=50)
     #: A separate flag, so a filter matching nothing never empties the cache.
     purge_all: bool = False
 

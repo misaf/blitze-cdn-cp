@@ -77,6 +77,42 @@ def test_a_purge_prefix_that_is_not_a_path_is_a_422(settings):
         assert response.status_code == 422
 
 
+def test_a_purge_tag_with_a_comma_is_a_422(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v3/cache/purge", json={"tags": ["a,b"]}, headers=_HEADERS
+        )
+        assert response.status_code == 422
+
+
+def test_more_than_fifty_purge_tags_is_a_422(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v3/cache/purge",
+            json={"tags": [f"t{n}" for n in range(51)]},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
+def test_a_tag_purge_is_queued_and_carries_its_tags(settings, seeded, monkeypatch):
+    control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
+    serve(monkeypatch, control)
+
+    with TestClient(create_app(settings)) as client:
+        queued = client.post(
+            "/v3/cache/purge", json={"tags": ["Product-42"]}, headers=_HEADERS
+        )
+        assert queued.status_code == 202
+        run_queued_operations(control)
+        result = client.get(
+            f"/v3/operations/{queued.json()['id']}", headers=_HEADERS
+        ).json()["result"]
+
+    assert result["complete"] is True
+    assert result["tags"] == ["product-42"]
+
+
 def test_a_hostname_purge_is_queued_and_carries_its_prefixes(
     settings, seeded, monkeypatch
 ):
@@ -193,6 +229,7 @@ def test_the_purge_result_keeps_its_shape(settings, seeded, monkeypatch):
 
     assert " ".join(sorted(result)) == (
         "complete entries failed_hosts host_limit hosts prefixes purge_all purged_at"
+        " tags"
     )
 
 
