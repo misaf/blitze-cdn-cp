@@ -302,3 +302,19 @@ def test_the_kept_files_are_root_only_and_go_with_the_uninstall():
         defaults["blitzecdn_controlplane_config_dir"] + "/"
     )
     assert defaults["blitzecdn_controlplane_update_backup"] == ""
+
+
+def test_a_migrated_failure_stops_the_services_the_recreate_started():
+    """A worker of the failed release must not keep writing a migrated schema."""
+    rescue = _converge_block()["rescue"]
+    names = [task["name"] for task in rescue]
+    stop = names.index("Stop this release's services on a migrated schema")
+    assert names.index("Decide what the failed run changed") < stop
+    assert stop < names.index("Restore the previous release's files")
+    task = rescue[stop]
+    assert task["when"] == "blitzecdn_controlplane_recovery_migrated | bool"
+    assert task["ansible.builtin.command"]["argv"][-3:] == [
+        "stop",
+        "blitzecdn-api",
+        "blitzecdn-worker",
+    ]
