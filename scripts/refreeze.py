@@ -13,7 +13,7 @@ from pathlib import Path
 
 from blitzecdn.core.config import Settings
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
 import support.frozen_surfaces as surfaces
 from support.control_plane import settings as _settings_fixture

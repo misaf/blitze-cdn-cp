@@ -45,7 +45,7 @@ cleanup() {
   # the origin's, from a failed run before they go; CI keeps them as an
   # artifact.
   if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
-    bash "${project_dir}/tests/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${edge}" "${origin}"
+    bash "${project_dir}/scripts/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${edge}" "${origin}"
   fi
   # `-v`: the edge host's anonymous volumes go with it. They hold a whole
   # container engine's images, and a runner that keeps them keeps gigabytes.

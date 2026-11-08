@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy what a failed integration run knows out of its throwaway host.
 #
-#   tests/collect-diagnostics.sh OUTPUT_DIR HOST_CONTAINER [OTHER_CONTAINER...]
+#   scripts/collect-diagnostics.sh OUTPUT_DIR HOST_CONTAINER [OTHER_CONTAINER...]
 #
 # The integration harnesses call this from their EXIT trap when they fail and
 # DIAGNOSTICS_DIR is set, before the containers are removed. CI uploads the

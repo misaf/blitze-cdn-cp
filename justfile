@@ -41,7 +41,7 @@ install: && collections
 #
 # Set up a fresh checkout, then report what this machine can and cannot run.
 setup: install
-    @bash tests/doctor.sh local
+    @bash scripts/doctor.sh local
 
 # Tasks: local (the default), docker-lint, integration, ci, or all. Every task
 # is reported; only the named ones decide the exit status, so a laptop without
@@ -49,7 +49,7 @@ setup: install
 #
 # Which tasks this machine can run, with a fix for each missing prerequisite.
 doctor *tasks:
-    @bash tests/doctor.sh {{tasks}}
+    @bash scripts/doctor.sh {{tasks}}
 
 # The third-party collections the roles are converged with, pinned exactly by
 # `requirements.yml`.
@@ -80,7 +80,7 @@ lock-check:
 # image that runs the role exists, so it carries a copy. Edit the role, then run
 # this; the suite fails while the copy is stale.
 installer-sync:
-    uv run python tests/installer_sync.py
+    uv run python scripts/installer_sync.py
 
 # Move the application version, both edge image pins and the control-plane
 # image pin together. Publishing the corresponding images remains an explicit
@@ -141,14 +141,14 @@ release-version version:
 # Format and lint every distribution in the workspace, and check the import
 # contracts in `.importlinter`.
 lint:
-    uv run ruff format --check src tests
-    uv run ruff check src tests
+    uv run ruff format --check src tests scripts
+    uv run ruff check src tests scripts
     uv run lint-imports
 
 # Rewrite what `lint` would complain about.
 fmt:
-    uv run ruff format src tests
-    uv run ruff check --fix src tests
+    uv run ruff format src tests scripts
+    uv run ruff check --fix src tests scripts
 
 # Strict source and shared-helper typing. Test cases remain unannotated.
 types:
@@ -158,7 +158,7 @@ types:
 shell-lint:
     uv run shellcheck install.sh \
         tests/container-install.sh tests/http3-edge-integration.sh \
-        tests/collect-diagnostics.sh tests/doctor.sh
+        scripts/collect-diagnostics.sh scripts/doctor.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -405,7 +405,7 @@ ci-download run="":
 # Measure the edge traffic collector's records/s per core, plain and gzip.
 # docs/traffic-accounting.md sizes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES from it.
 bench-traffic records="200000":
-    uv run python tests/traffic_collector_benchmark.py --records {{records}}
+    uv run python scripts/traffic_collector_benchmark.py --records {{records}}
 
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #
@@ -423,7 +423,7 @@ bench-traffic records="200000":
 # Every shipped surface has one owner, the application distribution.
 refreeze:
     uv sync --frozen
-    uv run python tests/refreeze.py
+    uv run python scripts/refreeze.py
     @git diff --stat -- tests/contract/frozen || true
 
 # --- database -----------------------------------------------------------
@@ -441,7 +441,7 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # Build and install the single wheel in a fresh environment outside the checkout.
 test-installation *args:
