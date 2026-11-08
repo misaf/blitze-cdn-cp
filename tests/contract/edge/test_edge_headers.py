@@ -1,10 +1,13 @@
-"""The trusted ``BZ-*`` visitor headers on the origin leg."""
+"""The trusted ``BZ-*`` visitor headers on the origin leg, and what the edge
+reveals about itself to visitors."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from support.contracts import role_defaults
 from support.edge_render import (
+    nginx_environment,
     render_site,
     runtime_contract,
 )
@@ -172,3 +175,15 @@ def test_missing_visitor_headers_preserve_pre_upgrade_behavior():
 
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" in rendered
     assert 'set $blitzecdn_visitor_ip_country "";' in rendered
+
+
+def test_the_edge_does_not_reveal_its_nginx_version():
+    """No version in the Server header or Nginx's built-in error pages."""
+    rendered = (
+        nginx_environment()
+        .get_template("nginx.conf.j2")
+        .render(blitzecdn_release_digest="test", **role_defaults())
+    )
+    http_block = rendered.split("http {", 1)[1]
+
+    assert "server_tokens off;" in http_block
