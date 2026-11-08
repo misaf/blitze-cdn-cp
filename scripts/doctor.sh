@@ -17,8 +17,6 @@ project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd -- "${project_dir}" || exit 2
 
 readonly TASKS=(local docker-lint integration ci)
-readonly COLLECTIONS_DIR=.state/collections/ansible_collections
-readonly REQUIREMENTS=src/blitzecdn/assets/ansible/requirements.yml
 
 requested=("$@")
 [[ ${#requested[@]} -gt 0 ]] || requested=(local)
@@ -92,18 +90,15 @@ else
   missing local uv 'https://docs.astral.sh/uv/getting-started/installation/'
 fi
 # The pinned collections, at their pinned versions: a role that cannot resolve
-# a module reads as a broken role rather than a missing dependency.
-while read -r name version; do
-  manifest="${COLLECTIONS_DIR}/${name/.//}/MANIFEST.json"
-  if [[ -f ${manifest} ]] && grep -q "\"version\": \"${version}\"" "${manifest}"; then
+# a module reads as a broken role rather than a missing dependency. The same
+# script gates `just ansible-check`, so the two cannot disagree.
+while read -r name version state; do
+  if [[ ${state} == ok ]]; then
     ok "collection ${name} ${version}"
   else
     missing local "collection ${name} ${version}" 'just collections'
   fi
-done < <(awk '
-  /- name:/ { name = $3 }
-  /version:/ && name { gsub(/"/, "", $2); print name, $2; name = "" }
-' "${REQUIREMENTS}")
+done < <(bash scripts/collections-check.sh)
 
 # --- docker-lint: part of `just check`, not of `just check-quick` ------------
 printf '\nDockerfile lint (just docker-lint; part of just check)\n'
