@@ -123,16 +123,27 @@ class CertificatePreflight:
         problems: list[str] = []
         for name in resolvable:
             addresses = _resolve(name, resolver)
+            stray = addresses - edges
             if not addresses:
                 problems.append(f"{name} does not resolve{note}")
-            elif not addresses & edges:
+            elif stray == addresses:
                 problems.append(
                     f"{name} resolves{note} to {_join(addresses)}, which is not "
                     f"an edge address ({_join(edges)})"
                 )
+            elif stray:
+                # The CA validates against any address it resolves (preferring
+                # IPv6), so one stale record is enough to fail the challenge.
+                if len(stray) == 1:
+                    verdict = "which is not an edge; remove that record"
+                else:
+                    verdict = "which are not edges; remove those records"
+                problems.append(
+                    f"{name} also resolves{note} to {_join(stray)}, {verdict}"
+                )
         if problems:
             return _failed("dns", PreflightSeverity.BLOCKING, "; ".join(problems))
-        return _passed("dns", f"{_join_names(resolvable)} resolve{note} to an edge")
+        return _passed("dns", f"{_join_names(resolvable)} resolve{note} only to edges")
 
     def _edge_addresses(self) -> set[str]:
         """Every address the recorded edges answer on publicly, resolved.

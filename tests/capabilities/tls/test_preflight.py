@@ -187,6 +187,47 @@ def test_a_hostname_pointed_somewhere_else_blocks_and_names_both_sides(build, si
     assert not report.ok
 
 
+def test_a_stale_aaaa_beside_an_edge_a_record_blocks_and_names_it(build, site):
+    """The CA prefers IPv6, so the old server would answer the challenge."""
+    report = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5", "2001:db8::5"},
+            "edge1.example.net": {"203.0.113.5"},
+        }
+    ).check(site, deployed=True)
+    failure = _check(report, "dns")
+    assert not failure.passed
+    assert failure.severity is PreflightSeverity.BLOCKING
+    assert "also resolves to 2001:db8::5, which is not an edge" in failure.detail
+    assert "remove that record" in failure.detail
+    assert not report.ok
+
+
+def test_extra_a_records_beside_an_edge_block_and_are_all_named(build, site):
+    report = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5", "198.51.100.7", "198.51.100.8"},
+            "edge1.example.net": {"203.0.113.5"},
+        }
+    ).check(site, deployed=True)
+    failure = _check(report, "dns")
+    assert not failure.passed
+    assert "198.51.100.7, 198.51.100.8, which are not edges" in failure.detail
+    # The edge address is fine and must not be listed as something to remove.
+    assert "203.0.113.5" not in failure.detail
+    assert not report.ok
+
+
+def test_a_hostname_spread_across_several_edges_passes(build, site):
+    report = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5", "2001:db8::1"},
+            "edge1.example.net": {"203.0.113.5", "2001:db8::1"},
+        }
+    ).check(site, deployed=True)
+    assert _check(report, "dns").passed
+
+
 def test_an_unresolvable_hostname_blocks(build, site):
     report = build(addresses={"edge1.example.net": {"203.0.113.5"}}).check(
         site, deployed=True
