@@ -14,7 +14,7 @@ import pytest
 from support.control_plane import FakeEdgeStore
 
 from blitzecdn.capabilities.edges.domain import Edge
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
+from blitzecdn.capabilities.origins.domain import OriginCheck
 from blitzecdn.capabilities.tls.certificates.adapters import (
     preflight as preflight_module,
 )
