@@ -1,4 +1,4 @@
-"""What an edge is (`Edge`), its SSH host keys, and one answer about an origin."""
+"""What an edge is (`Edge`), and its SSH host keys."""
 
 from blitzecdn.capabilities.edges.domain.edge import (
     EDGE_GROUP,
@@ -14,7 +14,6 @@ from blitzecdn.capabilities.edges.domain.host_keys import (
     normalize_fingerprint,
     select_host_keys,
 )
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 
 __all__ = [
     "EDGE_GROUP",
@@ -23,7 +22,6 @@ __all__ = [
     "Edge",
     "EdgePatch",
     "HostKey",
-    "OriginCheck",
     "firewall_sources",
     "known_hosts_pattern",
     "normalize_fingerprint",

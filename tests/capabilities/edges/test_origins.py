@@ -16,9 +16,8 @@ from support.policy import site_from_settings
 
 import blitzecdn.capabilities.edges.adapters.probe as origins_module
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.capabilities.origins.contract import OriginPolicy
+from blitzecdn.capabilities.origins.contract import OriginCheck, OriginPolicy
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 from blitzecdn.core.domain.site import CdnSite
 

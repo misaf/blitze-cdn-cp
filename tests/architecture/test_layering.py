@@ -382,7 +382,7 @@ def test_domain_models_do_not_render_adapter_documents():
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     "traffic": set(),
     "backup": set(),
-    "origins": {"edges", "jobs"},
+    "origins": {"jobs"},
     # `traffic` because its collector counts cache outcomes in the same pass.
     "cache": {"dns", "jobs", "traffic"},
     "compression": {"dns"},
@@ -425,7 +425,7 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 ALLOWED_CONTRACT_DEPENDENCIES = {
     "traffic": set(),
     "backup": set(),
-    "origins": set(),
+    "origins": {"http", "tls"},
     "cache": {"http", "tls"},
     "compression": set(),
     "deployments": {"http", "tls"},

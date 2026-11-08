@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from blitzecdn.capabilities.edges.domain import Edge, HostKey
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
+from blitzecdn.capabilities.origins.contract import OriginCheck
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.domain.site import CdnSite
 
