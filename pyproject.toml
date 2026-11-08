@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "blitzecdn"
 version = "6.1.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
-requires-python = ">=3.12"
+requires-python = ">=3.15.2"
 license = { file = "LICENSE" }
 dependencies = [
   "cryptography>=45,<51",
@@ -33,7 +33,7 @@ dependencies = [
   # Declared here rather than installed separately by install.sh: `uv sync`
   # builds the environment the lockfile describes and removes anything else,
   # so a dependency that is really required has to say so here.
-  "ansible-core>=2.21,<2.22",
+  "ansible-core>=2.22,<2.23",
   "pydantic-settings>=2.12,<3",
   "sqlalchemy>=2.0.52,<2.1",
   "ansible-runner>=2.4,<3",
@@ -97,7 +97,15 @@ markers = [
   "packaging: exercises real distribution build, install and uninstall",
 ]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # `ansible_runner.run()` always drives a playbook through pexpect, which
+  # forks a pty. Python 3.15's `pty.fork()` warns when the parent has other
+  # threads, and an xdist worker always does. The child execs ansible-playbook
+  # immediately; raising here instead aborted the run after Runner had opened
+  # its artifact files, which then leaked as ResourceWarnings on unrelated tests.
+  'ignore:This process \(pid=\d+\) is multi-threaded, use of forkpty\(\) may lead to deadlocks in the child\.:DeprecationWarning:pty',
+]
 # All capability and provider tests live in the application suite.
 testpaths = ["tests"]
 # Shared helpers are the `support` package under it; `scripts` holds the
@@ -119,8 +127,16 @@ include_namespace_packages = true
 include = ["src/*"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py315"
 line-length = 88
+
+# Ansible copies these standalone standard-library scripts to an edge and runs
+# them with the edge host's own `python3`, not the control-plane image's
+# interpreter. They keep the edge Python floor (src/blitzecdn/assets/ansible/README.md), so
+# pyupgrade rules never rewrite them into syntax an edge cannot run.
+# tests/contract/test_edge_python.py runs them under that interpreter.
+[tool.ruff.per-file-target-version]
+"src/blitzecdn/**/ansible/roles/*/files/*.py" = "py312"
 
 [tool.ruff.lint]
 select = ["A", "ASYNC", "B", "BLE", "C4", "C90", "E", "F", "I", "N", "PERF", "PLR0912", "PLR0915", "RUF", "S", "SIM", "UP"]
@@ -154,7 +170,7 @@ max-statements = 60
 "tests/support/contracts.py" = ["S603"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.15"
 strict = true
 # Check application source, developer scripts and shared test helpers.
 files = ["src", "scripts", "tests/*.py", "tests/support"]

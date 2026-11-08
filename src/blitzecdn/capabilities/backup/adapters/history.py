@@ -34,5 +34,5 @@ class BackupStatusFile:
         """
         try:
             return BackupRecord.model_validate_json(self._path.read_bytes())
-        except (OSError, ValidationError):
+        except OSError, ValidationError:
             return None

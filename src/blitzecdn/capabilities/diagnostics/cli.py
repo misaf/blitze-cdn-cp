@@ -72,7 +72,7 @@ def check_resolver(
     probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
     try:
         answer = resolver.resolve(probe, dns.rdatatype.A)
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer:
         return ResolverCheck(True, f"resolver{where} rejects names that cannot exist")
     except dns.exception.DNSException:
         return ResolverCheck(True, f"resolver{where} did not answer the probe")
