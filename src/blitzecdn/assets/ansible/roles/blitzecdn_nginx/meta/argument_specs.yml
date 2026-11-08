@@ -57,6 +57,46 @@ argument_specs:
           Where the runtime image keeps its dynamic modules. Core's half of the
           contract: a capability names a shared object and this names the
           directory it resolves against.
+      blitzecdn_nginx_client_header_timeout:
+        type: str
+        required: true
+        description: >-
+          Longest gap allowed while a visitor sends the request headers; a
+          slow-header client is closed with 408.
+      blitzecdn_nginx_client_body_timeout:
+        type: str
+        required: true
+        description: >-
+          Longest gap allowed between two reads of a request body; a slow-POST
+          client is closed with 408.
+      blitzecdn_nginx_send_timeout:
+        type: str
+        required: true
+        description: >-
+          Longest gap allowed between two writes of a response to a visitor
+          that has stopped reading.
+      blitzecdn_nginx_keepalive_timeout: {type: str, required: true}
+      blitzecdn_nginx_keepalive_requests:
+        type: int
+        required: true
+        description: Requests one visitor connection may carry before it is closed.
+      blitzecdn_nginx_large_client_header_buffers:
+        type: str
+        required: true
+        description: >-
+          Count and size of the buffers a request line and header lines must
+          fit in, as large_client_header_buffers takes them, for example "4 8k".
+      blitzecdn_nginx_limit_conn_per_ip:
+        type: int
+        required: true
+        description: >-
+          Concurrent connections one client address may hold across the edge;
+          over HTTP/2 and HTTP/3 each in-flight request counts. Excess is
+          answered 429. 0 disables the limit.
+      blitzecdn_nginx_limit_conn_zone_size:
+        type: str
+        required: true
+        description: Shared memory for the per-address connection count.
       blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
       blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
       blitzecdn_nginx_upstream_keepalive:

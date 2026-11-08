@@ -93,6 +93,7 @@ def ansible_jinja(**kwargs: Any) -> Any:
     environment.filters["regex_replace"] = lambda value, pattern, replacement="": (
         re.sub(pattern, replacement, value)
     )
+    environment.filters["regex_escape"] = re.escape
     environment.filters["bool"] = ansible_bool
     # `lookup('env', ...)` is Ansible's; the defaults using it are controller
     # secrets and none of these tests' business.

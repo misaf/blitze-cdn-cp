@@ -35,7 +35,53 @@ class CacheOutcome(StrEnum):
     NONE = "NONE"
 
 
+#: Outcomes served from cache; REVALIDATED counts, since the origin sent no
+#: body. The cache capability and site analytics both judge hits by this.
+CACHE_HIT_OUTCOMES = frozenset(
+    {
+        CacheOutcome.HIT,
+        CacheOutcome.STALE,
+        CacheOutcome.UPDATING,
+        CacheOutcome.REVALIDATED,
+    }
+)
+
+#: Outcomes that consulted the cache; NONE never did and is excluded.
+CACHE_CONSULTED_OUTCOMES = CACHE_HIT_OUTCOMES | {
+    CacheOutcome.MISS,
+    CacheOutcome.EXPIRED,
+    CacheOutcome.BYPASS,
+}
+
+
+class StatusClass(StrEnum):
+    """The class of an HTTP response status, 100-599."""
+
+    INFORMATIONAL = "1xx"
+    SUCCESS = "2xx"
+    REDIRECTION = "3xx"
+    CLIENT_ERROR = "4xx"
+    SERVER_ERROR = "5xx"
+
+
 class CacheCounters(TrafficValue):
+    requests: Annotated[Counter, Field(ge=1)]
+    bytes_sent: Counter
+
+
+#: Longest stored path; the collector cuts longer ones to this length.
+MAX_PATH_LENGTH = 512
+
+#: Most paths kept per edge, hostname and hour.
+MAX_TOP_PATHS = 100
+
+
+class PathCounters(TrafficValue):
+    """One request path's share of an hour: its path only, never a query."""
+
+    path: Annotated[
+        str, Field(min_length=1, max_length=MAX_PATH_LENGTH, pattern=r"^/[^?#]*$")
+    ]
     requests: Annotated[Counter, Field(ge=1)]
     bytes_sent: Counter
 
@@ -48,6 +94,13 @@ class HourlyUsage(TrafficValue):
     body_bytes_sent: Counter
     #: The same records split by cache outcome; each record has exactly one.
     cache: Annotated[dict[CacheOutcome, CacheCounters], Field(min_length=1)]
+    #: Requests by response status class. A record without a status in
+    #: 100-599 has no class, so these may sum to less than ``requests``.
+    status: dict[StatusClass, Annotated[Counter, Field(ge=1)]] = Field(
+        default_factory=dict
+    )
+    #: The busiest paths seen, with lower-bound counts; empty when not collected.
+    paths: Annotated[tuple[PathCounters, ...], Field(max_length=MAX_TOP_PATHS)] = ()
 
     @model_validator(mode="after")
     def cache_partitions_totals(self) -> Self:
@@ -55,6 +108,12 @@ class HourlyUsage(TrafficValue):
             sum(item.bytes_sent for item in self.cache.values()) != self.bytes_sent
         ):
             raise ValueError("cache outcomes must partition the hour's totals")
+        if sum(self.status.values()) > self.requests:
+            raise ValueError("status classes cannot exceed the hour's requests")
+        if len({item.path for item in self.paths}) != len(self.paths):
+            raise ValueError("paths must be unique within an hour")
+        if sum(item.requests for item in self.paths) > self.requests:
+            raise ValueError("path counts cannot exceed the hour's requests")
         return self
 
     @field_validator("hostname")

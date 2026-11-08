@@ -446,27 +446,15 @@ class SiteFirewall(OmittedWhenEmpty):
         cls, values: tuple[str, ...], info: ValidationInfo
     ) -> tuple[str, ...]:
         kind = "allowed" if info.field_name == "allowed_paths" else "denied"
-        normalized = []
-        for item in values:
-            candidate = item.strip()
-            if not candidate.startswith("/"):
-                raise ValueError(f"{kind} path {item!r} must start with '/'")
-            if len(candidate) > 512:
-                raise ValueError(f"{kind} paths must be at most 512 characters")
-            if any(character in candidate for character in " \t\r\n;{}\"'\\"):
-                raise ValueError(
-                    f"{kind} path {item!r} may not contain whitespace, quotes, "
-                    "backslashes, ';', '{' or '}'"
-                )
-            if kind == "denied" and candidate == "/":
-                # `location ^~ /` duplicates the site's own `location /`, which
-                # fails the edge's configuration test.
-                raise ValueError(
-                    "denied path '/' would block the whole site; list the paths "
-                    "to serve in allowed_paths instead"
-                )
-            normalized.append(candidate)
-        return unique(tuple(normalized), "path")
+        normalized = validated_paths(values, kind)
+        if kind == "denied" and "/" in normalized:
+            # `location ^~ /` duplicates the site's own `location /`, which
+            # fails the edge's configuration test.
+            raise ValueError(
+                "denied path '/' would block the whole site; list the paths "
+                "to serve in allowed_paths instead"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def validate_country_rules(self) -> Self:
@@ -494,6 +482,24 @@ class SiteFirewall(OmittedWhenEmpty):
         return bool(self.allowed_countries or self.denied_countries)
 
 
+def validated_paths(values: Sequence[str], kind: str) -> tuple[str, ...]:
+    """Paths that reach an Nginx regex or ``location`` unquoted, normalised."""
+    normalized = []
+    for item in values:
+        candidate = item.strip()
+        if not candidate.startswith("/"):
+            raise ValueError(f"{kind} path {item!r} must start with '/'")
+        if len(candidate) > 512:
+            raise ValueError(f"{kind} paths must be at most 512 characters")
+        if any(character in candidate for character in " \t\r\n;{}\"'\\"):
+            raise ValueError(
+                f"{kind} path {item!r} may not contain whitespace, quotes, "
+                "backslashes, ';', '{' or '}'"
+            )
+        normalized.append(candidate)
+    return unique(tuple(normalized), "path")
+
+
 def allowed_paths_pattern(paths: Sequence[str]) -> str:
     """The alternation the edge renders: a prefix for '/'-terminated paths.
 
@@ -502,6 +508,116 @@ def allowed_paths_pattern(paths: Sequence[str]) -> str:
     return "|".join(
         re.escape(path) + ("" if path.endswith("/") else "$") for path in paths
     )
+
+
+#: The request rates a site may choose, slowest first. A ladder rather than any
+#: number because Nginx fixes the rate per shared-memory zone: every site on a
+#: rung shares that rung's zone, keyed per site and client, so the edge declares
+#: at most one zone per rung however many sites limit their traffic.
+RATE_LIMIT_RATES = (
+    "10r/m",
+    "30r/m",
+    "1r/s",
+    "2r/s",
+    "5r/s",
+    "10r/s",
+    "20r/s",
+    "50r/s",
+    "100r/s",
+    "200r/s",
+    "500r/s",
+    "1000r/s",
+)
+
+#: Statuses `limit_req_status` may answer with that a client reads as "slow down".
+RATE_LIMIT_STATUSES = (429, 503)
+
+
+def rate_limit_zone(rate: str) -> str:
+    """The shared zone one rung renders as; mirrors ``security-http.conf.j2``."""
+    return "blitzecdn_rate_" + rate.replace("/", "")
+
+
+class SiteRateLimit(OmittedWhenEmpty):
+    """A per-client request rate for one site; omitted when no rate is set."""
+
+    rate: str | None = Field(
+        default=None,
+        description=(
+            "Requests each client address may make, as one of "
+            + ", ".join(RATE_LIMIT_RATES)
+            + ". Requests over it are answered with status. Unset serves "
+            "everyone unlimited."
+        ),
+    )
+    burst: int = Field(
+        default=0,
+        ge=0,
+        le=10000,
+        description=(
+            "Requests a client may make above the rate before it is refused. "
+            "They are served at once, not queued."
+        ),
+    )
+    status: int = Field(
+        default=429,
+        description="The status refused requests get: 429 or 503.",
+    )
+    paths: tuple[str, ...] = Field(
+        default=(),
+        max_length=100,
+        description=(
+            "Paths the limit counts; empty counts every request. An entry ending "
+            "in '/' covers everything under it, any other entry only that exact "
+            "path; firewall.case_insensitive_paths applies to them too. "
+            "firewall.allow_sources are never limited."
+        ),
+    )
+
+    @property
+    def empty(self) -> bool:
+        return self.rate is None
+
+    @property
+    def zone(self) -> str | None:
+        return None if self.rate is None else rate_limit_zone(self.rate)
+
+    @field_validator("rate")
+    @classmethod
+    def validate_rate(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = value.strip().replace(" ", "")
+        if candidate not in RATE_LIMIT_RATES:
+            raise ValueError(
+                f"{value!r} is not an available rate; choose one of "
+                + ", ".join(RATE_LIMIT_RATES)
+            )
+        return candidate
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: int) -> int:
+        if value not in RATE_LIMIT_STATUSES:
+            raise ValueError("a rate limit answers with 429 or 503")
+        return value
+
+    @field_validator("paths")
+    @classmethod
+    def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return validated_paths(values, "rate-limited")
+
+    @model_validator(mode="after")
+    def validate_rate_is_set(self) -> Self:
+        if self.rate is None and (self.burst or self.status != 429 or self.paths):
+            raise ValueError("burst, status and paths need a rate to apply to")
+        pattern = allowed_paths_pattern(self.paths).encode("utf-8")
+        if len(pattern) > ALLOWED_PATHS_PATTERN_LIMIT:
+            raise ValueError(
+                "rate-limited paths are too long together for one Nginx rule; "
+                "list shared prefixes ending in '/' instead of individual paths"
+            )
+        return self
 
 
 class SecurityPolicy(CapabilityPolicy):
@@ -525,6 +641,15 @@ class SecurityPolicy(CapabilityPolicy):
         ),
     )
 
+    # The block is replaced wholesale when patched.
+    rate_limit: SiteRateLimit = Field(
+        default=SiteRateLimit(),
+        description=(
+            "Per-client request rate for the site. Empty serves everyone "
+            "unlimited. Never applied to /.well-known/acme-challenge/."
+        ),
+    )
+
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """The capabilities this policy requests.
@@ -538,6 +663,7 @@ class SecurityPolicy(CapabilityPolicy):
             for name, asked in (
                 ("under_attack_mode", self.under_attack_mode),
                 ("firewall", not self.firewall.empty),
+                ("rate_limit", not self.rate_limit.empty),
             )
             if asked
         )
