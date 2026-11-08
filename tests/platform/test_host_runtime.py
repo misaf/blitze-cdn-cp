@@ -88,7 +88,9 @@ def run(host, *arguments, **kwargs):
         env=host["env"],
         text=True,
         capture_output=True,
-        timeout=15,
+        # Each fake compose call is a Python child that starts coverage, and a
+        # restore makes several; 15s was tight on a loaded full-suite run.
+        timeout=60,
         **kwargs,
     )
 
