@@ -14,9 +14,8 @@ from collections.abc import Mapping
 from contextlib import suppress
 from typing import Any
 
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.origins.contract import OriginPolicy
+from blitzecdn.capabilities.origins.contract import OriginCheck, OriginPolicy
 from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.domain.site import CdnSite
 
