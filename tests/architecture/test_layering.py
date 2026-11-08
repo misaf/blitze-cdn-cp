@@ -731,8 +731,8 @@ def test_delivery_code_names_no_part_of_the_composition():
 def test_domain_and_service_code_never_reads_the_wall_clock():
     """Time is handed in: a `Clock` to a service, `now` to domain code.
 
-    Adapters that time an external process (`core/ansible/execution.py`) and
-    the ORM's fallback column defaults are outside the rule.
+    Adapters that time an external process (`core/ansible/execution.py`) are
+    outside the rule.
     """
     reads = ("datetime.now(", "datetime.utcnow(", "time.time(")
     offenders = [
@@ -744,5 +744,26 @@ def test_domain_and_service_code_never_reads_the_wall_clock():
             path.read_text(encoding="utf-8").splitlines(), start=1
         )
         if any(read in line for read in reads)
+    ]
+    assert offenders == []
+
+
+def test_only_the_composition_root_chooses_the_system_clock():
+    """A service or adapter takes `clock` as a required argument.
+
+    A `clock: Clock = system_clock` default lets a caller that forgets the
+    clock silently read real time. The composition root picks it once, on
+    `Adapters`; `core/ports/clock.py` defines it.
+    """
+    allowed = {Path("core/ports/clock.py")}
+    offenders = [
+        f"{relative}:{number}"
+        for path in sorted(_SOURCE.rglob("*.py"))
+        if (relative := path.relative_to(_SOURCE)) not in allowed
+        and relative.parts[0] != "composition"
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if "system_clock" in line
     ]
     assert offenders == []

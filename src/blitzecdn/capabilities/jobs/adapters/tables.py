@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, Index, text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 
 class JobRow(Base):
@@ -50,9 +50,7 @@ class JobRow(Base):
     #: Incremented on every claim. A worker completes a job by presenting the
     #: value its claim returned; a stale worker's write matches no row.
     fence: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, default=utcnow, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     last_error: Mapped[str | None] = mapped_column()
     #: What a succeeded job's handler reported, for whoever polls for it.

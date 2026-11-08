@@ -15,6 +15,7 @@ from blitzecdn.capabilities.tls.contract import (
     managed_certificate_paths,
 )
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.ports.clock import system_clock
 
 
 def _upload(control, certificate_pair, *, days=60):
@@ -65,7 +66,7 @@ def test_collection_preserves_retained_release_and_metadata_then_reclaims_after_
     first = _upload(control, certificate_pair, days=40)
     old = control.releases.prepare()
     second = _upload(control, certificate_pair, days=80)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     old_files = store.sources(first.site, version=first.version)
     newest_files = store.sources(second.site)
     assert control.certificates.collect_material("alice") == ()
@@ -106,7 +107,7 @@ def test_collection_reads_all_retained_releases_not_only_the_recent_page(
     control.certificates.collect_material("alice")
     assert all(
         path.exists()
-        for path in CertificateStore(settings).sources(
+        for path in CertificateStore(settings, clock=system_clock).sources(
             first.site, version=first.version
         )
     )
@@ -118,7 +119,7 @@ def test_canonical_reference_protects_material_even_without_metadata_or_a_releas
     control = certificate_control_plane(settings, runner=FakeRunner())
     seed_proxied_record(control)
     first = _upload(control, certificate_pair)
-    paths = CertificateStore(settings).sources(first.site)
+    paths = CertificateStore(settings, clock=system_clock).sources(first.site)
     (certificate_dir(settings) / first.site / "metadata.json").unlink()
     assert control.certificates.collect_material("alice") == ()
     assert all(path.exists() for path in paths)
@@ -133,7 +134,7 @@ def test_collection_preserves_a_pair_installed_before_failed_canonical_writeback
     first = _upload(control, certificate_pair, days=40)
     site = control.sites.get_site(first.site)
     certificate, key = certificate_pair(days=80)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     pending = store.install(site, certificate, key, source=CertificateSource.UPLOADED)
     assert pending.version != first.version
     assert control.certificates.collect_material("alice") == ()
@@ -204,9 +205,11 @@ def test_interrupted_collection_can_be_retried(settings, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(Path, "unlink", fail_second)
         with pytest.raises(OSError, match="interrupted"):
-            CertificateStore(settings).collect(())
+            CertificateStore(settings, clock=system_clock).collect(())
     assert not files[0].exists()
-    assert CertificateStore(settings).collect(()) == (f"orphan/{files[1].name}",)
+    assert CertificateStore(settings, clock=system_clock).collect(()) == (
+        f"orphan/{files[1].name}",
+    )
 
 
 def test_collector_fails_closed_on_corrupt_metadata_before_deleting_anything(settings):
@@ -219,7 +222,7 @@ def test_collector_fails_closed_on_corrupt_metadata_before_deleting_anything(set
     damaged.mkdir()
     (damaged / "metadata.json").write_text("broken")
     with pytest.raises(ValueError):
-        CertificateStore(settings).collect(())
+        CertificateStore(settings, clock=system_clock).collect(())
     assert orphan.exists()
 
 
@@ -234,7 +237,7 @@ def test_collector_ignores_external_links_and_unknown_files(settings, tmp_path):
     unknown = directory / "fullchain.pem"
     unknown.write_bytes(b"unmanaged")
     (root / "linked-directory").symlink_to(directory, target_is_directory=True)
-    assert CertificateStore(settings).collect(()) == ()
+    assert CertificateStore(settings, clock=system_clock).collect(()) == ()
     assert external.read_bytes() == b"external"
     assert linked.is_symlink()
     assert unknown.exists()
@@ -294,7 +297,9 @@ def test_deployment_history_keeps_material_and_rollback_restores_its_version(
     control.releases.prepare()
     control.releases.releases.prune(1)
     control.certificates.collect_material("alice")
-    assert CertificateStore(settings).sources(first.site, version=first.version)
+    assert CertificateStore(settings, clock=system_clock).sources(
+        first.site, version=first.version
+    )
 
     restored = control.deployments.rollback("alice", deployed.id)
     assert restored.status is DeploymentStatus.SUCCEEDED

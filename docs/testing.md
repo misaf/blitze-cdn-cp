@@ -16,6 +16,11 @@ and ShellCheck into the project environment, and the pinned Ansible collections
 into `.state/collections`. You do not need a global Ansible install. The project
 environment provides the version CI runs.
 
+The recipes set `ANSIBLE_HOME` to `.state/ansible-home`, so collections in
+`~/.ansible` are never used, ansible-lint's included: local lint checks against
+the same pinned versions as CI. If the pinned collections are missing,
+`just ansible-check` stops before linting and tells you to run `just collections`.
+
 `just doctor` reports every task this machine can run and gives a fix for each
 missing prerequisite:
 

@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, ForeignKey
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 
 class DomainRow(Base):
@@ -22,7 +22,7 @@ class DomainRow(Base):
 
     name: Mapped[str] = mapped_column(primary_key=True)
     policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 class DnsRecordRow(Base):
@@ -53,7 +53,7 @@ class DnsRecordRow(Base):
     value: Mapped[str] = mapped_column()
     ttl: Mapped[int] = mapped_column()
     proxied: Mapped[bool] = mapped_column(default=True)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 class RuleRow(Base):
@@ -78,4 +78,4 @@ class RuleRow(Base):
     match: Mapped[str] = mapped_column()
     overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(default=True)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)

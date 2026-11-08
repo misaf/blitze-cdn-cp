@@ -2,8 +2,9 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import delete, select, tuple_
+from sqlalchemy import Select, String, delete, func, select, tuple_, type_coerce
 from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.traffic.adapters.tables import (
@@ -11,6 +12,7 @@ from blitzecdn.capabilities.traffic.adapters.tables import (
     TrafficCollectionRow,
     TrafficCursorRow,
     TrafficHourRow,
+    TrafficPathHourRow,
     TrafficRetentionRow,
 )
 from blitzecdn.capabilities.traffic.domain import (
@@ -21,9 +23,18 @@ from blitzecdn.capabilities.traffic.domain import (
     EdgeCollection,
     HourlyUsage,
     LogCursor,
+    PathCounters,
     RetentionResult,
+    StatusClass,
     TrafficUsage,
     UsageQuery,
+)
+from blitzecdn.capabilities.traffic.domain.analytics import (
+    Granularity,
+    OutcomeTotals,
+    PathTotals,
+    SiteBucket,
+    SiteQuery,
 )
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError
@@ -32,6 +43,15 @@ from blitzecdn.core.persistence.pagination import read_page
 
 type _HourKey = tuple[str, str, datetime]
 type _Shares = dict[CacheOutcome, CacheCounters]
+
+#: The ``traffic_hours`` column holding each status class's requests.
+_STATUS_COLUMNS = {
+    StatusClass.INFORMATIONAL: "status_1xx",
+    StatusClass.SUCCESS: "status_2xx",
+    StatusClass.REDIRECTION: "status_3xx",
+    StatusClass.CLIENT_ERROR: "status_4xx",
+    StatusClass.SERVER_ERROR: "status_5xx",
+}
 
 
 class TrafficStore:
@@ -188,7 +208,9 @@ class TrafficStore:
                 grouped.setdefault(row.edge, []).append(self._cursor(row))
         return {edge: tuple(cursors) for edge, cursors in grouped.items()}
 
-    def apply(self, edge: str, collection: CollectedUsage) -> EdgeCollection:
+    def apply(
+        self, edge: str, collection: CollectedUsage, *, path_limit: int = 0
+    ) -> EdgeCollection:
         requests = bytes_sent = 0
         with self._db.transaction(), self._db.session() as session:
             state = session.get(TrafficRetentionRow, 1)
@@ -211,7 +233,7 @@ class TrafficStore:
                 for bucket in batch.buckets:
                     if state is not None and bucket.hour < state.cutoff:
                         continue
-                    self._increment(session, edge, bucket)
+                    self._increment(session, edge, bucket, path_limit)
                     requests += bucket.requests
                     bytes_sent += bucket.bytes_sent
                 latest_hour = max(bucket.hour for bucket in batch.buckets)
@@ -242,16 +264,30 @@ class TrafficStore:
             )
 
     @staticmethod
-    def _increment(session: Session, edge: str, bucket: HourlyUsage) -> None:
+    def _increment(
+        session: Session, edge: str, bucket: HourlyUsage, path_limit: int
+    ) -> None:
         key = (edge, bucket.hostname, bucket.hour)
         row = session.get(TrafficHourRow, key)
+        statuses = {
+            column: bucket.status.get(status, 0)
+            for status, column in _STATUS_COLUMNS.items()
+        }
         if row is None:
             session.add(
-                TrafficHourRow(edge=edge, **bucket.model_dump(exclude={"cache"}))
+                TrafficHourRow(
+                    edge=edge,
+                    **bucket.model_dump(exclude={"cache", "status", "paths"}),
+                    **statuses,
+                )
             )
         else:
             _add(row, bucket, ("requests", "bytes_sent", "body_bytes_sent"))
+            for column, count in statuses.items():
+                _increase(row, column, count)
         session.flush()
+        if path_limit and bucket.paths:
+            TrafficStore._increment_paths(session, key, bucket, path_limit)
         for outcome, counters in bucket.cache.items():
             share = session.get(TrafficCacheHourRow, (*key, outcome.value))
             if share is None:
@@ -299,7 +335,190 @@ class TrafficStore:
             bytes_sent=row.bytes_sent,
             body_bytes_sent=row.body_bytes_sent,
             cache=outcomes[(row.edge, row.hostname, row.hour)],
+            status={
+                status: getattr(row, column)
+                for status, column in _STATUS_COLUMNS.items()
+                if getattr(row, column)
+            },
         )
+
+    @staticmethod
+    def _increment_paths(
+        session: Session, key: _HourKey, bucket: HourlyUsage, path_limit: int
+    ) -> None:
+        """Add the batch's busiest paths, then keep only the hour's busiest."""
+        for item in bucket.paths:
+            share = session.get(TrafficPathHourRow, (*key, item.path))
+            if share is None:
+                session.add(
+                    TrafficPathHourRow(
+                        edge=key[0], hostname=key[1], hour=key[2], **item.model_dump()
+                    )
+                )
+            else:
+                _add(share, item, ("requests", "bytes_sent"))
+        session.flush()
+        in_hour = (
+            TrafficPathHourRow.edge == key[0],
+            TrafficPathHourRow.hostname == key[1],
+            TrafficPathHourRow.hour == key[2],
+        )
+        kept = (
+            select(TrafficPathHourRow.path)
+            .where(*in_hour)
+            .order_by(TrafficPathHourRow.requests.desc(), TrafficPathHourRow.path)
+            .limit(path_limit)
+        )
+        session.execute(
+            delete(TrafficPathHourRow).where(
+                *in_hour, TrafficPathHourRow.path.not_in(kept)
+            ),
+            # Another batch of this hour in the same transaction must not find
+            # a trimmed row in the session and add to it.
+            execution_options={"synchronize_session": "fetch"},
+        )
+
+    def site_buckets(self, query: SiteQuery) -> PageResult[SiteBucket]:
+        """One page of a site's hourly or daily totals, summed in SQL."""
+        bucket = self._bucket(TrafficHourRow.hour, query.granularity)
+        statement = self._in_range(
+            select(
+                bucket.label("bucket"),
+                func.sum(TrafficHourRow.requests),
+                func.sum(TrafficHourRow.bytes_sent),
+                func.sum(TrafficHourRow.body_bytes_sent),
+                *(
+                    func.sum(getattr(TrafficHourRow, column))
+                    for column in _STATUS_COLUMNS.values()
+                ),
+            ),
+            TrafficHourRow,
+            query,
+        )
+        statement = statement.group_by(bucket).order_by(bucket)
+        with self._db.session() as session:
+            statement = self._retained(session, statement, TrafficHourRow)
+            page = read_page(
+                session,
+                statement,
+                lambda row: row,
+                limit=query.limit,
+                offset=query.offset,
+            )
+            keys = [row[0] for row in page.items]
+            cache = self._bucket_outcomes(session, query, keys)
+            return PageResult(
+                items=[
+                    SiteBucket(
+                        start=self._bucket_start(row[0], query.granularity),
+                        requests=row[1],
+                        bytes_sent=row[2],
+                        body_bytes_sent=row[3],
+                        cache=cache.get(row[0], {}),
+                        status={
+                            status: count
+                            for status, count in zip(
+                                _STATUS_COLUMNS, row[4:], strict=True
+                            )
+                            if count
+                        },
+                    )
+                    for row in page.items
+                ],
+                total=page.total,
+            )
+
+    def site_paths(self, query: SiteQuery) -> PageResult[PathTotals]:
+        """A site's busiest paths over the range, most requested first."""
+        requests = func.sum(TrafficPathHourRow.requests)
+        statement: Select[Any] = self._in_range(
+            select(
+                TrafficPathHourRow.path,
+                requests,
+                func.sum(TrafficPathHourRow.bytes_sent),
+            ),
+            TrafficPathHourRow,
+            query,
+        )
+        statement = statement.group_by(TrafficPathHourRow.path).order_by(
+            requests.desc(), TrafficPathHourRow.path
+        )
+        with self._db.session() as session:
+            statement = self._retained(session, statement, TrafficPathHourRow)
+            page = read_page(
+                session,
+                statement,
+                lambda row: PathTotals(path=row[0], requests=row[1], bytes_sent=row[2]),
+                limit=query.limit,
+                offset=query.offset,
+            )
+            return PageResult(items=page.items, total=page.total)
+
+    def _bucket_outcomes(
+        self, session: Session, query: SiteQuery, keys: Sequence[str]
+    ) -> dict[str, dict[CacheOutcome, OutcomeTotals]]:
+        grouped: dict[str, dict[CacheOutcome, OutcomeTotals]] = {}
+        if not keys:
+            return grouped
+        bucket = self._bucket(TrafficCacheHourRow.hour, query.granularity)
+        statement = self._in_range(
+            select(
+                bucket,
+                TrafficCacheHourRow.outcome,
+                func.sum(TrafficCacheHourRow.requests),
+                func.sum(TrafficCacheHourRow.bytes_sent),
+            ),
+            TrafficCacheHourRow,
+            query,
+        ).group_by(bucket, TrafficCacheHourRow.outcome)
+        statement = self._retained(session, statement, TrafficCacheHourRow)
+        wanted = set(keys)
+        for key, outcome, requests, bytes_sent in session.execute(statement):
+            if key in wanted:
+                grouped.setdefault(key, {})[CacheOutcome(outcome)] = OutcomeTotals(
+                    requests=requests, bytes_sent=bytes_sent
+                )
+        return grouped
+
+    @staticmethod
+    def _bucket(column: object, granularity: Granularity) -> Any:
+        """Hours are ISO-8601 UTC text, so a day is its first ten characters."""
+        if granularity is Granularity.DAY:
+            return func.substr(type_coerce(column, String), 1, 10)
+        return type_coerce(column, String)
+
+    @staticmethod
+    def _bucket_start(key: str, granularity: Granularity) -> datetime:
+        if granularity is Granularity.DAY:
+            return datetime.fromisoformat(key).replace(tzinfo=UTC)
+        return datetime.fromisoformat(key)
+
+    @staticmethod
+    def _in_range[S: Select[Any]](
+        statement: S,
+        table: type[TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow],
+        query: SiteQuery,
+    ) -> S:
+        statement = statement.where(
+            table.hostname == query.site,
+            table.hour >= query.start,
+            table.hour < query.end,
+        )
+        if query.edge is not None:
+            statement = statement.where(table.edge == query.edge)
+        return statement
+
+    @staticmethod
+    def _retained[S: Select[Any]](
+        session: Session,
+        statement: S,
+        table: type[TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow],
+    ) -> S:
+        """Expired hours are hidden at once, before pruning deletes them."""
+        state = session.get(TrafficRetentionRow, 1)
+        if state is None:
+            return statement
+        return statement.where(table.hour >= state.cutoff)
 
     def hourly(
         self, *, edge: str, hostname: str, start: datetime, end: datetime
@@ -326,14 +545,20 @@ class TrafficStore:
 
 
 def _add(
-    row: TrafficHourRow | TrafficCacheHourRow,
-    delta: HourlyUsage | CacheCounters,
+    row: TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow,
+    delta: HourlyUsage | CacheCounters | PathCounters,
     names: tuple[str, ...],
 ) -> None:
     for name in names:
-        total = int(getattr(row, name)) + int(getattr(delta, name))
-        if total > 2**63 - 1:
-            raise ConflictError(
-                "hourly traffic counter exceeds the database integer range"
-            )
-        setattr(row, name, total)
+        _increase(row, name, int(getattr(delta, name)))
+
+
+def _increase(
+    row: TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow,
+    name: str,
+    amount: int,
+) -> None:
+    total = int(getattr(row, name)) + amount
+    if total > 2**63 - 1:
+        raise ConflictError("hourly traffic counter exceeds the database integer range")
+    setattr(row, name, total)

@@ -17,6 +17,13 @@ export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
 # ansible.cfg does not name this: it can only point inside the wheel the
 # platform roles ship in, and collections are state.
 export ANSIBLE_COLLECTIONS_PATH := ".state/collections"
+# Setting the variable above turns off ansible-lint's isolation, and it then
+# uses ANSIBLE_HOME (default ~/.ansible) as its cache and puts
+# `$ANSIBLE_HOME/collections` ahead of every configured path. On a machine with
+# user-installed collections, lint would resolve modules from versions that
+# requirements.yml does not pin, which CI and production do not use. A
+# project-local home keeps every Ansible tool here on the pinned set.
+export ANSIBLE_HOME := ".state/ansible-home"
 
 collections := ".state/collections"
 
@@ -158,7 +165,8 @@ types:
 shell-lint:
     uv run shellcheck install.sh \
         tests/container-install.sh tests/http3-edge-integration.sh \
-        scripts/collect-diagnostics.sh scripts/doctor.sh
+        scripts/collect-diagnostics.sh scripts/doctor.sh \
+        scripts/collections-check.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -250,6 +258,14 @@ test-profile *args:
 ansible-check:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Without the pinned collections, a role fails with an unresolved module
+    # (`community.general.timezone`) that does not say what to do.
+    if ! pins="$(bash scripts/collections-check.sh)"; then
+        printf 'ansible-check: pinned collections are missing from {{collections}}:\n' >&2
+        printf '%s\n' "$pins" | awk '$3 != "ok" { print "  " $1 " " $2 }' >&2
+        printf 'run `just collections`\n' >&2
+        exit 1
+    fi
     uv run yamllint .
     export ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)"
     slots="$(uv run blitzecdn ansible slots)"

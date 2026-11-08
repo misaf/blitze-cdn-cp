@@ -5,4 +5,5 @@ argument_specs:
     options:
       blitzecdn_traffic_collect_log_directory: {type: path, required: true}
       blitzecdn_traffic_collect_max_bytes: {type: int, required: true}
+      blitzecdn_traffic_collect_top_paths: {type: int, required: true}
       blitzecdn_traffic_collect_checkpoints: {type: dict, required: true}

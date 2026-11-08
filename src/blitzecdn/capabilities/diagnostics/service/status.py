@@ -15,7 +15,7 @@ from blitzecdn.capabilities.diagnostics.ports import (
 from blitzecdn.capabilities.jobs.ports import WorkerHistory
 from blitzecdn.capabilities.tls.ports import CertificateHistory
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 
 class DiagnosticsService:
@@ -28,7 +28,7 @@ class DiagnosticsService:
         workers: WorkerHistory,
         backups: BackupHistory,
         convergence: ConvergenceHistory,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.queue = queue
         self.workflows = workflows
