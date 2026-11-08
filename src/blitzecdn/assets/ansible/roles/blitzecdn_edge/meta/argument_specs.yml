@@ -11,12 +11,11 @@ argument_specs:
         of them that
         no edge could serve.
       - >-
-        It exists because those three roles used to read each other's
-        variables. blitzecdn_edge_stack derived fifteen of its own defaults
-        from blitzecdn_nginx_*, which made the role that runs the container
-        depend on the role that writes configuration for reasons that had
-        nothing to do with configuration; blitzecdn_firewall did not couple at
-        all and kept a second literal copy of the port lists instead.
+        It exists so those three roles read one contract instead of each
+        other's variables. Otherwise the role that runs the container would
+        depend on the role that writes configuration for reasons that have
+        nothing to do with configuration, and a role that avoided coupling
+        would have to keep its own copy of the port lists instead.
       - >-
         Run it first in the play. The argument spec below is checked when the
         role executes, so putting it ahead of blitzecdn_docker means a

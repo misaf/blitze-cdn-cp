@@ -31,9 +31,8 @@
 #
 # `blitzecdn_report` is the channel a role returns a payload to the control
 # plane on: the runner collects this fact from its event stream and delivers it
-# as part of the run's structured result. This role used to render the same document to
-# JSON and copy it into a directory on the controller, which meant the control
-# plane had to supply a controller-side path, had to empty that directory
+# as part of the run's structured result. A file copied to the controller would
+# need a controller-side path from the control plane, a directory emptied
 # between runs, and still could not tell "this edge reported nothing" from "the
 # file has not been written yet". A fact has none of those problems, and
 # set_fact never reports a change, so a read-only collection stays read-only in

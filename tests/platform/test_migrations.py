@@ -259,15 +259,15 @@ def test_a_database_from_the_retired_single_baseline_is_refused(tmp_path):
     unknown rather than half-upgraded on top of tables that already exist.
     """
     assert not DatabaseSchema.known("0001")
-    legacy = tmp_path / "legacy.db"
-    DatabaseSchema.migrate(legacy)
-    with closing(sqlite3.connect(legacy)) as connection:
+    retired = tmp_path / "retired.db"
+    DatabaseSchema.migrate(retired)
+    with closing(sqlite3.connect(retired)) as connection:
         connection.execute("UPDATE alembic_version SET version_num = '0001'")
         connection.commit()
-    before = legacy.read_bytes()
+    before = retired.read_bytes()
     with pytest.raises(ConfigurationError, match="unknown schema revision '0001'"):
-        DatabaseSchema.migrate(legacy)
-    assert legacy.read_bytes() == before
+        DatabaseSchema.migrate(retired)
+    assert retired.read_bytes() == before
 
 
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):

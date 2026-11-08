@@ -36,8 +36,7 @@ services:
     # its own configuration, which is a privilege *reduction* and unaffected.
     # That user is Alpine Nginx's `nginx`, not Debian's `www-data`, and the
     # contract carries its uid: see `blitzecdn_edge_runtime.worker_uid`, which
-    # exists because this comment used to say www-data and a host directory
-    # was chowned to match.
+    # host directories the worker reads are chowned to.
     #
     # The controller's own Compose project already carries this. The edge, the
     # host-networked container that terminates every visitor connection, is the
