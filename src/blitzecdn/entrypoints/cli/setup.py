@@ -12,6 +12,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.composition import migrate_database
+from blitzecdn.core.runtime.filesystem import create_private_file
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.root import app
 
@@ -28,10 +29,10 @@ def init(
     ),
 ) -> None:
     """Create a restrictive local environment file without overwriting one."""
-    if output.exists():
-        raise typer.BadParameter(f"refusing to overwrite {output}")
-    output.write_text(_environment_file_body(), encoding="utf-8")
-    output.chmod(0o600)
+    try:
+        create_private_file(output, _environment_file_body())
+    except FileExistsError:
+        raise typer.BadParameter(f"refusing to overwrite {output}") from None
     typer.echo(f"Created {output} with mode 0600")
 
 
@@ -49,9 +50,11 @@ def setup() -> None:
     root = Path.cwd()
     environment_path = root / ".env"
     created: list[str] = []
-    if not environment_path.exists():
-        environment_path.write_text(_environment_file_body(), encoding="utf-8")
-        environment_path.chmod(0o600)
+    try:
+        create_private_file(environment_path, _environment_file_body())
+    except FileExistsError:
+        pass
+    else:
         created.append(str(environment_path.relative_to(root)))
     if created:
         typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
