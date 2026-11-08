@@ -19,10 +19,12 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import tempfile
 from pathlib import Path
 
 __all__ = [
     "RELEASE_PROBE_ENVIRONMENT",
+    "RELEASE_PROBE_FILE",
     "RELEASE_PROBE_HEADER",
     "release_probe_token",
 ]
@@ -33,7 +35,8 @@ RELEASE_PROBE_HEADER = "X-BlitzeCDN-Probe"
 #: How the token reaches the edge play; read by `blitzecdn_nginx`'s defaults.
 RELEASE_PROBE_ENVIRONMENT = "BLITZE_RELEASE_PROBE_TOKEN"
 
-_FILE_NAME = "release-probe.token"
+#: Under the controller's state directory; backed up with the controller key.
+RELEASE_PROBE_FILE = "release-probe.token"
 _TOKEN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -44,7 +47,7 @@ def release_probe_token(state_dir: Path) -> str:
     on one value. A file that does not hold a well-formed token is an error
     rather than something to overwrite silently: every edge holds the old one.
     """
-    path = state_dir / _FILE_NAME
+    path = state_dir / RELEASE_PROBE_FILE
     try:
         token = path.read_text(encoding="ascii").strip()
     except FileNotFoundError:
@@ -58,12 +61,26 @@ def release_probe_token(state_dir: Path) -> str:
 
 
 def _create(path: Path) -> str:
+    """Write a new token beside ``path``, then publish it with a hard link.
+
+    The link is atomic and refuses an existing name, so a concurrent reader
+    sees either no file or a complete one, and a competing creator's token is
+    never replaced: the loser reads the winner's.
+    """
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     token = secrets.token_hex(32)
+    descriptor, temporary = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        return path.read_text(encoding="ascii").strip()
-    with os.fdopen(descriptor, "w", encoding="ascii") as stream:
-        stream.write(token + "\n")
+        with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+            stream.write(token + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            return path.read_text(encoding="ascii").strip()
+    finally:
+        os.unlink(temporary)
     return token

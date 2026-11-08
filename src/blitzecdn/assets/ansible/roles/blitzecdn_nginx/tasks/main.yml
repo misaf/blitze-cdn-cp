@@ -31,37 +31,6 @@
   ansible.builtin.import_tasks: verify-runtime.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
-# Every release's reserved location includes this file, so it has to exist
-# before the staged configuration is tested. Into the runtime contract's
-# secrets directory, which core creates root-only before any role runs.
-- name: Require the controller's release probe token
-  ansible.builtin.assert:
-    that:
-      - blitzecdn_nginx_release_probe_token is match('^[0-9a-f]{64}$')
-    fail_msg: >-
-      blitzecdn_nginx_release_probe_token must be 64 hexadecimal characters.
-      The control plane supplies it as BLITZE_RELEASE_PROBE_TOKEN; run the
-      edge play through blitzecdn rather than ansible-playbook directly.
-  no_log: true
-
-# Inline rather than a template: this role renders nothing on the edge, and
-# this file is host state, not part of the configuration tree.
-- name: Install the release probe token
-  ansible.builtin.copy:
-    content: |
-      # Managed by BlitzeCDN. Contains an edge secret; keep this file root-only.
-      #
-      # Included by the reserved /.blitzecdn/release location: only the
-      # controller's rollout verification may read which release this edge serves.
-      if ($http_x_blitzecdn_probe != "{{ blitzecdn_nginx_release_probe_token }}") {
-          return 404;
-      }
-    dest: "{{ blitzecdn_nginx_release_probe_file }}"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-
 - name: Allow Nginx to traverse the ACME webroot parent
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_runtime.paths.acme | dirname }}"

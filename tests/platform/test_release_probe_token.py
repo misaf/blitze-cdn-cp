@@ -30,3 +30,42 @@ def test_a_damaged_token_file_is_refused_rather_than_replaced(tmp_path):
 
     with pytest.raises(RuntimeError, match="release probe token"):
         release_probe_token(tmp_path)
+
+
+def test_a_competing_creator_keeps_the_token_already_published(tmp_path):
+    """The loser of a first-use race reads the winner's token, never replaces it."""
+    from blitzecdn.core.ansible import probe
+
+    winner = "b" * 64
+    (tmp_path / "release-probe.token").write_text(winner + "\n")
+
+    assert probe._create(tmp_path / "release-probe.token") == winner
+    assert (tmp_path / "release-probe.token").read_text() == winner + "\n"
+    # The candidate it wrote first is never left behind.
+    assert [child.name for child in tmp_path.iterdir()] == ["release-probe.token"]
+
+
+def test_the_edge_play_installs_the_token_even_for_a_sealed_release():
+    """Redeploying an unchanged release must repair an edge with an old token.
+
+    The nginx role is skipped once a release is sealed, so the token is
+    reconciled by its own import, gated only on rollback and commit.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    import blitzecdn
+
+    ansible = Path(blitzecdn.__file__).parent / "assets/ansible"
+    (play,) = yaml.safe_load((ansible / "playbooks/edge.yml").read_text())
+    (task,) = [
+        task
+        for task in play["pre_tasks"]
+        if task.get("ansible.builtin.import_role", {}).get("tasks_from")
+        == "release-probe.yml"
+    ]
+    assert "seal" not in str(task.get("when", ""))
+    assert "always" in task["tags"]
+    main = (ansible / "roles/blitzecdn_nginx/tasks/main.yml").read_text()
+    assert "release_probe" not in main
