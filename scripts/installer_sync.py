@@ -4,10 +4,11 @@ Run through `just installer-sync`; `--check` fails instead of writing.
 
 install.sh has to install Docker before the control-plane image can run the
 role, and it is downloaded on its own, so it cannot read the role's files. It
-carries a generated copy instead, between two marker lines: the package list
-and paths from defaults/main.yml, the apt source from templates/docker.sources.j2
-and files/daemon.json verbatim. The role stays the only place they are edited,
-and the bootstrap seeds the host with exactly what the role later finds.
+carries a generated copy instead, between two marker lines: the package list,
+paths and apt key fingerprint from defaults/main.yml, the apt source from
+templates/docker.sources.j2 and files/daemon.json verbatim. The role stays the
+only place they are edited, and the bootstrap seeds the host with exactly what
+the role later finds.
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ SOURCES_EXPRESSIONS = {
 }
 # Written unquoted into bash, so held to characters that need no quoting.
 PLAIN = re.compile(r"[A-Za-z0-9_./+-]+")
+# What `gpg --with-colons` prints for a key: 40 upper-case hex digits.
+FINGERPRINT = re.compile(r"[0-9A-F]{40}")
 
 
 def _plain(value: object, name: str) -> str:
@@ -83,6 +86,12 @@ def generated_block() -> str:
         defaults["blitzecdn_docker_daemon_config_file"],
         "blitzecdn_docker_daemon_config_file",
     )
+    fingerprint = defaults["blitzecdn_docker_gpg_fingerprint"]
+    if not isinstance(fingerprint, str) or not FINGERPRINT.fullmatch(fingerprint):
+        raise SystemExit(
+            "error: blitzecdn_docker_gpg_fingerprint must be 40 upper-case hex"
+            f" digits, got {fingerprint!r}"
+        )
     packages = " ".join(
         _plain(package, "blitzecdn_docker_packages")
         for package in defaults["blitzecdn_docker_packages"]
@@ -92,6 +101,7 @@ def generated_block() -> str:
         + f"DOCKER_KEYRING={keyring}\n"
         + f"DOCKER_SOURCES_FILE={sources_file}\n"
         + f"DOCKER_DAEMON_CONFIG_FILE={daemon_file}\n"
+        + f"DOCKER_KEY_FINGERPRINT={fingerprint}\n"
         + f"DOCKER_PACKAGES=({packages})\n"
         + "\n"
         + "# templates/docker.sources.j2, for: ID VERSION_CODENAME ARCHITECTURE\n"

@@ -181,8 +181,12 @@ source tree, virtualenv or Git checkout is left on the host.
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
+gh attestation verify install.sh --repo misaf/blitze-cdn-cp
 sudo bash install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
+
+The second line checks the downloaded script before it runs as root; what the
+script then checks itself is in [What the installer checks](#what-the-installer-checks).
 
 The installation leaves that release's installer on the host as
 `blitzecdn-install`, and every later operation runs it:
@@ -232,6 +236,41 @@ next depends on the schema:
 A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
 then run the standalone command of the release you want.
+
+### What the installer checks
+
+The installer runs the control-plane image as root, privileged and in the
+host's PID namespace, so nothing it fetches is trusted on first sight:
+
+- **install.sh.** Each release's image workflow attests the `install.sh` of its
+  tag. `gh attestation verify` (run anywhere `gh` is signed in) shows the file
+  is the one that release was built from; the workflow's run summary also
+  prints its SHA-256 for `sha256sum --check`.
+- **The control-plane image.** The same workflow signs the image it publishes
+  with cosign, keylessly, as itself for that tag. After pulling, the installer
+  pins the digest the registry served and refuses to run it unless cosign
+  shows `control-plane-image.yml` signed exactly that digest for the image's
+  own release tag, with the signature in Sigstore's transparency log. cosign
+  itself runs from an image pinned by digest in `install.sh`. This needs the
+  host to reach Sigstore's public services as well as ghcr.io.
+- **Docker's apt signing key.** Downloaded only when the keyring is missing,
+  and installed only if it holds Docker's published key
+  (`9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`) and no other. The
+  `blitzecdn_docker` role checks the keyring on every converge.
+
+An image loaded with `BLITZECDN_CONTROL_PLANE_ARCHIVE` or built with
+`BLITZECDN_CONTROL_PLANE_BUILD=1` is the operator's own and is not
+signature-checked; verify the image before saving it into an archive
+(`cosign verify` with the identity above). A mirror that does not copy the
+signatures (`cosign copy` does) needs `BLITZECDN_CONTROL_PLANE_VERIFY=0`;
+name the image by the digest the release published, so the exact bytes are
+still fixed:
+
+```sh
+sudo BLITZECDN_CONTROL_PLANE_VERIFY=0 \
+  BLITZECDN_CONTROL_PLANE_IMAGE=mirror.example/blitzecdn-control-plane:X.Y.Z@sha256:DIGEST \
+  bash install.sh standalone ...
+```
 
 ## Edge SSH host keys
 
