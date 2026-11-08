@@ -5,7 +5,8 @@
 {{ blitzecdn_edge_runtime.paths.logs }}/domains/*.log {
     daily
     maxsize 100M
-    rotate 14
+    rotate {{ blitzecdn_nginx_log_retention_days }}
+    maxage {{ blitzecdn_nginx_log_retention_days }}
     missingok
     notifempty
     compress
