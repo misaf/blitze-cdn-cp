@@ -10,7 +10,7 @@ from blitzecdn.capabilities.origins.ports import (
 )
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 
@@ -24,7 +24,7 @@ class OriginCheckService:
         events: EventRecorder,
         runner: OriginCheckRunner,
         origin_probe: OriginProbe,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.sites = sites
         self.events = events

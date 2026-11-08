@@ -47,6 +47,7 @@ from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode, TlsPo
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
+from blitzecdn.core.ports.clock import system_clock
 
 
 def _two_acme_sites(control, certificate_pair):
@@ -654,7 +655,7 @@ def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
                 "blitzecdn.capabilities.tls.certificates.adapters"
             ).CertificateStore
 
-            return certificate_store_class(settings).install(
+            return certificate_store_class(settings, clock=system_clock).install(
                 site, certificate, key, source=source, email=email
             )
 

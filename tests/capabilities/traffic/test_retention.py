@@ -17,6 +17,7 @@ from blitzecdn.capabilities.traffic.domain import CollectedUsage, UsageQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.composition import Repository
+from blitzecdn.core.ports.clock import system_clock
 
 NOW = datetime(2027, 2, 1, 12, 30, tzinfo=UTC)
 CUTOFF = datetime(2027, 1, 2, 12, tzinfo=UTC)
@@ -188,7 +189,11 @@ def test_failed_audit_rolls_back_deletion_and_watermark(
             raise RuntimeError("audit failed")
 
     service = TrafficService(
-        store=store, runner=SimpleNamespace(), events=BrokenAudit(), uow=repository
+        store=store,
+        runner=SimpleNamespace(),
+        events=BrokenAudit(),
+        uow=repository,
+        clock=system_clock,
     )
     with pytest.raises(RuntimeError, match="audit failed"):
         service.prune("alice", retention_days=30)

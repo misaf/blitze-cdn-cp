@@ -21,6 +21,7 @@ from blitzecdn.capabilities.tls.certificates.adapters import (
 )
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.core.ports.clock import system_clock
 
 
 def test_store_validates_and_persists_managed_certificate(
@@ -28,7 +29,7 @@ def test_store_validates_and_persists_managed_certificate(
 ):
     site = site_from_settings(site_payload)
     certificate, key = certificate_pair()
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
 
     info = store.install(site, certificate, key, source=CertificateSource.UPLOADED)
 
@@ -45,7 +46,7 @@ def test_store_commits_a_certificate_pair_only_after_both_files_exist(
     settings, site_payload, certificate_pair, monkeypatch
 ):
     site = site_from_settings(site_payload)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     old_certificate, old_key = certificate_pair(days=40)
     old_info = store.install(
         site, old_certificate, old_key, source=CertificateSource.UPLOADED
@@ -78,7 +79,7 @@ def test_replacement_retains_every_file_an_older_release_can_reference(
     settings, site_payload, certificate_pair
 ):
     site = site_from_settings(site_payload)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     old_certificate, old_key = certificate_pair(days=40)
     store.install(site, old_certificate, old_key, source=CertificateSource.UPLOADED)
     old_sources = store.sources(site.name)
@@ -95,7 +96,7 @@ def test_material_is_content_addressed_and_corruption_is_refused(
     settings, site_payload, certificate_pair
 ):
     site = site_from_settings(site_payload)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     certificate, key = certificate_pair()
     info = store.install(site, certificate, key, source=CertificateSource.UPLOADED)
     chain_path, key_path = store.sources(site.name)
@@ -113,7 +114,7 @@ def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
     settings, site_payload, certificate_pair, rsa_keys
 ):
     site = site_from_settings(site_payload)
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     certificate, key = certificate_pair()
     # A key from the pool that this certificate was demonstrably not signed
     # with — `certificate_pair` hands out `rsa_keys[0]` first.
@@ -185,7 +186,7 @@ def test_store_validates_certificate_chain(settings, site_payload, rsa_keys):
     )
     site = site_from_settings(site_payload)
 
-    CertificateStore(settings).install(
+    CertificateStore(settings, clock=system_clock).install(
         site, chain, key, source=CertificateSource.UPLOADED
     )
 
@@ -205,7 +206,7 @@ def test_store_validates_certificate_chain(settings, site_payload, rsa_keys):
         serialization.Encoding.PEM
     ) + unrelated.public_bytes(serialization.Encoding.PEM)
     with pytest.raises(ConfigurationError, match="signatures do not match"):
-        CertificateStore(settings).install(
+        CertificateStore(settings, clock=system_clock).install(
             site, invalid_chain, key, source=CertificateSource.UPLOADED
         )
 
@@ -327,7 +328,7 @@ def _install(store, settings, certificate_pair, name, *, days, source):
 def test_the_store_lists_everything_it_holds_soonest_expiry_first(
     settings, certificate_pair
 ):
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     _install(
         store,
         settings,
@@ -351,7 +352,7 @@ def test_the_store_lists_everything_it_holds_soonest_expiry_first(
 def test_a_damaged_certificate_directory_does_not_hide_the_healthy_ones(
     settings, certificate_pair
 ):
-    store = CertificateStore(settings)
+    store = CertificateStore(settings, clock=system_clock)
     _install(
         store,
         settings,

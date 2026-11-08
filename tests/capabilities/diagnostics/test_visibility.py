@@ -23,6 +23,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.capabilities.workflows.service.coordinator import WorkflowCoordinator
 from blitzecdn.composition import Repository
+from blitzecdn.core.ports.clock import system_clock
 from blitzecdn.entrypoints.cli.main import app
 
 
@@ -35,7 +36,7 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
     repository.workflows.advance("finished", WorkflowStatus.SUCCEEDED)
     repository.workflows.create("interrupted", "deployment", "operator")
     repository.workflows.advance("interrupted", WorkflowStatus.NEEDS_REVIEW)
-    monitor = WorkerMonitor(tmp_path / "workers")
+    monitor = WorkerMonitor(tmp_path / "workers", clock=system_clock)
     monitor.directory.mkdir()
     for index, age in enumerate((0, 31)):
         worker = WorkerHeartbeat(
@@ -181,7 +182,10 @@ def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog
     repository = Repository(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "operator", "site-a")
     coordinator = WorkflowCoordinator(
-        journal=repository.workflows, uow=repository, events=repository.audit_log
+        journal=repository.workflows,
+        uow=repository,
+        events=repository.audit_log,
+        clock=system_clock,
     )
     coordinator.reconcile_interrupted()
     (warning,) = [
