@@ -19,7 +19,7 @@ from blitzecdn.capabilities.jobs.domain.observability import (
     WorkerObservations,
 )
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class WorkerMonitor:
         self,
         directory: Path,
         *,
-        clock: Clock = system_clock,
+        clock: Clock,
         interval: float = 5,
     ) -> None:
         self.directory = directory

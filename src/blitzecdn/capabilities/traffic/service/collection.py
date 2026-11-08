@@ -22,7 +22,7 @@ from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.validation import matches_edge_limit, validate_edge_limit
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class TrafficService:
         uow: UnitOfWork,
         config: TrafficConfig | None = None,
         edge_names: Callable[[], Sequence[str]] = lambda: (),
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.store = store
         self.runner = runner
