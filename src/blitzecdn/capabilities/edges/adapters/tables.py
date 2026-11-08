@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 
 class EdgeRow(Base):
@@ -40,4 +40,4 @@ class EdgeRow(Base):
     #: NULL means undeclared, assume the controller's set; an empty list means
     #: the edge's runtime provides none. The inventory plugin does not read this column.
     capabilities: Mapped[list[Any] | None] = mapped_column(JSON)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)

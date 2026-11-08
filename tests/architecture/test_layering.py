@@ -731,8 +731,8 @@ def test_delivery_code_names_no_part_of_the_composition():
 def test_domain_and_service_code_never_reads_the_wall_clock():
     """Time is handed in: a `Clock` to a service, `now` to domain code.
 
-    Adapters that time an external process (`core/ansible/execution.py`) and
-    the ORM's fallback column defaults are outside the rule.
+    Adapters that time an external process (`core/ansible/execution.py`) are
+    outside the rule.
     """
     reads = ("datetime.now(", "datetime.utcnow(", "time.time(")
     offenders = [
