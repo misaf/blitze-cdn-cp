@@ -3,6 +3,9 @@
 A reload or a response can come from the previous release, so a reserved
 endpoint returns the digest rendered into the virtual host, whatever the
 origin's health. TLS also checks the certificate names the hostname.
+
+The endpoint answers only a request carrying this controller's release probe
+token; to anyone else it is a 404 like every other reserved path.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from cryptography import x509
 
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.ansible.probe import RELEASE_PROBE_HEADER
 from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["ServingProbe", "ServingResult"]
@@ -50,7 +54,8 @@ class ServingResult:
 class ServingProbe:
     """Requests a hostname from one edge and reports whether it answered."""
 
-    def __init__(self, *, timeout: float = _TIMEOUT_SECONDS) -> None:
+    def __init__(self, *, token: str, timeout: float = _TIMEOUT_SECONDS) -> None:
+        self.token = token
         self.timeout = timeout
 
     def verify(
@@ -95,7 +100,11 @@ class ServingProbe:
         try:
             connection = self._connection(scheme, address, port, hostname)
             try:
-                connection.request("GET", _PATH, headers={"Host": hostname})
+                connection.request(
+                    "GET",
+                    _PATH,
+                    headers={"Host": hostname, RELEASE_PROBE_HEADER: self.token},
+                )
                 response = connection.getresponse()
                 observed = response.read(128).decode("ascii", errors="replace").strip()
             finally:

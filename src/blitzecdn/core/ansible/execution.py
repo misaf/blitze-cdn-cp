@@ -26,6 +26,10 @@ from ansible_runner import (
 
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.events import RunnerEvents
+from blitzecdn.core.ansible.probe import (
+    RELEASE_PROBE_ENVIRONMENT,
+    release_probe_token,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.core.exceptions import ExecutionError
@@ -236,6 +240,11 @@ class PlaybookExecutor:
         # material by a path relative to it. A release pinning absolute paths
         # would render differently on a controller restored somewhere else.
         environment["BLITZE_STATE_DIR"] = str(self._settings.state_dir.resolve())
+        # What the edge requires before it reveals its release digest; the
+        # controller's serving verification sends the same value.
+        environment[RELEASE_PROBE_ENVIRONMENT] = release_probe_token(
+            self._settings.state_dir
+        )
         # Declared capability secrets, through the environment rather than
         # `--extra-vars`, which every user on the controller can read in the
         # process table.

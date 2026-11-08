@@ -53,6 +53,12 @@ class _Edge(http.server.BaseHTTPRequestHandler):
     """
 
     def do_GET(self) -> None:
+        # As the edge does: the marker is the controller's alone.
+        if self.headers.get("X-BlitzeCDN-Probe") != "0" * 64:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         payload = (self.server.release_digest + "\n").encode("ascii")
         self.send_response(200)
         self.send_header("Content-Length", str(len(payload)))
@@ -108,7 +114,7 @@ def probe_on(port: int) -> ServingProbe:
         def _connection(self, scheme, address, _port, hostname):
             return super()._connection(scheme, address, port, hostname)
 
-    return LoopbackProbe(timeout=5.0)
+    return LoopbackProbe(token="0" * 64, timeout=5.0)
 
 
 def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:

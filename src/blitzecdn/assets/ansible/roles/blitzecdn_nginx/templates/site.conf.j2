@@ -65,6 +65,8 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
         access_log off;
         default_type text/plain;
         add_header Cache-Control "no-store" always;
+        # 404 unless the request carries the controller's probe token.
+        include {{ blitzecdn_nginx_release_probe_file }};
         return 200 "{{ blitzecdn_release_digest | default('untracked') }}\n";
     }
     location = /.blitzecdn {
