@@ -22,6 +22,7 @@ FEATURES = (
         api_routers=(routes.router,),
         cli_commands=(
             CliCommandGroup(feature="traffic", name="traffic", app=cli.traffic_app),
+            CliCommandGroup(feature="traffic", name="analytics", app=cli.analytics_app),
         ),
         configuration=(CONFIGURATION,),
         ansible=(

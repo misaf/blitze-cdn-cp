@@ -13,6 +13,11 @@ from blitzecdn.capabilities.traffic.domain import (
     TrafficUsage,
     UsageQuery,
 )
+from blitzecdn.capabilities.traffic.domain.analytics import (
+    PathTotals,
+    SiteBucket,
+    SiteQuery,
+)
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 
@@ -30,9 +35,15 @@ class TrafficStore(Protocol):
 
     def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]: ...
 
+    def site_buckets(self, query: SiteQuery) -> PageResult[SiteBucket]: ...
+
+    def site_paths(self, query: SiteQuery) -> PageResult[PathTotals]: ...
+
     def checkpoints(self) -> dict[str, tuple[LogCursor, ...]]: ...
 
-    def apply(self, edge: str, collection: CollectedUsage) -> EdgeCollection: ...
+    def apply(
+        self, edge: str, collection: CollectedUsage, *, path_limit: int = 0
+    ) -> EdgeCollection: ...
 
 
 class TrafficRunner(Protocol):
@@ -41,5 +52,6 @@ class TrafficRunner(Protocol):
         checkpoints: dict[str, tuple[LogCursor, ...]],
         *,
         max_bytes: int,
+        top_paths: int = 0,
         host_limit: str | None = None,
     ) -> AnsibleRun: ...
