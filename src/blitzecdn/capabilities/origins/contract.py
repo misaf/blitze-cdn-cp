@@ -1,7 +1,14 @@
-"""Origin request identity policy for a site; every edge supports it."""
+"""Origin request identity policy for a site, and one edge's answer about it.
 
-from pydantic import ConfigDict, field_validator
+The policy is supported by every edge. ``OriginCheck`` is published here
+because the edges' controller probe, used by certificate preflight, produces
+it too.
+"""
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.validation import hostname, is_private_origin
 from blitzecdn.core.features.types import HostView, PolicyView
@@ -48,3 +55,33 @@ def private_origin_needs_opt_in(host: HostView, policy: PolicyView) -> None:
         "edge's own network; set allow_private_origin on the zone or rule if "
         "this origin is meant to be internal"
     )
+
+
+class OriginCheck(BaseModel):
+    """One edge's answer about one site's origin.
+
+    ``reachable`` false is a network problem; ``tls_verified`` false with
+    ``reachable`` true is a certificate mismatch for the SNI sent; ``None`` when
+    verification is not attempted. ``status`` is unjudged: any answer means the
+    origin is up.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    origin: str
+    scheme: HttpScheme
+    ssl_mode: SslMode
+    sni: str | None = None
+    reachable: bool = False
+    tls_verified: bool | None = None
+    #: The HTTP status the origin answered with, or ``None`` if it did not.
+    status: int | None = None
+    #: Present only for Automatic SSL/TLS scans, which compare the response
+    #: reached over the current transport with the same response over HTTPS.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    detail: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.reachable and self.tls_verified is not False
