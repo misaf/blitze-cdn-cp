@@ -6,7 +6,9 @@ missing a column or table is refused. Alembic runs against a real file.
 
 from __future__ import annotations
 
+import re
 import sqlite3
+import subprocess
 from contextlib import closing
 
 import pytest
@@ -15,7 +17,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
-from support.paths import SOURCE
+from support.paths import REPO_ROOT, SOURCE
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.composition import Repository
@@ -234,6 +236,46 @@ def test_later_revisions_each_add_exactly_their_tables(tmp_path):
         assert after - before == tables, revision
         before = after
     assert LATER[-1][0] == ScriptDirectory.from_config(config).get_current_head()
+
+
+def test_initial_revision_files_are_named_after_their_revision_ids():
+    """`NNNN_<capability>` lives in `NNNN_initial_<capability>.py`, as documented."""
+    versions = SOURCE / "assets/migrations/versions"
+    for revision in INITIAL:
+        number, capability = revision.split("_", 1)
+        assert (versions / f"{number}_initial_{capability}.py").is_file(), revision
+    for revision, _ in LATER:
+        assert (versions / f"{revision}.py").is_file(), revision
+
+
+#: A backticked revision ID or file stem, such as `0001_core`.
+_DOCUMENTED_REVISION = re.compile(r"`(\d{4}_[a-z_]+?)(?:\.py)?`")
+
+
+def test_revisions_named_in_documents_exist(tmp_path):
+    """A document naming a revision names one that is here."""
+    revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
+    known = {revision.revision for revision in revisions.walk_revisions()} | {
+        path.stem for path in (SOURCE / "assets/migrations/versions").glob("*.py")
+    }
+    tracked = subprocess.run(  # noqa: S603 - fixed argument list
+        ["git", "-C", str(REPO_ROOT), "ls-files", "*.md"],  # noqa: S607 - git from PATH
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    offenders = [
+        f"{document}: {name}"
+        for document in tracked
+        if (REPO_ROOT / document).exists()
+        for name in _DOCUMENTED_REVISION.findall(
+            (REPO_ROOT / document).read_text(encoding="utf-8")
+        )
+        if name not in known
+    ]
+    assert offenders == [], "documents name revisions that are not here:\n" + (
+        "\n".join(offenders)
+    )
 
 
 def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
