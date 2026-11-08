@@ -56,9 +56,10 @@ def setting_annotation(field: FieldInfo) -> Any:
 class DomainPatch(ComposedModel):
     """A partial update to a zone: every setting optional, unset means untouched.
 
-    Blocks such as ``firewall`` and ``visitor_headers`` replace wholesale:
-    ``{"firewall": {}}`` clears every rule, and ``{"visitor_headers": {}}``
-    restores the defaults rather than keeping the current switches.
+    Blocks such as ``firewall``, ``rate_limit`` and ``visitor_headers`` replace
+    wholesale: ``{"firewall": {}}`` clears every rule, and
+    ``{"visitor_headers": {}}`` restores the defaults rather than keeping the
+    current switches.
     """
 
     model_config = ConfigDict(extra="forbid")

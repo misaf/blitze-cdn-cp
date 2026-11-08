@@ -249,3 +249,44 @@ def test_the_role_accepts_method_and_path_allowlists(desired_state, tmp_path):
     accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
 
     assert accepted.returncode == 0, accepted.stdout
+
+
+def test_the_role_rejects_a_rate_limit_it_cannot_safely_render(desired_state, tmp_path):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"rate_limit": {"requests": 5, "paths": ["/a; return 200"]}}
+
+    rejected = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
+
+    assert rejected.returncode != 0
+    assert "invalid rate limit" in rejected.stdout
+
+
+def test_the_role_caps_how_many_sites_reserve_a_rate_limit_zone(
+    desired_state, tmp_path
+):
+    """Every limited site reserves a zone on every edge; the cap bounds memory."""
+    sites = [
+        dict(site) | {"rate_limit": {"requests": 5}}
+        for site in desired_state["blitzecdn_nginx_sites"]
+    ]
+
+    accepted = run_role_tasks(
+        TASKS,
+        _defaults(
+            blitzecdn_nginx_sites=sites,
+            blitzecdn_security_rate_limit_max_sites=len(sites),
+        ),
+        tmp_path,
+    )
+    refused = run_role_tasks(
+        TASKS,
+        _defaults(
+            blitzecdn_nginx_sites=sites,
+            blitzecdn_security_rate_limit_max_sites=len(sites) - 1,
+        ),
+        tmp_path,
+    )
+
+    assert accepted.returncode == 0, accepted.stdout
+    assert refused.returncode != 0
+    assert "blitzecdn_security_rate_limit_max_sites" in refused.stdout

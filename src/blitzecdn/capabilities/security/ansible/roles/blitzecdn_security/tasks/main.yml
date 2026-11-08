@@ -41,6 +41,49 @@
     label: "{{ item.name }}"
   when: item.firewall | default({}, true) | length > 0
 
+- name: Validate per-site rate limits
+  ansible.builtin.assert:
+    that:
+      - item.rate_limit.requests is integer
+      - item.rate_limit.requests | int >= 1
+      - item.rate_limit.requests | int <= 100000
+      - item.rate_limit.per | default('second') in ['second', 'minute']
+      - item.rate_limit.burst | default(0) is integer
+      - item.rate_limit.burst | default(0) | int >= 0
+      - item.rate_limit.burst | default(0) | int <= 100000
+      - item.rate_limit.status | default(429) is integer
+      - item.rate_limit.status | default(429) | int >= 400
+      - item.rate_limit.status | default(429) | int <= 599
+      - >-
+        item.rate_limit.paths | default([])
+        | reject('match', '^/[^\\s;{}"''\\\\]*$')
+        | list | length == 0
+      - item.rate_limit.case_insensitive_paths | default(false) is boolean
+    fail_msg: "Site {{ item.name }} has an invalid rate limit."
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.rate_limit | default({}, true) | length > 0
+
+# Each limited site reserves its own zone on every edge; the cap is what keeps
+# that memory bounded however many sites ask.
+- name: Refuse more rate-limited sites than the fleet reserves zones for
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_nginx_sites | default([])
+        | selectattr('rate_limit', 'defined')
+        | selectattr('rate_limit')
+        | list | length <= blitzecdn_security_rate_limit_max_sites | int
+      - blitzecdn_security_rate_limit_zone_size is match('^[0-9]+[km]?$')
+    fail_msg: >-
+      More sites carry a rate limit than blitzecdn_security_rate_limit_max_sites
+      ({{ blitzecdn_security_rate_limit_max_sites }}) allows, or
+      blitzecdn_security_rate_limit_zone_size is not an Nginx size such as 1m.
+      Raise the cap with `blitzecdn config set
+      blitzecdn_security_rate_limit_max_sites <n>` or remove a limit. Nothing
+      was changed on this host.
+
 # Asked here rather than in blitzecdn_nginx, which would mean core's role
 # naming a capability that may not be installed. The control plane refuses such
 # a site earlier still, by name; both controls stay, because this role has to

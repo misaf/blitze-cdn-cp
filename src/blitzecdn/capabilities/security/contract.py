@@ -1,4 +1,4 @@
-"""The security capability's contract: firewall rules and Under Attack Mode.
+"""The security capability's contract: firewall rules, rate limits, Under Attack Mode.
 
 The country and method tables have one consumer, so they live here.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from collections.abc import Mapping, Sequence
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import (
     ConfigDict,
@@ -448,16 +448,7 @@ class SiteFirewall(OmittedWhenEmpty):
         kind = "allowed" if info.field_name == "allowed_paths" else "denied"
         normalized = []
         for item in values:
-            candidate = item.strip()
-            if not candidate.startswith("/"):
-                raise ValueError(f"{kind} path {item!r} must start with '/'")
-            if len(candidate) > 512:
-                raise ValueError(f"{kind} paths must be at most 512 characters")
-            if any(character in candidate for character in " \t\r\n;{}\"'\\"):
-                raise ValueError(
-                    f"{kind} path {item!r} may not contain whitespace, quotes, "
-                    "backslashes, ';', '{' or '}'"
-                )
+            candidate = checked_path(item, kind)
             if kind == "denied" and candidate == "/":
                 # `location ^~ /` duplicates the site's own `location /`, which
                 # fails the edge's configuration test.
@@ -494,6 +485,21 @@ class SiteFirewall(OmittedWhenEmpty):
         return bool(self.allowed_countries or self.denied_countries)
 
 
+def checked_path(item: str, kind: str) -> str:
+    """One path a rule names, stripped, or ``ValueError`` if Nginx could not take it."""
+    candidate = item.strip()
+    if not candidate.startswith("/"):
+        raise ValueError(f"{kind} path {item!r} must start with '/'")
+    if len(candidate) > 512:
+        raise ValueError(f"{kind} paths must be at most 512 characters")
+    if any(character in candidate for character in " \t\r\n;{}\"'\\"):
+        raise ValueError(
+            f"{kind} path {item!r} may not contain whitespace, quotes, "
+            "backslashes, ';', '{' or '}'"
+        )
+    return candidate
+
+
 def allowed_paths_pattern(paths: Sequence[str]) -> str:
     """The alternation the edge renders: a prefix for '/'-terminated paths.
 
@@ -502,6 +508,95 @@ def allowed_paths_pattern(paths: Sequence[str]) -> str:
     return "|".join(
         re.escape(path) + ("" if path.endswith("/") else "$") for path in paths
     )
+
+
+def rate_limited_paths_pattern(paths: Sequence[str]) -> str:
+    """The prefix alternation ``security-http.conf.j2`` renders into the key map."""
+    return "|".join(re.escape(path) for path in paths)
+
+
+class SiteRateLimit(OmittedWhenEmpty):
+    """Requests per client address the edge serves before refusing; off when empty.
+
+    Counted per edge: each edge keeps its own counters, so a client spread across
+    several edges by DNS gets up to that many times the rate.
+    """
+
+    requests: int = Field(
+        default=0,
+        ge=0,
+        le=100_000,
+        description=(
+            "Requests one client IP address may make per `per`. 0 turns the limit off."
+        ),
+    )
+    per: Literal["second", "minute"] = Field(
+        default="second", description="The interval `requests` is counted over."
+    )
+    burst: int = Field(
+        default=0,
+        ge=0,
+        le=100_000,
+        description=(
+            "Requests served above the rate before refusing, absorbed without "
+            "delay. A browser loading a page fetches many assets at once, so a "
+            "site-wide limit without a burst refuses ordinary visitors."
+        ),
+    )
+    status: int = Field(
+        default=429, ge=400, le=599, description="Status a refused request gets."
+    )
+    paths: tuple[str, ...] = Field(
+        default=(),
+        max_length=100,
+        description=(
+            "URI prefixes the limit applies to, matched against the decoded, "
+            "normalized URI. Empty limits the whole site. Requests to other "
+            "paths are neither limited nor counted."
+        ),
+    )
+    case_insensitive_paths: bool = Field(
+        default=False,
+        description=(
+            "Match paths regardless of ASCII letter case, for origins that "
+            "treat /Login as /login."
+        ),
+    )
+
+    @property
+    def empty(self) -> bool:
+        """Without a rate, nothing else in the block limits anything."""
+        return self.requests == 0
+
+    @property
+    def rate(self) -> str:
+        """The rate as Nginx's ``limit_req_zone`` spells it."""
+        return f"{self.requests}r/{'s' if self.per == 'second' else 'm'}"
+
+    @field_validator("paths")
+    @classmethod
+    def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return unique(
+            tuple(checked_path(item, "rate-limited") for item in values), "path"
+        )
+
+    @model_validator(mode="after")
+    def validate_limit(self) -> Self:
+        configured = any(
+            getattr(self, name) != field.default
+            for name, field in type(self).model_fields.items()
+        )
+        if self.requests == 0 and configured:
+            raise ValueError(
+                "a rate limit needs requests above 0; send {} to remove it"
+            )
+        pattern = rate_limited_paths_pattern(self.paths).encode("utf-8")
+        if len(pattern) > ALLOWED_PATHS_PATTERN_LIMIT:
+            raise ValueError(
+                "rate-limited paths are too long together for one Nginx rule; "
+                "list shared prefixes instead"
+            )
+        return self
 
 
 class SecurityPolicy(CapabilityPolicy):
@@ -525,6 +620,16 @@ class SecurityPolicy(CapabilityPolicy):
         ),
     )
 
+    # The block is replaced wholesale when patched, like the firewall.
+    rate_limit: SiteRateLimit = Field(
+        default=SiteRateLimit(),
+        description=(
+            "Per-client request rate limit for this hostname. Clients in "
+            "firewall.allow_sources are exempt. Never applied to "
+            "/.well-known/acme-challenge/."
+        ),
+    )
+
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """The capabilities this policy requests.
@@ -538,6 +643,7 @@ class SecurityPolicy(CapabilityPolicy):
             for name, asked in (
                 ("under_attack_mode", self.under_attack_mode),
                 ("firewall", not self.firewall.empty),
+                ("rate_limit", not self.rate_limit.empty),
             )
             if asked
         )

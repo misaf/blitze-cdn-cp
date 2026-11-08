@@ -46,3 +46,15 @@ argument_specs:
           stored in desired state or the fleet settings database.
       blitzecdn_security_under_attack_js_file: {type: path, required: true}
       blitzecdn_security_under_attack_key_file: {type: path, required: true}
+      blitzecdn_security_rate_limit_zone_size:
+        type: str
+        required: true
+        description: >-
+          Shared memory each rate-limited site's counter zone reserves on
+          every edge, as an Nginx size such as 1m.
+      blitzecdn_security_rate_limit_max_sites:
+        type: int
+        required: true
+        description: >-
+          How many sites may carry a rate limit; with the zone size, the bound
+          on the memory rate limiting reserves.

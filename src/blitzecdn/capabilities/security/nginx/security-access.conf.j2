@@ -61,3 +61,15 @@
 {% for source in firewall.deny_sources | default([], true) %}
         deny {{ source }};
 {% endfor %}
+{#
+  limit_req runs in the preaccess phase: after the country, method and path
+  rules above have answered in the rewrite phase, so a request they refuse is
+  not counted, and before `deny`, so a denied source's requests are. The key
+  map in security-http.conf.j2 exempts allow_sources. nodelay: holding excess
+  requests in a queue spends edge connections on the client being slowed.
+#}
+{% set rate_limit = site.rate_limit | default({}, true) or {} %}
+{% if rate_limit.requests | default(0) | int > 0 %}
+        limit_req zone=blitzecdn_rate_limit_{{ site.name | replace('-', '_') }}{{ ' burst=' ~ (rate_limit.burst | int) if rate_limit.burst | default(0) | int > 0 else '' }} nodelay;
+        limit_req_status {{ rate_limit.status | default(429) | int }};
+{% endif %}

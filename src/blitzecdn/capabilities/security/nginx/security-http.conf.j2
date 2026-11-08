@@ -21,3 +21,28 @@ geo $blitzecdn_firewall_exempt_{{ firewalled.name | replace('-', '_') }} {
 }
 {% endif %}
 {% endfor %}
+{#
+  One zone per site with a rate limit, keyed by a per-site map rather than by
+  $binary_remote_addr directly: the map yields "" — which limit_req neither
+  counts nor limits — for a client the site's allow_sources exempt and for a
+  URI outside the limited paths, so neither needs an `if` in `location /`.
+  Each zone is the same fleet-wide size and the security role caps how many
+  sites may declare one, so the shared memory an edge reserves is bounded.
+  security-access.conf.j2 names the zone under the same condition.
+#}
+{% for limited in blitzecdn_nginx_sites | default([], true) %}
+{% set rate_limit = limited.rate_limit | default({}, true) or {} %}
+{% if rate_limit.requests | default(0) | int > 0 %}
+{% set suffix = limited.name | replace('-', '_') %}
+{% set exempt = '$blitzecdn_firewall_exempt_' ~ suffix if (limited.firewall | default({}, true) or {}).allow_sources | default([], true) else '0' %}
+{% set patterns = namespace(items=[]) %}
+{% for path in rate_limit.paths | default([], true) %}
+{% set patterns.items = patterns.items + [path | regex_escape] %}
+{% endfor %}
+map "{{ exempt }}:$uri" $blitzecdn_rate_limit_key_{{ suffix }} {
+    default "";
+    "~{{ '*' if rate_limit.case_insensitive_paths | default(false) else '' }}^0:{{ '(?:' ~ (patterns.items | join('|')) ~ ')' if patterns.items else '' }}" $binary_remote_addr;
+}
+limit_req_zone $blitzecdn_rate_limit_key_{{ suffix }} zone=blitzecdn_rate_limit_{{ suffix }}:{{ blitzecdn_security_rate_limit_zone_size }} rate={{ rate_limit.requests | int }}r/{{ 'm' if rate_limit.per | default('second') == 'minute' else 's' }};
+{% endif %}
+{% endfor %}

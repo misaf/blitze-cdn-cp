@@ -3,7 +3,11 @@
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.security.contract import (
+    SecurityPolicy,
+    SiteFirewall,
+    SiteRateLimit,
+)
 
 
 def test_the_firewall_and_under_attack_mode_share_one_policy():
@@ -189,3 +193,54 @@ def test_denied_paths_carve_out_of_allowed_paths():
     assert firewall.denied_paths == ("/api/admin",)
     assert not firewall.requires_geoip
     assert SecurityPolicy(firewall=firewall).required_capabilities
+
+
+def test_a_rate_limit_is_off_until_it_names_a_rate():
+    assert SiteRateLimit().empty
+    assert SecurityPolicy().rate_limit.empty
+    limited = SecurityPolicy(rate_limit={"requests": 10, "per": "minute"})
+    assert not limited.rate_limit.empty
+    assert limited.rate_limit.rate == "10r/m"
+    assert limited.rate_limit.status == 429
+    assert limited.capability_requirements == {"security": ("rate_limit",)}
+
+
+def test_a_rate_limit_without_a_rate_is_refused_rather_than_ignored():
+    """`{"burst": 20}` alone limits nothing; saying so beats silently storing it."""
+    with pytest.raises(ValidationError, match="needs requests above 0"):
+        SiteRateLimit(burst=20)
+    with pytest.raises(ValidationError, match="needs requests above 0"):
+        SiteRateLimit(paths=("/login",))
+
+
+@pytest.mark.parametrize(
+    ("limit", "message"),
+    [
+        ({"requests": 5, "status": 200}, "greater than or equal to 400"),
+        ({"requests": 5, "status": 600}, "less than or equal to 599"),
+        ({"requests": 100_001}, "less than or equal to 100000"),
+        ({"requests": 5, "per": "hour"}, "'second' or 'minute'"),
+        ({"requests": 5, "burst": -1}, "greater than or equal to 0"),
+        ({"requests": 5, "paths": ("login",)}, "must start with '/'"),
+        ({"requests": 5, "paths": ('/a" {',)}, "may not contain whitespace"),
+        ({"requests": 5, "paths": ("/a", "/a")}, "duplicate path"),
+    ],
+)
+def test_a_rate_limit_the_edge_could_not_render_is_refused(limit, message):
+    with pytest.raises(ValidationError, match=message):
+        SiteRateLimit(**limit)
+
+
+def test_a_rate_limit_survives_a_round_trip_through_its_serialised_form():
+    policy = SecurityPolicy(
+        rate_limit={
+            "requests": 5,
+            "burst": 20,
+            "status": 503,
+            "paths": (" /login ", "/api/"),
+            "case_insensitive_paths": True,
+        }
+    )
+
+    assert policy.rate_limit.paths == ("/login", "/api/")
+    assert SecurityPolicy.model_validate_json(policy.model_dump_json()) == policy

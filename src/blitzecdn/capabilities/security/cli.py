@@ -179,3 +179,96 @@ def domain_firewall(
         else f"{zone.name} no longer filters any requests.",
         json_output=json_output,
     )
+
+
+@domain_commands.command("rate-limit")
+def domain_rate_limit(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
+    requests: Annotated[
+        int | None,
+        typer.Option(
+            "--requests",
+            min=1,
+            max=100_000,
+            help="Requests one client IP may make per --per before being refused.",
+        ),
+    ] = None,
+    per: Annotated[
+        str,
+        typer.Option(
+            "--per", help="Interval --requests counts over: second or minute."
+        ),
+    ] = "second",
+    burst: Annotated[
+        int,
+        typer.Option(
+            "--burst",
+            min=0,
+            max=100_000,
+            help="Requests served above the rate before refusing. Default 0.",
+        ),
+    ] = 0,
+    status: Annotated[
+        int,
+        typer.Option(
+            "--status", min=400, max=599, help="Status a refused request gets."
+        ),
+    ] = 429,
+    path: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--path",
+            help="URI prefix the limit applies to. Repeatable. Default: every path.",
+        ),
+    ] = None,
+    case_insensitive_paths: Annotated[
+        bool,
+        typer.Option(
+            "--case-insensitive-paths",
+            help="Match --path regardless of letter case.",
+        ),
+    ] = False,
+    off: Annotated[
+        bool, typer.Option("--off", help="Remove the zone's rate limit.")
+    ] = False,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Limit how fast one client may request a zone at the edge.
+
+    Counted per client IP address and per edge. Clients in the firewall's
+    --allow-source networks are exempt. The block is replaced as a whole:
+    options you leave out return to their defaults.
+
+        blitzecdn domain rate-limit example.com \\
+            --requests 5 --per second --burst 20 --path /login --path /api/
+
+    A browser fetches many assets at once, so a limit on the whole site needs
+    a --burst that covers a page load. The fleet caps how many zones may carry
+    a limit (blitzecdn_security_rate_limit_max_sites).
+    """
+    if off and requests is not None:
+        raise typer.BadParameter("--off cannot be combined with --requests")
+    if not off and requests is None:
+        raise typer.BadParameter("give --requests, or --off to remove the limit")
+    block = (
+        {}
+        if off
+        else {
+            "requests": requests,
+            "per": per,
+            "burst": burst,
+            "status": status,
+            "paths": path or [],
+            "case_insensitive_paths": case_insensitive_paths,
+        }
+    )
+    zone = update(name, DomainPatch.model_validate({"rate_limit": block}))
+    limit = zone.policy[SecurityPolicy].rate_limit
+    report(
+        zone,
+        f"{zone.name} no longer limits request rates."
+        if limit.empty
+        else f"{zone.name} now allows {limit.rate} per client"
+        + (f" with a burst of {limit.burst}." if limit.burst else "."),
+        json_output=json_output,
+    )

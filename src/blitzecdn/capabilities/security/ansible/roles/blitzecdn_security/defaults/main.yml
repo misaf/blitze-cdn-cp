@@ -62,3 +62,15 @@ blitzecdn_security_under_attack_js_file: >-
 # The signing key, as an Nginx include outside every configuration release.
 blitzecdn_security_under_attack_key_file: >-
   {{ blitzecdn_edge_runtime.paths.secrets }}/under-attack.conf
+
+# Shared memory each rate-limited site's counter zone reserves on every edge.
+# One state per client address takes about 128 bytes, so 1m tracks roughly
+# 8,000 clients at once; when the zone is full Nginx evicts the oldest state
+# and, failing that, refuses the request with the site's limit status.
+blitzecdn_security_rate_limit_zone_size: 1m
+
+# How many sites may carry a rate limit. Every one reserves a zone of the size
+# above on every edge, so this and the size together bound the memory rate
+# limiting can take: 64 x 1m by default. A desired state over the cap fails the
+# play before anything changes.
+blitzecdn_security_rate_limit_max_sites: 64
