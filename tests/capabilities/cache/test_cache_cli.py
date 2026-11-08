@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 
 import pytest
-from support.cache import purges
+from support.cache import purged_prefixes, purges
 from support.control_plane import (
     FakeRunner,
     ansible_run,
@@ -20,7 +20,7 @@ from support.control_plane import (
 from support.stores import Stores
 from typer.testing import CliRunner
 
-from blitzecdn.capabilities.cache.domain import PurgeEntry
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
     HourlyUsage,
@@ -63,6 +63,44 @@ def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch
     assert purges(fake)[0][0] == (
         PurgeEntry(host="cdn.example.com", uri="/app.js", scheme="https"),
     )
+
+
+def test_cache_purge_by_prefix_and_hostname(settings, monkeypatch):
+    """The scheme of a --prefix is ignored: a prefix purge covers both."""
+    fake = FakeRunner([_purge_ok()])
+    control = cli_control_plane(settings, monkeypatch, fake)
+    _purgeable_site(control)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "cache",
+            "purge",
+            "--prefix",
+            "http://cdn.example.com/blog/",
+            "--hostname",
+            "cdn.example.com",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert purged_prefixes(fake) == [
+        (
+            PurgePrefix(host="cdn.example.com", prefix="/blog/"),
+            PurgePrefix(host="cdn.example.com", prefix="/"),
+        )
+    ]
+    assert purges(fake)[0][0] == ()
+
+
+def test_cache_purge_refuses_a_prefix_without_a_hostname(settings, monkeypatch):
+    fake = FakeRunner([_purge_ok()])
+    cli_control_plane(settings, monkeypatch, fake)
+
+    result = runner.invoke(cli.app, ["cache", "purge", "--prefix", "/blog/"])
+
+    assert result.exit_code != 0
+    assert purges(fake) == []
 
 
 def test_cache_purge_keeps_the_query_string(settings, monkeypatch):

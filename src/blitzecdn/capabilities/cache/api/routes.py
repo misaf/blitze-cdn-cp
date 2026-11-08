@@ -56,8 +56,9 @@ def purge_cache(
     The result's ``complete`` and ``failed_hosts`` name edges that may still
     serve the cached copy.
     """
-    entries = cache.check_purge(
+    targets = cache.check_purge(
         entries=[entry.to_domain() for entry in request.entries],
+        prefixes=[prefix.to_domain() for prefix in request.prefixes],
         purge_all=request.purge_all,
     )
     queued = as_queued(
@@ -65,7 +66,8 @@ def purge_cache(
             PURGE_OPERATION,
             purge_payload(
                 operator,
-                entries=entries,
+                entries=targets.entries,
+                prefixes=targets.prefixes,
                 purge_all=request.purge_all,
                 host_limit=request.host_limit,
             ),

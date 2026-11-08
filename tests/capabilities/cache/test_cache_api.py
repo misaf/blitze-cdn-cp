@@ -67,6 +67,38 @@ def test_purging_everything_and_entries_at_once_is_a_409(settings):
         assert response.status_code == 409
 
 
+def test_a_purge_prefix_that_is_not_a_path_is_a_422(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v3/cache/purge",
+            json={"prefixes": [{"host": "cdn.example.com", "prefix": "blog/"}]},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
+def test_a_hostname_purge_is_queued_and_carries_its_prefixes(
+    settings, seeded, monkeypatch
+):
+    control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
+    serve(monkeypatch, control)
+
+    with TestClient(create_app(settings)) as client:
+        queued = client.post(
+            "/v3/cache/purge",
+            json={"prefixes": [{"host": "cdn.example.com"}]},
+            headers=_HEADERS,
+        )
+        assert queued.status_code == 202
+        run_queued_operations(control)
+        result = client.get(
+            f"/v3/operations/{queued.json()['id']}", headers=_HEADERS
+        ).json()["result"]
+
+    assert result["complete"] is True
+    assert result["prefixes"] == [{"host": "cdn.example.com", "prefix": "/"}]
+
+
 def test_a_purge_uri_that_is_not_a_path_is_a_422(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
@@ -160,7 +192,7 @@ def test_the_purge_result_keeps_its_shape(settings, seeded, monkeypatch):
         ).json()["result"]
 
     assert " ".join(sorted(result)) == (
-        "complete entries failed_hosts host_limit hosts purge_all purged_at"
+        "complete entries failed_hosts host_limit hosts prefixes purge_all purged_at"
     )
 
 

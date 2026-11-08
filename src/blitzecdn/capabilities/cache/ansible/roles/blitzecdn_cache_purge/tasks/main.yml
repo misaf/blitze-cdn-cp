@@ -5,16 +5,22 @@
 - name: Refuse an ambiguous purge request
   ansible.builtin.assert:
     that:
-      - not (blitzecdn_cache_purge_all and blitzecdn_cache_purge_entries | length > 0)
+      - >-
+        not (blitzecdn_cache_purge_all
+             and (blitzecdn_cache_purge_entries | length > 0
+                  or blitzecdn_cache_purge_prefixes | length > 0))
     fail_msg: >-
-      blitzecdn_cache_purge_all and blitzecdn_cache_purge_entries were both
-      given. Emptying the cache and removing named entries are different
-      operations and combining them hides which one actually ran.
+      blitzecdn_cache_purge_all was given with named entries or prefixes.
+      Emptying the cache and removing some of it are different operations and
+      combining them hides which one actually ran.
 
 - name: Require something to purge
   ansible.builtin.assert:
     that:
-      - blitzecdn_cache_purge_all or blitzecdn_cache_purge_entries | length > 0
+      - >-
+        blitzecdn_cache_purge_all
+        or blitzecdn_cache_purge_entries | length > 0
+        or blitzecdn_cache_purge_prefixes | length > 0
     fail_msg: >-
       Nothing to purge. An empty request is refused rather than reported as a
       successful purge of nothing, which is indistinguishable from a filter
@@ -31,6 +37,18 @@
   loop: "{{ blitzecdn_cache_purge_entries }}"
   loop_control:
     label: "{{ item.host | default('?') }}{{ item.uri | default('') }}"
+
+- name: Validate the prefixes to purge
+  ansible.builtin.assert:
+    that:
+      - item.host is match('^[A-Za-z0-9._-]{1,253}$')
+      - item.prefix | default('/') is match('^/[^\s]{0,2048}$')
+    fail_msg: >-
+      A purge prefix must have a hostname and an absolute path beginning with
+      '/'. Got host={{ item.host | default('') }} prefix={{ item.prefix | default('') }}
+  loop: "{{ blitzecdn_cache_purge_prefixes }}"
+  loop_control:
+    label: "{{ item.host | default('?') }}{{ item.prefix | default('/') }}"
 
 # The encoding is only part of the key when blitzecdn_nginx normalizes it. With
 # normalization off there is one entry per URL and method, so purging the three
@@ -76,7 +94,7 @@
         {%- endfor -%}
       {%- endfor -%}
       {{ files | unique | list }}
-  when: not (blitzecdn_cache_purge_all | bool)
+  when: blitzecdn_cache_purge_entries | length > 0
 
 # The list goes to the edge as a file and is consumed in one pass, rather than
 # becoming one `file:` task per entry. Same reason as above: thousands of module
@@ -88,7 +106,7 @@
 # quoting question. `rm -f` because an entry that was never cached is the
 # ordinary case, not an error.
 - name: Purge named cached responses with a private per-run manifest
-  when: not (blitzecdn_cache_purge_all | bool)
+  when: blitzecdn_cache_purge_entries | length > 0
   block:
     - name: Stage the list of cache files to remove
       ansible.builtin.tempfile:
@@ -123,6 +141,55 @@
         state: absent
       changed_when: false
       when: blitzecdn_cache_purge_manifest.path is defined
+
+# A prefix names keys, not files: nginx files an entry under the MD5 of its key,
+# and no hash of a prefix leads to the entries under it. purge_prefixes.py
+# reads the KEY line from the head of every cached file and deletes the ones
+# that match, in one pass for all prefixes. It is the same walk `--all` does,
+# plus a few KiB read per file, so it costs seconds per hundred thousand
+# entries rather than anything per prefix.
+- name: Purge cached responses by hostname and prefix
+  when: blitzecdn_cache_purge_prefixes | length > 0
+  block:
+    - name: Create a private temporary prefix scanner
+      ansible.builtin.tempfile:
+        state: file
+        prefix: blitzecdn-purge-prefixes-
+      register: blitzecdn_cache_purge_scanner
+      changed_when: false
+
+    - name: Copy the standalone prefix scanner
+      ansible.builtin.copy:
+        src: purge_prefixes.py
+        dest: "{{ blitzecdn_cache_purge_scanner.path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      changed_when: false
+
+    - name: Remove cached responses under the requested prefixes
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
+          - "{{ blitzecdn_cache_purge_scanner.path }}"
+        stdin: >-
+          {{ {'path': blitzecdn_cache_purge_path,
+              'prefixes': blitzecdn_cache_purge_prefixes} | to_json }}
+      register: blitzecdn_cache_purge_scanned
+      changed_when: (blitzecdn_cache_purge_scanned.stdout | from_json).removed > 0
+
+    # How many files matched is the one thing a prefix purge can say that a
+    # named purge cannot, so it goes back to the control plane per edge.
+    - name: Report what the prefix scan removed  # noqa: var-naming[no-role-prefix]
+      ansible.builtin.set_fact:
+        blitzecdn_report: "{{ blitzecdn_cache_purge_scanned.stdout | from_json }}"
+  always:
+    - name: Remove the temporary prefix scanner
+      ansible.builtin.file:
+        path: "{{ blitzecdn_cache_purge_scanner.path }}"
+        state: absent
+      changed_when: false
+      when: blitzecdn_cache_purge_scanner.path is defined
 
 # Deleting files rather than the tree: the level directories are created by
 # nginx at startup and removing them makes every subsequent store fail until a

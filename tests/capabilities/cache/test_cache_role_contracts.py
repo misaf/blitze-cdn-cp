@@ -192,6 +192,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
         "blitzecdn_cache_purge_entries": [
             {"host": "example.com", "uri": "/asset", "scheme": "http"}
         ],
+        "blitzecdn_cache_purge_prefixes": [],
         "blitzecdn_cache_purge_all": False,
     }
     role_tasks = yaml.safe_load(
@@ -208,7 +209,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
                     # Run through "Compute the cache files"; the rest chown a manifest
                     # to root.
                     "tasks": [
-                        *role_tasks[:5],
+                        *role_tasks[:6],
                         {
                             "copy": {
                                 "content": (

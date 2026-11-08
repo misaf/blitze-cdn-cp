@@ -151,8 +151,9 @@ them. Omitted PATCH fields preserve the existing edge values.
 | `host_limit` | Omitted or `null`: all registered edges |
 | Deployment/rollback `check` | `false`: apply changes; `true`: Ansible check mode |
 | Rollback `deployment_id` | Omitted or `null`: select the newest successful applied deployment of a different release |
-| Cache purge `entries`, `purge_all` | `[]`, `false`; an empty request does not purge everything and is refused |
+| Cache purge `entries`, `prefixes`, `purge_all` | `[]`, `[]`, `false`; an empty request does not purge everything and is refused |
 | Purge entry `scheme` | `https` |
+| Purge prefix `prefix` | `/`: every cached response for the hostname, over both schemes |
 | Certificate request `email` | Omitted or `null`: use configured `BLITZE_ACME_DEFAULT_EMAIL`; fail if neither supplies an email |
 | Certificate request `skip_preflight` | `false` |
 | Renewal `within_days`, `force` | `30`, `false` |
