@@ -14,13 +14,13 @@ set dotenv-load := false
 # Ansible needs these to find the vendored roles and the inventory plugin.
 export ANSIBLE_CONFIG := "src/blitzecdn/assets/ansible/ansible.cfg"
 export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
-# ansible.cfg no longer names this: it can only point inside the wheel the
-# platform roles now ship in, and collections are state.
+# ansible.cfg does not name this: it can only point inside the wheel the
+# platform roles ship in, and collections are state.
 export ANSIBLE_COLLECTIONS_PATH := ".state/collections"
 
 collections := ".state/collections"
 
-# Ansible's role search path is deliberately not a variable here any more.
+# Ansible's role search path is deliberately not a variable here.
 # `blitzecdn ansible roles-path` composes it from the installed distributions
 # with the function the composition root calls, so the path a lint step checks
 # against is the path a deployment resolves against. Spelling it out was a
@@ -242,11 +242,8 @@ test-profile *args:
 # distributions with the very functions the composition root calls at run time
 # — so what this recipe checks is what a deployment would actually resolve.
 #
-# They used to be two literals in this file, and both had drifted. The slot
-# list omitted `blitzecdn_resolver`, which declares an edge role, and named no
-# teardown slot at all, so the decommission play had never been checked with a
-# capability in it. Neither mistake is visible by reading: a slot is declared
-# by the contributing package, and this file cannot see a declaration.
+# Literals here would drift unseen: a slot is declared by the contributing
+# package, and this file cannot see a declaration.
 #
 # A shebang recipe so both values are resolved once and shared by every command
 # below, rather than reloading the plugin tree per line.

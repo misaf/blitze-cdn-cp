@@ -40,11 +40,10 @@
 # An operator tears a host down with `-e
 # blitzecdn_edge_teardown_remove_data=false`, and `-e name=value` hands the
 # play the *string* "false" whatever the argument spec says the type is. A
-# non-empty string is true, so the bare conditional this used to be read
-# "false" as "yes, destroy it" — TLS material, the configuration tree, ACME
-# state and the cache, on the one invocation whose whole purpose was to keep
-# them. ansible-core 2.19 and later refuse a non-boolean conditional outright,
-# which is how this was finally seen rather than obeyed.
+# non-empty string is true, so a bare conditional would read "false" as "yes,
+# destroy it" — TLS material, the configuration tree, ACME state and the cache,
+# on the one invocation whose whole purpose is to keep them. ansible-core 2.19
+# and later refuse a non-boolean conditional outright.
 - name: Remove the managed-site registry
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_managed_sites_file }}"

@@ -123,7 +123,7 @@ printf '  %s\n' "${module_args[@]}"
 
 # Core's roles, then each capability's: the search path the control plane
 # composes at run time, from the same function, as the edge host sees the
-# checkout. Not a literal, which is how it drifted once.
+# checkout. Not a literal, which would drift.
 roles_path=$(uv run --project "${project_dir}" --no-sync blitzecdn ansible roles-path)
 ROLES_PATH=${roles_path//"${project_dir}"//workspace}
 [[ ${ROLES_PATH} == /workspace/* && ${ROLES_PATH} != *"${project_dir}"* ]] ||
