@@ -3,7 +3,11 @@
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.security.contract import (
+    SecurityPolicy,
+    SiteFirewall,
+    SiteRateLimit,
+)
 
 
 def test_the_firewall_and_under_attack_mode_share_one_policy():
@@ -189,3 +193,38 @@ def test_denied_paths_carve_out_of_allowed_paths():
     assert firewall.denied_paths == ("/api/admin",)
     assert not firewall.requires_geoip
     assert SecurityPolicy(firewall=firewall).required_capabilities
+
+
+def test_a_rate_limit_is_validated_and_normalised_by_the_contract():
+    limit = SiteRateLimit(rate=" 10 r/s ", burst=5, paths=(" /login ",))
+
+    assert limit.rate == "10r/s"
+    assert limit.zone == "blitzecdn_rate_10rs"
+    assert limit.status == 429
+    assert limit.paths == ("/login",)
+    assert not limit.empty
+    assert SiteRateLimit().empty
+
+
+@pytest.mark.parametrize(
+    ("limit", "message"),
+    [
+        ({"rate": "7r/s"}, "not an available rate"),
+        ({"rate": "10r/s", "status": 403}, "429 or 503"),
+        ({"rate": "10r/s", "burst": -1}, "greater than or equal to 0"),
+        ({"rate": "10r/s", "paths": ("login",)}, "must start with '/'"),
+        ({"rate": "10r/s", "paths": ("/a;b",)}, "may not contain whitespace"),
+        ({"burst": 10}, "need a rate"),
+        ({"paths": ("/login",)}, "need a rate"),
+    ],
+)
+def test_a_rate_limit_the_edge_could_not_render_is_refused(limit, message):
+    with pytest.raises(ValidationError, match=message):
+        SiteRateLimit(**limit)
+
+
+def test_a_rate_limit_requests_the_security_capability():
+    policy = SecurityPolicy(rate_limit={"rate": "1r/s"})
+
+    assert policy.capability_requirements == {"security": ("rate_limit",)}
+    assert SecurityPolicy.model_validate(policy.model_dump()) == policy
