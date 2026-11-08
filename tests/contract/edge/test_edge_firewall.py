@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 from support.edge_render import (
+    nginx_hash_bucket_size,
+    nginx_hash_entry_size,
     render_http_fragment,
     render_site,
 )
@@ -31,6 +33,7 @@ REQUIRES_CAPABILITIES = {
     "test_an_allowed_source_is_exempt_from_method_rules": ("security",),
     "test_an_allowed_source_still_meets_the_path_rules": ("security",),
     "test_the_exemption_geo_is_declared_for_each_site_that_reads_it": ("security",),
+    "test_the_exemption_geo_of_the_longest_site_name_fits_nginx": ("security",),
     "test_denied_paths_are_case_sensitive_by_default": ("security",),
     "test_case_insensitive_denied_paths_refuse_every_spelling": ("security",),
     "test_case_insensitive_allowed_paths_admit_every_spelling": ("security",),
@@ -298,6 +301,27 @@ def test_the_exemption_geo_is_declared_for_each_site_that_reads_it():
         )
     )
     assert read == declared
+
+
+def test_the_exemption_geo_of_the_longest_site_name_fits_nginx():
+    """A 63-character site name made a geo name Nginx's default hash refused.
+
+    `nginx -t` failed with "could not build variables_hash" on every edge
+    once one such site listed allow_sources.
+    """
+    name = "a" + "-b" * 31
+    assert len(name) == 63
+    site = _site(
+        {"allow_sources": ["203.0.113.0/24"], "denied_methods": ["TRACE"]},
+        name=name,
+    )
+    snippet = render_http_fragment("security-http.conf.j2", [site])
+    declared = set(re.findall(r"geo \$(blitzecdn_firewall_exempt_\w+)", snippet))
+    read = set(re.findall(r"\$(blitzecdn_firewall_exempt_\w+)", render_site(site)))
+    assert read == declared == {"blitzecdn_firewall_exempt_" + name.replace("-", "_")}
+    bucket = nginx_hash_bucket_size("variables_hash_bucket_size")
+    for variable in declared:
+        assert 64 < nginx_hash_entry_size(variable) <= bucket
 
 
 def _denied_by_location(rendered, uri):

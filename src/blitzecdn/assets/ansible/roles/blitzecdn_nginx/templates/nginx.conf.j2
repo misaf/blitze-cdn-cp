@@ -15,6 +15,15 @@ http {
     # Keep the nginx version out of the Server header and built-in error pages,
     # so a scanner cannot match the edge against a version's CVEs.
     server_tokens off;
+    # Nginx refuses to start when one name does not fit a bucket of its hash,
+    # and the defaults (64 on most CPUs) are smaller than the names this edge
+    # is allowed to carry. A name of n bytes takes 8 + align(n + 2, 8) bytes
+    # plus an 8-byte terminator on 64-bit. The longest variable is a site's
+    # rate-limit key, "blitzecdn_rate_limit_key_" and a 63-character site name
+    # (112 bytes); the longest server name is a 253-character hostname
+    # (272 bytes). tests/contract/edge hold both to these sizes.
+    variables_hash_bucket_size 128;
+    server_names_hash_bucket_size 512;
     sendfile on;
     # With sendfile, send the response headers and the start of the body in one
     # full packet rather than a header-only one first. tcp_nodelay is Nginx's

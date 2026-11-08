@@ -14,6 +14,8 @@ from support.edge_render import (
     defaults_of,
     mode_site,
     nginx_environment,
+    nginx_hash_bucket_size,
+    nginx_hash_entry_size,
     nginx_resources,
     render_site,
     rendered_upstreams,
@@ -219,3 +221,25 @@ def test_backlog_has_one_owner_per_socket_without_the_default_server(default_ser
         assert rendered.count(f"listen {port} ssl backlog=4096;") == 1
         assert rendered.count(f"listen [::]:{port} ssl backlog=4096;") == 1
     assert "quic backlog" not in rendered
+
+
+def test_the_longest_hostname_fits_the_server_names_hash():
+    """A hostname may be 253 characters; Nginx's default bucket holds about 50.
+
+    Past that, `nginx -t` fails with "could not build server_names_hash" on
+    every edge the site is deployed to.
+    """
+    hostname = ".".join(["a" * 63] * 3 + ["b" * 61])
+    assert len(hostname) == 253
+    site = site_to_ansible(
+        site_from_settings(
+            {
+                "name": "long",
+                "server_names": [hostname],
+                "origin_host": "origin.example.com",
+            }
+        )
+    )
+    assert f"server_name {hostname};" in render_site(site)
+    bucket = nginx_hash_bucket_size("server_names_hash_bucket_size")
+    assert 64 < nginx_hash_entry_size(hostname) <= bucket
