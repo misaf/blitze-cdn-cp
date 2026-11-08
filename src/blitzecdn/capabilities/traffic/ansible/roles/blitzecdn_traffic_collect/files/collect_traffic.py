@@ -16,7 +16,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import Any, BinaryIO, NamedTuple, cast
 
 MAX_LINE_BYTES = 65536
 MAX_BATCHES = 128
@@ -30,13 +30,56 @@ HOSTNAME_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 CACHE_OUTCOMES = frozenset(
     {"HIT", "STALE", "UPDATING", "REVALIDATED", "MISS", "EXPIRED", "BYPASS"}
 )
+#: Paths returned per hostname and hour, ranked by requests.
+TOP_PATHS = 10
+#: Distinct paths counted per hostname and hour; later new paths are not
+#: tracked, so memory stays bounded whatever the URL cardinality.
+MAX_TRACKED_PATHS = 1000
+MAX_PATH_LENGTH = 512
+PRINTABLE_PATH = re.compile(r"^/[\x21-\x7e]*$")
 
 
 class CollectionError(ValueError):
     """A safe diagnostic containing no raw request data."""
 
 
-def usage(line: bytes) -> tuple[str, str, int, int, str]:
+class Record(NamedTuple):
+    host: str
+    hour: str
+    bytes_sent: int
+    body_bytes_sent: int
+    outcome: str
+    #: "2xx" and so on; None for a value outside 100-599.
+    status: str | None
+    #: The request path without query or fragment; None when not countable.
+    path: str | None
+
+
+def status_class(value: object) -> str | None:
+    """Never blocks collection: an unexpected status is simply not classed."""
+    if type(value) is not int or not 100 <= value <= 599:
+        return None
+    return f"{value // 100}xx"
+
+
+def request_path(value: object) -> str | None:
+    """The path of ``METHOD PATH PROTOCOL``, stripped of query and fragment.
+
+    Query strings may carry credentials, so they never leave the edge even
+    when the log keeps them. Anything unusual is skipped, not guessed at.
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.split(" ")
+    if len(parts) != 3:
+        return None
+    path = parts[1].split("?", 1)[0].split("#", 1)[0]
+    if len(path) > MAX_PATH_LENGTH or not PRINTABLE_PATH.fullmatch(path):
+        return None
+    return path
+
+
+def usage(line: bytes) -> Record:
     record = json.loads(line)
     if (
         not isinstance(record, dict)
@@ -70,7 +113,66 @@ def usage(line: bytes) -> tuple[str, str, int, int, str]:
     outcome = record.get("cache_status")
     if not isinstance(outcome, str) or outcome not in CACHE_OUTCOMES:
         outcome = "NONE"
-    return host, hour, cast(int, counters[0]), cast(int, counters[1]), outcome
+    return Record(
+        host,
+        hour,
+        cast(int, counters[0]),
+        cast(int, counters[1]),
+        outcome,
+        status_class(record.get("status")),
+        request_path(record.get("request")),
+    )
+
+
+def count(buckets: dict[tuple[str, str], dict[str, Any]], record: Record) -> None:
+    """Add one record to its hostname and hour."""
+    bucket = buckets.setdefault(
+        (record.host, record.hour),
+        {
+            "hostname": record.host,
+            "hour": record.hour,
+            "requests": 0,
+            "bytes_sent": 0,
+            "body_bytes_sent": 0,
+            "cache": {},
+            "status": {},
+        },
+    )
+    bucket["requests"] += 1
+    bucket["bytes_sent"] += record.bytes_sent
+    bucket["body_bytes_sent"] += record.body_bytes_sent
+    cache = bucket["cache"].setdefault(record.outcome, {"requests": 0, "bytes_sent": 0})
+    cache["requests"] += 1
+    cache["bytes_sent"] += record.bytes_sent
+    if record.status is not None:
+        bucket["status"][record.status] = bucket["status"].get(record.status, 0) + 1
+    # Per-outcome, status and path counters are bounded by the bucket's totals.
+    if any(
+        bucket[key] > MAX_COUNTER
+        for key in ("requests", "bytes_sent", "body_bytes_sent")
+    ):
+        raise CollectionError("hourly traffic counter exceeds the integer range")
+
+
+def track_path(tracked: dict[str, list[int]], record: Record) -> None:
+    """Count a path, unless it would be one more than the bounded set holds."""
+    if record.path is None:
+        return
+    counted = tracked.get(record.path)
+    if counted is None:
+        if len(tracked) >= MAX_TRACKED_PATHS:
+            return
+        counted = tracked[record.path] = [0, 0]
+    counted[0] += 1
+    counted[1] += record.bytes_sent
+
+
+def top_paths(tracked: dict[str, list[int]]) -> list[dict[str, Any]]:
+    ranked = sorted(tracked.items(), key=lambda item: (-item[1][0], item[0]))
+    return [
+        {"path": path, "requests": counted[0], "bytes_sent": counted[1]}
+        for path, counted in ranked[:TOP_PATHS]
+    ]
 
 
 def anchor(handle: BinaryIO, offset: int) -> str:
@@ -108,6 +210,7 @@ def read_stream(
     consumed = 0
     more = False
     buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    paths: dict[tuple[str, str], dict[str, list[int]]] = {}
     while True:
         line = handle.readline(MAX_LINE_BYTES + 1)
         if not line:
@@ -117,34 +220,15 @@ def read_stream(
         if not line.endswith(b"\n") or consumed + len(line) > budget:
             more = True
             break
-        host, hour, sent, body, outcome = usage(line)
-        bucket = buckets.setdefault(
-            (host, hour),
-            {
-                "hostname": host,
-                "hour": hour,
-                "requests": 0,
-                "bytes_sent": 0,
-                "body_bytes_sent": 0,
-                "cache": {},
-            },
-        )
-        bucket["requests"] += 1
-        bucket["bytes_sent"] += sent
-        bucket["body_bytes_sent"] += body
-        cache = bucket["cache"].setdefault(outcome, {"requests": 0, "bytes_sent": 0})
-        cache["requests"] += 1
-        cache["bytes_sent"] += sent
-        # Per-outcome counters are bounded by the bucket's own totals.
-        if any(
-            bucket[key] > MAX_COUNTER
-            for key in ("requests", "bytes_sent", "body_bytes_sent")
-        ):
-            raise CollectionError("hourly traffic counter exceeds the integer range")
+        record = usage(line)
+        count(buckets, record)
+        track_path(paths.setdefault((record.host, record.hour), {}), record)
         consumed += len(line)
     if not consumed:
         return None, 0, more
     end = offset + consumed
+    for key, bucket in buckets.items():
+        bucket["paths"] = top_paths(paths.get(key, {}))
     return (
         {
             "start": previous,

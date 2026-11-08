@@ -381,6 +381,8 @@ def test_domain_models_do_not_render_adapter_documents():
 #: on dns for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     "traffic": set(),
+    # Sums traffic per site, which dns derives, and judges hits as cache does.
+    "analytics": {"cache", "dns", "traffic"},
     "backup": set(),
     "origins": {"edges", "jobs"},
     # `traffic` because its collector counts cache outcomes in the same pass.

@@ -2,8 +2,9 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import delete, select, tuple_
+from sqlalchemy import Select, delete, func, select, tuple_
 from sqlalchemy.orm import Session
 
 from blitzecdn.capabilities.traffic.adapters.tables import (
@@ -11,17 +12,25 @@ from blitzecdn.capabilities.traffic.adapters.tables import (
     TrafficCollectionRow,
     TrafficCursorRow,
     TrafficHourRow,
+    TrafficPathHourRow,
     TrafficRetentionRow,
+    TrafficStatusHourRow,
 )
 from blitzecdn.capabilities.traffic.domain import (
+    STORED_PATHS,
     CacheCounters,
     CacheOutcome,
     CollectedUsage,
     CollectionRecord,
     EdgeCollection,
+    HourlyCounters,
     HourlyUsage,
     LogCursor,
+    PathCounters,
+    RangeQuery,
     RetentionResult,
+    SiteHour,
+    StatusClass,
     TrafficUsage,
     UsageQuery,
 )
@@ -247,7 +256,10 @@ class TrafficStore:
         row = session.get(TrafficHourRow, key)
         if row is None:
             session.add(
-                TrafficHourRow(edge=edge, **bucket.model_dump(exclude={"cache"}))
+                TrafficHourRow(
+                    edge=edge,
+                    **bucket.model_dump(exclude={"cache", "status", "paths"}),
+                )
             )
         else:
             _add(row, bucket, ("requests", "bytes_sent", "body_bytes_sent"))
@@ -266,7 +278,60 @@ class TrafficStore:
                 )
             else:
                 _add(share, counters, ("requests", "bytes_sent"))
+        for status_class, requests in bucket.status.items():
+            counted = session.get(TrafficStatusHourRow, (*key, status_class.value))
+            if counted is None:
+                session.add(
+                    TrafficStatusHourRow(
+                        edge=edge,
+                        hostname=bucket.hostname,
+                        hour=bucket.hour,
+                        status_class=status_class.value,
+                        requests=requests,
+                    )
+                )
+            else:
+                _add(counted, {"requests": requests}, ("requests",))
+        for item in bucket.paths:
+            path = session.get(TrafficPathHourRow, (*key, item.path))
+            if path is None:
+                session.add(
+                    TrafficPathHourRow(
+                        edge=edge,
+                        hostname=bucket.hostname,
+                        hour=bucket.hour,
+                        **item.model_dump(),
+                    )
+                )
+            else:
+                _add(path, item, ("requests", "bytes_sent"))
         session.flush()
+        if bucket.paths:
+            TrafficStore._trim_paths(session, key)
+
+    @staticmethod
+    def _trim_paths(session: Session, key: _HourKey) -> None:
+        """Keep only the hour's best-ranked paths, so storage stays bounded."""
+        edge, hostname, hour = key
+        ranked = (
+            select(TrafficPathHourRow.path)
+            .where(
+                TrafficPathHourRow.edge == edge,
+                TrafficPathHourRow.hostname == hostname,
+                TrafficPathHourRow.hour == hour,
+            )
+            .order_by(TrafficPathHourRow.requests.desc(), TrafficPathHourRow.path)
+            .offset(STORED_PATHS)
+        )
+        session.execute(
+            delete(TrafficPathHourRow).where(
+                TrafficPathHourRow.edge == edge,
+                TrafficPathHourRow.hostname == hostname,
+                TrafficPathHourRow.hour == hour,
+                TrafficPathHourRow.path.in_(ranked.limit(-1)),
+            ),
+            execution_options={"synchronize_session": False},
+        )
 
     @staticmethod
     def _outcomes(
@@ -291,8 +356,10 @@ class TrafficStore:
         return grouped
 
     @staticmethod
-    def _usage(row: TrafficHourRow, outcomes: dict[_HourKey, _Shares]) -> HourlyUsage:
-        return HourlyUsage(
+    def _usage(
+        row: TrafficHourRow, outcomes: dict[_HourKey, _Shares]
+    ) -> HourlyCounters:
+        return HourlyCounters(
             hostname=row.hostname,
             hour=row.hour,
             requests=row.requests,
@@ -303,7 +370,7 @@ class TrafficStore:
 
     def hourly(
         self, *, edge: str, hostname: str, start: datetime, end: datetime
-    ) -> tuple[HourlyUsage, ...]:
+    ) -> tuple[HourlyCounters, ...]:
         with self._db.session() as session:
             rows = session.scalars(
                 select(TrafficHourRow)
@@ -320,18 +387,146 @@ class TrafficStore:
             )
             return tuple(self._usage(row, outcomes) for row in rows)
 
+    def hostnames(self, *, start: datetime, end: datetime) -> frozenset[str]:
+        """Every hostname with retained traffic in ``[start, end)``."""
+        with self._db.session() as session:
+            statement = (
+                select(TrafficHourRow.hostname)
+                .where(TrafficHourRow.hour >= start, TrafficHourRow.hour < end)
+                .distinct()
+            )
+            statement = self._retained(session, statement, TrafficHourRow.hour)
+            return frozenset(session.scalars(statement))
+
+    def site_hours(self, query: RangeQuery) -> tuple[SiteHour, ...]:
+        """The hostnames' counters summed over every edge, per non-empty hour."""
+        if not query.hostnames:
+            return ()
+        hostnames = sorted(query.hostnames)
+        with self._db.session() as session:
+            hours: dict[datetime, dict[str, Any]] = {}
+            totals = self._retained(
+                session,
+                select(
+                    TrafficHourRow.hour,
+                    func.sum(TrafficHourRow.requests),
+                    func.sum(TrafficHourRow.bytes_sent),
+                    func.sum(TrafficHourRow.body_bytes_sent),
+                )
+                .where(
+                    TrafficHourRow.hour >= query.start,
+                    TrafficHourRow.hour < query.end,
+                    TrafficHourRow.hostname.in_(hostnames),
+                )
+                .group_by(TrafficHourRow.hour),
+                TrafficHourRow.hour,
+            )
+            for hour, requests, sent, body in session.execute(totals):
+                hours[hour] = {
+                    "hour": hour,
+                    "requests": requests,
+                    "bytes_sent": sent,
+                    "body_bytes_sent": body,
+                    "cache": {},
+                    "status": {},
+                }
+            cache = self._retained(
+                session,
+                select(
+                    TrafficCacheHourRow.hour,
+                    TrafficCacheHourRow.outcome,
+                    func.sum(TrafficCacheHourRow.requests),
+                    func.sum(TrafficCacheHourRow.bytes_sent),
+                )
+                .where(
+                    TrafficCacheHourRow.hour >= query.start,
+                    TrafficCacheHourRow.hour < query.end,
+                    TrafficCacheHourRow.hostname.in_(hostnames),
+                )
+                .group_by(TrafficCacheHourRow.hour, TrafficCacheHourRow.outcome),
+                TrafficCacheHourRow.hour,
+            )
+            for hour, outcome, requests, sent in session.execute(cache):
+                hours[hour]["cache"][CacheOutcome(outcome)] = CacheCounters(
+                    requests=requests, bytes_sent=sent
+                )
+            status = self._retained(
+                session,
+                select(
+                    TrafficStatusHourRow.hour,
+                    TrafficStatusHourRow.status_class,
+                    func.sum(TrafficStatusHourRow.requests),
+                )
+                .where(
+                    TrafficStatusHourRow.hour >= query.start,
+                    TrafficStatusHourRow.hour < query.end,
+                    TrafficStatusHourRow.hostname.in_(hostnames),
+                )
+                .group_by(TrafficStatusHourRow.hour, TrafficStatusHourRow.status_class),
+                TrafficStatusHourRow.hour,
+            )
+            for hour, status_class, requests in session.execute(status):
+                hours[hour]["status"][StatusClass(status_class)] = requests
+            return tuple(SiteHour.model_validate(hours[hour]) for hour in sorted(hours))
+
+    def top_paths(
+        self, query: RangeQuery, *, limit: int, offset: int
+    ) -> PageResult[PathCounters]:
+        """Stored top paths summed over the range, most requested first."""
+        if not query.hostnames:
+            return PageResult(items=[], total=0)
+        requests = func.sum(TrafficPathHourRow.requests)
+        with self._db.session() as session:
+            statement = self._retained(
+                session,
+                select(
+                    TrafficPathHourRow.path,
+                    requests,
+                    func.sum(TrafficPathHourRow.bytes_sent),
+                )
+                .where(
+                    TrafficPathHourRow.hour >= query.start,
+                    TrafficPathHourRow.hour < query.end,
+                    TrafficPathHourRow.hostname.in_(sorted(query.hostnames)),
+                )
+                .group_by(TrafficPathHourRow.path),
+                TrafficPathHourRow.hour,
+            )
+            total = session.scalar(
+                select(func.count()).select_from(statement.subquery())
+            )
+            rows = session.execute(
+                statement.order_by(requests.desc(), TrafficPathHourRow.path)
+                .limit(limit)
+                .offset(offset)
+            )
+            return PageResult(
+                items=[
+                    PathCounters(path=path, requests=count, bytes_sent=sent)
+                    for path, count, sent in rows
+                ],
+                total=total or 0,
+            )
+
+    @staticmethod
+    def _retained[S: Select[Any]](session: Session, statement: S, hour: Any) -> S:
+        """Hide hours behind the retention cutoff even before pruning deletes them."""
+        state = session.get(TrafficRetentionRow, 1)
+        return statement if state is None else statement.where(hour >= state.cutoff)
+
     @staticmethod
     def _cursor(row: TrafficCursorRow) -> LogCursor:
         return LogCursor(stream_id=row.stream_id, offset=row.offset, anchor=row.anchor)
 
 
 def _add(
-    row: TrafficHourRow | TrafficCacheHourRow,
-    delta: HourlyUsage | CacheCounters,
+    row: object,
+    delta: object,
     names: tuple[str, ...],
 ) -> None:
     for name in names:
-        total = int(getattr(row, name)) + int(getattr(delta, name))
+        change = delta[name] if isinstance(delta, dict) else getattr(delta, name)
+        total = int(getattr(row, name)) + int(change)
         if total > 2**63 - 1:
             raise ConflictError(
                 "hourly traffic counter exceeds the database integer range"

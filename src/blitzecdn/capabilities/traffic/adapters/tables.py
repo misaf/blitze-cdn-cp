@@ -55,6 +55,56 @@ class TrafficCacheHourRow(Base):
     bytes_sent: Mapped[int] = mapped_column()
 
 
+class TrafficStatusHourRow(Base):
+    """One status class's requests within a ``traffic_hours`` row, written with it."""
+
+    __tablename__ = "traffic_status_hours"
+    __table_args__ = (
+        Index("ix_traffic_status_hours_hour_hostname", "hour", "hostname"),
+        CheckConstraint("requests > 0", name="traffic_status_hours_requests_check"),
+        CheckConstraint(
+            "status_class IN ('1xx', '2xx', '3xx', '4xx', '5xx')",
+            name="traffic_status_hours_class_check",
+        ),
+        ForeignKeyConstraint(
+            ["edge", "hostname", "hour"],
+            ["traffic_hours.edge", "traffic_hours.hostname", "traffic_hours.hour"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(primary_key=True)
+    hour: Mapped[datetime] = mapped_column(UtcDateTime, primary_key=True)
+    status_class: Mapped[str] = mapped_column(primary_key=True)
+    requests: Mapped[int] = mapped_column()
+
+
+class TrafficPathHourRow(Base):
+    """A top-ranked path within a ``traffic_hours`` row; at most a bounded few."""
+
+    __tablename__ = "traffic_path_hours"
+    __table_args__ = (
+        Index("ix_traffic_path_hours_hour_hostname", "hour", "hostname"),
+        CheckConstraint(
+            "requests > 0 AND bytes_sent >= 0",
+            name="traffic_path_hours_counters_check",
+        ),
+        ForeignKeyConstraint(
+            ["edge", "hostname", "hour"],
+            ["traffic_hours.edge", "traffic_hours.hostname", "traffic_hours.hour"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(primary_key=True)
+    hour: Mapped[datetime] = mapped_column(UtcDateTime, primary_key=True)
+    path: Mapped[str] = mapped_column(primary_key=True)
+    requests: Mapped[int] = mapped_column()
+    bytes_sent: Mapped[int] = mapped_column()
+
+
 class TrafficCursorRow(Base):
     __tablename__ = "traffic_cursors"
     __table_args__ = (

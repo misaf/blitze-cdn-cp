@@ -23,7 +23,10 @@ blitzecdn	check	traffic_cache_hours.traffic_cache_hours_counters_check	requests 
 blitzecdn	check	traffic_cache_hours.traffic_cache_hours_outcome_check	outcome IN ('HIT', 'STALE', 'UPDATING', 'REVALIDATED', 'MISS', 'EXPIRED', 'BYPASS', 'NONE')
 blitzecdn	check	traffic_cursors.traffic_cursors_offset_check	offset > 0
 blitzecdn	check	traffic_hours.traffic_hours_counters_check	requests > 0 AND bytes_sent >= 0 AND body_bytes_sent >= 0
+blitzecdn	check	traffic_path_hours.traffic_path_hours_counters_check	requests > 0 AND bytes_sent >= 0
 blitzecdn	check	traffic_retention.traffic_retention_singleton	id = 1
+blitzecdn	check	traffic_status_hours.traffic_status_hours_class_check	status_class IN ('1xx', '2xx', '3xx', '4xx', '5xx')
+blitzecdn	check	traffic_status_hours.traffic_status_hours_requests_check	requests > 0
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review', 'reviewed')
 blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
@@ -152,8 +155,19 @@ blitzecdn	column	traffic_hours.edge	type=VARCHAR not-null pk
 blitzecdn	column	traffic_hours.hostname	type=VARCHAR not-null pk
 blitzecdn	column	traffic_hours.hour	type=UtcDateTime(VARCHAR) not-null pk
 blitzecdn	column	traffic_hours.requests	type=INTEGER not-null
+blitzecdn	column	traffic_path_hours.bytes_sent	type=INTEGER not-null
+blitzecdn	column	traffic_path_hours.edge	type=VARCHAR not-null pk fk=traffic_hours.edge ondelete=CASCADE
+blitzecdn	column	traffic_path_hours.hostname	type=VARCHAR not-null pk fk=traffic_hours.hostname ondelete=CASCADE
+blitzecdn	column	traffic_path_hours.hour	type=UtcDateTime(VARCHAR) not-null pk fk=traffic_hours.hour ondelete=CASCADE
+blitzecdn	column	traffic_path_hours.path	type=VARCHAR not-null pk
+blitzecdn	column	traffic_path_hours.requests	type=INTEGER not-null
 blitzecdn	column	traffic_retention.cutoff	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	traffic_retention.id	type=INTEGER not-null pk
+blitzecdn	column	traffic_status_hours.edge	type=VARCHAR not-null pk fk=traffic_hours.edge ondelete=CASCADE
+blitzecdn	column	traffic_status_hours.hostname	type=VARCHAR not-null pk fk=traffic_hours.hostname ondelete=CASCADE
+blitzecdn	column	traffic_status_hours.hour	type=UtcDateTime(VARCHAR) not-null pk fk=traffic_hours.hour ondelete=CASCADE
+blitzecdn	column	traffic_status_hours.requests	type=INTEGER not-null
+blitzecdn	column	traffic_status_hours.status_class	type=VARCHAR not-null pk
 blitzecdn	column	workflows.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	workflows.error	type=VARCHAR null
 blitzecdn	column	workflows.id	type=VARCHAR not-null pk
@@ -183,6 +197,8 @@ blitzecdn	index	jobs.ix_jobs_status_available_at	(status,available_at)
 blitzecdn	index	releases.ix_releases_created_at	(created_at)
 blitzecdn	index	releases.ix_releases_id	(id) unique
 blitzecdn	index	traffic_hours.ix_traffic_hours_hour_hostname_edge	(hour,hostname,edge)
+blitzecdn	index	traffic_path_hours.ix_traffic_path_hours_hour_hostname	(hour,hostname)
+blitzecdn	index	traffic_status_hours.ix_traffic_status_hours_hour_hostname	(hour,hostname)
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
-blitzecdn	revision	0010_deployment_outcomes
+blitzecdn	revision	0011_traffic_analytics

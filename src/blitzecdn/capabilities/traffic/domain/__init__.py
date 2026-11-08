@@ -35,12 +35,39 @@ class CacheOutcome(StrEnum):
     NONE = "NONE"
 
 
+class StatusClass(StrEnum):
+    """An HTTP status code's class. Codes outside 100-599 are not classed."""
+
+    INFORMATIONAL = "1xx"
+    SUCCESS = "2xx"
+    REDIRECTION = "3xx"
+    CLIENT_ERROR = "4xx"
+    SERVER_ERROR = "5xx"
+
+
+#: Paths an edge reports per hostname and hour, and the controller keeps per
+#: edge, hostname and hour. Ranks are decided at collection, not query time.
+TOP_PATHS = 10
+STORED_PATHS = 20
+
+
 class CacheCounters(TrafficValue):
     requests: Annotated[Counter, Field(ge=1)]
     bytes_sent: Counter
 
 
-class HourlyUsage(TrafficValue):
+class PathCounters(TrafficValue):
+    """One request path's share of an hour; query strings never reach here."""
+
+    #: Printable ASCII; ``?`` and ``#`` cannot appear, so neither can a query.
+    path: Annotated[
+        str, Field(min_length=1, max_length=512, pattern=r"^/[!-\"$->@-~]*$")
+    ]
+    requests: Annotated[Counter, Field(ge=1)]
+    bytes_sent: Counter
+
+
+class HourlyCounters(TrafficValue):
     hostname: str
     hour: datetime
     requests: Annotated[Counter, Field(ge=1)]
@@ -71,6 +98,33 @@ class HourlyUsage(TrafficValue):
         if value.minute or value.second or value.microsecond:
             raise ValueError("hour must be an exact UTC hour")
         return value
+
+
+class HourlyUsage(HourlyCounters):
+    """One collected hour, with its status classes and its top paths.
+
+    Status classes may sum to less than ``requests``: a status outside 100-599
+    is counted as a request but not classed. Paths are the edge's top ranked
+    paths for this batch, not a partition of the hour.
+    """
+
+    status: dict[StatusClass, Annotated[Counter, Field(ge=1)]] = Field(
+        default_factory=dict
+    )
+    paths: Annotated[tuple[PathCounters, ...], Field(max_length=TOP_PATHS)] = ()
+
+    @model_validator(mode="after")
+    def breakdowns_within_totals(self) -> Self:
+        if sum(self.status.values()) > self.requests:
+            raise ValueError("status classes cannot exceed the hour's requests")
+        if len({item.path for item in self.paths}) != len(self.paths):
+            raise ValueError("paths must be unique")
+        if any(
+            item.requests > self.requests or item.bytes_sent > self.bytes_sent
+            for item in self.paths
+        ):
+            raise ValueError("a path cannot exceed the hour's totals")
+        return self
 
 
 class LogCursor(TrafficValue):
@@ -126,8 +180,38 @@ class EdgeCollection(TrafficValue):
     more: bool = False
 
 
-class TrafficUsage(HourlyUsage):
+class TrafficUsage(HourlyCounters):
     edge: str
+
+
+class SiteHour(TrafficValue):
+    """Several hostnames' counters on every edge, summed for one UTC hour."""
+
+    hour: datetime
+    requests: Counter
+    bytes_sent: Counter
+    body_bytes_sent: Counter
+    cache: dict[CacheOutcome, CacheCounters] = Field(default_factory=dict)
+    status: dict[StatusClass, Counter] = Field(default_factory=dict)
+
+
+class RangeQuery(TrafficValue):
+    """Exact hostnames over whole UTC hours, independent of any site model."""
+
+    hostnames: Annotated[frozenset[str], Field(max_length=10_000)]
+    start: datetime
+    end: datetime
+
+    @field_validator("start", "end")
+    @classmethod
+    def utc_hour(cls, value: datetime) -> datetime:
+        return HourlyCounters.utc_hour(value)
+
+    @model_validator(mode="after")
+    def ordered_range(self) -> Self:
+        if self.end <= self.start:
+            raise ValueError("end must be after start")
+        return self
 
 
 class UsageQuery(TrafficValue):
@@ -141,7 +225,7 @@ class UsageQuery(TrafficValue):
     @field_validator("start", "end")
     @classmethod
     def utc_hour(cls, value: datetime) -> datetime:
-        return HourlyUsage.utc_hour(value)
+        return HourlyCounters.utc_hour(value)
 
     @field_validator("hostname")
     @classmethod

@@ -176,7 +176,10 @@ INITIAL = (
 
 #: Revisions after the initial chain, in upgrade order, with the tables each
 #: one adds. A table here is not its capability's initial revision's to create.
-LATER = (("0010_deployment_outcomes", {"deployment_outcomes"}),)
+LATER = (
+    ("0010_deployment_outcomes", {"deployment_outcomes"}),
+    ("0011_traffic_analytics", {"traffic_status_hours", "traffic_path_hours"}),
+)
 LATER_TABLES = {table for _, tables in LATER for table in tables}
 
 

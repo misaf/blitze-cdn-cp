@@ -183,6 +183,7 @@ ROSTER: tuple[RosterEntry, ...] = (
     ),
     RosterEntry("blitzecdn.capabilities.backup.feature"),
     RosterEntry("blitzecdn.capabilities.cache.feature"),
+    RosterEntry("blitzecdn.capabilities.analytics.feature"),
     RosterEntry(
         "blitzecdn.capabilities.traffic.feature", operations=_traffic_operations
     ),

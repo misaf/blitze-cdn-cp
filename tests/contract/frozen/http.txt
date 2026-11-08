@@ -4,6 +4,8 @@ blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
 blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
+blitzecdn	route	GET /v3/analytics/sites/{site}
+blitzecdn	route	GET /v3/analytics/sites/{site}/paths
 blitzecdn	route	GET /v3/audit-events
 blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
@@ -54,6 +56,16 @@ blitzecdn	route	POST /v3/origins/check
 blitzecdn	route	POST /v3/rollbacks
 blitzecdn	route	POST /v3/ssl/automatic/reconcile
 blitzecdn	route	POST /v3/workflows/{workflow_id}/acknowledge
+blitzecdn	schema	AnalyticsBucket.body_bytes_sent	integer required
+blitzecdn	schema	AnalyticsBucket.bytes_sent	integer required
+blitzecdn	schema	AnalyticsBucket.cacheable_requests	integer required
+blitzecdn	schema	AnalyticsBucket.client_error_ratio	number|null required
+blitzecdn	schema	AnalyticsBucket.hit_ratio	number|null required
+blitzecdn	schema	AnalyticsBucket.hits	integer required
+blitzecdn	schema	AnalyticsBucket.requests	integer required
+blitzecdn	schema	AnalyticsBucket.server_error_ratio	number|null required
+blitzecdn	schema	AnalyticsBucket.start	string required
+blitzecdn	schema	AnalyticsBucket.status	object required
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
@@ -290,6 +302,10 @@ blitzecdn	schema	OperationalStatus.workflows	WorkflowStatistics required
 blitzecdn	schema	OriginCheckRequest.host_limit	string|null optional
 blitzecdn	schema	OutcomeCounters.bytes_sent	integer required
 blitzecdn	schema	OutcomeCounters.requests	integer required
+blitzecdn	schema	Page_AnalyticsBucket_.items	array[AnalyticsBucket] required
+blitzecdn	schema	Page_AnalyticsBucket_.limit	integer required
+blitzecdn	schema	Page_AnalyticsBucket_.offset	integer required
+blitzecdn	schema	Page_AnalyticsBucket_.total	integer required
 blitzecdn	schema	Page_AuditEvent_.items	array[AuditEvent] required
 blitzecdn	schema	Page_AuditEvent_.limit	integer required
 blitzecdn	schema	Page_AuditEvent_.offset	integer required
@@ -326,6 +342,10 @@ blitzecdn	schema	Page_Edge_.items	array[Edge] required
 blitzecdn	schema	Page_Edge_.limit	integer required
 blitzecdn	schema	Page_Edge_.offset	integer required
 blitzecdn	schema	Page_Edge_.total	integer required
+blitzecdn	schema	Page_PathCounters_.items	array[PathCounters] required
+blitzecdn	schema	Page_PathCounters_.limit	integer required
+blitzecdn	schema	Page_PathCounters_.offset	integer required
+blitzecdn	schema	Page_PathCounters_.total	integer required
 blitzecdn	schema	Page_Release_.items	array[Release] required
 blitzecdn	schema	Page_Release_.limit	integer required
 blitzecdn	schema	Page_Release_.offset	integer required
@@ -342,6 +362,9 @@ blitzecdn	schema	Page_Workflow_.items	array[Workflow] required
 blitzecdn	schema	Page_Workflow_.limit	integer required
 blitzecdn	schema	Page_Workflow_.offset	integer required
 blitzecdn	schema	Page_Workflow_.total	integer required
+blitzecdn	schema	PathCounters.bytes_sent	integer required
+blitzecdn	schema	PathCounters.path	string required
+blitzecdn	schema	PathCounters.requests	integer required
 blitzecdn	schema	PreflightCheck.detail	string required
 blitzecdn	schema	PreflightCheck.name	string required
 blitzecdn	schema	PreflightCheck.passed	boolean required

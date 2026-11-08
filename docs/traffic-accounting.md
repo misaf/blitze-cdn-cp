@@ -2,19 +2,22 @@
 
 The traffic capability collects hourly request counts, bytes sent to visitors,
 and response body bytes per edge and actual requested hostname, plus the same
-requests and bytes split by cache outcome. Hours use UTC
+requests and bytes split by cache outcome, requests per HTTP status class, and
+a bounded list of the most requested paths. Hours use UTC
 and the log timestamp at request completion. Redirects and errors count as
 requests. Release identity probes remain excluded by Nginx's `access_log off`.
 Counter semantics and the JSON format are described in [operations](operations.md#hostname-access-and-error-logs).
 
 The traffic service and scheduled worker job collect and persist these totals.
-Traffic API routes and CLI commands are not exposed yet.
+[Reading usage](#reading-usage) and [per-site analytics](#per-site-analytics)
+expose them.
 
 ## Collection and commits
 
 The packaged Ansible play runs a standalone standard-library Python collector
-on each edge. Raw URLs, headers and client addresses stay on the edge. Only
-hourly aggregates, progress cursors and safe diagnostics return to the controller.
+on each edge. Query strings, headers, referers, user agents and client
+addresses stay on the edge. Only hourly aggregates, including each hour's top
+request paths, progress cursors and safe diagnostics return to the controller.
 The controller performs network collection outside database transactions.
 Successful batches for each edge, their progress, and the audit event commit in
 one transaction. An unreachable edge or a damaged file does not hide successful
@@ -47,6 +50,9 @@ read during normal frequent collection.
 and `bytes_sent` per cache outcome. Its rows are written in the same transaction
 as their `traffic_hours` row and cursor, always sum to that row's totals, and are
 deleted with it.
+`traffic_status_hours` and `traffic_path_hours` hold the hour's
+[status classes and top paths](#status-classes-and-top-paths) under the same
+key, written and deleted with their `traffic_hours` row.
 `traffic_cursors` uses `(edge, stream_id)` and advances with the matching totals.
 A retried or already committed batch adds nothing. An overlapping stale batch
 is refused and must be recollected from current checkpoints. SQLite reserves
@@ -166,6 +172,73 @@ can never block traffic collection. The cache capability reads these rows for
 `GET /v3/cache/stats` and `blitzecdn cache stats`, which add hit ratio and
 origin offload; see [operations](operations.md#cache-statistics).
 
+## Status classes and top paths
+
+Each record's `status` is counted under its class, `1xx` through `5xx`, in the
+same pass and under the same cursor as its traffic. A value outside 100–599 is
+still a request but is not classed, so the classes can sum to less than
+`requests`; Nginx never logs one in practice.
+
+Paths are ranked at collection time, never by scanning logs at query time.
+The path is the second word of the logged `request`, cut at its first `?` or
+`#`, so a query string never leaves the edge even when
+`blitzecdn_nginx_log_query_strings` keeps it in the log. Paths longer than 512
+characters or containing anything but printable ASCII are not counted. For
+each hostname and hour, a collector pass counts at most 1,000 distinct paths
+(later new paths in that pass are skipped) and returns its 10 most requested,
+with their requests and `bytes_sent`. The controller adds them to the stored
+paths for that edge, hostname and hour and keeps the 20 most requested. Memory
+on the edge and rows on the controller are therefore bounded whatever the URL
+cardinality.
+
+Top paths are approximate: an hour spread over several passes or edges is
+ranked per pass, so a path that never reaches a pass's top 10 is not counted
+there, and stored counts are lower bounds. Use them to find what is popular,
+not to bill or audit individual URLs. Paths name content, and can name people
+(`/users/alice`); the controller now keeps them for the traffic retention
+period. Disable access logging for a hostname whose paths must not leave the
+edge.
+
+## Per-site analytics
+
+Authenticated `GET /v3/analytics/sites/{site}` and `blitzecdn analytics site
+SITE` sum a site's stored traffic (a host from `GET /v3/hosts`) over every
+edge and its hostnames, bucketed by `hour` (default) or UTC `day`:
+
+```sh
+blitzecdn analytics site example-com--www \
+  --start 2026-10-20T00:00:00Z --end 2026-10-27T00:00:00Z \
+  --granularity day --json
+```
+
+`start` and `end` follow the [usage](#reading-usage) rules; daily buckets also
+need both at UTC midnight. The series is dense: `total` counts every bucket in
+the range, pages hold `limit` consecutive buckets from `offset`, and empty
+buckets are zeros. Each bucket has `start`, `requests`, `bytes_sent`,
+`body_bytes_sent`, `cacheable_requests`, `hits` and `hit_ratio` (judged as in
+[cache statistics](operations.md#cache-statistics)), `status` with every class
+from `1xx` to `5xx`, and `client_error_ratio` and `server_error_ratio` (4xx and
+5xx over all requests). Ratios are `null` for an empty bucket.
+
+`GET /v3/analytics/sites/{site}/paths` and `blitzecdn analytics paths SITE`
+return the site's [top paths](#status-classes-and-top-paths) summed over the
+range, most requested first (ties by path), using the same pagination
+envelope.
+
+A site owns its exact server names, and, through its `*.` wildcards, every
+hostname with traffic in the range that Nginx would route to it: an exact
+name anywhere wins, then the longest matching wildcard. Ownership uses the
+current configuration, so an unknown or removed site returns 404, and a
+hostname moved between sites is attributed to its current site for the whole
+range. Historical traffic of removed sites stays readable per hostname through
+the usage API. Country breakdowns are not collected.
+
+Status classes and paths are counted only from records collected once the
+collector counts them; hours stored before that report zero classes and no
+paths. As with usage, an
+empty bucket does not prove zero traffic; check
+[collection freshness](#collection-freshness).
+
 ## Sizing collection for CDN volume
 
 A pass is one Ansible run per edge, so throughput per edge is
@@ -236,7 +309,8 @@ Retention changes controller data only; edge log retention is
 privacy settings in [operations](operations.md#what-access-logs-keep).
 It does not prune queue or audit history. Deleted SQLite pages become reusable;
 this job does not run blocking `VACUUM` or promise an immediate file-size decrease.
-Back up `traffic_hours`, `traffic_cursors`, `traffic_retention`, and
+Back up `traffic_hours`, `traffic_cache_hours`, `traffic_status_hours`,
+`traffic_path_hours`, `traffic_cursors`, `traffic_retention`, and
 `traffic_collections` together. As
 with any older database restore, traffic lost between the backup and available
 edge logs cannot be reconstructed automatically.

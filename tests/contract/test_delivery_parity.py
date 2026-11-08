@@ -266,6 +266,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     ("blitzecdn", "cache purge", "POST /v3/cache/purge", ""),
     ("blitzecdn", "cache stats", "GET /v3/cache/stats", ""),
+    ("blitzecdn", "analytics site", "GET /v3/analytics/sites/{site}", ""),
+    ("blitzecdn", "analytics paths", "GET /v3/analytics/sites/{site}/paths", ""),
     ("blitzecdn", "cache connections", "POST /v3/cache/connections", ""),
     ("blitzecdn", "origin check", "POST /v3/origins/check", ""),
     (

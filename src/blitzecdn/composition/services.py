@@ -13,6 +13,8 @@ from typing import Any, NewType, cast
 from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.analytics.service import AnalyticsService
+from blitzecdn.capabilities.analytics.wiring import build_analytics_service
 from blitzecdn.capabilities.backup.service import BackupService
 from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.cache.service import CacheService
@@ -326,6 +328,10 @@ class ServiceProvider(Provider):
             usage=traffic,
             clock=adapters.clock,
         )
+
+    @provide
+    def analytics(self, repository: Repository, sites: HostService) -> AnalyticsService:
+        return build_analytics_service(sites=sites, traffic=repository.traffic)
 
     @provide
     def origins(
