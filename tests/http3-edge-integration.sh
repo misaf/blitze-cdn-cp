@@ -77,11 +77,17 @@ render_release() {
     "${release_dir}" "${EDGE_RELEASE_DIR}" "$@"
 }
 
+# What the control plane generates once and keeps under its state directory:
+# the edge answers /.blitzecdn/release only to a request carrying it.
+probe_token=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
+readonly probe_token
+
 # The shipped edge play against the rendered release; extra arguments go to
 # ansible-playbook. Variables in the order a control plane layers them: the
 # capability contributions, the runner's, then the execution document.
 converge() {
-  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook \
+  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} \
+    BLITZE_RELEASE_PROBE_TOKEN=${probe_token} ansible-playbook \
     -i ${EDGE_INVENTORY} ${EDGE_PLAYBOOK} \
     -e @${EDGE_RELEASE_DIR}/contributions.yml -e @${RELEASE_RUNNER} \
     -e @${EDGE_RELEASE_DIR}/release.yml $*"
@@ -92,12 +98,21 @@ converge() {
 # step returns explicitly, because callers capture a failure with `|| true` and
 # `set -e` does not apply inside a function called that way.
 deploy() {
-  local digest served
+  local digest served hidden
   digest=$(render_release "$@") || return
   converge || return
-  served=$("${client[@]}" https://site-one.test/.blitzecdn/release) || return
+  served=$("${client[@]}" -H "X-BlitzeCDN-Probe: ${probe_token}" \
+    https://site-one.test/.blitzecdn/release) || return
   if [[ ${served} != "${digest}" ]]; then
     printf 'FAIL: the edge serves release %s, not %s\n' "${served}" "${digest}" >&2
+    return 1
+  fi
+  # Anyone without the token must not learn which release this edge runs.
+  # The client fails on 404, which is the expected answer; the code decides.
+  hidden=$("${client[@]}" -o /dev/null -w '%{http_code}' \
+    https://site-one.test/.blitzecdn/release) || true
+  if [[ ${hidden} != 404 ]]; then
+    printf 'FAIL: the release marker answered %s without the probe token\n' "${hidden}" >&2
     return 1
   fi
   converge --tags commit
