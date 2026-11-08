@@ -14,9 +14,9 @@ from support.control_plane import (
     host_run,
 )
 from support.host_keys import FIRST, FIRST_FINGERPRINT, SECOND, SECOND_FINGERPRINT
+from support.stores import Stores
 
 from blitzecdn.capabilities.edges.adapters.host_keys import KnownHosts
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.entrypoints.cli import main as cli
 
@@ -98,7 +98,7 @@ def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
     )
     runner.invoke(cli.app, ["edge", "update", "edge-01", "--port", "7845"])
 
-    events = Repository(settings.database_path).audit_log.list_audit_events()
+    events = Stores(settings.database_path).audit_log.list_audit_events()
     actions = [event.action for event in events]
     assert "edge.added" in actions
     assert "edge.updated" in actions

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from dishka import Provider, Scope, provide
+
 from blitzecdn.capabilities.security.geoip.adapters import (
     GeoIpDatabaseStore,
     MaxMindDownload,
@@ -20,13 +22,15 @@ from blitzecdn.capabilities.security.geoip.ports import (
     ReleaseHistory,
 )
 from blitzecdn.capabilities.security.geoip.service import GeoIpService
-from blitzecdn.capabilities.security.geoip.settings import GeoIpConfig
+from blitzecdn.capabilities.security.geoip.settings import CONFIGURATION, GeoIpConfig
+from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureOperations,
     FeatureRendering,
     FleetStateContribution,
     ScheduledJob,
 )
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from pathlib import Path
@@ -35,6 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 __all__ = [
     "DATABASE_DIRECTORY",
+    "GeoIpProvider",
     "build_geoip_service",
     "build_geoip_store",
     "geoip_operations",
@@ -112,3 +117,36 @@ def geoip_operations(*, geoip: GeoIpService, config: GeoIpConfig) -> FeatureOper
             ),
         ),
     )
+
+
+class GeoIpProvider(Provider):
+    """The controller's GeoLite2 databases and the one download that refreshes them."""
+
+    scope = Scope.APP
+
+    @provide
+    def config(self, capability_config: ResolvedCapabilityEnvironment) -> GeoIpConfig:
+        return capability_config.for_feature(CONFIGURATION.feature).as_model(
+            GeoIpConfig
+        )
+
+    @provide
+    def store(self, settings: Settings) -> DatabaseStore:
+        return build_geoip_store(state_dir=settings.state_dir)
+
+    @provide
+    def service(
+        self,
+        config: GeoIpConfig,
+        store: DatabaseStore,
+        lock: DeploymentLock,
+        require_deployment: DeploymentRequirement,
+        releases: ReleaseHistory,
+    ) -> GeoIpService:
+        return build_geoip_service(
+            config=config,
+            store=store,
+            lock=lock,
+            require_deployment=require_deployment,
+            releases=releases,
+        )

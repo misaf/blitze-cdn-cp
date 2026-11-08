@@ -16,9 +16,9 @@ from support.control_plane import (
     build_application,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 REQUIRES_CAPABILITIES = {
@@ -36,7 +36,7 @@ REQUIRES_CAPABILITIES = {
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

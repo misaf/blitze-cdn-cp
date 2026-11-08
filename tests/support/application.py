@@ -8,9 +8,9 @@ import time
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.site import CdnSite
 from support.control_plane import ControlPlane, seed_site
+from support.stores import Stores
 
 
 def seed_proxied_record(control: ControlPlane) -> CdnSite:
@@ -19,7 +19,7 @@ def seed_proxied_record(control: ControlPlane) -> CdnSite:
 
 
 def await_terminal(
-    repository: Repository, deployment_id: str, timeout: float = 5.0
+    repository: Stores, deployment_id: str, timeout: float = 5.0
 ) -> DeploymentStatus:
     deadline = time.monotonic() + timeout
     pending = {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
@@ -32,7 +32,7 @@ def await_terminal(
 
 
 def await_workflow(
-    repository: Repository, resource_id: str, timeout: float = 5.0
+    repository: Stores, resource_id: str, timeout: float = 5.0
 ) -> WorkflowStatus:
     """Wait for the workflow covering a queued run to close.
 

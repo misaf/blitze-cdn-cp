@@ -12,20 +12,20 @@ from support.control_plane import (
     build_application,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import CompressionPolicy
 from blitzecdn.capabilities.http.contract import ProtocolPolicy
 from blitzecdn.capabilities.security.contract import SecurityPolicy
 from blitzecdn.capabilities.tls.contract import TlsPolicy
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypatch):
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

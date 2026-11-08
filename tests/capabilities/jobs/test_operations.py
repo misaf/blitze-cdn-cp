@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import pytest
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import Done, JobStatus
 from blitzecdn.capabilities.jobs.service import JobQueue, OperationService
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.ports.clock import system_clock
 
 
 @pytest.fixture
 def queue(settings) -> JobQueue:
-    jobs = Repository(settings.database_path).jobs
+    jobs = Stores(settings.database_path).jobs
     return JobQueue(jobs=jobs, handlers={}, worker_id="worker-a", clock=system_clock)
 
 
