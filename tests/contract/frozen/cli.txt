@@ -1,3 +1,5 @@
+blitzecdn	command	blitzecdn analytics paths	<site> type=str required --start type=str required --end type=str required --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn analytics site	<site> type=str required --start type=str required --end type=str required --edge type=str --granularity type=choice[hour,day] default=<Granularity.HOUR: 'hour'> --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn ansible roles-path
 blitzecdn	command	blitzecdn ansible slots
 blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False

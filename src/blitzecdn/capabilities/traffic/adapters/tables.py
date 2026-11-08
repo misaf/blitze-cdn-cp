@@ -24,6 +24,13 @@ class TrafficHourRow(Base):
     requests: Mapped[int] = mapped_column()
     bytes_sent: Mapped[int] = mapped_column()
     body_bytes_sent: Mapped[int] = mapped_column()
+    #: Requests by response status class; hours collected before status
+    #: classes were counted hold zero in all five.
+    status_1xx: Mapped[int] = mapped_column(server_default="0")
+    status_2xx: Mapped[int] = mapped_column(server_default="0")
+    status_3xx: Mapped[int] = mapped_column(server_default="0")
+    status_4xx: Mapped[int] = mapped_column(server_default="0")
+    status_5xx: Mapped[int] = mapped_column(server_default="0")
 
 
 class TrafficCacheHourRow(Base):
@@ -51,6 +58,34 @@ class TrafficCacheHourRow(Base):
     hostname: Mapped[str] = mapped_column(primary_key=True)
     hour: Mapped[datetime] = mapped_column(UtcDateTime, primary_key=True)
     outcome: Mapped[str] = mapped_column(primary_key=True)
+    requests: Mapped[int] = mapped_column()
+    bytes_sent: Mapped[int] = mapped_column()
+
+
+class TrafficPathHourRow(Base):
+    """A busy path's lower-bound share of a ``traffic_hours`` row.
+
+    At most the configured number of paths is kept per row: the busiest.
+    """
+
+    __tablename__ = "traffic_path_hours"
+    __table_args__ = (
+        CheckConstraint(
+            "requests > 0 AND bytes_sent >= 0",
+            name="traffic_path_hours_counters_check",
+        ),
+        ForeignKeyConstraint(
+            ["edge", "hostname", "hour"],
+            ["traffic_hours.edge", "traffic_hours.hostname", "traffic_hours.hour"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_traffic_path_hours_hostname_hour", "hostname", "hour"),
+    )
+
+    edge: Mapped[str] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(primary_key=True)
+    hour: Mapped[datetime] = mapped_column(UtcDateTime, primary_key=True)
+    path: Mapped[str] = mapped_column(primary_key=True)
     requests: Mapped[int] = mapped_column()
     bytes_sent: Mapped[int] = mapped_column()
 
