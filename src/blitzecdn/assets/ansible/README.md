@@ -140,9 +140,8 @@ ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)" \
 
 Which slot a role belongs to is declared by the package that ships it and
 cannot be worked out by reading this repository, which is why writing the list
-by hand is the one part of this that reliably goes wrong: the justfile's copy
-had drifted in both directions before these commands existed — one edge role
-missing, and the teardown slot never passed at all.
+by hand is the one part of this that reliably goes wrong: a role goes
+missing, or a slot such as teardown is never passed at all.
 
 `just ansible-check` does exactly this for the syntax and lint gates.
 
