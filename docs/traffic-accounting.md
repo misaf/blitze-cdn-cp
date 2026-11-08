@@ -2,19 +2,22 @@
 
 The traffic capability collects hourly request counts, bytes sent to visitors,
 and response body bytes per edge and actual requested hostname, plus the same
-requests and bytes split by cache outcome. Hours use UTC
+requests and bytes split by cache outcome, requests by response status class,
+and the hour's busiest request paths. Hours use UTC
 and the log timestamp at request completion. Redirects and errors count as
 requests. Release identity probes remain excluded by Nginx's `access_log off`.
 Counter semantics and the JSON format are described in [operations](operations.md#hostname-access-and-error-logs).
 
 The traffic service and scheduled worker job collect and persist these totals.
-Traffic API routes and CLI commands are not exposed yet.
+[Reading usage](#reading-usage) returns them per edge and hour, and
+[site analytics](#site-analytics) sums them per site.
 
 ## Collection and commits
 
 The packaged Ansible play runs a standalone standard-library Python collector
-on each edge. Raw URLs, headers and client addresses stay on the edge. Only
-hourly aggregates, progress cursors and safe diagnostics return to the controller.
+on each edge. Query strings, headers and client addresses stay on the edge. Only
+hourly aggregates, including the busiest paths without their query strings,
+progress cursors and safe diagnostics return to the controller.
 The controller performs network collection outside database transactions.
 Successful batches for each edge, their progress, and the audit event commit in
 one transaction. An unreachable edge or a damaged file does not hide successful
@@ -138,7 +141,8 @@ hourly rows, not requests or bytes. Limit defaults to 100 (1–500); offset star
 at zero. Rows are ordered by hour ascending, then hostname and edge, with a
 range index supporting the read. Each item contains `edge`, `hostname`, `hour`
 (UTC), `requests`, `bytes_sent` and `body_bytes_sent` as integer counters, and
-`cache`: an object keyed by cache outcome, each with `requests` and `bytes_sent`.
+`cache`: an object keyed by cache outcome, each with `requests` and `bytes_sent`,
+and `status`: requests per [status class](#site-analytics).
 No totals across rows or edges are implied by the page envelope.
 
 Empty hours are omitted. An empty page does not prove zero traffic: collection
@@ -165,6 +169,63 @@ disabled) and is counted as NONE; so is any other value, so that a cache label
 can never block traffic collection. The cache capability reads these rows for
 `GET /v3/cache/stats` and `blitzecdn cache stats`, which add hit ratio and
 origin offload; see [operations](operations.md#cache-statistics).
+
+## Site analytics
+
+A site is one served hostname, the key traffic is stored under. Authenticated
+`GET /v3/analytics/sites/{site}` and `blitzecdn analytics site SITE` answer
+requests, bandwidth, cache hit ratio and error rate per UTC hour or day, summed
+across edges in SQL from the hourly rows. `GET /v3/analytics/sites/{site}/paths`
+and `blitzecdn analytics paths SITE` list the site's busiest paths. Neither
+contacts an edge or reads raw logs.
+
+```sh
+blitzecdn analytics site api.example.com \
+  --start 2026-10-01T00:00:00Z --end 2026-11-01T00:00:00Z --granularity day --json
+blitzecdn analytics paths api.example.com \
+  --start 2026-10-27T00:00:00Z --end 2026-10-28T00:00:00Z --limit 20 --json
+```
+
+Both take `start` and `end` as [usage](#reading-usage) does, an optional exact
+`edge`, and the same `{items, total, limit, offset}` pagination; `total` counts
+buckets or paths. `granularity` is `hour` (the default) or `day`; daily buckets
+need `start` and `end` at UTC midnight. Buckets without traffic are omitted, and
+items are oldest first. Each has `start` (the bucket's first hour), `requests`,
+`bytes_sent`, `body_bytes_sent`, `cache` (requests and bytes per outcome),
+`status` (requests per class, `1xx` to `5xx`, empty classes omitted) and:
+
+- `hits`, `cacheable_requests` and `hit_ratio`, judged as
+  [cache statistics](operations.md#cache-statistics) judges them;
+- `error_ratio`: `5xx` over requests with a status class, `null` when none had
+  one. `4xx` stays in `status`, since a client error is not the site failing.
+
+Status classes are counted from each record's `status`; a value outside
+100-599 counts as traffic in no class. Hours collected before this release have
+no status counts, so their `error_ratio` is `null` and their classes are empty.
+`status` also appears on [usage](#reading-usage) rows.
+
+### Top paths
+
+Paths are bounded when they are collected, not when they are queried. For each
+batch the collector keeps the busiest `BLITZE_TRAFFIC_TOP_PATHS` paths (20 by
+default, 0–100; TOML `traffic_top_paths`) per hostname and hour. The controller
+adds them to that edge, hostname and hour and keeps only its busiest that many,
+so storage grows with hours, not with distinct URLs. A path is the one the
+visitor sent before rewrites, cut at `?` or `#` even when the edge logs query
+strings in full, and at 512 characters. Requests whose `request` holds no
+`/`-path, such as `CONNECT`, count in no path.
+
+The paths endpoint sums each path's stored rows over the range, most requested
+first. Its counts are lower bounds: a path outside an hour's busiest on an edge
+is not counted for that hour, and past 4096 distinct paths in one batch the
+collector keeps tallying only the busiest 1024. Compare a path's `requests` with
+the site's for the same range for its share. `BLITZE_TRAFFIC_TOP_PATHS=0` stops
+collecting paths; stored paths then expire with retention.
+Path rows are deleted with their hour by [retention](#retention), and expired
+hours disappear from both endpoints at once.
+
+Countries are not collected: edge logs carry no country, and client addresses
+stay on the edge.
 
 ## Sizing collection for CDN volume
 
@@ -236,8 +297,8 @@ Retention changes controller data only; edge log retention is
 privacy settings in [operations](operations.md#what-access-logs-keep).
 It does not prune queue or audit history. Deleted SQLite pages become reusable;
 this job does not run blocking `VACUUM` or promise an immediate file-size decrease.
-Back up `traffic_hours`, `traffic_cursors`, `traffic_retention`, and
-`traffic_collections` together. As
+Back up `traffic_hours`, `traffic_cache_hours`, `traffic_path_hours`,
+`traffic_cursors`, `traffic_retention`, and `traffic_collections` together. As
 with any older database restore, traffic lost between the backup and available
 edge logs cannot be reconstructed automatically.
 

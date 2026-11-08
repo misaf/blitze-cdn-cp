@@ -39,6 +39,16 @@ class TrafficConfig(ConfigurationModel):
         alias="BLITZE_TRAFFIC_COLLECTION_MAX_PASSES",
         description="Maximum bounded log-collection passes in one scheduled run.",
     )
+    top_paths: int = Field(
+        default=20,
+        ge=0,
+        le=100,
+        alias="BLITZE_TRAFFIC_TOP_PATHS",
+        description=(
+            "Busiest request paths kept per edge, hostname and hour for site "
+            "analytics, without query strings. 0 stops collecting paths."
+        ),
+    )
 
 
 CONFIGURATION = TrafficConfig.configuration("traffic")

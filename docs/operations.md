@@ -465,7 +465,8 @@ when its request finishes, so its traffic is attributed to that completion
 time. See [Nginx's variable definitions](https://nginx.org/en/docs/http/ngx_http_core_module.html#variables).
 
 The [traffic capability](traffic-accounting.md) collects these records and
-persists hourly totals. Scheduling and API/CLI access are separate steps.
+persists hourly totals, status classes and each hour's busiest paths, which
+[site analytics](traffic-accounting.md#site-analytics) reads.
 Disabling access logging means there are no records to collect. Identity probes
 suppressed by `access_log off` also remain excluded.
 Cache statistics are counted from these records by traffic collection; see
@@ -492,7 +493,9 @@ changed with `blitzecdn config set` and applied by the next release:
 
 The user agent, hostname, timestamps, byte counters, status and cache outcome
 are always recorded. Traffic accounting and cache statistics read none of the
-redacted fields, so these settings change no count. Changing them affects new
+redacted fields, so these settings change no count. Site analytics' top paths
+read the request path and always drop its query string at the edge, whichever
+way `blitzecdn_nginx_log_query_strings` is set. Changing them affects new
 records only; existing files and archives keep what they were written with
 until rotation removes them. Error logs are Nginx's own text and may include a
 client address and request line regardless of these settings; they share the
@@ -551,7 +554,8 @@ Ratios are `null` when nothing consulted the cache: an idle site is not a broken
 one. Redirects, errors Nginx served itself and sites with caching disabled are
 NONE rather than misses. Rows lag while collection is pending; check
 `blitzecdn traffic status EDGE`. To aggregate a range or a site across edges,
-sum the counters, not the ratios.
+sum the counters, not the ratios, or read
+[site analytics](traffic-accounting.md#site-analytics), which does.
 
 Nginx's `stub_status` connection counters are live state, not log-derived:
 `POST /v3/cache/connections` queues a read (the operation's result is a

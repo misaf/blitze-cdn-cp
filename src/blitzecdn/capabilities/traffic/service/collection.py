@@ -14,6 +14,11 @@ from blitzecdn.capabilities.traffic.domain import (
     TrafficUsage,
     UsageQuery,
 )
+from blitzecdn.capabilities.traffic.domain.analytics import (
+    PathTotals,
+    SiteBucket,
+    SiteQuery,
+)
 from blitzecdn.capabilities.traffic.ports import TrafficRunner, TrafficStore
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.core.domain.events import domain_event
@@ -120,6 +125,14 @@ class TrafficService:
     def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
         return self.store.usage(query)
 
+    def site_buckets(self, query: SiteQuery) -> PageResult[SiteBucket]:
+        """A site's stored totals per UTC hour or day, across edges."""
+        return self.store.site_buckets(query)
+
+    def site_paths(self, query: SiteQuery) -> PageResult[PathTotals]:
+        """A site's busiest stored paths over the range."""
+        return self.store.site_paths(query)
+
     def collect(
         self, operator: str, *, host_limit: str | None = None
     ) -> tuple[EdgeCollection, ...]:
@@ -136,6 +149,7 @@ class TrafficService:
             run = self.runner.collect(
                 self.store.checkpoints(),
                 max_bytes=self.config.collection_max_bytes,
+                top_paths=self.config.top_paths,
                 host_limit=host_limit,
             )
             if not run.hosts:
@@ -209,7 +223,9 @@ class TrafficService:
         try:
             collection = CollectedUsage.model_validate(host.report)
             with self.uow.transaction():
-                result = self.store.apply(host.host, collection)
+                result = self.store.apply(
+                    host.host, collection, path_limit=self.config.top_paths
+                )
                 self.events.record(
                     domain_event(
                         operator,

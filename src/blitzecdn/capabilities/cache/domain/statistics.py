@@ -11,6 +11,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from blitzecdn.capabilities.traffic.domain import (
+    CACHE_CONSULTED_OUTCOMES,
+    CACHE_HIT_OUTCOMES,
+)
+
 __all__ = [
     "CACHE_CONSULTED_OUTCOMES",
     "CACHE_HIT_OUTCOMES",
@@ -19,14 +24,6 @@ __all__ = [
     "EdgeConnections",
     "OutcomeCounters",
 ]
-
-
-#: ``$upstream_cache_status`` values served from cache; REVALIDATED counts,
-#: since the origin sent no body.
-CACHE_HIT_OUTCOMES = frozenset({"HIT", "STALE", "UPDATING", "REVALIDATED"})
-
-#: Values that consulted the cache; NONE never did and is excluded.
-CACHE_CONSULTED_OUTCOMES = CACHE_HIT_OUTCOMES | {"MISS", "EXPIRED", "BYPASS"}
 
 
 def _ratio(part: int, whole: int) -> float | None:
