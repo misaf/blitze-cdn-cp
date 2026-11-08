@@ -110,6 +110,9 @@ def _populate(
         settings.state_dir.mkdir(parents=True, exist_ok=True)
         (settings.state_dir / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
         (settings.state_dir / "id_ed25519.pub").write_text("PUBLIC", encoding="utf-8")
+        (settings.state_dir / "release-probe.token").write_text(
+            "c" * 64 + "\n", encoding="utf-8"
+        )
     if geoip:
         root = settings.state_dir / "geoip-databases"
         root.mkdir(parents=True, exist_ok=True)
@@ -309,6 +312,12 @@ def test_config_includes_the_controller_ssh_identity(service):
     names = _members(service.create(only=(BackupComponent.CONFIG,)))
     assert "config/controller_key" in names
     assert "config/controller_key.pub" in names
+
+
+def test_config_includes_the_release_probe_token(service):
+    """Every edge holds it; restoring without it fails every rollout's check."""
+    names = _members(service.create(only=(BackupComponent.CONFIG,)))
+    assert "config/release_probe_token" in names
 
 
 def test_acme_account_state_is_included_when_selected(service):

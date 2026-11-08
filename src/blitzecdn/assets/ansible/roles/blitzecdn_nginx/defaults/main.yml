@@ -134,3 +134,14 @@ blitzecdn_nginx_log_retention_days: 14
 blitzecdn_nginx_status_allow: [127.0.0.1, "::1"]
 blitzecdn_nginx_status_file: >-
   {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-status.conf
+
+# `/.blitzecdn/release` answers the active release digest only to a request
+# carrying this token in X-BlitzeCDN-Probe, and 404 to everyone else, so the
+# public listeners do not tell a stranger which configuration an edge runs.
+# The controller generates the token once, keeps it under its state directory
+# and passes it in the environment; its rollout verification sends the same
+# value. Written as an Nginx include into the secrets directory, outside every
+# configuration release, so it is not part of any release digest.
+blitzecdn_nginx_release_probe_token: "{{ lookup('env', 'BLITZE_RELEASE_PROBE_TOKEN') }}"
+blitzecdn_nginx_release_probe_file: >-
+  {{ blitzecdn_edge_runtime.paths.secrets }}/release-probe.conf

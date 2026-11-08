@@ -51,6 +51,7 @@ from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import load_registry
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.probe import release_probe_token
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureRegistry,
@@ -226,8 +227,10 @@ class InfrastructureProvider(Provider):
         return adapters.host_keys or KnownHosts(settings)
 
     @provide
-    def serving_probe(self, adapters: Adapters) -> ServingVerifier:
-        return adapters.serving_probe or ServingProbe()
+    def serving_probe(self, settings: Settings, adapters: Adapters) -> ServingVerifier:
+        return adapters.serving_probe or ServingProbe(
+            token=release_probe_token(settings.state_dir)
+        )
 
     @provide
     def certificate_store(
