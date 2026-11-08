@@ -69,6 +69,7 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `origin_request_host`, `origin_sni` | `null` (no explicit override) |
 | Every `firewall` list | Empty |
 | `firewall.case_insensitive_paths` | `false` (paths match case-sensitively, as written) |
+| `rate_limit` | Empty (no limit); with a `rate`, `burst: 0`, `status: 429`, `paths: []` |
 | `visitor_headers.connecting_ip`, `visitor_headers.ip_country` | `true`, `false` |
 
 `ssl_automatic_mode: auto` allows automatic SSL policy selection; it does not
@@ -83,7 +84,8 @@ rule wins, ordered by priority and then name.
 
 ### Nested PATCH objects replace whole blocks
 
-`firewall` and `visitor_headers` are replacement objects, not recursive merges.
+`firewall`, `rate_limit` and `visitor_headers` are replacement objects, not
+recursive merges.
 For example:
 
 ```json
@@ -93,9 +95,29 @@ For example:
 This replaces every firewall list: lists not supplied become empty, and
 `case_insensitive_paths` returns to `false`. Omit the
 entire `firewall` field to preserve existing rules; send `{}` to clear them.
-Likewise, `visitor_headers: {}` restores both header switches to their defaults.
+`rate_limit: {}` removes the limit. Likewise, `visitor_headers: {}` restores both header switches to their defaults.
 Read the current block and include all values you want to retain when replacing
 it. A rule PATCH also replaces its entire `overrides` object when supplied.
+
+### Rate limits
+
+`rate_limit` caps the requests each client address makes to a site:
+
+```json
+{"rate_limit": {"rate": "10r/m", "burst": 5, "paths": ["/login"]}}
+```
+
+`rate` is one of `10r/m`, `30r/m`, `1r/s`, `2r/s`, `5r/s`, `10r/s`, `20r/s`,
+`50r/s`, `100r/s`, `200r/s`, `500r/s` or `1000r/s`. Nginx fixes a rate per
+shared-memory zone, so every site on the same rate shares one zone, keyed per
+site and client; the ladder keeps an edge's rate-limit memory bounded (5 MiB
+per rate in use, 60 MiB at most) however many sites enable it. `burst` requests
+above the rate are served at once rather than queued; beyond that a client gets
+`status` (`429` or `503`). `paths` narrows the limit to the same exact or
+`/`-terminated prefix paths as `firewall.allowed_paths`, and like them match
+regardless of case when `firewall.case_insensitive_paths` is on. Addresses in
+`firewall.allow_sources` are never limited, and the ACME challenge path is not
+rate-limited. Refused requests appear in the access log and traffic accounting.
 
 ## Records and edges
 

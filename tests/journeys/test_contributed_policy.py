@@ -36,16 +36,16 @@ class RateLimitPolicy(CapabilityPolicy):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rate_limit: int = Field(default=0, ge=0, description="Requests per second.")
+    request_quota: int = Field(default=0, ge=0, description="Requests per second.")
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
-        return {"edge_rate_limits": ("rate_limit",)} if self.rate_limit else {}
+        return {"edge_rate_limits": ("request_quota",)} if self.request_quota else {}
 
 
 def _no_limit_above_ten_thousand(policy: PolicyView) -> None:
-    if policy[RateLimitPolicy].rate_limit > 10_000:
-        raise ValueError("rate_limit above 10000 is not a limit")
+    if policy[RateLimitPolicy].request_quota > 10_000:
+        raise ValueError("request_quota above 10000 is not a limit")
 
 
 def _feature(*, provides: bool) -> Feature:
@@ -77,33 +77,33 @@ def registry() -> Iterator[FeatureRegistry]:
 
 
 def test_the_policy_stores_validates_and_requests_the_contributed_setting(registry):
-    policy = SitePolicy.from_settings({"rate_limit": 50})
+    policy = SitePolicy.from_settings({"request_quota": 50})
 
-    assert policy[RateLimitPolicy].rate_limit == 50
-    assert policy.model_dump(mode="json")["rate_limiting"] == {"rate_limit": 50}
+    assert policy[RateLimitPolicy].request_quota == 50
+    assert policy.model_dump(mode="json")["rate_limiting"] == {"request_quota": 50}
     assert SitePolicy.model_validate_json(policy.model_dump_json()) == policy
-    assert policy.capability_requirements["edge_rate_limits"] == ("rate_limit",)
+    assert policy.capability_requirements["edge_rate_limits"] == ("request_quota",)
     assert registry.missing(policy.required_capabilities) == ()
     # The contract's own constraint, and the check contributed beside it.
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
-        SitePolicy.from_settings({"rate_limit": -1})
+        SitePolicy.from_settings({"request_quota": -1})
     with pytest.raises(ValidationError, match="not a limit"):
-        SitePolicy.from_settings({"rate_limit": 20_000})
+        SitePolicy.from_settings({"request_quota": 20_000})
 
 
 def test_a_zone_patch_and_a_rule_override_accept_the_setting(registry):
-    patch = DomainPatch.model_validate({"rate_limit": 5})
-    assert patch.model_dump(exclude_unset=True) == {"rate_limit": 5}
+    patch = DomainPatch.model_validate({"request_quota": 5})
+    assert patch.model_dump(exclude_unset=True) == {"request_quota": 5}
 
     rule = Rule.model_validate(
         {
             "domain": "example.com",
             "name": "api",
             "match": "api.example.com",
-            "overrides": {"rate_limit": 5},
+            "overrides": {"request_quota": 5},
         }
     )
-    assert rule.overrides == {"rate_limit": 5}
+    assert rule.overrides == {"request_quota": 5}
     with pytest.raises(ValidationError, match="can only override zone settings"):
         Rule.model_validate(
             {"domain": "example.com", "name": "x", "overrides": {"rate_limits": 5}}
@@ -113,14 +113,14 @@ def test_a_zone_patch_and_a_rule_override_accept_the_setting(registry):
 def test_a_patch_keeps_the_contract_constraint(registry):
     """A rule's overrides are stored after only the patch has validated them."""
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
-        DomainPatch.model_validate({"rate_limit": -1})
+        DomainPatch.model_validate({"request_quota": -1})
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
         Rule.model_validate(
             {
                 "domain": "example.com",
                 "name": "api",
                 "match": "api.example.com",
-                "overrides": {"rate_limit": -1},
+                "overrides": {"request_quota": -1},
             }
         )
 
@@ -130,30 +130,30 @@ def test_the_edge_document_carries_the_setting(registry):
         name="example-com",
         server_names=("cdn.example.com",),
         origin_host="origin.example.com",
-        policy=SitePolicy.from_settings({"rate_limit": 7}),
+        policy=SitePolicy.from_settings({"request_quota": 7}),
     )
 
-    assert site_to_ansible(site)["rate_limit"] == 7
+    assert site_to_ansible(site)["request_quota"] == 7
 
 
 def test_the_http_api_serves_patches_and_publishes_the_setting(registry, settings):
     with TestClient(create_app(settings, features=registry)) as client:
         created = client.post(
             "/v3/domains",
-            json={"name": "example.com", "rate_limit": 10},
+            json={"name": "example.com", "request_quota": 10},
             headers=API_HEADERS,
         )
         assert created.status_code == 201, created.text
-        assert created.json()["rate_limit"] == 10
+        assert created.json()["request_quota"] == 10
 
         patched = client.patch(
-            "/v3/domains/example.com", json={"rate_limit": 20}, headers=API_HEADERS
+            "/v3/domains/example.com", json={"request_quota": 20}, headers=API_HEADERS
         )
         assert patched.status_code == 200, patched.text
-        assert patched.json()["rate_limit"] == 20
+        assert patched.json()["request_quota"] == 20
 
         refused = client.patch(
-            "/v3/domains/example.com", json={"rate_limit": -1}, headers=API_HEADERS
+            "/v3/domains/example.com", json={"request_quota": -1}, headers=API_HEADERS
         )
         assert refused.status_code == 422
         rule = client.post(
@@ -161,19 +161,19 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
             json={
                 "name": "api",
                 "match": "api.example.com",
-                "overrides": {"rate_limit": -1},
+                "overrides": {"request_quota": -1},
             },
             headers=API_HEADERS,
         )
         assert rule.status_code == 422, rule.text
 
-        seed_site_over_http(client, rate_limit=30)
+        seed_site_over_http(client, request_quota=30)
         hosts = client.get("/v3/hosts", headers=API_HEADERS).json()["items"]
-        assert {host["rate_limit"] for host in hosts} == {30}
+        assert {host["request_quota"] for host in hosts} == {30}
 
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
         for name in ("Domain", "DomainPatch", "CdnSite"):
-            assert schemas[name]["properties"]["rate_limit"]["minimum"] == 0, name
+            assert schemas[name]["properties"]["request_quota"]["minimum"] == 0, name
 
 
 def test_a_site_asking_for_an_absent_capability_is_refused_by_name():
@@ -181,7 +181,7 @@ def test_a_site_asking_for_an_absent_capability_is_refused_by_name():
     try:
         builtin = load_registry().features
         registry = compose_registry((*builtin, _feature(provides=False)))
-        policy = SitePolicy.from_settings({"rate_limit": 5})
+        policy = SitePolicy.from_settings({"request_quota": 5})
 
         assert registry.missing(policy.required_capabilities) == ("edge_rate_limits",)
     finally:

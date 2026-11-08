@@ -8,7 +8,7 @@ import typer
 
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.security.contract import SecurityPolicy
+from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES, SecurityPolicy
 from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.domain_editing import report, update
@@ -177,5 +177,74 @@ def domain_firewall(
         f"{zone.name} now carries {rules} firewall rule(s)."
         if rules
         else f"{zone.name} no longer filters any requests.",
+        json_output=json_output,
+    )
+
+
+@domain_commands.command("rate-limit")
+def domain_rate_limit(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
+    rate: Annotated[
+        str | None,
+        typer.Option(
+            "--rate",
+            help="Requests per client address: " + ", ".join(RATE_LIMIT_RATES) + ".",
+        ),
+    ] = None,
+    burst: Annotated[
+        int,
+        typer.Option(
+            "--burst",
+            min=0,
+            max=10000,
+            help="Requests allowed above the rate before refusing; served at once.",
+        ),
+    ] = 0,
+    status: Annotated[
+        int,
+        typer.Option("--status", help="Status refused requests get: 429 or 503."),
+    ] = 429,
+    path: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--path",
+            help=(
+                "Path the limit counts; a trailing '/' covers everything under "
+                "it. Repeatable. Without it every request counts."
+            ),
+        ),
+    ] = None,
+    off: Annotated[
+        bool, typer.Option("--off", help="Remove the limit and serve everyone.")
+    ] = False,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Cap how fast each client address may request one zone at the edge.
+
+    Requests over the rate are refused with --status (429 by default) and
+    show in the access log and traffic accounting like any other response.
+    Addresses in the zone's --allow-source firewall list are never limited.
+    The whole limit is replaced on each call:
+
+        blitzecdn domain rate-limit example.com --rate 10r/s --burst 20
+
+        blitzecdn domain rate-limit example.com --rate 10r/m --path /login
+    """
+    if off and rate is not None:
+        raise typer.BadParameter("--off cannot be combined with --rate")
+    if not off and rate is None:
+        raise typer.BadParameter("give --rate, or --off to remove the limit")
+    limit = (
+        {}
+        if off
+        else {"rate": rate, "burst": burst, "status": status, "paths": path or []}
+    )
+    zone = update(name, DomainPatch.model_validate({"rate_limit": limit}))
+    current = zone.policy[SecurityPolicy].rate_limit
+    report(
+        zone,
+        f"{zone.name} now limits each client to {current.rate}."
+        if current.rate
+        else f"{zone.name} no longer limits request rates.",
         json_output=json_output,
     )
