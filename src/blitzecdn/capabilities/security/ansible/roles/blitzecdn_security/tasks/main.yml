@@ -34,6 +34,7 @@
         | union(item.firewall.allowed_paths | default([]))
         | reject('match', '^/[^\\s;{}"''\\\\]*$')
         | list | length == 0
+      - item.firewall.case_insensitive_paths | default(false) is boolean
     fail_msg: "Site {{ item.name }} has invalid CDN request-security rules."
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:

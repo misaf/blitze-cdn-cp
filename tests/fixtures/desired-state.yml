@@ -47,6 +47,7 @@ blitzecdn_nginx_sites:
       denied_paths:
         - /admin
         - /.git
+      case_insensitive_paths: false
     compression: brotli
     cache_enabled: false
     cache_query_string_mode: include

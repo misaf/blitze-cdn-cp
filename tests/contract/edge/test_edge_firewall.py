@@ -31,6 +31,10 @@ REQUIRES_CAPABILITIES = {
     "test_an_allowed_source_is_exempt_from_method_rules": ("security",),
     "test_an_allowed_source_still_meets_the_path_rules": ("security",),
     "test_the_exemption_geo_is_declared_for_each_site_that_reads_it": ("security",),
+    "test_denied_paths_are_case_sensitive_by_default": ("security",),
+    "test_case_insensitive_denied_paths_refuse_every_spelling": ("security",),
+    "test_case_insensitive_allowed_paths_admit_every_spelling": ("security",),
+    "test_case_insensitive_paths_keep_the_acme_challenge_unfiltered": ("security",),
 }
 
 
@@ -76,10 +80,11 @@ def _verdict(rendered, *, exempt, country="", method="GET", uri="/"):
                 value = value.replace(variable, current)
             variables[name] = value
         elif match := re.fullmatch(
-            r'if \((\$\w+) (!?~) "(.*)"\) \{ return (\d+); \}', line
+            r'if \((\$\w+) (!?~)(\*?) "(.*)"\) \{ return (\d+); \}', line
         ):
-            name, operator, pattern, status = match.groups()
-            matched = re.search(pattern, variables[name]) is not None
+            name, operator, caseless, pattern, status = match.groups()
+            flags = re.IGNORECASE if caseless else 0
+            matched = re.search(pattern, variables[name], flags) is not None
             if matched == (operator == "~"):
                 return int(status)
     return 200
@@ -293,3 +298,68 @@ def test_the_exemption_geo_is_declared_for_each_site_that_reads_it():
         )
     )
     assert read == declared
+
+
+def _denied_by_location(rendered, uri):
+    """Whether a denied_paths location answers `uri`, chosen as Nginx would.
+
+    The longest prefix wins; a `^~` one ends the search, otherwise the regex
+    locations are tried in order and the first match wins. Exact locations
+    are left out: none of them is a path a rule could name.
+    """
+    prefixes = re.findall(r"^    location (\^~ )?(/\S*) \{", rendered, re.MULTILINE)
+    best = max(
+        ((modifier, path) for modifier, path in prefixes if uri.startswith(path)),
+        key=lambda candidate: len(candidate[1]),
+    )
+    if best[0]:
+        return f"location ^~ {best[1]} {{ return 403; }}" in rendered
+    for pattern in re.findall(
+        r'^    location ~\* "(.*)" \{ return 403; \}', rendered, re.MULTILINE
+    ):
+        if re.search(pattern, uri, re.IGNORECASE):
+            return True
+    return False
+
+
+def test_denied_paths_are_case_sensitive_by_default():
+    """The documented default: a path matches exactly as it is written."""
+    rendered = _render({"denied_paths": ["/admin"]})
+    assert "location ^~ /admin { return 403; }" in rendered
+    assert "location ~*" not in rendered
+    assert _denied_by_location(rendered, "/admin/login")
+    assert not _denied_by_location(rendered, "/Admin/login")
+
+
+def test_case_insensitive_denied_paths_refuse_every_spelling():
+    """An IIS or ASP.NET origin serves /ADMIN as /admin; the edge must refuse it."""
+    rendered = _render(
+        {"denied_paths": ["/admin", "/v1.0/secret"], "case_insensitive_paths": True}
+    )
+    assert 'location ~* "^/admin" { return 403; }' in rendered
+    assert 'location ~* "^/v1\\.0/secret" { return 403; }' in rendered
+    assert "location ^~ /admin" not in rendered
+    for uri in ("/admin", "/Admin", "/ADMIN/login", "/aDmIn.php", "/V1.0/SECRET"):
+        assert _denied_by_location(rendered, uri), uri
+    # Still a prefix of the path, and a '.' is still only a dot.
+    for uri in ("/", "/public/admin", "/v1x0/secret"):
+        assert not _denied_by_location(rendered, uri), uri
+
+
+def test_case_insensitive_allowed_paths_admit_every_spelling():
+    """The allowlist follows the same flag, so the two path rules agree."""
+    rendered = _render({"allowed_paths": ["/api/"], "case_insensitive_paths": True})
+    assert 'if ($uri !~* "^(/api/)") { return 403; }' in rendered
+    assert _verdict(rendered, exempt=False, uri="/API/v1") == 200
+    assert _verdict(rendered, exempt=False, uri="/private") == 403
+    strict = _render({"allowed_paths": ["/api/"]})
+    assert _verdict(strict, exempt=False, uri="/API/v1") == 403
+
+
+def test_case_insensitive_paths_keep_the_acme_challenge_unfiltered():
+    """Its `^~` prefix ends the search before any regex deny is read."""
+    rendered = _render(
+        {"denied_paths": ["/.well-known"], "case_insensitive_paths": True}
+    )
+    assert not _denied_by_location(rendered, "/.well-known/acme-challenge/token")
+    assert _denied_by_location(rendered, "/.Well-Known/security.txt")
