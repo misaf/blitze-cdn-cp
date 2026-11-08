@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from support.control_plane import (
     FakeRunner,
     build_application,
+    certificate_dir,
     seed_record,
     with_capability_settings,
 )
@@ -82,7 +83,7 @@ def _populate(
         control.dns.create_domain(Domain(name="example.com"), operator="tester")
         store.close()
     if tls:
-        directory = settings.certificate_dir / "example-com"
+        directory = certificate_dir(settings) / "example-com"
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "fullchain-aa.pem").write_text("CERTIFICATE", encoding="utf-8")
         (directory / "privkey-aa.pem").write_text("PRIVATE KEY", encoding="utf-8")
@@ -534,7 +535,7 @@ def _clean(settings) -> None:
     ):
         path.unlink(missing_ok=True)
     for directory in (
-        settings.certificate_dir,
+        certificate_dir(settings),
         settings.state_dir / "letsencrypt/config",
     ):
         if directory.exists():
@@ -560,7 +561,7 @@ def test_a_full_backup_restores_every_component(populated):
         "tls",
     ]
     assert populated.database_path.is_file()
-    assert (populated.certificate_dir / "example-com/privkey-aa.pem").is_file()
+    assert (certificate_dir(populated) / "example-com/privkey-aa.pem").is_file()
     assert (populated.project_dir / ".env").is_file()
     assert (
         populated.state_dir / "letsencrypt/config/accounts/acme-v02/private_key.json"
@@ -572,7 +573,7 @@ def test_a_database_only_backup_restores_only_the_database(populated):
         populated,
         configuration=load_registry().configuration_contributions(),
     ).create(only=(BackupComponent.DATABASE,))
-    (populated.certificate_dir / "example-com/privkey-aa.pem").write_text(
+    (certificate_dir(populated) / "example-com/privkey-aa.pem").write_text(
         "REPLACED", encoding="utf-8"
     )
     populated.database_path.unlink()
@@ -584,7 +585,7 @@ def test_a_database_only_backup_restores_only_the_database(populated):
     assert populated.database_path.is_file()
     # Untouched, because the manifest never mentioned it.
     assert (
-        populated.certificate_dir / "example-com/privkey-aa.pem"
+        certificate_dir(populated) / "example-com/privkey-aa.pem"
     ).read_text() == "REPLACED"
 
 
@@ -602,7 +603,7 @@ def test_a_tls_only_restore_does_nothing_database_shaped(populated):
     )
     service.services = _RecordingServices()
     service.restore(archive)
-    assert (populated.certificate_dir / "example-com/privkey-aa.pem").is_file()
+    assert (certificate_dir(populated) / "example-com/privkey-aa.pem").is_file()
     assert populated.database_path.read_bytes() == before
     # TLS is read by the deploy that follows, never held open, so a restore of
     # it must not take the controller offline.
@@ -620,7 +621,7 @@ def test_multiple_selected_components_restore_together(populated):
         configuration=load_registry().configuration_contributions(),
     ).restore(archive)
     assert populated.database_path.is_file()
-    assert (populated.certificate_dir / "example-com/fullchain-aa.pem").is_file()
+    assert (certificate_dir(populated) / "example-com/fullchain-aa.pem").is_file()
     assert not (populated.project_dir / ".env").exists()
 
 
@@ -899,7 +900,7 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
         populated,
         configuration=load_registry().configuration_contributions(),
     ).create(only=(BackupComponent.DATABASE, BackupComponent.TLS))
-    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key = certificate_dir(populated) / "example-com/privkey-aa.pem"
     key.write_text("STILL HERE", encoding="utf-8")
     database = populated.database_path.read_bytes()
 
@@ -930,7 +931,7 @@ def test_staged_database_failure_preserves_every_live_component(
     archive = service.create(destination=tmp_path / "recovery.tar.gz")
     live_files = [
         populated.database_path,
-        populated.certificate_dir / "example-com/privkey-aa.pem",
+        certificate_dir(populated) / "example-com/privkey-aa.pem",
         populated.state_dir / "letsencrypt/config/accounts/acme-v02/private_key.json",
         populated.project_dir / "blitzecdn.toml",
         populated.environment_path,
@@ -1015,7 +1016,7 @@ def test_later_restore_failure_recovers_all_previous_components_before_restart(
         store = Repository(target.database_path)
         store.zones.create_domain(Domain(name="newer.example"))
         store.close()
-        key = target.certificate_dir / "example-com/privkey-aa.pem"
+        key = certificate_dir(target) / "example-com/privkey-aa.pem"
         key.write_bytes(b"newer private key")
         key.chmod(0o640)
         (target.state_dir / "id_ed25519.pub").unlink()
@@ -1059,7 +1060,7 @@ def test_failed_restore_recovery_keeps_checkpoint_for_explicit_retry(
         configuration=load_registry().configuration_contributions(),
     )
     archive = service.create(destination=tmp_path / "restore.tar.gz")
-    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key = certificate_dir(populated) / "example-com/privkey-aa.pem"
     key.write_bytes(b"newer live key")
     before = _restore_state(service)
     gateway = service._components[BackupComponent.TLS]
@@ -1135,7 +1136,7 @@ def test_managed_restore_retains_previous_state_until_host_acknowledgement(
         configuration=load_registry().configuration_contributions(),
     )
     archive = service.create()
-    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key = certificate_dir(populated) / "example-com/privkey-aa.pem"
     key.write_bytes(b"previous live key")
     before = _restore_state(service)
     service.services = _RecordingServices()
@@ -1263,7 +1264,7 @@ def test_restored_tls_private_keys_are_not_world_readable(populated):
         populated,
         configuration=load_registry().configuration_contributions(),
     ).create(only=(BackupComponent.TLS,))
-    key = populated.certificate_dir / "example-com/privkey-aa.pem"
+    key = certificate_dir(populated) / "example-com/privkey-aa.pem"
     key.chmod(0o644)
     build_backup_service(
         populated,
@@ -1379,10 +1380,8 @@ def _relocated(settings, root: Path):
             "project_dir": root,
             "state_dir": root / ".state",
             "database_path": root / ".state/control-plane.db",
-            "certificate_dir": root / ".state/certificates",
             "environment_path": root / ".env",
             "generated_vars_path": root / ".state/desired-state.yml",
-            "deployment_lock_path": root / ".state/deployment.lock",
         }
     )
 
@@ -1428,7 +1427,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     finally:
         store.close()
     assert rendered.read_text(encoding="utf-8") == expected.read_text(encoding="utf-8")
-    assert (rebuilt.certificate_dir / "example-com/privkey-aa.pem").read_text() == (
+    assert (certificate_dir(rebuilt) / "example-com/privkey-aa.pem").read_text() == (
         "PRIVATE KEY"
     )
     assert (rebuilt.project_dir / ".env").read_text().startswith("BLITZE_API_KEYS=")
@@ -1450,7 +1449,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
         rebuilt,
         configuration=load_registry().configuration_contributions(),
     ).restore(archive)
-    assert (rebuilt.certificate_dir / "example-com/fullchain-aa.pem").is_file()
+    assert (certificate_dir(rebuilt) / "example-com/fullchain-aa.pem").is_file()
     assert not rebuilt.database_path.exists()
     assert not (rebuilt.project_dir / ".env").exists()
 

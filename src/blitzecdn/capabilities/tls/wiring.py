@@ -119,6 +119,7 @@ def build_certificate_service(
     workflows: WorkflowCoordinator,
     uow: UnitOfWork,
     preflight_attempts: PreflightAttempts,
+    certbot_timeout_seconds: int,
     clock: Clock = system_clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
@@ -141,13 +142,10 @@ def build_certificate_service(
         ),
         execution=CertificateExecution(
             runner=lock,
-            issuer=CertbotIssuer(settings, config.certbot),
-            preflight=CertificatePreflight(
-                settings,
-                edges,
-                ca_domain=config.ca_domain,
-                origin_probe=origin_probe,
+            issuer=CertbotIssuer(
+                settings, config.certbot, timeout_seconds=certbot_timeout_seconds
             ),
+            preflight=CertificatePreflight(config, edges, origin_probe=origin_probe),
         ),
         events=events,
         dns=dns,

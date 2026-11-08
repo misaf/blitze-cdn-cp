@@ -53,17 +53,18 @@ class ResolverCheck:
     detail: str
 
 
-def check_resolver(settings: Any) -> ResolverCheck:
+def check_resolver(
+    *, servers: tuple[str, ...], source: str, timeout_seconds: int
+) -> ResolverCheck:
     """Detect a resolver that invents answers for reserved names."""
-    servers = settings.preflight_dns_servers
     if servers:
         where = f" ({', '.join(servers)})"
-    elif getattr(settings, "preflight_dns_source", "host") == "host":
+    elif source == "host":
         where = " (host resolver)"
     else:
         where = " (host resolver, used to find authoritative nameservers)"
     resolver = dns.resolver.Resolver()
-    timeout = float(settings.preflight_dns_timeout_seconds)
+    timeout = float(timeout_seconds)
     resolver.lifetime = timeout
     resolver.timeout = timeout
     if servers:
@@ -80,6 +81,23 @@ def check_resolver(settings: Any) -> ResolverCheck:
         False,
         f"resolver{where} answered {addresses} for a reserved .invalid name, so "
         "it invents addresses instead of resolving",
+    )
+
+
+def _preflight_resolver_check() -> ResolverCheck:
+    """Probe the resolver certificate preflight is configured to ask."""
+    # Read by name: the settings are the certificates feature's, and diagnostics
+    # sees them as `blitzecdn features` does rather than through its model.
+    configured = (
+        common.service(ResolvedCapabilityEnvironment)
+        .for_feature("certificates")
+        .settings
+    )
+    servers = str(configured["BLITZE_PREFLIGHT_DNS_SERVERS"])
+    return check_resolver(
+        servers=tuple(filter(None, servers.split(","))),
+        source=str(configured["BLITZE_PREFLIGHT_DNS_SOURCE"]),
+        timeout_seconds=int(str(configured["BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS"])),
     )
 
 
@@ -238,7 +256,7 @@ def doctor(
         .publication()
         .model_dump(mode="json"),
     }
-    resolver_report = check_resolver(settings) if resolver_check else None
+    resolver_report = _preflight_resolver_check() if resolver_check else None
     if resolver_report is not None:
         report["resolver"] = {
             "passed": resolver_report.passed,

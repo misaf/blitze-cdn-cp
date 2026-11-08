@@ -37,9 +37,16 @@ class AnsibleRunner:
         settings: Settings,
         fleet: FleetRoster,
         contributions: EdgeContributions | None = None,
+        *,
+        timeout_seconds: int,
+        lock_path: Path,
     ) -> None:
         self._settings = settings
         self._fleet = fleet
+        # Both belong to the deployments capability; the composition root
+        # resolves them, so core names no capability's configuration.
+        self._timeout_seconds = timeout_seconds
+        self._lock_path = lock_path
         # Core's roles alone, and no capability roles, when nobody says
         # otherwise. The composition root resolves what is installed and passes
         # it; a test that only runs core's plays needs no registry to build a
@@ -51,7 +58,7 @@ class AnsibleRunner:
         self._executor = PlaybookExecutor(settings, contributions)
 
     def lock(self) -> DeploymentLock:
-        return DeploymentLock(self._settings.deployment_lock_path)
+        return DeploymentLock(self._lock_path)
 
     def validate(self, variables: Path) -> AnsibleRun:
         """Parse the playbook against ``variables``, changing nothing.
@@ -85,23 +92,12 @@ class AnsibleRunner:
                 playbook=self._settings.playbook_path,
                 variables=self._settings.generated_vars_path,
                 limit=limit,
-                timeout=self._settings.deployment_timeout_seconds,
+                timeout=self._timeout_seconds,
                 check=check,
                 targeted=targeted_hosts(self._fleet, limit),
                 tags=tags,
             )
         )
-
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
-        """Strip BlitzeCDN configuration and TLS material from one edge.
-
-        ``host_limit`` is required: an absent limit means every edge, which for a
-        teardown would empty the fleet.
-        """
-        with run_variables(self._settings.run_dir, "decommission", {}) as variables:
-            return self._playbook_run(
-                self._settings.decommission_playbook_path, variables, host_limit
-            )
 
     def run_playbook(
         self,
@@ -133,7 +129,7 @@ class AnsibleRunner:
                 playbook=playbook,
                 variables=variables,
                 limit=limit,
-                timeout=self._settings.deployment_timeout_seconds,
+                timeout=self._timeout_seconds,
                 targeted=targeted_hosts(self._fleet, limit),
             )
         )

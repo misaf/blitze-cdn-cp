@@ -26,6 +26,7 @@ from blitzecdn.capabilities.tls.contract import (
     CertificateVersion,
     managed_certificate_paths,
 )
+from blitzecdn.capabilities.tls.settings import certificate_dir
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
@@ -116,7 +117,7 @@ class CertificateStore:
 
         Unreadable metadata is skipped so one damaged file hides nothing else.
         """
-        root = self._settings.certificate_dir
+        root = certificate_dir(self._settings.state_dir)
         if not root.is_dir():
             return []
         found: list[CertificateInfo] = []
@@ -157,7 +158,7 @@ class CertificateStore:
         is validated before anything is deleted; symlinks and unknown files are never
         traversed.
         """
-        root = self._settings.certificate_dir
+        root = certificate_dir(self._settings.state_dir)
         if not root.is_dir() or root.is_symlink():
             return ()
         retained = set(referenced_paths)
@@ -204,7 +205,7 @@ class CertificateStore:
         atomic_write_bytes(path, payload)
 
     def _directory(self, site_name: str) -> Path:
-        return self._settings.certificate_dir / site_name
+        return certificate_dir(self._settings.state_dir) / site_name
 
     @staticmethod
     def _validate_key_pair(
@@ -261,10 +262,14 @@ class CertificateStore:
 
 
 class CertbotIssuer:
-    def __init__(self, settings: Settings, certbot: str) -> None:
+    def __init__(
+        self, settings: Settings, certbot: str, *, timeout_seconds: int
+    ) -> None:
         self._settings = settings
         # Passed in: which certbot to run is this capability's configuration.
         self._certbot = certbot
+        # The deployment timeout: issuance runs under the deployment lock.
+        self._timeout_seconds = timeout_seconds
 
     def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]:
         if any(name.startswith("*.") for name in site.server_names):
@@ -333,9 +338,7 @@ class CertbotIssuer:
         except OSError as exc:
             raise ExecutionError(f"unable to execute certbot: {exc}") from exc
         try:
-            stdout, stderr = process.communicate(
-                timeout=self._settings.deployment_timeout_seconds
-            )
+            stdout, stderr = process.communicate(timeout=self._timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             terminate_process_group(process, process.communicate)
             raise ExecutionError("certificate request timed out") from exc

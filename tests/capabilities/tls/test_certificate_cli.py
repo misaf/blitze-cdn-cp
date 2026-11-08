@@ -13,6 +13,7 @@ from support.certificates import FakePreflight, certificate_cli_control_plane
 from support.control_plane import (
     FakeRunner,
     ansible_run,
+    certificate_dir,
     host_run,
     repository_on,
     seed_site,
@@ -137,7 +138,7 @@ def test_cert_list_exits_four_when_a_certificate_has_expired(
     site_name = _seed_certificate(control, certificate_pair, days=1)
     # Backdate the stored record; installing an expired certificate is refused,
     # so the only way to reach this state is for time to have passed.
-    path = settings.certificate_dir / site_name / "metadata.json"
+    path = certificate_dir(settings) / site_name / "metadata.json"
     info = control.certificates.persistence.certificates.get(site_name)
     path.write_text(
         info.model_copy(update={"not_after": info.not_before}).model_dump_json(

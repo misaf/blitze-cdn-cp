@@ -33,6 +33,7 @@ from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentService,
 )
 from blitzecdn.capabilities.deployments.service.rollout import Rollout
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.dns.ports import ZoneStore
 from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.releases.domain import Release
@@ -121,6 +122,7 @@ class RegisteredEdgeAddresses:
 def build_deployment_service(
     *,
     settings: Settings,
+    config: DeploymentsConfig,
     deployments: DeploymentStore,
     zones: ZoneStore,
     rules: RuleRestore,
@@ -157,7 +159,7 @@ def build_deployment_service(
             generated_vars_path=settings.generated_vars_path,
             output_limit_bytes=settings.output_limit_bytes,
             history_retention=settings.history_retention,
-            deployment_retention=settings.deployment_retention,
+            deployment_retention=config.retention,
             runtime_errors=settings.validate_runtime,
         ),
         persistence=DeploymentPersistence(

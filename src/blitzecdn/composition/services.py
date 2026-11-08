@@ -24,6 +24,7 @@ from blitzecdn.capabilities.deployments.ports import (
     ServingVerifier,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.deployments.wiring import build_deployment_service
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns import DnsService
@@ -234,6 +235,7 @@ class ServiceProvider(Provider):
     def deployments(
         self,
         settings: Settings,
+        config: DeploymentsConfig,
         adapters: Adapters,
         repository: Repository,
         releases: ReleaseService,
@@ -246,6 +248,7 @@ class ServiceProvider(Provider):
     ) -> DeploymentService:
         return build_deployment_service(
             settings=settings,
+            config=config,
             deployments=repository.deployments,
             zones=repository.zones,
             rules=repository.rules,
@@ -277,7 +280,7 @@ class ServiceProvider(Provider):
     ) -> EdgeOperationsService:
         return build_edge_operations_service(
             edges=edges,
-            runner=runner,
+            fleet=runner,
             host_keys=host_keys,
             events=repository.audit_log,
             uow=repository,
@@ -385,6 +388,7 @@ class ServiceProvider(Provider):
         adapters: Adapters,
         repository: Repository,
         config: CertificateConfig,
+        deployments_config: DeploymentsConfig,
         store: CertificateStore,
         releases: ReleaseService,
         hosts: HostService,
@@ -415,6 +419,8 @@ class ServiceProvider(Provider):
             workflows=cast(CertificateWorkflows, workflows),
             uow=repository,
             preflight_attempts=repository.preflight_attempts,
+            # Issuance runs under the deployment lock, so it shares its budget.
+            certbot_timeout_seconds=deployments_config.timeout_seconds,
             clock=adapters.clock,
         )
 
@@ -470,10 +476,10 @@ class ServiceProvider(Provider):
     @provide
     def operations(
         self,
-        settings: Settings,
         repository: Repository,
         features: FeatureRegistry,
         deployments: DeploymentService,
+        deployments_config: DeploymentsConfig,
         certificates: CertificateService,
         automatic_ssl: AutomaticSslService,
         certificate_config: CertificateConfig,
@@ -488,8 +494,8 @@ class ServiceProvider(Provider):
         return features.bind_operations(
             bind_operations(
                 OperationInputs(
-                    settings=settings,
                     deployments=deployments,
+                    deployments_config=deployments_config,
                     certificates=certificates,
                     automatic_ssl=automatic_ssl,
                     certificate_config=certificate_config,

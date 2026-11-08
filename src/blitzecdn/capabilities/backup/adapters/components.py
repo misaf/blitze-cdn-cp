@@ -329,7 +329,8 @@ class TlsComponent(_DirectoryComponent):
 
     @property
     def _root(self) -> Path:
-        return self._settings.certificate_dir
+        # The tls capability's material directory, carried by its name.
+        return self._settings.state_dir / "certificates"
 
 
 class AcmeComponent(_DirectoryComponent):

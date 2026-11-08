@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_network
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, Self
+from typing import Annotated, Any, ClassVar, Self
 
 from pydantic import (
     Field,
@@ -34,17 +34,10 @@ class Settings(BaseSettings):
         {
             "database_path",
             "environment_path",
-            "deployment_timeout_seconds",
             "output_limit_bytes",
             "run_log_retention",
             "history_retention",
-            "deployment_retention",
-            "preflight_dns_timeout_seconds",
-            "preflight_dns_servers",
-            "preflight_dns_source",
             "allow_empty_sites",
-            "origin_check_timeout_seconds",
-            "drift_check_interval_seconds",
             "worker_poll_seconds",
             "api_worker_threads",
             "api_max_body_bytes",
@@ -85,27 +78,10 @@ class Settings(BaseSettings):
     inventory_path: Path
     playbook_path: Path
     generated_vars_path: Path
-    deployment_lock_path: Path
-    certificate_dir: Path
     #: Environment/secrets file. Installed controllers keep this under /etc;
     #: checkouts use the project-local `.env`. Relative to `project_dir`.
     environment_path: Path = Field(default=Path(".env"), validate_default=True)
-    #: Platform teardown play. Capability-specific plays resolve from their
-    #: owning modules; this setting belongs to the platform edge lifecycle.
-    decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
-    deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
-    #: Budget for one CAA lookup in certificate preflight; past it, the check
-    #: becomes advisory rather than blocking.
-    preflight_dns_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    #: Recursive resolvers preflight asks instead of each zone's authoritative
-    #: nameservers. Empty follows `preflight_dns_source`.
-    preflight_dns_servers: Annotated[tuple[str, ...], NoDecode] = ()
-    #: Where preflight looks names up when no servers are configured.
-    #: `authoritative` asks each zone's own nameservers, as the CA does;
-    #: `host` uses the controller's `getaddrinfo`, with its caches,
-    #: `/etc/hosts` and any split-horizon view, so it is an explicit opt-in.
-    preflight_dns_source: Literal["authoritative", "host"] = "authoritative"
     #: `BLITZE_*` variables core does not consume, staged for features to claim
     #: through `ConfigurationContribution`. `SecretStr`, because core cannot
     #: tell which are credentials. Core's own names, the API keys included, are
@@ -116,9 +92,6 @@ class Settings(BaseSettings):
     #: committed file: a `CapabilitySetting` reads both, an `EnvironmentKey`
     #: only the environment.
     capability_config_file: dict[str, str] = Field(default_factory=dict)
-    #: The controller's own advisory origin-probe budget in certificate
-    #: preflight; the fleet check's is the ``origins`` role's default.
-    origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     #: How much of a run log to quote back in an error; the log is never cut.
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
     #: How many run logs to keep, newest first; every invocation writes one.
@@ -127,15 +100,9 @@ class Settings(BaseSettings):
     #: and the baseline number of releases; referenced releases and unfinished
     #: deployments always survive.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
-    #: How many finished real deployments to keep, newest first, plus the newest
-    #: successful full-fleet deployment of as many recently converged releases,
-    #: which rollback chooses from. Pruned deployments free their releases and
-    #: rendered configuration bundles for release retention.
-    deployment_retention: int = Field(default=100, ge=10, le=100_000)
     #: How many audit events to keep. A disk bound, not a retention policy: the
     #: default holds years, and a longer trail belongs off the box.
     audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
-    drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     #: How often an idle worker polls for durable work: one indexed SELECT,
     #: rather than a broker for one convergence at a time.
     worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
@@ -170,31 +137,6 @@ class Settings(BaseSettings):
         data["api_keys"] = keys
         return data
 
-    @field_validator("preflight_dns_servers", mode="before")
-    @classmethod
-    def validate_dns_servers(cls, value: object) -> tuple[str, ...]:
-        """Addresses only: a hostname would need the resolver we distrust."""
-        servers = []
-        for part in _split(value, "preflight_dns_servers"):
-            try:
-                ip_address(part)
-            except ValueError as exc:
-                raise ValueError(
-                    f"preflight DNS server {part!r} is not an IP address"
-                ) from exc
-            servers.append(part)
-        return tuple(servers)
-
-    @model_validator(mode="after")
-    def check_preflight_dns(self) -> Self:
-        """Servers and the host resolver are two answers to one question."""
-        if self.preflight_dns_servers and self.preflight_dns_source == "host":
-            raise ValueError(
-                "preflight_dns_servers and preflight_dns_source = 'host' "
-                "contradict each other; set one"
-            )
-        return self
-
     @field_validator("allowed_ips", mode="before")
     @classmethod
     def validate_allowed_ips(cls, value: object) -> tuple[str, ...]:
@@ -212,9 +154,6 @@ class Settings(BaseSettings):
         "inventory_path",
         "playbook_path",
         "generated_vars_path",
-        "deployment_lock_path",
-        "certificate_dir",
-        "decommission_playbook_path",
         mode="before",
     )
     @classmethod
@@ -276,17 +215,6 @@ class Settings(BaseSettings):
                 "not the Ansible source directory"
             )
         return errors
-
-
-def _split(value: object, name: str) -> list[str]:
-    """A list, or the comma-separated string an environment variable holds."""
-    if isinstance(value, str):
-        parts = value.split(",")
-    elif isinstance(value, (list, tuple)):
-        parts = [str(part) for part in value]
-    else:
-        raise ValueError(f"{name} must be a list or comma-separated")
-    return [part.strip() for part in parts if part.strip()]
 
 
 #: A generated key (`token_urlsafe`, hex) uses far more; fewer is a typed or

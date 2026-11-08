@@ -14,6 +14,7 @@ from support.control_plane import (
     with_capability_settings,
 )
 
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.traffic.domain import EdgeCollection
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
@@ -30,7 +31,7 @@ def test_worker_registers_the_job_and_disabled_configuration_removes_it(settings
         if s.name == "collect-traffic"
     )
     assert schedule.interval_seconds == 60
-    assert schedule.lease_seconds >= 3 * settings.deployment_timeout_seconds + 60
+    assert schedule.lease_seconds >= 3 * DeploymentsConfig().timeout_seconds + 60
     configured = with_capability_settings(
         settings, traffic_collection_interval_seconds=0
     )

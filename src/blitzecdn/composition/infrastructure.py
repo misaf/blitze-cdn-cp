@@ -19,10 +19,16 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     ServingVerifier,
 )
+from blitzecdn.capabilities.deployments.settings import (
+    CONFIGURATION as DEPLOYMENTS_CONFIGURATION,
+)
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
+from blitzecdn.capabilities.deployments.settings import (
+    lock_path as deployment_lock_path,
+)
 from blitzecdn.capabilities.edges.adapters.host_keys import KnownHosts
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import HostKeyStore as HostKeyStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
@@ -33,6 +39,10 @@ from blitzecdn.capabilities.jobs.wiring import (
     build_job_queue,
     build_job_scheduler,
 )
+from blitzecdn.capabilities.origins.settings import (
+    CONFIGURATION as ORIGINS_CONFIGURATION,
+)
+from blitzecdn.capabilities.origins.settings import OriginsConfig
 from blitzecdn.capabilities.security.geoip.ports import DatabaseStore
 from blitzecdn.capabilities.security.geoip.wiring import build_geoip_store
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
@@ -59,7 +69,7 @@ from blitzecdn.core.ports.operations import AuditTrail, FleetSettings, PlaybookR
 __all__ = ["Adapters", "FleetRunner", "InfrastructureProvider", "QueueReadiness"]
 
 
-class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
+class FleetRunner(DeploymentRunner, PlaybookRunner, Protocol):
     """Every runner port the one Ansible adapter satisfies."""
 
 
@@ -162,6 +172,22 @@ class InfrastructureProvider(Provider):
         )
 
     @provide
+    def deployments_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> DeploymentsConfig:
+        return capability_config.for_feature(
+            DEPLOYMENTS_CONFIGURATION.feature
+        ).as_model(DeploymentsConfig)
+
+    @provide
+    def origins_config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> OriginsConfig:
+        return capability_config.for_feature(ORIGINS_CONFIGURATION.feature).as_model(
+            OriginsConfig
+        )
+
+    @provide
     def edges(self, repository: Repository, adapters: Adapters) -> EdgeStorePort:
         return adapters.edges or repository.edges
 
@@ -172,10 +198,15 @@ class InfrastructureProvider(Provider):
         adapters: Adapters,
         edges: EdgeStorePort,
         edge_contributions: EdgeContributions,
+        deployments_config: DeploymentsConfig,
     ) -> FleetRunner:
         # The fleet as core reads it, so `core.ansible` imports no capability.
         return adapters.runner or AnsibleRunner(
-            settings, EdgeRoster(edges), edge_contributions
+            settings,
+            EdgeRoster(edges),
+            edge_contributions,
+            timeout_seconds=deployments_config.timeout_seconds,
+            lock_path=deployment_lock_path(settings.state_dir),
         )
 
     @provide
@@ -183,8 +214,12 @@ class InfrastructureProvider(Provider):
         return runner
 
     @provide
-    def origin_probe(self, settings: Settings, adapters: Adapters) -> OriginProbePort:
-        return adapters.origin_probe or OriginProbe(settings)
+    def origin_probe(
+        self, adapters: Adapters, origins_config: OriginsConfig
+    ) -> OriginProbePort:
+        return adapters.origin_probe or OriginProbe(
+            timeout_seconds=origins_config.check_timeout_seconds
+        )
 
     @provide
     def host_keys(self, settings: Settings, adapters: Adapters) -> HostKeyStorePort:

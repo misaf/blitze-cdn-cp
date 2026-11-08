@@ -82,5 +82,9 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
 
     So attaching or detaching it leaves every site's desired state identical.
     """
-    # Configuration is its own contribution, and this capability makes none.
-    assert FEATURE.configuration == ()
+    # One controller-side setting, the probe timeout, and no secret.
+    (configuration,) = FEATURE.configuration
+    assert configuration.environment_keys == ()
+    assert [setting.name for setting in configuration.settings] == [
+        "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS"
+    ]

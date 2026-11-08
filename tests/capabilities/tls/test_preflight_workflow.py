@@ -12,6 +12,7 @@ from support.control_plane import (
     FakeRunner,
     ansible_run,
     build_application,
+    fleet_runner,
     host_run,
     seed_site,
 )
@@ -187,12 +188,11 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     another's document (a two-URL purge finding `purge_all: true`). Asserted on
     `run_playbook` itself, with the same play and different variables.
     """
-    from blitzecdn.core import ansible
 
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     playbook = settings.state_dir / "operation.yml"
     playbook.write_text("- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8")
-    runner = ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore()))
+    runner = fleet_runner(settings, EdgeRoster(FakeEdgeStore()))
     seen: list[dict[str, object]] = []
 
     def capture(request):

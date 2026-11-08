@@ -9,7 +9,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
-from support.control_plane import private_key_pem
+from support.control_plane import certificate_dir, private_key_pem
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.tls.certificates.adapters import (
@@ -235,7 +235,7 @@ def test_certbot_issuer_builds_http01_command(
         return FakeProcess()
 
     monkeypatch.setattr(certificates_module.subprocess, "Popen", fake_popen)
-    result = CertbotIssuer(settings, str(executable)).issue(
+    result = CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
         site_from_settings(site_payload), "owner@example.com"
     )
     assert result == (certificate, key)
@@ -253,7 +253,9 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
     executable.touch()
     wildcard = site_from_settings({**site_payload, "server_names": ["*.example.com"]})
     with pytest.raises(ConfigurationError, match="wildcard"):
-        CertbotIssuer(settings, str(executable)).issue(wildcard, "owner@example.com")
+        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
+            wildcard, "owner@example.com"
+        )
 
     class FailedProcess:
         pid = 123
@@ -268,7 +270,7 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
         lambda *args, **kwargs: FailedProcess(),
     )
     with pytest.raises(ExecutionError, match="failed"):
-        CertbotIssuer(settings, str(executable)).issue(
+        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
             site_from_settings(site_payload), "owner@example.com"
         )
 
@@ -303,7 +305,7 @@ def test_certbot_timeout_terminates_process_group(settings, site_payload, monkey
     )
 
     with pytest.raises(ExecutionError, match="timed out"):
-        CertbotIssuer(settings, str(executable)).issue(
+        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
             site_from_settings(site_payload), "owner@example.com"
         )
 
@@ -358,9 +360,9 @@ def test_a_damaged_certificate_directory_does_not_hide_the_healthy_ones(
         days=40,
         source=CertificateSource.ACME,
     )
-    broken = settings.certificate_dir / "broken"
+    broken = certificate_dir(settings) / "broken"
     broken.mkdir(parents=True)
     (broken / "metadata.json").write_text("{not json", encoding="utf-8")
-    (settings.certificate_dir / "empty").mkdir()
+    (certificate_dir(settings) / "empty").mkdir()
 
     assert [info.site for info in store.list_all()] == ["good"]

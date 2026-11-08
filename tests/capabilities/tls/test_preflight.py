@@ -28,6 +28,7 @@ from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
 )
 from blitzecdn.capabilities.tls.certificates.domain import PreflightSeverity
 from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.core.domain.site import CdnSite
 
 
@@ -50,6 +51,11 @@ class FakeOriginProbe:
 
 
 @pytest.fixture
+def config() -> CertificateConfig:
+    return CertificateConfig()
+
+
+@pytest.fixture
 def site() -> CdnSite:
     return CdnSite(
         name="example-com",
@@ -59,7 +65,7 @@ def site() -> CdnSite:
 
 
 @pytest.fixture
-def build(settings, monkeypatch):
+def build(config, monkeypatch):
     """A preflight whose resolver and CAA lookup answer from a dict."""
 
     def make(
@@ -86,9 +92,8 @@ def build(settings, monkeypatch):
         monkeypatch.setattr(CertificatePreflight, "_closest_caa", closest_caa)
 
         return CertificatePreflight(
-            settings,
+            config.model_copy(update={"ca_domain": ca_domain}),
             FakeEdgeStore(edges),
-            ca_domain=ca_domain,
             origin_probe=FakeOriginProbe(ok=origin_ok),
         )
 
@@ -251,7 +256,7 @@ def test_a_fleet_with_no_usable_edge_blocks_rather_than_passing(build, site):
     assert "no edge address" in _check(report, "dns").detail
 
 
-def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
+def test_an_unreadable_fleet_does_not_raise(config, monkeypatch, site):
     class ExplodingEdgeStore:
         def list_edges(self):
             raise OSError("the edges table is unreadable")
@@ -265,9 +270,8 @@ def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
         lambda self, name: None,
     )
     report = CertificatePreflight(
-        settings,
+        config,
         ExplodingEdgeStore(),
-        ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),
     ).check(site, deployed=True)
     assert not _check(report, "dns").passed
@@ -406,7 +410,7 @@ def test_summary_lists_only_blocking_failures(build, site):
     assert {check.name for check in report.advisories} == {"ttl"}
 
 
-def test_a_dns_block_skips_caa_and_the_origin_probe(settings, monkeypatch, site):
+def test_a_dns_block_skips_caa_and_the_origin_probe(config, monkeypatch, site):
     """An unpointed site must not cost a CAA walk or a connection to its origin."""
 
     class RefusingOriginProbe(FakeOriginProbe):
@@ -428,9 +432,8 @@ def test_a_dns_block_skips_caa_and_the_origin_probe(settings, monkeypatch, site)
         CertificatePreflight, "_edge_addresses", lambda self: {"203.0.113.5"}
     )
     report = CertificatePreflight(
-        settings,
+        config,
         FakeEdgeStore(),
-        ca_domain="letsencrypt.org",
         origin_probe=RefusingOriginProbe(),
     ).check(site, deployed=False, record_ttl=300)
 
@@ -477,12 +480,12 @@ class _FakeCaaRecord:
         self.value = value
 
 
-def _host(settings):
+def _host(config):
     """Recursive lookups through the (patched) host resolver."""
-    return settings.model_copy(update={"preflight_dns_source": "host"})
+    return config.model_copy(update={"preflight_dns_source": "host"})
 
 
-def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypatch):
+def test_closest_caa_stops_at_the_first_ancestor_that_answers(config, monkeypatch):
     """RFC 8659: the nearest RRset decides; the parent's is not merged in."""
     asked: list[str] = []
 
@@ -499,15 +502,15 @@ def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypa
             raise AssertionError("the walk should have stopped at example.com")
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
-    found = CertificatePreflight(
-        _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
-    )._closest_caa("cdn.example.com")
+    found = CertificatePreflight(_host(config), FakeEdgeStore())._closest_caa(
+        "cdn.example.com"
+    )
 
     assert found == ("example.com", [("issue", "letsencrypt.org")])
     assert asked == ["cdn.example.com", "example.com"]
 
 
-def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkeypatch):
+def test_closest_caa_returns_none_when_no_ancestor_has_a_record(config, monkeypatch):
     class FakeResolver:
         lifetime = 0.0
         timeout = 0.0
@@ -517,9 +520,9 @@ def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkey
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
     assert (
-        CertificatePreflight(
-            _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
-        )._closest_caa("cdn.example.com")
+        CertificatePreflight(_host(config), FakeEdgeStore())._closest_caa(
+            "cdn.example.com"
+        )
         is None
     )
 
@@ -559,7 +562,7 @@ def recording_resolver(monkeypatch):
 
 
 def test_configured_servers_are_used_instead_of_the_host_resolver(
-    settings, monkeypatch, recording_resolver
+    config, monkeypatch, recording_resolver
 ):
     """The controller's own view of DNS must not decide what the CA will see."""
 
@@ -567,40 +570,31 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
         raise AssertionError("getaddrinfo must not be used when servers are set")
 
     monkeypatch.setattr(preflight_module.socket, "getaddrinfo", explode)
-    configured = settings.model_copy(
-        update={"preflight_dns_servers": ("1.1.1.1", "1.0.0.1")}
-    )
+    configured = config.model_copy(update={"preflight_dns_servers": "1.1.1.1,1.0.0.1"})
     addresses = preflight_module._resolve(
         "www.example.com",
-        CertificatePreflight(
-            configured, FakeEdgeStore(), ca_domain="letsencrypt.org"
-        )._address_resolver(),
+        CertificatePreflight(configured, FakeEdgeStore())._address_resolver(),
     )
     assert addresses == {"203.0.113.9"}
     assert recording_resolver.instances[-1].nameservers == ["1.1.1.1", "1.0.0.1"]
 
 
-def test_by_default_addresses_come_from_authoritative_nameservers(settings):
+def test_by_default_addresses_come_from_authoritative_nameservers(config):
     """The controller's cache and split-horizon view must not stand in for the CA's."""
-    preflight = CertificatePreflight(
-        settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
-    )
+    preflight = CertificatePreflight(config, FakeEdgeStore())
     assert isinstance(preflight._address_resolver(), AuthoritativeResolver)
     assert isinstance(preflight._resolver(), AuthoritativeResolver)
 
 
-def test_the_host_resolver_is_an_explicit_opt_in(settings):
+def test_the_host_resolver_is_an_explicit_opt_in(config):
     """``host`` keeps ``getaddrinfo``, so /etc/hosts applies when asked for."""
     assert (
-        CertificatePreflight(
-            _host(settings), FakeEdgeStore(), ca_domain="letsencrypt.org"
-        )._address_resolver()
-        is None
+        CertificatePreflight(_host(config), FakeEdgeStore())._address_resolver() is None
     )
 
 
 def test_the_dns_check_names_the_authoritative_server_that_answered(
-    settings, monkeypatch
+    config, monkeypatch
 ):
     def answered(self, name):
         return "ns1.example.net (192.0.2.53)"
@@ -612,9 +606,8 @@ def test_the_dns_check_names_the_authoritative_server_that_answered(
     monkeypatch.setattr(CertificatePreflight, "_closest_caa", lambda self, name: None)
 
     report = CertificatePreflight(
-        settings,
+        config,
         FakeEdgeStore(),
-        ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),
     ).check(
         CdnSite(
@@ -631,7 +624,7 @@ def test_the_dns_check_names_the_authoritative_server_that_answered(
     )
 
 
-def test_the_dns_check_says_when_the_host_resolver_answered(settings, monkeypatch):
+def test_the_dns_check_says_when_the_host_resolver_answered(config, monkeypatch):
     monkeypatch.setattr(
         preflight_module,
         "_resolve",
@@ -640,9 +633,8 @@ def test_the_dns_check_says_when_the_host_resolver_answered(settings, monkeypatc
         ),
     )
     report = CertificatePreflight(
-        _host(settings),
+        _host(config),
         FakeEdgeStore(),
-        ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),
     ).check(
         CdnSite(
@@ -656,8 +648,8 @@ def test_the_dns_check_says_when_the_host_resolver_answered(settings, monkeypatc
     assert "via the host resolver" in detail
 
 
-def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build):
-    configured = settings.model_copy(update={"preflight_dns_servers": ("9.9.9.9",)})
+def test_the_dns_check_names_the_resolver_it_asked(config, monkeypatch, build):
+    configured = config.model_copy(update={"preflight_dns_servers": "9.9.9.9"})
     monkeypatch.setattr(
         preflight_module,
         "_resolve",
@@ -668,7 +660,6 @@ def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build)
     report = CertificatePreflight(
         configured,
         FakeEdgeStore(),
-        ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),
     ).check(
         CdnSite(
@@ -685,14 +676,14 @@ def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build)
 # --- resolver honesty probe --------------------------------------------------
 
 
-def test_a_resolver_that_rejects_reserved_names_passes(settings, recording_resolver):
-    check = preflight_module.check_resolver(settings)
+def test_a_resolver_that_rejects_reserved_names_passes(config, recording_resolver):
+    check = preflight_module.check_resolver(config)
     assert check.passed
     probed = recording_resolver.instances[-1].asked[0][0]
     assert probed.endswith(".invalid"), "probe must use a name that cannot be delegated"
 
 
-def test_a_resolver_that_answers_a_reserved_name_blocks(settings, monkeypatch):
+def test_a_resolver_that_answers_a_reserved_name_blocks(config, monkeypatch):
     """The exact pathology of a transparent proxy claiming every hostname."""
 
     class LyingResolver:
@@ -705,14 +696,14 @@ def test_a_resolver_that_answers_a_reserved_name_blocks(settings, monkeypatch):
             return [_Address("172.16.200.20")]
 
     monkeypatch.setattr(dns.resolver, "Resolver", LyingResolver)
-    check = preflight_module.check_resolver(settings)
+    check = preflight_module.check_resolver(config)
     assert not check.passed
     assert check.severity is PreflightSeverity.BLOCKING
     assert "172.16.200.20" in check.detail
     assert "invents addresses" in check.detail
 
 
-def test_an_unreachable_resolver_is_not_reported_as_dishonest(settings, monkeypatch):
+def test_an_unreachable_resolver_is_not_reported_as_dishonest(config, monkeypatch):
     class DeadResolver:
         def __init__(self) -> None:
             self.nameservers: list[str] = []
@@ -723,4 +714,4 @@ def test_an_unreachable_resolver_is_not_reported_as_dishonest(settings, monkeypa
             raise dns.exception.Timeout
 
     monkeypatch.setattr(dns.resolver, "Resolver", DeadResolver)
-    assert preflight_module.check_resolver(settings).passed
+    assert preflight_module.check_resolver(config).passed
