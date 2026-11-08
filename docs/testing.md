@@ -36,10 +36,10 @@ reports that prerequisite as missing. It never reports it as ok.
 | On the laptop | In GitHub Actions |
 | --- | --- |
 | `just test-one FILE`, `just test-fast` | `just test` with coverage and the packaging lifecycle (quality job) |
-| `just lint`, `just types`, `just shell-lint` | The same, in the quality job, on Python 3.14 |
+| `just lint`, `just types`, `just shell-lint` | The same, in the quality job, on Python 3.15.2 |
 | `just ansible-check` (syntax and lint, against project-managed Ansible) | The same, plus Ansible *executing* roles on disposable hosts (install, HTTP/3 jobs) |
 | `just check-quick`, the inner-loop gate | `just check`, the full gate, including `docker-lint`, `audit` and `build` |
-| `just serve` for local API development | The test suite on Python 3.12 and 3.13 (compatibility jobs) |
+| `just serve` for local API development | The edge-script contract under Python 3.12, the edge Python floor (quality job; skipped locally when uv has no 3.12) |
 | Not on a laptop without Docker | `tests/container-install.sh` (install jobs, one per suite) and `tests/http3-edge-integration.sh` (HTTP/3 job) |
 
 The CI workflow calls the recipes and does not repeat their commands, so a gate
@@ -82,7 +82,6 @@ The run keeps these artifacts for 14 days:
 | Artifact | Contents |
 | --- | --- |
 | `quality-reports` | `coverage.xml` and a JUnit report of the full suite |
-| `python-3.12-reports`, `python-3.13-reports` | A JUnit report per interpreter |
 | `install-diagnostics-N` | Failure only, one per install suite: the install host's journal, failed units, listeners, the BlitzeCDN file tree, and the state and logs of every container |
 | `http3-integration-diagnostics` | Failure only: the same for the edge host, plus the origin container |
 

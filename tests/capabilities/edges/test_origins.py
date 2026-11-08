@@ -82,7 +82,7 @@ def _listener(*, tls_context: ssl.SSLContext | None = None):
                         pass
                 else:
                     connection.close()
-            except (OSError, ssl.SSLError):
+            except OSError, ssl.SSLError:
                 connection.close()
 
     thread = threading.Thread(target=serve, daemon=True)

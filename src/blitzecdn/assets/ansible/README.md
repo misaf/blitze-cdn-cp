@@ -7,7 +7,7 @@ that has no checkout — the same way every capability carries its own Ansible.
 There is no host inventory file to edit: the inventory plugin
 reads registered edges and fleet configuration from the control-plane database.
 
-Prepare a controller checkout from the project root with Python 3.12+, `uv` and
+Prepare a controller checkout from the project root with Python 3.15.2+, `uv` and
 `just`, then register and deploy an edge:
 
 ```bash
@@ -26,6 +26,14 @@ uv run blitzecdn deploy
 
 Use a non-root SSH user and at least one trusted management CIDR. Managed edges
 must be fresh Ubuntu 26.04 LTS hosts.
+
+**Edge Python floor: 3.12.** The control plane itself needs Python 3.15.2, but
+it only ever runs inside the control-plane image. A few standalone
+standard-library scripts under `roles/*/files/` (for example
+`configuration_release.py` and the traffic capability's `collect_traffic.py`)
+are copied to the edge and run with the edge's own `python3`, so they stay on
+Python 3.12 syntax and standard-library APIs. Ruff lints them with a `py312`
+target, and `tests/contract/test_edge_python.py` runs them under Python 3.12.
 
 On an installed controller, `edge add` scans the edge's SSH host key and trusts
 it only after you confirm the fingerprint, or when it matches
