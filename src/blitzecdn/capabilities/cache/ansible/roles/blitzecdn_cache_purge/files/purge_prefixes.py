@@ -29,7 +29,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-#: Enough for nginx's binary header plus the longest key a purge can name.
+#: Enough for nginx's binary header plus the longest host and prefix a purge
+#: can name. A key may run past it (nginx caches request targets up to its
+#: header buffer size), but only its start has to be read to match a prefix.
 HEAD_BYTES = 8192
 KEY_MARKER = b"\nKEY: "
 #: The scheme, listener port and method that lead every key.
@@ -40,7 +42,8 @@ CACHE_FILE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def cache_key(path: Path) -> bytes | None:
-    """The key a cache file was stored under, or None if it cannot be read."""
+    """The key a cache file was stored under, or its start if it is longer than
+    the read, or None if the file cannot be read."""
     try:
         with path.open("rb") as handle:
             head = handle.read(HEAD_BYTES)
@@ -51,9 +54,8 @@ def cache_key(path: Path) -> bytes | None:
         return None
     start += len(KEY_MARKER)
     end = head.find(b"\n", start)
-    if end < 0:
-        return None
-    return head[start:end]
+    # No newline: the key runs past the read. Its start is all a prefix needs.
+    return head[start:] if end < 0 else head[start:end]
 
 
 def matches(key: bytes, targets: tuple[bytes, ...]) -> bool:
