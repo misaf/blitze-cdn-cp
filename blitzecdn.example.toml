@@ -127,13 +127,22 @@ allow_empty_sites = false
 # | Certificate Preflight DNS
 # |--------------------------------------------------------------------------
 #
-# These resolvers are used during certificate preflight checks for edge DNS
-# records and CAA authorization. Leave the list empty to use the host resolver.
+# Certificate preflight checks that hostnames point to CDN edges and that CAA
+# permits issuance. By default it asks each zone's authoritative nameservers,
+# as the certificate authority does, so a cached or split-horizon answer on
+# this host cannot pass or fail a check the CA would decide differently.
 #
 
-# DNS resolver IPs used to verify that hostnames point to CDN edges and that CAA
-# permits issuance. An empty list uses the host resolver. Use public resolver IPs
-# when split-horizon DNS or internal forwarding gives a different view.
+# Where lookups go when preflight_dns_servers is empty:
+#   "authoritative"  each zone's own nameservers (the host resolver only finds
+#                    them). Default.
+#   "host"           this host's getaddrinfo, including /etc/hosts, caches and
+#                    any split-horizon view. Opt in only when the CA sees the
+#                    same view, for example a private ACME server.
+preflight_dns_source = "authoritative"
+
+# Recursive resolver IPs to ask instead, such as public resolvers when outbound
+# DNS to arbitrary nameservers is blocked. Cannot be combined with "host".
 preflight_dns_servers = []
 
 # |--------------------------------------------------------------------------
