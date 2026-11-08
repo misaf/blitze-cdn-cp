@@ -13,10 +13,12 @@ run-name: >-
   # branch that has no pull request yet (docs/testing.md).
   workflow_dispatch:
   push:
-    # Every release line, and a line missing from here is not obviously
-    # missing: pull requests into it still run, because the trigger above is
-    # unfiltered, so the gap shows only as a direct push that nothing checked.
-    branches: [master, 2.x, 3.x, 4.x, 5.x, 6.x]
+    # Every release line still receiving fixes, and a line missing from here
+    # is not obviously missing: pull requests into it still run, because the
+    # trigger above is unfiltered, so the gap shows only as a direct push that
+    # nothing checked. Add a new major in the change that opens its branch;
+    # retired lines (1.x-5.x) are left out and come back only if revived.
+    branches: [master, 6.x]
     tags: ['v*.*.*']
 
 permissions:

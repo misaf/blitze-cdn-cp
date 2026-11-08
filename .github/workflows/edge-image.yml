@@ -4,9 +4,8 @@
 # Separate from CI because it produces an artefact rather than a verdict, and
 # because the fleet consumes it by digest: a build that ran is not a build any
 # edge is using until somebody sets blitzecdn_edge_image_tag in the control
-# plane and deploys. That separation is deliberate — a merge to 2.x must not be
-# able to upgrade Nginx on a production fleet, and a merge to 3.x must not
-# either.
+# plane and deploys. That separation is deliberate — a merge to a release
+# branch must not be able to upgrade Nginx on a production fleet.
 #
 # On a pull request, and on a push to master, the image is built and probed
 # but never pushed, so the ABI invariant is checked on every change to the edge
@@ -33,7 +32,8 @@ name: Edge image
     # they ship with — so a new major must be added here in the same change
     # that opens its branch, not on the first deploy that cannot pull.
     # master is here to be built and checked, not published (see `publish`).
-    branches: [master, 3.x, 4.x, 5.x, 6.x]
+    # Retired lines (1.x-5.x) are left out and come back only if revived.
+    branches: [master, 6.x]
     paths:
       - src/blitzecdn/assets/docker/edge/**
       - src/blitzecdn/capabilities/**
