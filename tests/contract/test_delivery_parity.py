@@ -101,6 +101,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- Traffic -----------------------------------------------------------
     ("blitzecdn", "traffic usage", "GET /v3/traffic/usage", ""),
     ("blitzecdn", "traffic status", "GET /v3/traffic/status/{edge}", ""),
+    ("blitzecdn", "analytics site", "GET /v3/analytics/sites/{site}", ""),
+    ("blitzecdn", "analytics paths", "GET /v3/analytics/sites/{site}/paths", ""),
     # -- Durable work ------------------------------------------------------
     (
         "blitzecdn",

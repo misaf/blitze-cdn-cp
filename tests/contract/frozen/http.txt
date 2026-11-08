@@ -4,6 +4,8 @@ blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
 blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
+blitzecdn	route	GET /v3/analytics/sites/{site}
+blitzecdn	route	GET /v3/analytics/sites/{site}/paths
 blitzecdn	route	GET /v3/audit-events
 blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
@@ -334,6 +336,14 @@ blitzecdn	schema	Page_Rule_.items	array[Rule] required
 blitzecdn	schema	Page_Rule_.limit	integer required
 blitzecdn	schema	Page_Rule_.offset	integer required
 blitzecdn	schema	Page_Rule_.total	integer required
+blitzecdn	schema	Page_SiteBucket_.items	array[SiteBucket] required
+blitzecdn	schema	Page_SiteBucket_.limit	integer required
+blitzecdn	schema	Page_SiteBucket_.offset	integer required
+blitzecdn	schema	Page_SiteBucket_.total	integer required
+blitzecdn	schema	Page_SitePath_.items	array[SitePath] required
+blitzecdn	schema	Page_SitePath_.limit	integer required
+blitzecdn	schema	Page_SitePath_.offset	integer required
+blitzecdn	schema	Page_SitePath_.total	integer required
 blitzecdn	schema	Page_TrafficUsage_.items	array[TrafficUsage] required
 blitzecdn	schema	Page_TrafficUsage_.limit	integer required
 blitzecdn	schema	Page_TrafficUsage_.offset	integer required
@@ -420,6 +430,16 @@ blitzecdn	schema	SettingSource.origin	SettingOrigin required
 blitzecdn	schema	SettingSource.rule	string|null optional
 blitzecdn	schema	SettingSource.setting	string required
 blitzecdn	schema	SettingSource.value	any required
+blitzecdn	schema	SiteBucket.body_bytes_sent	integer required
+blitzecdn	schema	SiteBucket.bytes_sent	integer required
+blitzecdn	schema	SiteBucket.cache	object required
+blitzecdn	schema	SiteBucket.cacheable_requests	integer required
+blitzecdn	schema	SiteBucket.error_ratio	number|null required
+blitzecdn	schema	SiteBucket.hit_ratio	number|null required
+blitzecdn	schema	SiteBucket.hits	integer required
+blitzecdn	schema	SiteBucket.requests	integer required
+blitzecdn	schema	SiteBucket.start	string required
+blitzecdn	schema	SiteBucket.status	object required
 blitzecdn	schema	SiteFirewall.allow_sources	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_countries	array[string] optional
 blitzecdn	schema	SiteFirewall.allowed_methods	array[string] optional
@@ -428,6 +448,9 @@ blitzecdn	schema	SiteFirewall.denied_countries	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_methods	array[string] optional
 blitzecdn	schema	SiteFirewall.denied_paths	array[string] optional
 blitzecdn	schema	SiteFirewall.deny_sources	array[string] optional
+blitzecdn	schema	SitePath.bytes_sent	integer required
+blitzecdn	schema	SitePath.path	string required
+blitzecdn	schema	SitePath.requests	integer required
 blitzecdn	schema	SiteVisitorHeaders.connecting_ip	boolean optional
 blitzecdn	schema	SiteVisitorHeaders.ip_country	boolean optional
 blitzecdn	schema	SslAutomaticReconciliation.deployment	Deployment|null optional
@@ -446,6 +469,7 @@ blitzecdn	schema	TrafficUsage.edge	string required
 blitzecdn	schema	TrafficUsage.hostname	string required
 blitzecdn	schema	TrafficUsage.hour	string required
 blitzecdn	schema	TrafficUsage.requests	integer required
+blitzecdn	schema	TrafficUsage.status	object required
 blitzecdn	schema	ValidationErrorResponse.detail	array[ValidationIssue] required
 blitzecdn	schema	ValidationIssue.loc	array[string|integer] required
 blitzecdn	schema	ValidationIssue.msg	string required
