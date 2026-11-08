@@ -15,7 +15,7 @@ from sqlalchemy import ForeignKey, Index
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 
 class ReleaseInputsRow(Base):
@@ -26,7 +26,7 @@ class ReleaseInputsRow(Base):
     digest: Mapped[str] = mapped_column(primary_key=True)
     #: Text, not JSON: the digest is over these exact bytes.
     document: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 class ReleaseRow(Base):
@@ -44,7 +44,7 @@ class ReleaseRow(Base):
     id: Mapped[str] = mapped_column()
     compiler_version: Mapped[int] = mapped_column()
     inputs_digest: Mapped[str] = mapped_column(ForeignKey("release_inputs.digest"))
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
     #: The whole compiled release: sites, artifacts, explanations, findings.
     document: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
@@ -61,5 +61,5 @@ class ReleaseConfigurationRow(Base):
         ForeignKey("releases.digest", ondelete="CASCADE"), primary_key=True
     )
     digest: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
     document: Mapped[str] = mapped_column()
