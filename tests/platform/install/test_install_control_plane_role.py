@@ -58,7 +58,7 @@ def test_a_converge_never_rewrites_the_edge_host_keys():
     assert writers == []
 
 
-def test_controlplane_role_has_no_legacy_host_application_unit_cleanup():
+def test_controlplane_role_does_not_clean_up_host_application_units():
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
     assert "blitzecdn_controlplane_obsolete_units" not in defaults
     tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")

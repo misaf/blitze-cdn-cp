@@ -61,7 +61,7 @@ blitzecdn_nginx_http3_listener_owner: ''
 # this to validate the current configuration against a *new* image before
 # replacing the container serving traffic.
 #
-# Nginx no longer runs on the host: it runs in the container
+# Nginx does not run on the host: it runs in the container
 # blitzecdn_edge_stack starts, so `nginx -t` and `nginx -s reload` in this role
 # mean "in that container".
 blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
@@ -89,7 +89,7 @@ blitzecdn_nginx_default_site_file: >-
 # ignores this. All AEAD, all forward-secret.
 blitzecdn_nginx_ssl_ciphers: >-
   ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305
-# Off, because the CA this collection provisions from no longer publishes an
+# Off, because the CA this collection provisions from does not publish an
 # OCSP responder URL in its certificates. Stapling against such a chain staples
 # nothing and costs a warning on every `nginx -t` and reload, which trains
 # operators to read a clean config test as noisy. Turn it back on only for a CA

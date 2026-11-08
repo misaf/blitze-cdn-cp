@@ -30,10 +30,9 @@ dependencies = [
   # remote Linux state. Ansible Runner provides the stable Python execution
   # boundary, while ansible-core supplies the playbook engine and plugins.
   #
-  # It was previously installed as a separate step by install.sh, which worked
-  # only because pip leaves alone whatever it did not install. `uv sync` builds
-  # the environment the lockfile describes and removes anything else, so a
-  # dependency that is really required has to say so here.
+  # Declared here rather than installed separately by install.sh: `uv sync`
+  # builds the environment the lockfile describes and removes anything else,
+  # so a dependency that is really required has to say so here.
   "ansible-core>=2.21,<2.22",
   "pydantic-settings>=2.12,<3",
   "sqlalchemy>=2.0.52,<2.1",
@@ -83,9 +82,8 @@ dev = [
 [project.scripts]
 blitzecdn = "blitzecdn.entrypoints.cli.main:run"
 # The worker is its own console script as well as `python -m blitzecdn.entrypoints.worker`.
-# It used to be started by the `dramatiq` CLI, which meant the process the
-# control plane ran was one this project did not define and could not give a
-# signal handler to.
+# Defining it here means the process the control plane runs is one this
+# project owns and can give a signal handler to.
 blitzecdn-worker = "blitzecdn.entrypoints.worker:main"
 
 [tool.hatch.build.targets.wheel]

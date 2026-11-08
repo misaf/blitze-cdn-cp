@@ -7,7 +7,7 @@
 # A release's configuration is rendered for it, blitzecdn_edge_stack runs a
 # container inside it and
 # blitzecdn_firewall opens the host to it — three roles that need the same
-# answers and previously got them by reaching into each other's defaults.
+# answers and read them here rather than from each other's defaults.
 #
 # The rule for what belongs here is narrow: a value earns a place only if more
 # than one role needs it *and* it describes the shared runtime rather than one
@@ -29,8 +29,7 @@
 # leaving it overridable at every precedence the configuration model promises.
 
 # Derived by the control plane from the enabled sites, written into desired
-# state as this one key. It used to be written twice — once for Nginx and once
-# for the firewall — and the play asserted the two copies agreed. One value
+# state as this one key, which both Nginx and the firewall read. One value
 # cannot disagree with itself.
 blitzecdn_edge_http3_enabled: false
 
@@ -118,9 +117,9 @@ blitzecdn_edge_runtime:
     # subject. Core creates this directory, mounts it into the runtime and into
     # the configuration test read-only, and removes it on teardown; *what goes
     # in it* is the contributing capability's business, written by that
-    # capability's own role. There used to be a `geoip` member here naming a
-    # MaxMind database path, which meant the shared contract every edge role
-    # reads carried the name of a capability that may not be installed.
+    # capability's own role. No member here names a capability's files: the
+    # shared contract every edge role reads must not carry the name of a
+    # capability that may not be installed.
     data: /var/lib/blitzecdn/edge-data
 
   # Always served, and read from three places: the Compose healthcheck, the

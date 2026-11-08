@@ -8,8 +8,8 @@
 # be on disk and the `conf.d` snippet has to define $blitzecdn_country before
 # `nginx -t` sees a site that reads it.
 
-# First, and before anything on this host changes. blitzecdn_nginx no longer
-# asks this question — asking it there would mean core's role naming a
+# First, and before anything on this host changes. blitzecdn_nginx does not
+# ask this question — asking it there would mean core's role naming a
 # capability that may not be installed — so it is asked here, by the capability
 # that answers it, against the same desired state.
 #
