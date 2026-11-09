@@ -17,6 +17,10 @@ from blitzecdn.capabilities.deployments.domain.deployment import (
     is_terminal,
     require_transition,
 )
+from blitzecdn.capabilities.deployments.domain.health import (
+    ConvergenceHealth,
+    ConvergenceKind,
+)
 from blitzecdn.capabilities.deployments.domain.target import (
     PHASE_ORDER,
     DeploymentTarget,
@@ -30,6 +34,8 @@ __all__ = [
     "PHASE_ORDER",
     "ROLLBACK_WORKFLOW",
     "TERMINAL_STATUSES",
+    "ConvergenceHealth",
+    "ConvergenceKind",
     "Deployment",
     "DeploymentRequirementKind",
     "DeploymentStatus",

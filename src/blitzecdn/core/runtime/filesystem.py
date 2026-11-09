@@ -40,6 +40,32 @@ def read_log_tail(path: Path | str | None, *, limit: int) -> str:
     return text
 
 
+def create_private_file(path: Path, text: str, *, mode: int = 0o600) -> None:
+    """Create ``path`` holding ``text``, born at ``mode``; never touch an existing one.
+
+    One ``open(O_CREAT | O_EXCL | O_NOFOLLOW)``: no window where the content is
+    readable at the umask's mode, and no gap between an existence check and the
+    create for a file or symlink to slip into. Raises :class:`FileExistsError`
+    when anything, a dangling symlink included, already sits at ``path``.
+    """
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode
+    )
+    try:
+        # The umask can only narrow the creation mode; pin it exactly.
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        if descriptor != -1:
+            os.close(descriptor)
+        path.unlink(missing_ok=True)
+        raise
+
+
 def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None:
     """Atomically write sensitive bytes without following a destination symlink.
 
@@ -54,8 +80,9 @@ def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None
     )
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, mode)
+        # Owned by the stream first, so a refused chmod still closes it.
         with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())

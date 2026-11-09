@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from dishka import Provider, Scope, provide
+
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
 from blitzecdn.capabilities.origins.ports import OriginProbe, SiteReader
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.capabilities.origins.settings import CONFIGURATION, OriginsConfig
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 
 
@@ -15,7 +19,7 @@ def build_origin_check_service(
     events: EventRecorder,
     fleet: PlaybookRunner,
     origin_probe: OriginProbe,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> OriginCheckService:
     """Wire the origin-check capability to the fleet and the derived hosts."""
     return OriginCheckService(
@@ -29,4 +33,33 @@ def build_origin_check_service(
     )
 
 
-__all__ = ["build_origin_check_service"]
+__all__ = ["OriginsProvider", "build_origin_check_service"]
+
+
+class OriginsProvider(Provider):
+    """The origin-check configuration and service."""
+
+    scope = Scope.APP
+
+    @provide
+    def config(self, capability_config: ResolvedCapabilityEnvironment) -> OriginsConfig:
+        return capability_config.for_feature(CONFIGURATION.feature).as_model(
+            OriginsConfig
+        )
+
+    @provide
+    def service(
+        self,
+        sites: SiteReader,
+        events: EventRecorder,
+        fleet: PlaybookRunner,
+        origin_probe: OriginProbe,
+        clock: Clock,
+    ) -> OriginCheckService:
+        return build_origin_check_service(
+            sites=sites,
+            events=events,
+            fleet=fleet,
+            origin_probe=origin_probe,
+            clock=clock,
+        )

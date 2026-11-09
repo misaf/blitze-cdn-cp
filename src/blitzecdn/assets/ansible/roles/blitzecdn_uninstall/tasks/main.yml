@@ -4,6 +4,31 @@
 # from that image; install.sh removes both after the play exits. Packages are
 # shared host state and are not removed either.
 
+# First, so no scheduled backup starts a CLI container while the project is
+# coming down. The archives it wrote stay: the backup directory outlives an
+# uninstall on purpose.
+- name: Inspect the scheduled backup timer
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_uninstall_systemd_dir }}/blitzecdn-backup.timer"
+  register: blitzecdn_uninstall_backup_timer
+
+- name: Stop the scheduled backup timer
+  ansible.builtin.systemd_service:
+    name: blitzecdn-backup.timer
+    state: stopped
+    enabled: false
+  when: blitzecdn_uninstall_backup_timer.stat.exists
+
+- name: Remove the scheduled backup units
+  ansible.builtin.file:
+    path: "{{ blitzecdn_uninstall_systemd_dir }}/{{ item }}"
+    state: absent
+  loop: [blitzecdn-backup.timer, blitzecdn-backup.service]
+
+- name: Forget the scheduled backup units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
 - name: Inspect the control-plane Compose project
   ansible.builtin.stat:
     path: "{{ blitzecdn_uninstall_compose_file }}"
@@ -74,6 +99,9 @@
     state: absent
   loop:
     - "{{ blitzecdn_uninstall_cli_wrapper }}"
+    # The running installer: Bash already holds it open, so removing it
+    # mid-run is safe.
+    - "{{ blitzecdn_uninstall_installer }}"
     - "{{ blitzecdn_uninstall_sudoers_file }}"
     - "{{ blitzecdn_uninstall_state_dir }}"
 

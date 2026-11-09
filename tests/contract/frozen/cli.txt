@@ -1,12 +1,17 @@
+blitzecdn	command	blitzecdn analytics paths	<site> type=str required --start type=str required --end type=str required --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn analytics site	<site> type=str required --start type=str required --end type=str required --edge type=str --granularity type=choice[hour,day] default=<Granularity.HOUR: 'hour'> --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn ansible roles-path
 blitzecdn	command	blitzecdn ansible slots
 blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False
 blitzecdn	command	blitzecdn backup commit-restore
-blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
+blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config,geoip_databases] --output/-o type=path
 blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
+blitzecdn	command	blitzecdn backup prune	--keep type=int range
 blitzecdn	command	blitzecdn backup recover
 blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
-blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cache connections	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cache purge	--url type=str --prefix type=str --hostname type=str --tag type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cache stats	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn cert acme-hook	<action> type=str required
 blitzecdn	command	blitzecdn cert collect	--json type=boolean default=False
 blitzecdn	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
@@ -18,7 +23,8 @@ blitzecdn	command	blitzecdn cert upload	<name> type=str required --certificate t
 blitzecdn	command	blitzecdn config list	--json type=boolean default=False
 blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
 blitzecdn	command	blitzecdn config unset	<name> type=str required
-blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --wait type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn deployment status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
 blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
@@ -27,34 +33,36 @@ blitzecdn	command	blitzecdn domain cache	<name> type=str required --on/--off typ
 blitzecdn	command	blitzecdn domain cache-query-string	<name> type=str required --mode type=choice[include,ignore] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
-blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --deny-method type=str --deny-path type=str --clear type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --allow-method type=str --deny-method type=str --allow-path type=str --deny-path type=str --case-insensitive-paths/--case-sensitive-paths type=boolean --clear type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain hosts	--json type=boolean default=False
 blitzecdn	command	blitzecdn domain http3	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain list	--json type=boolean default=False
 blitzecdn	command	blitzecdn domain max-upload-size	<name> type=str required --size type=choice[100m,200m] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain minimum-tls	<name> type=str required --version type=choice[1.2,1.3] required --json type=boolean default=False
-blitzecdn	command	blitzecdn domain origin	<name> type=str required --request-host type=str --no-request-host type=boolean default=False --sni type=str --no-sni type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn domain origin	<name> type=str required --request-host type=str --no-request-host type=boolean default=False --sni type=str --no-sni type=boolean default=False --allow-private-origin/--no-allow-private-origin type=boolean --json type=boolean default=False
+blitzecdn	command	blitzecdn domain rate-limit	<name> type=str required --rate type=str --burst type=int range default=0 --status type=int default=429 --path type=str --off type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain remove	<name> type=str required --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn domain show	<name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain ssl	<name> type=str required --mode type=choice[off,flexible,full,full_strict] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain ssl-automatic	<name> type=str required --mode type=choice[auto,custom] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain under-attack	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain visitor-headers	<name> type=str required --connecting-ip/--no-connecting-ip type=boolean --ip-country/--no-ip-country type=boolean --json type=boolean default=False
-blitzecdn	command	blitzecdn drift	--limit type=str --json type=boolean default=False
-blitzecdn	command	blitzecdn edge add	<name> type=str required --host type=str required --ssh-source type=str required --public-address type=str --user type=str default='deploy' --port type=int range default=22 --private-key-file type=str --capability type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn drift	--limit type=str --wait type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn edge add	<name> type=str required --host type=str required --ssh-source type=str required --public-address type=str --user type=str default='deploy' --port type=int range default=22 --private-key-file type=str --capability type=str --host-key-fingerprint type=str --skip-host-key type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn edge host-key	<name> type=str required --host-key-fingerprint type=str
 blitzecdn	command	blitzecdn edge image spec	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge list	--json type=boolean default=False
 blitzecdn	command	blitzecdn edge remove	<name> type=str required --yes/-y type=boolean default=False --decommission/--no-decommission type=boolean default=True --force type=boolean default=False
 blitzecdn	command	blitzecdn edge update	<name> type=str required --host type=str --user type=str --port type=int range --private-key-file type=str --public-address type=str --ssh-source type=str --capability type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn features	--json type=boolean default=False
-blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
+blitzecdn	command	blitzecdn geoip update	--json type=boolean default=False
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
 blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn migrate
 blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn overview	--json type=boolean default=False
-blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn plan	--limit type=str --wait type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str required --proxy/--no-proxy type=boolean default=True --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
 blitzecdn	command	blitzecdn record list	<domain> type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn record proxy	<domain> type=str required <name> type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
@@ -72,8 +80,11 @@ blitzecdn	command	blitzecdn rule remove	<domain> type=str required <name> type=s
 blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
 blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
-blitzecdn	command	blitzecdn setup
+blitzecdn	command	blitzecdn setup	--env-file type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
-blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
-blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
+blitzecdn	command	blitzecdn traffic status	<edge> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn traffic usage	--start type=str required --end type=str required --hostname type=str --edge type=str --limit type=int range default=100 --offset type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn validate	--json type=boolean default=False
+blitzecdn	command	blitzecdn workflow acknowledge	<workflow_id> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn workflow list	--limit type=int range default=50 --json type=boolean default=False
+blitzecdn	command	blitzecdn workflow show	<workflow_id> type=str required --json type=boolean default=False

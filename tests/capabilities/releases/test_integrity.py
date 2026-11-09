@@ -3,12 +3,12 @@
 from pathlib import Path
 
 import pytest
-from sqlmodel import select
+from sqlalchemy import select
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.releases.adapters.tables import ReleaseInputsRow, ReleaseRow
 from blitzecdn.capabilities.releases.domain import Artifact, Release, ReleaseInputs
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 
@@ -45,7 +45,7 @@ def test_artifact_identity_is_independent_of_dictionary_order():
 def test_release_store_rejects_mismatched_inputs(tmp_path):
     DatabaseSchema.migrate(tmp_path / "state.db")
     with pytest.raises(ConfigurationError, match="inputs do not match"):
-        repository = Repository(tmp_path / "state.db")
+        repository = Stores(tmp_path / "state.db")
         try:
             repository.releases.save(Release(inputs_digest="wrong"), ReleaseInputs())
         finally:
@@ -55,19 +55,19 @@ def test_release_store_rejects_mismatched_inputs(tmp_path):
 @pytest.mark.parametrize("damage_inputs", [False, True])
 def test_release_store_detects_modified_documents(tmp_path, damage_inputs):
     DatabaseSchema.migrate(tmp_path / "state.db")
-    repository = Repository(tmp_path / "state.db")
+    repository = Stores(tmp_path / "state.db")
     try:
         inputs = ReleaseInputs()
         release = Release(inputs_digest=inputs.digest)
         repository.releases.save(release, inputs)
         with repository.database.session() as session:
             if damage_inputs:
-                row = session.exec(select(ReleaseInputsRow)).one()
+                row = session.scalars(select(ReleaseInputsRow)).one()
                 row.document = ReleaseInputs(
                     domains=(Domain(name="example.com"),)
                 ).encode()
             else:
-                row = session.exec(select(ReleaseRow)).one()
+                row = session.scalars(select(ReleaseRow)).one()
                 row.document = {**row.document, "compiler_version": 999}
             session.add(row)
         with pytest.raises(ConfigurationError, match="integrity verification"):
@@ -87,7 +87,7 @@ def test_release_inputs_store_composed_policy_and_refuse_retired_schema(
 
     from blitzecdn.capabilities.dns.domain import Domain
     from blitzecdn.capabilities.releases.domain import ReleaseInputs
-    from blitzecdn.capabilities.serving.contract import SitePolicy
+    from blitzecdn.core.domain.site_policy import SitePolicy
 
     inputs = ReleaseInputs.of(
         [Domain(name="example.com", policy=SitePolicy(cache={"cache_enabled": False}))],

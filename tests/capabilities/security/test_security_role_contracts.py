@@ -13,13 +13,17 @@ from typing import Any
 
 import yaml
 from support.contracts import (
-    STACK_ROLE_DIR,
-    _ansible_jinja,
-    _resolve,
-    _role_defaults,
-    _runtime_defaults,
+    ansible_jinja,
     jinja2,
+    resolve,
     run_role_tasks,
+    runtime_defaults,
+)
+from support.role_contracts import (
+    RELEASE_ROLE_DIR,
+    edge_context,
+    probe_volumes,
+    render_compose,
 )
 
 from blitzecdn.capabilities.security import ansible
@@ -31,18 +35,18 @@ NGINX = ansible.ROLES_PATH.parents[1] / "nginx"
 
 def _defaults(**overrides: Any) -> dict[str, Any]:
     """This role's defaults, resolved on top of the runtime contract."""
-    context = _runtime_defaults() | yaml.safe_load(
+    context = runtime_defaults() | yaml.safe_load(
         (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
     context |= overrides
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         plain = {
             name: value
             for name, value in context.items()
             if name != "blitzecdn_edge_runtime"
         }
-        resolved = _resolve(plain, context, environment)
+        resolved = resolve(plain, context, environment)
         if resolved == plain:
             break
         context |= resolved
@@ -68,17 +72,19 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     modules = resolved["blitzecdn_edge_runtime"]["paths"]["modules"]
     assert resolved["blitzecdn_security_under_attack_js_file"].startswith(f"{modules}/")
-    mounts = "\n".join(_role_defaults()["blitzecdn_nginx_config_test_volumes"])
-    assert f"{modules}:{modules}:ro" in mounts
-
-    compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
-    assert "{{ blitzecdn_edge_runtime.paths.modules }}:" in compose
+    # The edge play binds the modules path into the release, and both
+    # containers mount the release root read-only.
+    root = edge_context()["blitzecdn_config_release_root"]
+    assert f"{root}:{root}:ro" in probe_volumes()
+    assert f"{root}:{root}:ro" in render_compose()["services"]["edge"]["volumes"]
+    select = (RELEASE_ROLE_DIR / "tasks/select.yml").read_text(encoding="utf-8")
+    assert "'modules': blitzecdn_config_release_candidate ~ '/njs'" in select
 
 
 def test_the_snippet_imports_the_module_and_includes_the_key():
     """One path each, spelled the same in the snippet and where it is written."""
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
-    environment = _ansible_jinja(
+    environment = ansible_jinja(
         loader=jinja2.FileSystemLoader(NGINX),
         keep_trailing_newline=True,
     )
@@ -151,6 +157,7 @@ def test_the_capability_is_off_until_an_operator_turns_it_on():
     resolved = _defaults()
     assert resolved["blitzecdn_security_under_attack_enabled"] is False
     assert resolved["blitzecdn_security_under_attack_passage_seconds"] == 1800
+    assert resolved["blitzecdn_security_under_attack_difficulty_bits"] == 16
 
 
 def _sites_with(**overrides: Any) -> list[dict[str, Any]]:
@@ -179,6 +186,21 @@ def test_the_role_refuses_under_attack_mode_without_capability_or_secret(tmp_pat
     assert "BLITZE_UNDER_ATTACK_SECRET" in missing_secret.stdout
 
 
+def test_the_role_bounds_the_proof_of_work_difficulty(tmp_path):
+    """Below 8 bits is no work; above 20 outlasts the challenge token."""
+    for bits in (7, 21):
+        refused = run_role_tasks(
+            TASKS,
+            _defaults(
+                blitzecdn_nginx_sites=_sites_with(under_attack_mode=False),
+                blitzecdn_security_under_attack_difficulty_bits=bits,
+            ),
+            tmp_path,
+        )
+        assert refused.returncode != 0, bits
+        assert "blitzecdn_security_under_attack_difficulty_bits" in refused.stdout
+
+
 def test_the_role_accepts_a_fleet_that_never_asks_for_the_challenge(tmp_path):
     """Installing the wheel must not change a fleet that does not use it."""
     accepted = run_role_tasks(
@@ -204,3 +226,26 @@ def test_the_role_rejects_a_firewall_rule_it_cannot_safely_render(
 
     assert rejected.returncode != 0
     assert "invalid CDN request-security rules" in rejected.stdout
+
+
+def test_the_role_rejects_an_allowlist_rule_it_cannot_safely_render(
+    desired_state, tmp_path
+):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"firewall": {"allowed_paths": ['/a" { return 200']}}
+
+    rejected = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
+
+    assert rejected.returncode != 0
+    assert "invalid CDN request-security rules" in rejected.stdout
+
+
+def test_the_role_accepts_method_and_path_allowlists(desired_state, tmp_path):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {
+        "firewall": {"allowed_methods": ["GET", "HEAD"], "allowed_paths": ["/api/"]}
+    }
+
+    accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
+
+    assert accepted.returncode == 0, accepted.stdout

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from support.control_plane import FakeRunner, build_application, seed_record
 from support.policy import domain_from_settings
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -14,7 +15,6 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
@@ -82,7 +82,7 @@ def test_record_value_must_match_its_type(type_, value):
 
 
 def test_records_require_their_zone(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
 
     with pytest.raises(NotFoundError, match="add it first"):
@@ -92,7 +92,7 @@ def test_records_require_their_zone(settings):
 
 
 def test_duplicate_records_conflict(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
@@ -111,7 +111,7 @@ def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
 
     ``validation_errors`` refuses the deploy and names the hostname.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
@@ -132,7 +132,7 @@ def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
 
 
 def test_hostnames_accumulate_and_drop_as_records_come_and_go(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
@@ -148,7 +148,7 @@ def test_hostnames_accumulate_and_drop_as_records_come_and_go(settings):
 
 def test_a_zone_serving_nothing_derives_no_virtual_host(settings):
     """A server block with an empty ``server_name`` is nginx's default server."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="db", value="198.51.100.11", proxied=False)
@@ -161,7 +161,7 @@ def test_unproxying_publishes_the_address_the_record_holds(settings):
     answer. ``control.dns.unproxy`` takes one explicitly, so the origin is never
     published by accident.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
@@ -180,7 +180,7 @@ def test_unproxying_publishes_the_address_the_record_holds(settings):
 
 
 def test_proxying_keeps_the_address_as_the_origin(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn", value="198.51.100.20", proxied=False)
@@ -195,7 +195,7 @@ def test_proxying_keeps_the_address_as_the_origin(settings):
 
 
 def test_deleting_a_zone_takes_its_records_and_its_hosts(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
@@ -207,7 +207,7 @@ def test_deleting_a_zone_takes_its_records_and_its_hosts(settings):
 
 
 def test_release_inputs_round_trip_zones_records_and_rules(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")

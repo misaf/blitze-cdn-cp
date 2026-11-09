@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from blitzecdn.capabilities.cache import ansible, cli
 from blitzecdn.capabilities.cache.api import routes
+from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.cache.wiring import __version__
 from blitzecdn.core.features import (
     AnsibleContribution,
@@ -11,6 +12,7 @@ from blitzecdn.core.features import (
     Feature,
     FeatureMetadata,
     NginxContribution,
+    PolicyContribution,
 )
 from blitzecdn.core.runtime.resources import package_directory
 
@@ -33,10 +35,8 @@ FEATURES = (
             summary="Purge cached responses and read cache effectiveness.",
         ),
         api_routers=(routes.router,),
-        # `cache purge` nests; `stats` is a root verb.
         cli_commands=(
             CliCommandGroup(feature="cache", name="cache", app=cli.cache_app),
-            CliCommandGroup(feature="cache", name=None, app=cli.stats_app),
             CliCommandGroup(
                 feature="cache",
                 name="domain",
@@ -58,6 +58,9 @@ FEATURES = (
                 http_fragments=("cache-http.conf.j2",),
                 upstream_fragments=("cache-upstream.conf.j2",),
             ),
+        ),
+        site_policy=(
+            PolicyContribution(feature="cache", group="cache", contract=CachePolicy),
         ),
     ),
 )

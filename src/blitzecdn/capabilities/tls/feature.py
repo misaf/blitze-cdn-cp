@@ -7,11 +7,17 @@
 from __future__ import annotations
 
 from blitzecdn import __version__
+from blitzecdn.capabilities.http.contract import ProtocolPolicy
 from blitzecdn.capabilities.tls import cli
 from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
 from blitzecdn.capabilities.tls.certificates.api import routes as certificates_routes
+from blitzecdn.capabilities.tls.contract import (
+    TlsPolicy,
+    http3_requires_edge_tls,
+    managed_certificate_belongs_to_site,
+)
 from blitzecdn.capabilities.tls.settings import CONFIGURATION
 from blitzecdn.capabilities.tls.wiring import (
     __version__ as certificates_version,
@@ -20,6 +26,7 @@ from blitzecdn.core.features import (
     CliCommandGroup,
     Feature,
     FeatureMetadata,
+    PolicyContribution,
 )
 
 TLS = Feature(
@@ -34,6 +41,16 @@ TLS = Feature(
             name="domain",
             app=cli.domain_commands,
             extends=True,
+        ),
+    ),
+    site_policy=(
+        PolicyContribution(
+            feature="tls",
+            group="tls",
+            contract=TlsPolicy,
+            depends_on=(ProtocolPolicy,),
+            checks=(http3_requires_edge_tls,),
+            site_checks=(managed_certificate_belongs_to_site,),
         ),
     ),
 )

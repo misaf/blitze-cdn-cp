@@ -8,10 +8,11 @@ from fastapi.responses import PlainTextResponse
 from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
-from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.core.features import Operations
 from blitzecdn.entrypoints.api.dependencies import require_operator
+from blitzecdn.entrypoints.api.validation import VALIDATION_RESPONSE
 
 router = APIRouter(route_class=DishkaSyncRoute)
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def health(response: Response, operations: FromDishka[Operations]) -> dict[str, 
 @router.get(
     "/metrics",
     response_class=PlainTextResponse,
+    responses={422: VALIDATION_RESPONSE},
     dependencies=[Depends(require_operator)],
 )
 def metrics(

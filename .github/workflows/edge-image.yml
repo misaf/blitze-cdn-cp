@@ -4,13 +4,13 @@
 # Separate from CI because it produces an artefact rather than a verdict, and
 # because the fleet consumes it by digest: a build that ran is not a build any
 # edge is using until somebody sets blitzecdn_edge_image_tag in the control
-# plane and deploys. That separation is deliberate — a merge to 2.x must not be
-# able to upgrade Nginx on a production fleet, and a merge to 3.x must not
-# either.
+# plane and deploys. That separation is deliberate — a merge to a release
+# branch must not be able to upgrade Nginx on a production fleet.
 #
-# On a pull request the image is built and probed but never pushed, so the
-# ABI invariant is checked on every change to the edge image without publishing
-# anything.
+# On a pull request, and on a push to master, the image is built and probed
+# but never pushed, so the ABI invariant is checked on every change to the edge
+# image without publishing anything. master is the integration branch, not a
+# release line: nothing ships from it, so nothing it builds is published.
 name: Edge image
 
 "on":
@@ -31,7 +31,9 @@ name: Edge image
     # blitzecdn_edge/defaults and the fleet group_vars now name the release
     # they ship with — so a new major must be added here in the same change
     # that opens its branch, not on the first deploy that cannot pull.
-    branches: [3.x, 4.x, 5.x, 6.x]
+    # master is here to be built and checked, not published (see `publish`).
+    # Retired lines (1.x-5.x) are left out and come back only if revived.
+    branches: [master, 6.x]
     paths:
       - src/blitzecdn/assets/docker/edge/**
       - src/blitzecdn/capabilities/**
@@ -51,6 +53,12 @@ jobs:
   image:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # Whether this run pushes to the registry. A pull request and master
+      # build and probe only: neither is a release line an edge can pin.
+      publish: >-
+        ${{ github.event_name != 'pull_request'
+        && github.ref != 'refs/heads/master' }}
     permissions:
       contents: read
       # Only what pushing to GitHub's own registry needs.
@@ -68,10 +76,10 @@ jobs:
       # every published capability attached.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
       - name: Install Python
-        run: uv python install 3.14
+        run: uv python install 3.15.2
       - name: Resolve the modules the installed capabilities declare
         id: modules
         run: |
@@ -82,9 +90,10 @@ jobs:
             cat /tmp/edge-image-spec
             echo SPEC
           } >> "${GITHUB_OUTPUT}"
-      # A pull request builds and probes without credentials; nothing is pushed.
+      # A pull request or master builds and probes without credentials;
+      # nothing is pushed.
       - name: Sign in to the registry
-        if: github.event_name != 'pull_request'
+        if: env.publish == 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -108,7 +117,7 @@ jobs:
           # amd64 and arm64, because an edge fleet is rarely one architecture
           # and the official Alpine image and module builds support both.
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ env.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -121,7 +130,7 @@ jobs:
       # own output rather than only in the registry: setting
       # blitzecdn_edge_image_digest is a copy-paste from here.
       - name: Report the published digest
-        if: github.event_name != 'pull_request'
+        if: env.publish == 'true'
         run: |
           {
             echo '## Edge runtime image'

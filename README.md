@@ -5,21 +5,32 @@ state, compiles releases, and uses Ansible to provision and converge remote
 Linux hosts running the containerized edge runtime.
 
 The backend is a modular monolith: FastAPI and Typer expose the same application
-services, Dishka assembles dependencies, and SQLModel/SQLAlchemy with Alembic
+services, Dishka assembles dependencies, and SQLAlchemy with Alembic
 provide persistence. Background work uses a durable SQLite queue; no separate
 message broker is required.
 
+Collection endpoints share the [pagination contract](docs/api-pagination.md).
+
 ## Local development
 
-Use Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and
-[just](https://just.systems/). CI runs the main quality gate on Python 3.14 and
-compatibility tests on 3.12 and 3.13. Run commands from the repository root.
+Use Python 3.15.2 or later, [uv](https://docs.astral.sh/uv/), and
+[just](https://just.systems/). `.python-version` makes uv pick 3.15.2, the
+interpreter CI and the control-plane image run. Scripts that run on edges keep
+a lower floor; see the [Ansible quick start](src/blitzecdn/assets/ansible/README.md).
+Run commands from the repository root.
+
+Docker and a global Ansible are not required: Ansible comes from the project
+environment, and the checks that need Docker run in GitHub Actions. See
+[testing without local infrastructure](docs/testing.md).
 
 ```sh
-just install                 # Locked Python dependencies and pinned Ansible collections
+just setup                   # just install, then report what this machine can run
 uv run blitzecdn setup       # Migrate the local database; create .env if absent
 uv run blitzecdn --help
 ```
+
+`install.sh` manages server lifecycle operations. Running it without arguments
+shows help; for local development use the commands above.
 
 `setup` preserves existing configuration. For a fresh checkout it creates a local
 API credential in `.env` with mode `0600`. Keep that file private. Optional
@@ -39,10 +50,26 @@ just serve                  # API on port 8000; OpenAPI UI at /docs
 uv run blitzecdn-worker      # Schedule and consume durable jobs
 ```
 
+Control endpoints use `/v3`, independently of the application release version.
+Legacy `/v1` and `/v2` contracts are not served by this application. `/docs`
+and `/openapi.json` describe the current API; `/health` and `/metrics` remain
+unversioned. See [request defaults](docs/api-defaults.md) for creation values,
+PATCH semantics, inheritance, and operation scope.
+See [queued API work](docs/queued-operations.md) for submission responses,
+polling headers, and result handling.
+Existing clients should follow the [v2 to v3 migration guide](docs/migration-v2-v3.md)
+before changing their API prefix.
+
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
 `uv run blitzecdn overview`. See [operations](docs/operations.md) for status,
 metrics, worker heartbeats, and logs.
+
+Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
+deployment ID for its per-edge progress. Read stored hourly cache effectiveness with
+`uv run blitzecdn cache stats --start ... --end ...`. These
+replace the former root commands `status` and `stats`; update scripts to use
+the resource groups. Controller diagnostics remain `blitzecdn overview`.
 
 Local setup does not provision an edge. Remote operations require registered
 edges, SSH access, and appropriate host privileges. Production host installation
@@ -59,6 +86,14 @@ is handled by `install.sh` and the bundled control-plane Ansible roles.
 | `src/blitzecdn/host/` | Host-side runtime integration |
 | `src/blitzecdn/assets/` | Packaged migrations, shared Ansible automation, and Docker build assets |
 | `tests/` | Capability, delivery, architecture, contract, journey, and platform checks |
+
+Shared site identity lives in `core/domain/site.py`; `SitePolicy` in
+`core/domain/site_policy.py` composes the contracts contributed by features.
+These models import no capability. HTTP owns visitor headers, origins owns
+origin request identity, and TLS owns transport and redirect decisions.
+Composition binds their contributions before sites are validated. A caller
+reads a contract through `site.policy[Contract]` and asks that contract for
+its behavior, rather than making the shared site model know each capability.
 
 Each capability contains only the parts it needs:
 
@@ -77,6 +112,16 @@ code does not access persistence directly. Capabilities receive collaborators
 through dependency injection and do not reach back into composition. Imports
 between capabilities must follow the declared dependency graph and use the
 permitted public boundaries.
+
+Each capability has one public surface. Another capability imports either
+`blitzecdn.capabilities.<name>`, whose package `__init__` lists in `__all__`
+the services, ports and values others may use, or
+`blitzecdn.capabilities.<name>.contract` for policy and values. It never
+imports a submodule such as `domain`, `ports`, `service`, `adapters`, `api`
+or `cli`. Only composition, the entry points and the migrations environment
+assemble capabilities from their parts. API representations belong to one
+capability: a capability that reports another's object defines its own model
+for it.
 
 These rules are executable: [.importlinter](.importlinter) checks import
 direction, while [architecture tests](tests/architecture/) check capability
@@ -111,9 +156,10 @@ deployments persist admission and are executed by the worker through the same
 deployment service. The worker advances schedules, claims jobs with leases and
 fencing tokens, invokes registered handlers, and persists outcomes. Jobs and
 workflow journals have different roles: jobs track delivery and retries;
-workflows track operation checkpoints and recovery decisions. Some operations,
-including certificate issuance, still execute synchronously; a workflow record
-alone does not make an operation queued.
+workflows track operation checkpoints and recovery decisions. API endpoints
+that call out to the CA, Ansible, DNS or HTTP probes are queued the same way
+(see [queued API work](docs/queued-operations.md)); a workflow record alone
+does not make an operation queued.
 
 Process construction and lifecycle live in
 [composition/processes.py](src/blitzecdn/composition/processes.py). API startup
@@ -133,12 +179,17 @@ The [justfile](justfile) owns the development commands used by CI:
 | `just check` | Run the full quality gate, including coverage, packaging tests, Dockerfile lint, security checks, and builds |
 | `just test-installation` | Build and verify an isolated installed wheel |
 | `just test-integration-http3` | Run the separate privileged Docker edge integration harness |
+| `just doctor [task]` | Report which tasks this machine can run (`local`, `docker-lint`, `integration`, `ci`, `all`) |
+| `just ci-run` | Run CI on the pushed current branch and follow it |
+| `just ci-download [run]` | Download a CI run's reports and failure diagnostics |
 
 The full test gate enforces 85% coverage. Ansible checks need the collections
 installed by `just install`. Dockerfile lint requires a local `hadolint` binary
 or a running Docker daemon; container integration checks require Docker and
-their host privileges. Unit tests and test doubles do not establish that a live
-edge deployment works.
+their host privileges. Without those, push and let CI run them; see
+[testing without local infrastructure](docs/testing.md), which also records what
+the container evidence covers and the remaining multi-host gaps. Unit tests and
+test doubles do not establish that a live edge deployment works.
 
 ## Where a change belongs
 
@@ -148,16 +199,48 @@ collaborator, and implement I/O in an adapter. Add only the parts the change
 needs. Shared infrastructure belongs in core when it is independent of any
 capability.
 
+Capabilities are built into the application and shipped together. External
+plugins and a public Python SDK are not supported; feature contribution types
+are internal composition interfaces.
+
 For a new capability, follow the skeleton and dependency rules in
-`tests/architecture/`, declare contributions in `feature.py`, and register it in
-[composition/roster.py](src/blitzecdn/composition/roster.py). Bind concrete
-dependencies in composition and the capability's `wiring.py`. Keep API and CLI
-handlers thin and test their shared behavior through the service.
+`tests/architecture/` and declare contributions in `feature.py`. Routes and
+commands then reach the API and CLI through the feature registry, and the
+capability builds its own stores and services in a dishka `Provider` in its
+`wiring.py`. A new capability touches:
+
+- [composition/roster.py](src/blitzecdn/composition/roster.py): a
+  `RosterEntry` for its feature module, with its provider and its rendering,
+  operations and queued-operation binders if it has any.
+- An Alembic migration under `src/blitzecdn/assets/migrations/versions/` for
+  any new tables (see below).
+
+Its provider asks for its own ports. When another capability's object
+satisfies one and the declared capability graph does not let either provider
+name the other, [composition/bindings.py](src/blitzecdn/composition/bindings.py)
+binds the port to it.
+
+Keep API and CLI handlers thin and test their shared behavior through the
+service.
+
+A per-site setting belongs to a capability's contract: a `CapabilityPolicy`
+model in its `contract.py`, contributed as a `PolicyContribution` in
+`Feature.site_policy`. The site policy, the zone and rule patches, and the
+`/v3/domains` and `/v3/hosts` schemas are composed from those contributions
+when the registry loads, so the setting needs no edit in `dns` or core.
+A rule that reads another contract is a contributed check with that contract in
+`depends_on`; contracts are read as `policy[TlsPolicy]`.
 
 Persisted schema changes need an Alembic migration under
 `src/blitzecdn/assets/migrations/`; `just db-revision "description"` generates a
-candidate for review. Apply migrations with controller services stopped using
-`uv run blitzecdn migrate`.
+candidate for review. The initial revisions (files `NNNN_initial_<capability>.py`,
+revision IDs `NNNN_<capability>`) create each capability's tables in one
+dependency-ordered chain; `tests/platform/test_migrations.py` lists that chain
+and every later revision, and checks the tables each one creates. Revisions,
+initial or later, are permanent: add a new one for each later schema change
+rather than editing or folding into an existing revision, and keep application
+imports out of them. Apply migrations
+with controller services stopped using `uv run blitzecdn migrate`.
 
 Public CLI, HTTP, database, and Ansible surfaces are frozen under
 `tests/contract/frozen/`. For an intentional public change, update delivery

@@ -26,3 +26,22 @@ updates:
         patterns:
           - "*"
     open-pull-requests-limit: 5
+
+  # The base images of the two images this repository publishes. Each Dockerfile
+  # pins its base by digest, so a rebuilt upstream image changes nothing here
+  # until this entry proposes the new digest; tests/platform/test_base_images.py
+  # holds both halves — the pin and this entry — for every shipped Dockerfile.
+  - package-ecosystem: docker
+    directories:
+      - /src/blitzecdn/assets/docker/control-plane
+      - /src/blitzecdn/assets/docker/edge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5

@@ -10,9 +10,7 @@ services:
   edge:
     container_name: {{ blitzecdn_edge_runtime.container }}
     image: {{ blitzecdn_edge_stack_resolved_image }}
-{% if blitzecdn_config_release_enabled | default(false) %}
     command: [nginx, -g, "daemon off;", -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
-{% endif %}
     # Host networking, deliberately.
     #
     # A CDN edge listens on thirteen public TCP ports plus UDP/443, and every
@@ -24,6 +22,10 @@ services:
     # country rule to itself. Host networking also means no NAT hop per packet
     # and no publish list to keep in step with the contract's listener sets.
     network_mode: host
+    ulimits:
+      nofile:
+        soft: {{ blitzecdn_edge_runtime.nofile }}
+        hard: {{ blitzecdn_edge_runtime.nofile }}
     restart: unless-stopped
     # Reaps the zombies an Nginx master would otherwise leave behind as PID 1.
     init: true
@@ -34,8 +36,7 @@ services:
     # its own configuration, which is a privilege *reduction* and unaffected.
     # That user is Alpine Nginx's `nginx`, not Debian's `www-data`, and the
     # contract carries its uid: see `blitzecdn_edge_runtime.worker_uid`, which
-    # exists because this comment used to say www-data and a host directory
-    # was chowned to match.
+    # host directories the worker reads are chowned to.
     #
     # The controller's own Compose project already carries this. The edge, the
     # host-networked container that terminates every visitor connection, is the
@@ -54,19 +55,12 @@ services:
       # business rewriting what the control plane rendered, and a container that
       # cannot write its own configuration cannot be talked into persisting a
       # change that the next converge would silently revert.
-      # The dynamic modules this edge loads, over the list the image was built
-      # with. The image carries every module the published capabilities can
-      # ask for; what an edge actually loads is what this controller has
-      # installed, and nginx.conf includes this path on its first line.
-{% if blitzecdn_config_release_enabled | default(false) %}
+      # Every configuration release, as one stable parent mount: activation
+      # swaps the `current` link inside it, and Docker sees that only because
+      # the mount is the parent rather than the release itself. Each release
+      # carries its nginx.conf, sites, snippets, the module list and the njs
+      # modules this edge loads.
       - {{ blitzecdn_config_release_root }}:{{ blitzecdn_config_release_root }}:ro
-{% else %}
-      - {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{ blitzecdn_edge_runtime.paths.modules_include }}:ro
-      - {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro
-      - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
-      - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro
-      - {{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro
-{% endif %}
       # Chains and private keys. Read-only, and the host keeps the directory
       # 0700 root with each key 0600 — the container's Nginx master reads them
       # as root at start and at every reload, and nothing else ever needs to.

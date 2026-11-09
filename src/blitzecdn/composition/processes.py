@@ -26,7 +26,7 @@ from blitzecdn.capabilities.jobs.domain import (
     JobOutcome,
     Retry,
 )
-from blitzecdn.capabilities.jobs.ports import JobHandler
+from blitzecdn.capabilities.jobs.ports import JobHandler, OperationRun, OperationRuns
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
     SCHEDULED_JOB,
@@ -37,7 +37,7 @@ from blitzecdn.capabilities.jobs.service import (
 from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.composition.infrastructure import Adapters, InfrastructureProvider
-from blitzecdn.composition.services import OperationRun, OperationRuns, ServiceProvider
+from blitzecdn.composition.services import service_providers
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, DeploymentBusyError
 from blitzecdn.core.features import Operations
@@ -127,7 +127,7 @@ def _container(
 ) -> Container:
     return make_container(
         InfrastructureProvider(),
-        ServiceProvider(),
+        *service_providers(),
         *extra,
         context={Settings: settings, Adapters: adapters or Adapters()},
     )

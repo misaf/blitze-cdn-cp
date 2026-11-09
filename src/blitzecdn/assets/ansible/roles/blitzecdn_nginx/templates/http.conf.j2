@@ -3,14 +3,78 @@ map $http_upgrade $blitzecdn_connection_upgrade {
     default upgrade;
     ''      '';
 }
+# The one encoding the origin is asked for: `br` when the visitor takes it,
+# else `gzip`, else none. Core rather than a capability's, because two of them
+# read it and either may be installed without the other: compression sends it
+# to the origin, and the cache keys entries by it. Asking for exactly one lets
+# an origin that cannot produce it answer uncompressed, so the edge encodes the
+# body itself; the visitor's own list, `gzip, deflate, br`, would get gzip
+# back, which the edge cannot re-encode.
+#
+# A coding the visitor refuses with `q=0` (`br;q=0, gzip`) does not count, or
+# the origin would be asked for exactly what the visitor ruled out and its
+# encoded answer would pass through the edge untouched.
+map $http_accept_encoding $blitzecdn_accept_encoding {
+    default        "";
+    "~*(^|,)\s*br\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"    "br";
+    "~*(^|,)\s*gzip\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"  "gzip";
+}
 {% if blitzecdn_nginx_resolvers %}
 resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_resolver_valid }};
 resolver_timeout {{ blitzecdn_nginx_resolver_timeout }};
 {% endif %}
 {% if blitzecdn_nginx_access_log_enabled | bool %}
+# Hostname files are JSON Lines, read by traffic accounting and cache stats.
+# They are the only request log: no aggregate file and no Docker stdout copy.
+# Neither reads the client address, request line or referer, so redacting them
+# below changes no count.
+{% if not blitzecdn_nginx_log_query_strings | bool %}
+# Query strings carry reset tokens, signed-URL signatures and API keys, and a
+# page's own URL comes back in the next request's Referer. The raw path is
+# kept as the visitor sent it, before any rewrite, and only `?...` is dropped.
+map $request_uri $blitzecdn_log_path {
+    "~^(?<blitzecdn_log_p>[^?]*)"  $blitzecdn_log_p;
+    default                        "";
+}
+map $http_referer $blitzecdn_log_referer {
+    "~^(?<blitzecdn_log_r>[^?#]*)"  $blitzecdn_log_r;
+    default                         "";
+}
+{% endif %}
+{% if blitzecdn_nginx_log_client_ip == 'truncated' %}
+# IPv4 keeps its /24 and IPv6 at most its /48. A `::` inside the first three
+# hextets ends the kept prefix there, which may keep fewer bits than 48 but
+# never more. Anything else, such as a Unix socket peer, is not logged.
+map $remote_addr $blitzecdn_log_client_ip {
+    "~^(?<blitzecdn_log_n>\d+\.\d+\.\d+)\.\d+$"                      $blitzecdn_log_n.0;
+    "~*^(?<blitzecdn_log_n>[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}):"  $blitzecdn_log_n::;
+    "~*^(?<blitzecdn_log_n>[0-9a-f]{1,4}:[0-9a-f]{1,4})::"              $blitzecdn_log_n::;
+    "~*^(?<blitzecdn_log_n>[0-9a-f]{1,4})::"                            $blitzecdn_log_n::;
+    "~^::"                                                              ::;
+    default                                                             "";
+}
+{% endif %}
 log_format {{ blitzecdn_nginx_log_format_name }} escape=json
-    '$remote_addr $host "$request" $status $body_bytes_sent '
-    'rt=$request_time cache="$sent_http_x_cache_status" '
-    'upstream="$upstream_addr" ut="$upstream_response_time" '
-    'ref="$http_referer" ua="$http_user_agent"';
+    '{"schema_version":1,"request_id":"$request_id","timestamp":"$time_iso8601",'
+    '"hostname":"$host","server_name":"$server_name",'
+    '"bytes_sent":$bytes_sent,"body_bytes_sent":$body_bytes_sent,'
+    '"status":$status,"request_time":$request_time,'
+{% if blitzecdn_nginx_log_client_ip == 'truncated' %}
+    '"client_ip":"$blitzecdn_log_client_ip",'
+{% else %}
+    '"client_ip":"$remote_addr",'
+{% endif %}
+{% if blitzecdn_nginx_log_query_strings | bool %}
+    '"request":"$request",'
+{% else %}
+    '"request":"$request_method $blitzecdn_log_path $server_protocol",'
+{% endif %}
+    '"cache_status":"$upstream_cache_status",'
+    '"upstream_address":"$upstream_addr","upstream_response_time":"$upstream_response_time",'
+{% if blitzecdn_nginx_log_query_strings | bool %}
+    '"referer":"$http_referer",'
+{% else %}
+    '"referer":"$blitzecdn_log_referer",'
+{% endif %}
+    '"user_agent":"$http_user_agent"}';
 {% endif %}

@@ -18,6 +18,7 @@ import shlex
 import http3_release
 import pytest
 import yaml
+from support.edge_render import rendered_upstreams
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core.domain.configuration import ConfigurationBundle
@@ -163,10 +164,9 @@ def test_the_edge_image_is_built_with_the_modules_the_capabilities_declare():
 def test_the_harness_converges_the_shipped_edge_play_from_a_release():
     """A test play is a copy, and a copy drifts.
 
-    The harness once ran its own play, which predated content-addressed
-    releases: it never selected a candidate tree, so the stack mounted
-    configuration paths nothing wrote any more, and the job was red on every
-    commit. The edge is now converged by `edge.yml` itself, from a release
+    A harness-only play would not select a candidate tree the way a release
+    does, so the stack would mount configuration paths nothing writes. The
+    edge is converged by `edge.yml` itself, from a release
     the control plane's renderer produced, and committed only after the edge
     answers with that release — the rollout's own order.
     """
@@ -240,7 +240,8 @@ def test_the_harness_release_renders_and_is_content_addressed(tmp_path):
     assert origin, "the harness has no HTTP origin"
     for site in released["blitzecdn_nginx_sites"]:
         rendered = bundle.files[f"nginx/sites-available/{site['name']}.conf"].decode()
-        assert f"http://{site['origin_host']}:{origin[1]};" in rendered, (
+        upstreams = rendered_upstreams(rendered)
+        assert f"http://{site['origin_host']}:{origin[1]}" in upstreams, (
             "the rendered upstream does not reach the harness origin's port"
         )
 
@@ -631,3 +632,25 @@ def test_the_install_harness_proves_a_renewal_changed_something():
         "authorization reuse is left at its default, so the renewal's coverage "
         "varies from run to run"
     )
+
+
+def test_ci_runs_every_install_suite_the_harness_offers():
+    """A suite CI does not name is a stage nothing runs.
+
+    `all` is the hand-run default that chains the others, so CI runs each of
+    the rest as its own job instead.
+    """
+    offered = re.search(r"^  ([a-z|]+)\) ;;$", _commands(INSTALL_HARNESS), re.MULTILINE)
+    assert offered, "the install harness no longer lists its suites"
+    suites = set(offered.group(1).split("|")) - {"all"}
+
+    workflow = yaml.safe_load(
+        (PROJECT_DIR / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    install = workflow["jobs"]["install"]
+    assert set(install["strategy"]["matrix"]["suite"]) == suites
+    assert any(
+        "container-install.sh" in step.get("run", "")
+        and "${{ matrix.suite }}" in step["run"]
+        for step in install["steps"]
+    ), "the install job does not pass its suite to the harness"

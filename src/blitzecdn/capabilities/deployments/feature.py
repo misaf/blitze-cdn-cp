@@ -5,6 +5,7 @@ from __future__ import annotations
 from blitzecdn import __version__
 from blitzecdn.capabilities.deployments import cli
 from blitzecdn.capabilities.deployments.api import routes
+from blitzecdn.capabilities.deployments.settings import CONFIGURATION
 from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (
@@ -15,8 +16,12 @@ FEATURES = (
             summary="Converge the fleet, roll back, and detect drift.",
         ),
         api_routers=(routes.router,),
+        configuration=(CONFIGURATION,),
         cli_commands=(
             CliCommandGroup(feature="deployments", name=None, app=cli.deployment_app),
+            CliCommandGroup(
+                feature="deployments", name="deployment", app=cli.deployment_queries_app
+            ),
         ),
     ),
 )

@@ -20,15 +20,16 @@ from support.contracts import (
     ROLE_DIR,
     ROLES_DIR,
     STACK_ROLE_DIR,
-    _role,
-    _role_defaults,
+    role_defaults,
+    role_path,
 )
 from support.paths import SOURCE
 from support.role_contracts import (
     COMPOSE_TEMPLATE,
-    _defaults_of,
-    _edge_context,
-    _render_compose,
+    defaults_of,
+    edge_context,
+    probe_volumes,
+    render_compose,
 )
 
 from blitzecdn.assets.docker import (
@@ -39,7 +40,7 @@ from blitzecdn.assets.docker import (
 
 def _compose_mounts(**overrides: Any) -> dict[str, str]:
     """host path -> mode, for every bind mount the rendered edge service has."""
-    project = _render_compose(**overrides)
+    project = render_compose(**overrides)
     mounts: dict[str, str] = {}
     for entry in project["services"]["edge"]["volumes"]:
         source, _, mode = entry.split(":")
@@ -55,9 +56,7 @@ def test_the_configuration_test_sees_what_the_running_edge_sees():
     """
     probe = {
         entry.split(":")[0]: entry.split(":")[2]
-        for entry in _edge_context(blitzecdn_edge_geoip_enabled=True)[
-            "blitzecdn_nginx_config_test_volumes"
-        ]
+        for entry in probe_volumes(blitzecdn_edge_geoip_enabled=True)
     }
     # Rendered with GeoIP on, because the probe always mounts the database and this
     # compares the full set.
@@ -74,7 +73,7 @@ def test_only_cache_and_logs_are_writable_to_the_edge():
 
     An edge cannot persist a change the next converge would silently revert.
     """
-    runtime = _role_defaults()["blitzecdn_edge_runtime"]
+    runtime = role_defaults()["blitzecdn_edge_runtime"]
     writable = {path for path, mode in _compose_mounts().items() if mode == "rw"}
     assert writable == {runtime["paths"]["cache"], runtime["paths"]["logs"]}
 
@@ -103,7 +102,7 @@ def test_every_mounted_path_is_created_before_the_container_starts():
             recipe,
         ]
     )
-    context = _edge_context()
+    context = edge_context()
     # Task paths are composed from the contract, so task text is substituted before
     # it is searched, comparing directories rather than variable names.
     substitutions: dict[str, str] = {}
@@ -142,13 +141,13 @@ def test_the_edge_container_takes_the_host_network():
 def test_a_configuration_change_reloads_and_does_not_replace_the_container():
     """Replacing the container for a site change drops every live connection.
 
-    It also empties the cache zone; the handler signals the running container
+    It also empties the cache zone; activation signals the running container
     instead.
     """
-    handlers = (ROLE_DIR / "handlers/main.yml").read_text(encoding="utf-8")
-    assert "nginx, -s, reload" in handlers
-    assert "docker_container_exec" in handlers
-    assert _defaults_of(STACK_ROLE_DIR)["blitzecdn_edge_stack_recreate"] is False
+    stack = (STACK_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    assert "argv: [nginx, -s, reload, -c," in stack
+    assert "docker_container_exec" in stack
+    assert defaults_of(STACK_ROLE_DIR)["blitzecdn_edge_stack_recreate"] is False
 
 
 def test_a_rollback_returns_to_a_recorded_digest():
@@ -173,9 +172,9 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
     Containers always go. TLS material, configuration, ACME state and the cache go
     only on request.
     """
-    teardown = _role("blitzecdn_edge_teardown")
+    teardown = role_path("blitzecdn_edge_teardown")
     tasks = yaml.safe_load((teardown / "tasks/main.yml").read_text(encoding="utf-8"))
-    assert _defaults_of(teardown)["blitzecdn_edge_teardown_remove_data"] is True
+    assert defaults_of(teardown)["blitzecdn_edge_teardown_remove_data"] is True
 
     def gate(name: str) -> str:
         return str(next(task for task in tasks if task["name"] == name).get("when", ""))
@@ -357,8 +356,12 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
 def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules():
     """Third-party modules must be built against the exact runtime image."""
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
-    assert "ARG NGINX_IMAGE=nginx:1.31.4-alpine" in dockerfile
-    assert dockerfile.count("FROM ${NGINX_IMAGE}") == 2
+    # Both stages name one reference, pinned to a digest: modules compiled in the
+    # builder are ABI-matched only to the image the runtime stage starts from.
+    bases = re.findall(r"^FROM (\S+)", dockerfile, flags=re.MULTILINE)
+    assert len(bases) == 2
+    assert len(set(bases)) == 1, bases
+    assert re.fullmatch(r"nginx:[0-9.]+-alpine@sha256:[0-9a-f]{64}", bases[0])
     assert '"${NGINX_VERSION}-${PKG_RELEASE}"' in dockerfile
     # Every package the builder stage produced carries this image's Nginx version in
     # its filename: the ABI guarantee without enumerating modules.
@@ -431,16 +434,19 @@ def test_the_edge_image_deletes_nothing_it_inherited():
     )
 
 
-def test_nginx_logs_to_persistent_files_and_docker_streams():
-    """Docker logs supplement the retained files consumed by edge tooling."""
+def test_nginx_logs_requests_to_files_and_errors_to_docker():
+    """Docker carries errors only; every request is written once, to its file."""
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
     site = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
 
     assert "error_log  /dev/stderr notice;" in dockerfile
     assert "access_log  /dev/stdout  main;" in dockerfile
+    assert site.count("error_log /dev/stderr warn;") == 2
+    assert "/dev/stdout" not in site
     assert (
-        site.count("access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};") == 2
+        site.count("access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/") == 2
     )
-    assert "access_log {{ blitzecdn_nginx_access_log_path }}" in site
+    # Per server block: the hostname file, or off when access logging is disabled.
+    assert site.count("\n    access_log ") == 4
     assert 'max-size: "32m"' in COMPOSE_TEMPLATE
     assert 'max-file: "3"' in COMPOSE_TEMPLATE

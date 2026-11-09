@@ -1,4 +1,6 @@
 ---
+blitzecdn_nginx_worker_connections: 8192
+blitzecdn_nginx_listen_backlog: 16384
 blitzecdn_nginx_sites: []
 # Removing the final managed site is unusually destructive and often means a
 # new controller was pointed at an existing edge before its state was imported.
@@ -20,8 +22,63 @@ blitzecdn_nginx_modules: []
 # capability names a shared object, this names the directory it lands in, and
 # neither has to know the other's answer.
 blitzecdn_nginx_module_directory: /usr/lib/nginx/modules
+# Visitor-side limits, applied to every server on the edge. Nginx's own 60s
+# client timeouts let a slowloris or slow-POST client hold a connection and a
+# worker slot for a minute per byte it trickles; 10s is still far longer than
+# any real client pauses between header lines or body packets. Each timeout is
+# the gap allowed between two reads or writes, not the whole transfer, so a
+# large upload or a slow download that keeps moving is unaffected.
+blitzecdn_nginx_client_header_timeout: 10s
+blitzecdn_nginx_client_body_timeout: 10s
+blitzecdn_nginx_send_timeout: 10s
+# How long an idle visitor connection is kept, and how many requests it may
+# carry before Nginx closes it so per-connection memory is released.
+blitzecdn_nginx_keepalive_timeout: 65s
+blitzecdn_nginx_keepalive_requests: 1000
+# The buffers a request line and its header lines must fit in: count and size,
+# as `large_client_header_buffers` takes them. A request line or a single header
+# longer than the size is refused with 414 or 400, and the whole header block
+# cannot exceed count × size. 4 × 8k is Nginx's default, stated so it is a
+# setting rather than an image's choice.
+blitzecdn_nginx_large_client_header_buffers: 4 8k
+# Concurrent connections one client address may hold across the whole edge.
+# Over HTTP/2 and HTTP/3 every in-flight request counts as one. The ceiling is
+# deliberately generous — a corporate NAT or a carrier-grade NAT puts many
+# visitors behind one address — so it stops one host opening thousands of idle
+# sockets, not ordinary browsing. Excess connections are answered 429. 0 turns
+# the limit off.
+blitzecdn_nginx_limit_conn_per_ip: 256
+# Shared memory for that per-address count. A megabyte holds about 16,000
+# addresses with IPv4 keys and fewer with IPv6; when it is full, new addresses
+# are refused rather than tracked, so it is sized well above the active-client
+# count of a busy edge.
+blitzecdn_nginx_limit_conn_zone_size: 20m
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
+# Idle connections to an origin each worker keeps open per upstream group, for
+# the next cache miss to reuse. Every proxied site renders one group per origin
+# scheme and port it reaches; see site.conf.j2. It is a cap on idle sockets,
+# not on concurrency: a burst opens as many connections as it needs and only
+# this many are kept afterwards. 0 turns pooling off and every miss opens a
+# fresh connection, as an edge did before upstream groups existed.
+blitzecdn_nginx_upstream_keepalive: 32
+# How long an idle origin connection is kept. Below an Nginx origin's own 75s,
+# so against the most common origin the edge closes first rather than writing a
+# request into a socket the origin is closing. An origin with a shorter idle
+# timeout — Apache's default is 5s — closes first instead; Nginx retries a
+# request whose reused connection turns out to be closed, except a
+# non-idempotent one it had already sent.
+blitzecdn_nginx_upstream_keepalive_timeout: 60s
+# The shared-memory zone every upstream group on the edge is placed in. Only
+# used with resolvers: `server ... resolve` re-resolves the origin at runtime
+# and needs its group in shared memory. One zone for the whole edge, so its
+# size is one setting rather than one per site. Measured against the edge
+# image, a megabyte holds about seven hundred groups and a site needs at most
+# one per listener port, so 32m is well over a thousand fully-proxied sites.
+# Too small fails `nginx -t` with "no memory in upstream zone" before the
+# release is activated, never at runtime.
+blitzecdn_nginx_upstream_zone: blitzecdn_origins
+blitzecdn_nginx_upstream_zone_size: 32m
 blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
 # Which site carries `reuseport` on the QUIC listener. Nginx accepts it on
 # exactly one server block, so this names the owner rather than the capability
@@ -35,34 +92,10 @@ blitzecdn_nginx_http3_listener_owner: ''
 # this to validate the current configuration against a *new* image before
 # replacing the container serving traffic.
 #
-# Nginx no longer runs on the host: it runs in the container
+# Nginx does not run on the host: it runs in the container
 # blitzecdn_edge_stack starts, so `nginx -t` and `nginx -s reload` in this role
 # mean "in that container".
 blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
-# The mounts a configuration test needs to see, in Compose's own
-# host:container:mode form. The same set the running container gets, minus
-# nothing: a test that cannot see a certificate, runtime module or a capability's
-# data file passes against a tree the real edge would refuse. Cache and log are
-# writable because contributed resources may initialize runtime storage and
-# `nginx -t` opens the error log.
-# tests/contract/roles/ asserts this matches the Compose file.
-blitzecdn_nginx_config_test_volumes:
-  - >-
-    {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{
-      blitzecdn_edge_runtime.paths.modules_include }}:ro
-  - "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro"
-  - >-
-    {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{
-      blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
-  - "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro"
-  - "{{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro"
-  - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
-  - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
@@ -87,7 +120,7 @@ blitzecdn_nginx_default_site_file: >-
 # ignores this. All AEAD, all forward-secret.
 blitzecdn_nginx_ssl_ciphers: >-
   ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305
-# Off, because the CA this collection provisions from no longer publishes an
+# Off, because the CA this collection provisions from does not publish an
 # OCSP responder URL in its certificates. Stapling against such a chain staples
 # nothing and costs a warning on every `nginx -t` and reload, which trains
 # operators to read a clean config test as noisy. Turn it back on only for a CA
@@ -101,13 +134,27 @@ blitzecdn_nginx_hsts_max_age: 31536000
 
 # Observability.
 #
-# The generic access log records a contributed X-Cache-Status response header
-# when present; without the cache capability that field is simply empty. The
-# status endpoint exposes connection and request totals independently.
+# Each configured hostname writes domains/<hostname>.access.log and
+# domains/<hostname>.error.log under the runtime log root; wildcards use
+# _wildcard in place of *. These are the only request logs: access files are
+# JSON Lines, and record a contributed X-Cache-Status response header when
+# present (empty without the cache capability). Error files retain Nginx text
+# and are also copied to Docker stderr. The status endpoint exposes connection
+# and request totals independently.
 blitzecdn_nginx_access_log_enabled: true
-blitzecdn_nginx_access_log_path: >-
-  {{ blitzecdn_edge_runtime.paths.logs }}/blitzecdn-access.log
-blitzecdn_nginx_log_format_name: blitzecdn
+blitzecdn_nginx_log_format_name: blitzecdn_json
+# What an access record keeps about the visitor. Query strings often carry
+# tokens (password resets, signed URLs, API keys), so by default the request
+# line and referer keep the path only. Client addresses are personal data:
+# `truncated` keeps an IPv4 /24 and at most an IPv6 /48, `full` the address.
+# Traffic accounting and cache statistics read neither field.
+blitzecdn_nginx_log_query_strings: false
+blitzecdn_nginx_log_client_ip: truncated
+# Days an access or error log is kept after rotation. Also the archive count,
+# so a file rotated early for size is not kept longer than this either. Logs
+# must outlive the longest traffic collection gap: records rotated away first
+# are never counted.
+blitzecdn_nginx_log_retention_days: 14
 
 # Where the status endpoint listens is blitzecdn_edge_runtime.status: the
 # Compose healthcheck, health.yml and blitzecdn_cache_stats all read the same
@@ -118,3 +165,14 @@ blitzecdn_nginx_log_format_name: blitzecdn
 blitzecdn_nginx_status_allow: [127.0.0.1, "::1"]
 blitzecdn_nginx_status_file: >-
   {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-status.conf
+
+# `/.blitzecdn/release` answers the active release digest only to a request
+# carrying this token in X-BlitzeCDN-Probe, and 404 to everyone else, so the
+# public listeners do not tell a stranger which configuration an edge runs.
+# The controller generates the token once, keeps it under its state directory
+# and passes it in the environment; its rollout verification sends the same
+# value. Written as an Nginx include into the secrets directory, outside every
+# configuration release, so it is not part of any release digest.
+blitzecdn_nginx_release_probe_token: "{{ lookup('env', 'BLITZE_RELEASE_PROBE_TOKEN') }}"
+blitzecdn_nginx_release_probe_file: >-
+  {{ blitzecdn_edge_runtime.paths.secrets }}/release-probe.conf

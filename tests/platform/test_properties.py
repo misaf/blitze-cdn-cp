@@ -64,7 +64,15 @@ def test_release_inputs_round_trip(label: str, address: object) -> None:
     assert restored.digest == inputs.digest
 
 
-@given(label=_LABEL, address=st.ip_addresses(v=4))
+#: Addresses a proxied record may name without its zone opting in: loopback,
+#: link-local, private and the like are refused or need `allow_private_origin`.
+#: Python counts multicast as global.
+_PUBLIC_IPV4 = st.ip_addresses(v=4).filter(
+    lambda address: address.is_global and not address.is_multicast
+)
+
+
+@given(label=_LABEL, address=_PUBLIC_IPV4)
 def test_release_inputs_derive_the_hosts_they_do_not_carry(
     label: str, address: object
 ) -> None:

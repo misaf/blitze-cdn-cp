@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
+from blitzecdn.capabilities.origins.contract import OriginCheck
 from blitzecdn.capabilities.origins.domain.report import EdgeOriginChecks
 from blitzecdn.core.domain.runs import HostRun
 
@@ -69,7 +69,7 @@ def _as_bool(value: object) -> bool:
 def _as_int(value: object) -> int | None:
     try:
         return int(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

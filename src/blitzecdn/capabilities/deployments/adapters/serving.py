@@ -3,6 +3,9 @@
 A reload or a response can come from the previous release, so a reserved
 endpoint returns the digest rendered into the virtual host, whatever the
 origin's health. TLS also checks the certificate names the hostname.
+
+The endpoint answers only a request carrying this controller's release probe
+token; to anyone else it is a 404 like every other reserved path.
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ from typing import Any
 from cryptography import x509
 
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.ansible.probe import RELEASE_PROBE_HEADER
+from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["ServingProbe", "ServingResult"]
 
@@ -49,7 +54,8 @@ class ServingResult:
 class ServingProbe:
     """Requests a hostname from one edge and reports whether it answered."""
 
-    def __init__(self, *, timeout: float = _TIMEOUT_SECONDS) -> None:
+    def __init__(self, *, token: str, timeout: float = _TIMEOUT_SECONDS) -> None:
+        self.token = token
         self.timeout = timeout
 
     def verify(
@@ -65,7 +71,9 @@ class ServingProbe:
             CdnSite(
                 name="default",
                 server_names=("blitzecdn.invalid",),
-                origin_host="127.0.0.1",
+                # Never contacted; a documentation address, as an origin must be
+                # one an edge may proxy to.
+                origin_host="192.0.2.1",
             ),
         )
         for site in probes:
@@ -87,14 +95,16 @@ class ServingProbe:
 
         Not resolved through DNS, which may not point at this edge yet.
         """
-        scheme = (
-            HttpScheme.HTTPS if site.policy.tls.ssl_mode.serves_tls else HttpScheme.HTTP
-        )
+        scheme = site.policy[TlsPolicy].canonical_visitor_scheme
         port = DEFAULT_PORTS[scheme]
         try:
             connection = self._connection(scheme, address, port, hostname)
             try:
-                connection.request("GET", _PATH, headers={"Host": hostname})
+                connection.request(
+                    "GET",
+                    _PATH,
+                    headers={"Host": hostname, RELEASE_PROBE_HEADER: self.token},
+                )
                 response = connection.getresponse()
                 observed = response.read(128).decode("ascii", errors="replace").strip()
             finally:
@@ -158,7 +168,7 @@ def _certificate_covers(der: bytes, hostname: str) -> bool:
         names = certificate.extensions.get_extension_for_class(
             x509.SubjectAlternativeName
         ).value
-    except (ValueError, x509.ExtensionNotFound):
+    except ValueError, x509.ExtensionNotFound:
         return False
     try:
         address = ipaddress.ip_address(hostname)

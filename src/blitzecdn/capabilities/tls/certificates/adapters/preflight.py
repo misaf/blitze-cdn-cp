@@ -18,15 +18,18 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 
-from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
+from blitzecdn.capabilities.tls.certificates.adapters.authoritative import (
+    AuthoritativeResolver,
+)
 from blitzecdn.capabilities.tls.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
 )
-from blitzecdn.core.config import Settings
+from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.core.domain.site import CdnSite
 
 #: CAA tags we understand. A wildcard order consults ``issuewild``, falling
 #: back to ``issue`` only when the RRset has no ``issuewild`` (RFC 8659).
@@ -39,48 +42,72 @@ class CertificatePreflight:
 
     def __init__(
         self,
-        settings: Settings,
+        config: CertificateConfig,
         edges: EdgeStore,
         *,
-        ca_domain: str,
         origin_probe: OriginProbe | None = None,
     ) -> None:
-        self._settings = settings
+        # The DNS budget, the resolvers, and which CA is predicted.
+        self._config = config
         self._edges = edges
-        # The DNS budget and resolvers are core's; which CA is predicted is ours.
-        self._ca_domain = ca_domain
         self._origin_probe = origin_probe
 
-    def _resolver(self) -> dns.resolver.Resolver:
-        """A resolver honouring the configured timeout and, if set, servers."""
-        resolver = dns.resolver.Resolver()
-        timeout = float(self._settings.preflight_dns_timeout_seconds)
-        resolver.lifetime = timeout
-        resolver.timeout = timeout
-        if self._settings.preflight_dns_servers:
-            resolver.nameservers = list(self._settings.preflight_dns_servers)
-        return resolver
+    def _resolver(self) -> Lookup:
+        """Where record lookups go: configured servers, else the configured source.
 
-    def _address_resolver(self) -> dns.resolver.Resolver | None:
-        """``None`` keeps A/AAAA on ``getaddrinfo``; explicit servers are opt-in."""
-        if not self._settings.preflight_dns_servers:
+        By default each zone's authoritative nameservers, because that is what
+        the CA asks; a recursive resolver may answer from a cache or a private
+        view. ``host`` keeps the controller's own resolver, by explicit opt-in.
+        """
+        recursive = _recursive_resolver(self._config)
+        if self._config.dns_servers:
+            return recursive
+        if self._config.preflight_dns_source == "host":
+            return recursive
+        timeout = float(self._config.preflight_dns_timeout_seconds)
+        return AuthoritativeResolver(timeout=timeout, bootstrap=recursive)
+
+    def _address_resolver(self) -> Lookup | None:
+        """``None`` only for ``host``, which keeps A/AAAA on ``getaddrinfo``."""
+        if not self._config.dns_servers and self._config.preflight_dns_source == "host":
             return None
         return self._resolver()
 
-    def _resolver_note(self) -> str:
-        servers = self._settings.preflight_dns_servers
-        return f" via {_join_names(servers)}" if servers else ""
+    def _resolver_note(self, resolver: Lookup | None, name: str) -> str:
+        """Who answered for ``name``, so a report can be checked by hand."""
+        servers = self._config.dns_servers
+        if servers:
+            return f" via {_join_names(servers)}"
+        if resolver is None:
+            return " via the host resolver"
+        if isinstance(resolver, AuthoritativeResolver):
+            server = resolver.answered_by(name)
+            if server:
+                return f" via authoritative nameserver {server}"
+            return " via its authoritative nameservers"
+        return ""
 
     def check(
         self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
     ) -> PreflightReport:
-        """Run every check for one site; the caller supplies stored state."""
-        checks = [
-            self._check_dns(site),
-            self._check_caa(site),
-            self._check_deployed(site, deployed=deployed),
-            self._check_origin(site),
-        ]
+        """Run the checks for one site; the caller supplies stored state.
+
+        A blocking DNS failure already decides the answer, so the network checks
+        after it (the CAA walk and the origin probe) are skipped: an unpointed
+        site must not cost lookups and a connection to its origin on every run.
+        The checks that only read stored state still run, so the report names
+        everything left to fix.
+        """
+        dns_check = self._check_dns(site)
+        if not dns_check.passed and dns_check.severity is PreflightSeverity.BLOCKING:
+            checks = [dns_check, self._check_deployed(site, deployed=deployed)]
+        else:
+            checks = [
+                dns_check,
+                self._check_caa(site),
+                self._check_deployed(site, deployed=deployed),
+                self._check_origin(site),
+            ]
         if record_ttl is not None:
             checks.append(self._check_ttl(record_ttl))
         return PreflightReport(site=site.name, checks=tuple(checks))
@@ -108,20 +135,33 @@ class CertificatePreflight:
                 "is nothing to compare the hostname against; add an edge first",
             )
         resolver = self._address_resolver()
-        note = self._resolver_note()
         problems: list[str] = []
+        notes: list[str] = []
         for name in resolvable:
             addresses = _resolve(name, resolver)
+            note = self._resolver_note(resolver, name)
+            notes.append(f"{name} resolves{note} only to edges")
+            stray = addresses - edges
             if not addresses:
                 problems.append(f"{name} does not resolve{note}")
-            elif not addresses & edges:
+            elif stray == addresses:
                 problems.append(
                     f"{name} resolves{note} to {_join(addresses)}, which is not "
                     f"an edge address ({_join(edges)})"
                 )
+            elif stray:
+                # The CA validates against any address it resolves (preferring
+                # IPv6), so one stale record is enough to fail the challenge.
+                if len(stray) == 1:
+                    verdict = "which is not an edge; remove that record"
+                else:
+                    verdict = "which are not edges; remove those records"
+                problems.append(
+                    f"{name} also resolves{note} to {_join(stray)}, {verdict}"
+                )
         if problems:
             return _failed("dns", PreflightSeverity.BLOCKING, "; ".join(problems))
-        return _passed("dns", f"{_join_names(resolvable)} resolve{note} to an edge")
+        return _passed("dns", "; ".join(notes))
 
     def _edge_addresses(self) -> set[str]:
         """Every address the recorded edges answer on publicly, resolved.
@@ -136,6 +176,9 @@ class CertificatePreflight:
             # `validate` and by every deploy; preflight must not be the thing
             # that turns it into a stack trace.
             return addresses
+        # Edges are ours, not the customer's: an edge named by hostname is
+        # resolved the same way as the site, so both sides of the comparison
+        # come from one view.
         resolver = self._address_resolver()
         for edge in edges:
             for address in edge.effective_public_addresses:
@@ -147,7 +190,7 @@ class CertificatePreflight:
     # ------------------------------------------------------------------
 
     def _check_caa(self, site: CdnSite) -> PreflightCheck:
-        issuer = self._ca_domain
+        issuer = self._config.ca_domain
         for name in site.server_names:
             wildcard = name.startswith("*.")
             base = name[2:] if wildcard else name
@@ -183,7 +226,7 @@ class CertificatePreflight:
         for candidate in _ancestors(name):
             try:
                 answer = resolver.resolve(candidate, dns.rdatatype.CAA)
-            except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            except dns.resolver.NoAnswer, dns.resolver.NXDOMAIN:
                 continue
             tags = [
                 (
@@ -237,24 +280,18 @@ class CertificatePreflight:
         )
 
 
-def check_resolver(settings: Settings) -> PreflightCheck:
+def check_resolver(config: CertificateConfig) -> PreflightCheck:
     """Detect a resolver that invents answers for names that cannot exist.
 
     Such a resolver looks healthy until an address comparison fails, blaming the
     zone. ``.invalid`` can never be delegated (RFC 2606), so any answer is invented.
     """
-    servers = settings.preflight_dns_servers
-    where = f" ({_join_names(servers)})" if servers else " (host resolver)"
-    resolver = dns.resolver.Resolver()
-    timeout = float(settings.preflight_dns_timeout_seconds)
-    resolver.lifetime = timeout
-    resolver.timeout = timeout
-    if servers:
-        resolver.nameservers = list(servers)
+    where = _recursive_description(config)
+    resolver = _recursive_resolver(config)
     probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
     try:
         answer = resolver.resolve(probe, dns.rdatatype.A)
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer:
         return _passed("resolver", f"resolver{where} rejects names that cannot exist")
     except dns.exception.DNSException:
         # No answer at all is not evidence of dishonesty, and preflight already
@@ -269,6 +306,30 @@ def check_resolver(settings: Settings) -> PreflightCheck:
         "compare against fiction. Point this host at a resolver that returns "
         "real answers, or set BLITZE_PREFLIGHT_DNS_SERVERS",
     )
+
+
+#: What preflight looks records up with: a recursive or an authoritative resolver.
+Lookup = dns.resolver.Resolver | AuthoritativeResolver
+
+
+def _recursive_resolver(config: CertificateConfig) -> dns.resolver.Resolver:
+    """The configured servers, or the host's; for answers or for bootstrapping."""
+    resolver = dns.resolver.Resolver()
+    timeout = float(config.preflight_dns_timeout_seconds)
+    resolver.lifetime = timeout
+    resolver.timeout = timeout
+    if config.dns_servers:
+        resolver.nameservers = list(config.dns_servers)
+    return resolver
+
+
+def _recursive_description(config: CertificateConfig) -> str:
+    servers = config.dns_servers
+    if servers:
+        return f" ({_join_names(servers)})"
+    if config.preflight_dns_source == "host":
+        return " (host resolver)"
+    return " (host resolver, used to find authoritative nameservers)"
 
 
 def _passed(name: str, detail: str) -> PreflightCheck:
@@ -311,11 +372,11 @@ def _ancestors(name: str) -> Iterator[str]:
         yield ".".join(labels[index:])
 
 
-def _resolve(host: str, resolver: dns.resolver.Resolver | None = None) -> set[str]:
+def _resolve(host: str, resolver: Lookup | None = None) -> set[str]:
     """Every A/AAAA address ``host`` answers with, normalized for comparison.
 
-    Literal addresses pass through. Without explicit servers this uses
-    ``getaddrinfo``, as the host would; with them, it asks what the CA would see.
+    Literal addresses pass through. Without a resolver this uses
+    ``getaddrinfo``, as the host would; with one, it asks what the CA would see.
     """
     candidate = host.strip().rstrip(".")
     if not candidate:
@@ -339,13 +400,13 @@ def _resolve(host: str, resolver: dns.resolver.Resolver | None = None) -> set[st
     return addresses
 
 
-def _resolve_with(candidate: str, resolver: dns.resolver.Resolver) -> set[str]:
+def _resolve_with(candidate: str, resolver: Lookup) -> set[str]:
     """A and AAAA from an explicit resolver, ignoring the host's own view."""
     addresses: set[str] = set()
     for rdatatype in (dns.rdatatype.A, dns.rdatatype.AAAA):
         try:
             answer = resolver.resolve(candidate, rdatatype)
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        except dns.resolver.NoAnswer, dns.resolver.NXDOMAIN:
             continue
         except dns.exception.DNSException:
             # An unanswering resolver reads as "does not resolve", correctly either way.

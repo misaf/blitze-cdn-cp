@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, _role_defaults, _runtime_defaults
+from support.contracts import PROJECT_DIR, ROLE_DIR, runtime_defaults
 
 from blitzecdn.capabilities.cache import ansible
 
@@ -25,6 +25,9 @@ CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_purge"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
 STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
 NGINX_DIR = ansible.ROLES_PATH.parent.parent / "nginx"
+#: Where $blitzecdn_accept_encoding is mapped: core, because compression sends
+#: it to the origin and this capability keys by it, each without the other.
+CORE_HTTP_TEMPLATE = ROLE_DIR / "templates/http.conf.j2"
 
 
 def test_the_roles_this_capability_ships_are_where_it_says_they_are():
@@ -36,7 +39,8 @@ def test_the_roles_this_capability_ships_are_where_it_says_they_are():
         "blitzecdn_cache_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
-    assert (STATS_ROLE_DIR / "files/collect-cache-stats.sh").is_file()
+    # Cache outcomes come from traffic collection; this role reads no logs.
+    assert not (STATS_ROLE_DIR / "files").exists()
 
 
 def test_the_plays_this_capability_runs_ship_with_it():
@@ -49,7 +53,7 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
 
 
 def _contract_value(*path: str) -> Any:
-    value: Any = _runtime_defaults()["blitzecdn_edge_runtime"]
+    value: Any = runtime_defaults()["blitzecdn_edge_runtime"]
     for key in path:
         value = value[key]
     return value
@@ -76,21 +80,19 @@ def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
     )
 
 
-def test_purge_role_agrees_with_the_capability_owned_nginx_resource():
-    """The cache package owns both normalization and every consumer of it."""
-    template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
+def test_purge_role_agrees_with_the_nginx_normalization():
+    """The key is purged per encoding because the core map normalizes it."""
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    upstream = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
     assert _defaults_of(CACHE_ROLE_DIR)[
         "blitzecdn_cache_purge_normalize_accept_encoding"
     ]
-    assert "$blitzecdn_accept_encoding" in template
+    assert "map $http_accept_encoding $blitzecdn_accept_encoding" in core
+    assert "$blitzecdn_accept_encoding" in upstream
 
 
-def test_stats_role_reads_the_log_the_nginx_role_writes():
+def test_stats_role_reads_the_status_endpoint_the_nginx_role_serves():
     stats = _defaults_of(STATS_ROLE_DIR)
-    assert (
-        stats["blitzecdn_cache_stats_access_log_path"]
-        == _role_defaults()["blitzecdn_nginx_access_log_path"]
-    )
     assert stats["blitzecdn_cache_stats_status_address"] == _contract_value(
         "status", "address"
     )
@@ -125,13 +127,50 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     defaults = _defaults_of(CACHE_ROLE_DIR)
     assert set(defaults["blitzecdn_cache_purge_methods"]) == {"GET", "HEAD"}
 
-    cache_conf = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
-    mapped = set(re.findall(r'"(br|gzip)"\s*;', cache_conf)) | {""}
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    mapped = set(re.findall(r'"(br|gzip)"\s*;', core)) | {""}
     assert set(defaults["blitzecdn_cache_purge_encodings"]) == mapped, (
         "the encodings blitzecdn_cache purges differ from the ones the "
         "$blitzecdn_accept_encoding map can produce; the unlisted variant "
         "would survive a purge and keep being served"
     )
+
+
+def _normalized_encoding(header: str) -> str:
+    """Evaluate the core map as Nginx does: first matching regex, else default."""
+    core = CORE_HTTP_TEMPLATE.read_text(encoding="utf-8")
+    body = core.split("map $http_accept_encoding $blitzecdn_accept_encoding {")[1]
+    entries = re.findall(
+        r'^\s*"~\*(.+)"\s+"(br|gzip)";\s*$', body.split("}\n")[0], re.M
+    )
+    assert [value for _, value in entries] == ["br", "gzip"]
+    for pattern, value in entries:
+        if re.search(pattern, header, re.IGNORECASE):
+            return value
+    return ""
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("gzip, deflate, br", "br"),
+        ("BR", "br"),
+        ("br;q=0.5, gzip", "br"),
+        ("deflate, gzip;q=0.8", "gzip"),
+        ("x-br, gzip", "gzip"),
+        ("deflate", ""),
+        ("", ""),
+        # Refused codings are not asked for: the origin would answer with them.
+        ("br;q=0, gzip;q=1", "gzip"),
+        ("br; q=0.000 , gzip", "gzip"),
+        ("br;level=1;q=0, gzip", "gzip"),
+        ("gzip;q=0", ""),
+        ("br;q=0, gzip;q=0", ""),
+        ("br;q=0.001", "br"),
+    ],
+)
+def test_the_encoding_map_asks_for_one_coding_the_visitor_accepts(header, expected):
+    assert _normalized_encoding(header) == expected
 
 
 def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
@@ -153,6 +192,8 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
         "blitzecdn_cache_purge_entries": [
             {"host": "example.com", "uri": "/asset", "scheme": "http"}
         ],
+        "blitzecdn_cache_purge_prefixes": [],
+        "blitzecdn_cache_purge_tags": [],
         "blitzecdn_cache_purge_all": False,
     }
     role_tasks = yaml.safe_load(
@@ -169,7 +210,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
                     # Run through "Compute the cache files"; the rest chown a manifest
                     # to root.
                     "tasks": [
-                        *role_tasks[:5],
+                        *role_tasks[:7],
                         {
                             "copy": {
                                 "content": (

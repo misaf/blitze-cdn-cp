@@ -9,23 +9,33 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
+from dishka import Provider, Scope, alias, provide
+
+from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
+from blitzecdn.capabilities.tls.adapters.persistence import PreflightAttemptStore
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertbotIssuer
+from blitzecdn.capabilities.tls.certificates.adapters import (
+    CertificateStore as CertificateFiles,
+)
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,
 )
+from blitzecdn.capabilities.tls.certificates.domain import PreflightBackoff
 from blitzecdn.capabilities.tls.certificates.ports import (
+    CertbotTimeout,
     CertificateStore,
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
     EventRecorder,
+    PreflightAttempts,
     RecordReader,
     ReleaseHistory,
     SiteEditor,
     SiteReader,
+    SiteWriter,
     UnitOfWork,
     WorkflowCoordinator,
 )
@@ -34,9 +44,15 @@ from blitzecdn.capabilities.tls.certificates.service import (
     CertificatePersistence,
     CertificatePolicy,
     CertificateService,
+    SiteEditing,
 )
-from blitzecdn.capabilities.tls.contract import CertificateMode, CertificateVersion
-from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.contract import (
+    CertificateMode,
+    CertificateVersion,
+    TlsPolicy,
+)
+from blitzecdn.capabilities.tls.ports import CertificateHistory
+from blitzecdn.capabilities.tls.settings import CONFIGURATION, CertificateConfig
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureOperations,
@@ -46,11 +62,13 @@ from blitzecdn.core.features import (
     SiteStateContribution,
     ValidationIssue,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.core.domain.site import CdnSite
 
 
 #: The installed distribution's version, read from metadata.
@@ -75,8 +93,8 @@ class CertificateMaterialReferences:
                 paths.update(
                     path
                     for path in (
-                        zone.policy.tls.certificate_path,
-                        zone.policy.tls.certificate_key_path,
+                        zone.policy[TlsPolicy].certificate_path,
+                        zone.policy[TlsPolicy].certificate_key_path,
                     )
                     if path is not None
                 )
@@ -86,6 +104,11 @@ class CertificateMaterialReferences:
                     if isinstance(path, str):
                         paths.add(path)
         return tuple(sorted(paths))
+
+
+def build_site_editor(*, writer: SiteWriter) -> SiteEditor:
+    """Wire the TLS writes onto the zone or rule behind a host."""
+    return SiteEditing(writer=writer)
 
 
 def build_certificate_service(
@@ -105,27 +128,34 @@ def build_certificate_service(
     deployments: DeploymentGateway,
     workflows: WorkflowCoordinator,
     uow: UnitOfWork,
-    clock: Clock = system_clock,
+    preflight_attempts: PreflightAttempts,
+    certbot_timeout_seconds: int,
+    clock: Clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
     return CertificateService(
         material_references=CertificateMaterialReferences(releases),
-        policy=CertificatePolicy(default_email=config.default_email),
+        policy=CertificatePolicy(
+            default_email=config.default_email,
+            # Starts at the reconciliation interval; a disabled timer still
+            # needs a sensible base for runs an operator starts by hand.
+            preflight_backoff=PreflightBackoff(
+                interval_seconds=config.reconcile_interval_seconds or 600
+            ),
+        ),
         persistence=CertificatePersistence(
             sites=sites,
             certificates=store,
             uow=uow,
             requirements=requirements,
+            preflight_attempts=preflight_attempts,
         ),
         execution=CertificateExecution(
             runner=lock,
-            issuer=CertbotIssuer(settings, config.certbot),
-            preflight=CertificatePreflight(
-                settings,
-                edges,
-                ca_domain=config.ca_domain,
-                origin_probe=origin_probe,
+            issuer=CertbotIssuer(
+                settings, config.certbot, timeout_seconds=certbot_timeout_seconds
             ),
+            preflight=CertificatePreflight(config, edges, origin_probe=origin_probe),
         ),
         events=events,
         dns=dns,
@@ -162,7 +192,7 @@ def unissuable_names(site: CdnSite) -> Sequence[ValidationIssue]:
     """Refuse a site whose ACME request can never be answered."""
     if (
         not site.policy.enabled
-        or site.policy.tls.certificate_mode is not CertificateMode.REQUESTED
+        or site.policy[TlsPolicy].certificate_mode is not CertificateMode.REQUESTED
     ):
         return ()
     return tuple(
@@ -185,12 +215,12 @@ def certificates_rendering(*, store: CertificateStore) -> FeatureRendering[CdnSi
     """Override a site's certificate paths with the verified installed files."""
 
     def site_state(site: CdnSite) -> SiteStateContribution | None:
-        if not site.policy.tls.certificate_mode.issuer_owned:
+        if not site.policy[TlsPolicy].certificate_mode.issuer_owned:
             return None
         version = CertificateVersion.from_paths(
             site.name,
-            site.policy.tls.certificate_path or "",
-            site.policy.tls.certificate_key_path or "",
+            site.policy[TlsPolicy].certificate_path or "",
+            site.policy[TlsPolicy].certificate_key_path or "",
         )
         certificate, private_key = store.sources(site.name, version=version)
         return SiteStateContribution(
@@ -257,3 +287,94 @@ def certificates_operations(
             ),
         ),
     )
+
+
+class TlsProvider(Provider):
+    """Certificate files and preflight records, issuance, and Automatic SSL."""
+
+    scope = Scope.APP
+
+    @provide
+    def config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> CertificateConfig:
+        return capability_config.for_feature(CONFIGURATION.feature).as_model(
+            CertificateConfig
+        )
+
+    @provide
+    def files(self, settings: Settings, clock: Clock) -> CertificateFiles:
+        return CertificateFiles(settings, clock=clock)
+
+    certificate_store = alias(source=CertificateFiles, provides=CertificateStore)
+
+    @provide
+    def preflight_attempts(self, database: Database) -> PreflightAttempts:
+        return PreflightAttemptStore(database)
+
+    @provide
+    def site_editor(self, writer: SiteWriter) -> SiteEditor:
+        # DNS writes where a host's policy comes from; TLS decides what it writes.
+        return build_site_editor(writer=writer)
+
+    @provide
+    def certificates(
+        self,
+        settings: Settings,
+        config: CertificateConfig,
+        store: CertificateStore,
+        releases: ReleaseHistory,
+        sites: SiteReader,
+        edges: EdgeStore,
+        origin_probe: OriginProbe,
+        requirements: DeploymentRequirements,
+        lock: DeploymentLocker,
+        events: EventRecorder,
+        dns: RecordReader,
+        site_editor: SiteEditor,
+        deployments: DeploymentGateway,
+        workflows: WorkflowCoordinator,
+        uow: UnitOfWork,
+        preflight_attempts: PreflightAttempts,
+        certbot_timeout: CertbotTimeout,
+        clock: Clock,
+    ) -> CertificateService:
+        return build_certificate_service(
+            settings=settings,
+            config=config,
+            store=store,
+            releases=releases,
+            sites=sites,
+            edges=edges,
+            origin_probe=origin_probe,
+            requirements=requirements,
+            lock=lock,
+            events=events,
+            dns=dns,
+            site_editor=site_editor,
+            deployments=deployments,
+            workflows=workflows,
+            uow=uow,
+            preflight_attempts=preflight_attempts,
+            certbot_timeout_seconds=certbot_timeout,
+            clock=clock,
+        )
+
+    history = alias(source=CertificateService, provides=CertificateHistory)
+
+    @provide
+    def automatic_ssl(
+        self,
+        sites: SiteReader,
+        origin_checks: OriginCheckRunner,
+        origin_probe: OriginProbe,
+        site_editor: SiteEditor,
+        deployments: DeploymentGateway,
+    ) -> AutomaticSslService:
+        return build_automatic_ssl_service(
+            sites=sites,
+            origin_checks=origin_checks,
+            origin_probe=origin_probe,
+            site_editor=site_editor,
+            deployments=deployments,
+        )

@@ -2,15 +2,20 @@
 
 from blitzecdn.capabilities.diagnostics.domain.status import (
     WORKER_STALE_SECONDS,
+    BackupStatistics,
     CertificateStatistics,
     OperationalStatus,
     WorkerStatus,
 )
-from blitzecdn.capabilities.diagnostics.ports import QueueHistory
-from blitzecdn.capabilities.jobs.ports import WorkerHistory
-from blitzecdn.capabilities.tls.ports import CertificateHistory
-from blitzecdn.capabilities.workflows.ports import WorkflowHistory
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.capabilities.diagnostics.ports import (
+    BackupHistory,
+    ConvergenceHistory,
+    QueueHistory,
+)
+from blitzecdn.capabilities.jobs import WorkerHistory
+from blitzecdn.capabilities.tls import CertificateHistory
+from blitzecdn.capabilities.workflows import WorkflowHistory
+from blitzecdn.core.ports.clock import Clock
 
 
 class DiagnosticsService:
@@ -21,12 +26,16 @@ class DiagnosticsService:
         workflows: WorkflowHistory,
         certificates: CertificateHistory,
         workers: WorkerHistory,
-        clock: Clock = system_clock,
+        backups: BackupHistory,
+        convergence: ConvergenceHistory,
+        clock: Clock,
     ) -> None:
         self.queue = queue
         self.workflows = workflows
         self.certificates = certificates
         self.workers = workers
+        self.backups = backups
+        self.convergence = convergence
         self.clock = clock
 
     def status(self) -> OperationalStatus:
@@ -50,6 +59,8 @@ class DiagnosticsService:
                 )
             )
         certificates = self.certificates.certificate_statuses()
+        attempts = self.certificates.preflight_attempts()
+        backup = self.backups.latest()
         return OperationalStatus(
             observed_at=now,
             queue=self.queue.statistics(now=now),
@@ -64,5 +75,23 @@ class DiagnosticsService:
                 next_expiry_at=min(
                     (item.not_after for item in certificates), default=None
                 ),
+                preflight_blocked=len(attempts),
+                preflight_last_checked_at=max(
+                    (item.checked_at for item in attempts), default=None
+                ),
+                preflight_next_check_at=min(
+                    (item.next_check_at for item in attempts), default=None
+                ),
             ),
+            backups=BackupStatistics(
+                last_completed_at=backup.completed_at if backup else None,
+                last_age_seconds=(
+                    max(0, (now - backup.completed_at).total_seconds())
+                    if backup
+                    else None
+                ),
+                last_archive=backup.archive if backup else None,
+                last_size_bytes=backup.size_bytes if backup else None,
+            ),
+            convergence=self.convergence.health(),
         )

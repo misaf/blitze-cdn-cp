@@ -22,6 +22,7 @@ capability may name, and module-scope import cycles.
 from __future__ import annotations
 
 import ast
+import configparser
 from collections import defaultdict
 from pathlib import Path
 
@@ -47,12 +48,6 @@ def _is_domain(path: Path) -> bool:
     }
 
 
-_PUBLIC_CROSS_CAPABILITY_MODULES = {
-    "domain",
-    "contract",
-    "ports",
-}
-
 #: Names that must never become a top-level capability package: each is a
 #: strategy, protocol version, mode or detail of an existing capability. Mapped to
 #: the owner so the failure says where the code belongs.
@@ -69,12 +64,12 @@ _STRATEGIES_OWNED_BY_A_CAPABILITY = {
     "http2": "http",
     "http3": "http",
     "letsencrypt": "tls",
-    "origin": "sites",
+    "origin": "origins",
     "protocols": "http",
     "quic": "http",
     "ssl": "tls",
     "under_attack": "security",
-    "visitor_headers": "sites",
+    "visitor_headers": "http",
 }
 
 
@@ -139,7 +134,7 @@ def _is_contract_import(imported: str) -> bool:
     return len(parts) > 1 and parts[1] == "contract"
 
 
-def test_legacy_layer_first_packages_have_no_source_modules():
+def test_layer_first_packages_have_no_source_modules():
     for package in ("domain", "application", "infrastructure"):
         assert not list((_SOURCE / package).rglob("*.py"))
     assert not list((_SOURCE / "api/routes").rglob("*.py"))
@@ -148,8 +143,8 @@ def test_legacy_layer_first_packages_have_no_source_modules():
 #: A capability's contact with a caller: everything under `api/` and `cli`.
 #:
 #: Positional, like `adapters/`, so a new delivery module is under the rule
-#: without being listed. They stay outside `adapters/` because `api.models` is a
-#: published contract while adapters must stay unreachable.
+#: without being listed. They stay outside `adapters/` because the entry points
+#: assemble them, while adapters are chosen only by the composition root.
 def _is_entry(path: Path) -> bool:
     parts = path.relative_to(_CAPABILITIES).parts
     return "api" in parts or "cli" in {part.removesuffix(".py") for part in parts}
@@ -163,25 +158,84 @@ def _entry_files() -> list[Path]:
     ]
 
 
-def test_cross_capability_imports_use_contract_modules():
+#: Who may name a capability's submodules besides the capability itself: the
+#: code that assembles capabilities rather than being one of them.
+_ASSEMBLERS = {"blitzecdn.assets", "blitzecdn.composition", "blitzecdn.entrypoints"}
+
+
+def _capability_packages() -> list[Path]:
+    return sorted(
+        path
+        for path in _CAPABILITIES.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    )
+
+
+def _submodules(package: Path) -> set[str]:
+    """A package's direct children that Python can import, by name."""
+    return {
+        child.stem if child.suffix == ".py" else child.name
+        for child in package.iterdir()
+        if (child.suffix == ".py" and child.stem != "__init__")
+        or (child.is_dir() and (child / "__init__.py").is_file())
+    }
+
+
+def _lines(value: str) -> set[str]:
+    return {line.strip() for line in value.splitlines() if line.strip()}
+
+
+def test_every_capability_s_public_surface_is_protected():
+    """Another capability names the package or its `contract`, nothing deeper.
+
+    import-linter enforces it, one `protected` contract per capability, because
+    INI cannot say "every other capability". What it cannot do is notice a
+    capability, or a submodule, that its contract forgot: this does.
+    """
+    config = configparser.ConfigParser()
+    config.read(REPO_ROOT / ".importlinter", encoding="utf-8")
     offenders: list[str] = []
-    prefix = "blitzecdn.capabilities."
-    for path in _capability_files():
-        owner = _capability_name(path)
-        for imported in sorted(_imports(path)):
-            if not imported.startswith(prefix):
-                continue
-            parts = imported.removeprefix(prefix).split(".")
-            if parts[0] == owner or len(parts) == 1:
-                continue
-            # HTTP representation reuse belongs to delivery. Concrete
-            # runtime implementations are wired only in the composition root.
-            # And a command editing a zone's policy changes it through dns.
-            published = parts[1:] in (["api", "models"], ["cli", "editing"])
-            if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES and not (
-                published and _is_entry(path)
-            ):
-                offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
+    for package in _capability_packages():
+        name = f"blitzecdn.capabilities.{package.name}"
+        section = f"importlinter:contract:{package.name}-public-surface"
+        if section not in config:
+            offenders.append(f"{section} is missing")
+            continue
+        contract = config[section]
+        expected = {
+            "type": "protected",
+            "protected_modules": {
+                f"{name}.{child}" for child in _submodules(package) - {"contract"}
+            },
+            "allowed_importers": {name, *_ASSEMBLERS},
+        }
+        actual = {
+            "type": contract.get("type", "").strip(),
+            "protected_modules": _lines(contract.get("protected_modules", "")),
+            "allowed_importers": _lines(contract.get("allowed_importers", "")),
+        }
+        offenders.extend(
+            f"{section} {key}: expected {expected[key]!r}, found {actual[key]!r}"
+            for key in expected
+            if actual[key] != expected[key]
+        )
+    assert offenders == []
+
+
+def test_every_capability_package_declares_its_public_surface():
+    """The package is what another capability imports, so it says what it offers."""
+    offenders = [
+        f"{path.relative_to(_SOURCE)} has no __all__"
+        for path in (package / "__init__.py" for package in _capability_packages())
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for node in ast.parse(path.read_text(encoding="utf-8")).body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+        )
+    ]
     assert offenders == []
 
 
@@ -193,6 +247,7 @@ _CONCRETE_ADAPTERS = {
     "CertbotIssuer",
     "CertificatePreflight",
     "DramatiqBackgroundRunner",
+    "KnownHosts",
     "Repository",
 }
 
@@ -330,17 +385,37 @@ def test_no_internal_module_dependency_cycles():
 
     Module-scope imports only. Deferred imports keep runtime-only integrations
     outside the import graph; core schema lifecycle owns no repository imports.
+
+    Importing `a.b.c` runs `a/b/__init__.py` first, so an import also depends on
+    every package above what it names, except the importer's own ancestors,
+    which are already initialising. Other capabilities import a capability's
+    package, so its `__init__` is part of the graph like any other module.
     """
+    # A package is its `__init__.py`, named as it is imported.
     modules = {
-        "blitzecdn." + ".".join(path.relative_to(_SOURCE).with_suffix("").parts): path
+        "blitzecdn."
+        + ".".join(path.relative_to(_SOURCE).with_suffix("").parts).removesuffix(
+            ".__init__"
+        ): path
         for path in _SOURCE.rglob("*.py")
         if "migrations" not in path.parts
     }
     graph: dict[str, set[str]] = defaultdict(set)
     for module, path in modules.items():
-        graph[module].update(
-            name for name in _module_scope_imports(path) if name in modules
-        )
+        own_ancestors = {
+            module.rsplit(".", depth)[0] for depth in range(1, module.count(".") + 1)
+        }
+        for name in _module_scope_imports(path):
+            parts = name.split(".")
+            graph[module].update(
+                prefix
+                for prefix in (
+                    ".".join(parts[:end]) for end in range(1, len(parts) + 1)
+                )
+                if prefix in modules
+                and prefix not in own_ancestors
+                and prefix != module
+            )
     visiting: list[str] = []
     visited: set[str] = set()
 
@@ -376,57 +451,67 @@ def test_domain_models_do_not_render_adapter_documents():
 #: Which capability may know that another exists, enforced both ways: an
 #: undeclared edge fails, and so does a declared edge nothing uses.
 #:
-#: DNS owns zones, records, rules and their projection; shared serving values
-#: belong to serving. A capability whose contract a zone carries depends on dns
-#: for its `blitzecdn domain` commands.
+#: DNS owns zones, records, rules and their projection. Shared site identity
+#: and policy belong to core. A capability whose contract a zone carries depends
+#: on dns for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
+    "traffic": set(),
     "backup": set(),
-    "origins": {"edges", "jobs", "serving"},
-    "cache": {"dns", "jobs", "serving"},
+    "origins": {"jobs"},
+    # `traffic` because its collector counts cache outcomes in the same pass.
+    "cache": {"dns", "jobs", "traffic"},
     "compression": {"dns"},
-    "deployments": {"dns", "edges", "releases", "serving", "workflows"},
+    "deployments": {"dns", "edges", "releases", "workflows"},
     # Readiness and metrics read the state these own.
-    "diagnostics": {"deployments", "dns", "edges", "jobs", "tls", "workflows"},
-    "dns": {"serving"},
-    "edges": {"jobs", "serving"},
+    # `backup` for the last-backup record the status report and metrics carry.
+    "diagnostics": {
+        "backup",
+        "deployments",
+        "dns",
+        "edges",
+        "jobs",
+        "tls",
+        "workflows",
+    },
+    "dns": set(),
+    "edges": {"jobs"},
     "hardening": set(),
-    "http": {"dns", "serving"},
+    "http": {"dns"},
     "jobs": set(),
     "maintenance": {"deployments"},
-    "releases": {"dns", "edges", "serving"},
+    "releases": {"dns", "edges"},
     "resolver": set(),
-    "security": {"dns", "serving"},
-    "serving": set(),
+    "security": {"dns"},
     # `releases` because certificate collection keeps every version a retained
-    # release still names.
+    # release still names; `jobs` because the API queues issuance and renewal.
     "tls": {
         "deployments",
         "dns",
         "edges",
+        "jobs",
         "origins",
         "releases",
-        "serving",
         "workflows",
     },
     "workflows": set(),
 }
 
-# Policy composition is independent of implementation dependencies: serving
-# composes the individual contracts and dns consumes it.
+# Policy composition is independent of implementation dependencies: core
+# composes contributed contracts without naming their capabilities.
 ALLOWED_CONTRACT_DEPENDENCIES = {
+    "traffic": set(),
     "backup": set(),
-    "origins": set(),
-    "cache": {"http"},
+    "origins": {"http", "tls"},
+    "cache": {"http", "tls"},
     "compression": set(),
-    "deployments": {"http"},
+    "deployments": {"http", "tls"},
     "diagnostics": set(),
-    "dns": {"cache", "compression", "http", "security", "serving", "tls"},
-    "edges": {"http", "tls"},
+    "dns": {"origins", "tls"},
+    "edges": {"http", "origins", "tls"},
     "http": set(),
     "maintenance": set(),
-    "releases": {"serving"},
+    "releases": set(),
     "security": set(),
-    "serving": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
     "workflows": set(),
 }
@@ -564,7 +649,7 @@ def test_no_capability_port_declares_another_capability_s_playbook():
     # Each edge playbook port belongs to the capability that runs that play.
     owners: dict[str, str | None] = {
         "run_cache_purge": "cache",
-        "run_stats": "cache",
+        "run_connections": "cache",
         "run_origin_check": "origins",
         "run_decommission": "edges",
     }
@@ -722,8 +807,8 @@ def test_delivery_code_names_no_part_of_the_composition():
 def test_domain_and_service_code_never_reads_the_wall_clock():
     """Time is handed in: a `Clock` to a service, `now` to domain code.
 
-    Adapters that time an external process (`core/ansible/execution.py`) and
-    the ORM's fallback column defaults are outside the rule.
+    Adapters that time an external process (`core/ansible/execution.py`) are
+    outside the rule.
     """
     reads = ("datetime.now(", "datetime.utcnow(", "time.time(")
     offenders = [
@@ -735,5 +820,26 @@ def test_domain_and_service_code_never_reads_the_wall_clock():
             path.read_text(encoding="utf-8").splitlines(), start=1
         )
         if any(read in line for read in reads)
+    ]
+    assert offenders == []
+
+
+def test_only_the_composition_root_chooses_the_system_clock():
+    """A service or adapter takes `clock` as a required argument.
+
+    A `clock: Clock = system_clock` default lets a caller that forgets the
+    clock silently read real time. The composition root picks it once, on
+    `Adapters`; `core/ports/clock.py` defines it.
+    """
+    allowed = {Path("core/ports/clock.py")}
+    offenders = [
+        f"{relative}:{number}"
+        for path in sorted(_SOURCE.rglob("*.py"))
+        if (relative := path.relative_to(_SOURCE)) not in allowed
+        and relative.parts[0] != "composition"
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if "system_clock" in line
     ]
     assert offenders == []

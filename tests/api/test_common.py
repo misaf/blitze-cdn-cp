@@ -22,12 +22,14 @@ def test_health_is_public_and_controls_require_auth(settings):
     with TestClient(control_plane_app(settings)) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/metrics").status_code == 401
-        assert client.get("/v1/hosts").status_code == 401
-        wrong = client.get("/v1/hosts", headers={"X-API-Key": "wrong"})
+        assert client.get("/v3/hosts").status_code == 401
+        wrong = client.get("/v3/hosts", headers={"X-API-Key": "wrong"})
         assert wrong.status_code == 401
         assert wrong.headers["WWW-Authenticate"] == "ApiKey"
+        non_ascii = client.get("/v3/hosts", headers=[(b"X-API-Key", b"\xff")])
+        assert non_ascii.status_code == 401
         assert (
-            client.get("/v1/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
+            client.get("/v3/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
 
 
@@ -38,7 +40,7 @@ def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
     deployments it can never run.
     """
     monkeypatch.setattr(
-        "blitzecdn.composition.infrastructure.QueueReadiness.__call__",
+        "blitzecdn.capabilities.jobs.wiring.QueueReadiness.__call__",
         lambda _readiness: False,
     )
     with TestClient(control_plane_app(settings)) as client:
@@ -86,7 +88,7 @@ def test_openapi_declares_the_api_key_as_a_security_scheme(settings):
 def test_api_fails_closed_without_keys(settings):
     insecure = settings.model_copy(update={"api_keys": {}})
     with TestClient(create_app(insecure)) as client:
-        assert client.get("/v1/hosts").status_code == 503
+        assert client.get("/v3/hosts").status_code == 503
 
 
 _HEADERS = {"X-API-Key": "x" * 32}
@@ -128,7 +130,7 @@ def test_metrics_are_authenticated_and_readable(settings):
     assert 'blitzecdn_workers{state="busy"} 0' in body
 
 
-@pytest.mark.parametrize("failure", ["start", "stop", "pool", "drain"])
+@pytest.mark.parametrize("failure", ["start", "stop"])
 def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
     settings, monkeypatch, failure
 ):
@@ -148,21 +150,12 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         get=lambda _kind: node, close=lambda: operation("close")
     )
 
-    def pool(**kwargs):
-        operation("pool")
-        return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
-
     monkeypatch.setattr(
         "blitzecdn.entrypoints.api.app.api_container", lambda *a, **k: container
     )
-    monkeypatch.setattr("blitzecdn.entrypoints.api.app.ThreadPoolExecutor", pool)
     with (
         pytest.raises(RuntimeError, match=f"failed {failure}"),
         TestClient(create_app(settings)),
     ):
         pass
-    assert events == (
-        ["pool", "close"]
-        if failure == "pool"
-        else ["pool", "start", "drain", "stop", "close"]
-    )
+    assert events == ["start", "stop", "close"]

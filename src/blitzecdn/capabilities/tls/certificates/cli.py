@@ -9,8 +9,7 @@ from typing import Annotated, Any, NoReturn
 
 import typer
 
-from blitzecdn.capabilities.deployments import DeploymentService
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments import DeploymentService, DeploymentStatus
 from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
@@ -181,16 +180,19 @@ def cert_reconcile(
 
     Safe to schedule frequently: sites with certificates are ignored, blocked
     preflights never contact the CA, and a deployment is queued only after at
-    least one new certificate was issued. The worker converges it.
+    least one new certificate was issued. The worker converges it. Unlike the
+    scheduled run, every waiting site is checked, even one backing off.
     """
-    result = common.service(CertificateService).reconcile_certificates("cli")
+    result = common.service(CertificateService).reconcile_certificates(
+        "cli", force=True
+    )
     deployment = result.deployment
     common.emit(
         result,
         json_output=json_output,
         note=(
             f"Queued deployment {deployment.id}; "
-            f"follow it with 'blitzecdn status {deployment.id}'."
+            f"follow it with 'blitzecdn deployment status {deployment.id}'."
             if deployment is not None
             else None
         ),
@@ -216,7 +218,7 @@ def cert_upload(
 ) -> None:
     """Install a certificate you already hold for one site.
 
-    The counterpart of ``POST /v1/hosts/{name}/certificate/upload``, which
+    The counterpart of ``POST /v3/hosts/{name}/certificate/upload``, which
     takes the same two files as a multipart body. Paths rather than a body
     because that is the shape the material is already in on an operator's
     machine, and reading it here keeps a private key out of the argument

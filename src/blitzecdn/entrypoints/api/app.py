@@ -1,12 +1,13 @@
 """FastAPI application composition for the BlitzeCDN control plane."""
 
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, asynccontextmanager
 
 from dishka.integrations.starlette import SyncContainerMiddleware
 from fastapi import FastAPI, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi_pagination import add_pagination
 from pydantic import ValidationError
 
 from blitzecdn import __version__
@@ -15,6 +16,12 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
 from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
+from blitzecdn.entrypoints.api.body_limit import RequestBodyLimitMiddleware
+from blitzecdn.entrypoints.api.validation import (
+    VALIDATION_RESPONSE,
+    ValidationErrorResponse,
+    validation_response,
+)
 
 
 def create_app(
@@ -32,16 +39,9 @@ def create_app(
             )
             resources.callback(container.close)
             node = container.get(ApiNode)
-            worker_pool = ThreadPoolExecutor(
-                max_workers=resolved.api_worker_threads,
-                thread_name_prefix="blitzecdn-worker",
-            )
-            # Drain in-flight work first; every resource is released even if a step
-            # raises.
+            # Every resource is released even if a step raises.
             resources.callback(node.stop)
-            resources.callback(worker_pool.shutdown, wait=True)
             application.state.dishka_container = container
-            application.state.worker_pool = worker_pool
             node.start()
             yield
 
@@ -55,6 +55,18 @@ def create_app(
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        responses={
+            422: {
+                "model": ValidationErrorResponse,
+                **VALIDATION_RESPONSE,
+            }
+        },
+        telemetry={
+            "exclude": lambda scope: scope["path"] in {"/health", "/metrics"},
+            # Exception messages can contain infrastructure credentials. Keep
+            # exception logging local; export request spans and metrics only.
+            "logs": False,
+        },
         # One schema per model, set here as well as per model: with only the
         # per-model override, FastAPI still emitted both variants and pydantic's
         # remapping left dangling `$ref`s that validators and generators reject.
@@ -62,18 +74,24 @@ def create_app(
     )
     application.state.settings = resolved
     # A scope per request over the container the lifespan builds; routes take
-    # services as ``FromDishka[...]``. Added first, so the IP check wraps it.
+    # services as ``FromDishka[...]``. The IP gate wraps the body limit, which
+    # in turn wraps the request container and routing.
     application.add_middleware(SyncContainerMiddleware)
+    application.add_middleware(
+        RequestBodyLimitMiddleware, max_bytes=resolved.api_max_body_bytes
+    )
     if resolved.allowed_ips:
         application.add_middleware(
             AllowedIPsMiddleware, allowed_ips=resolved.allowed_ips
         )
 
     _register_exception_handlers(application)
-    # The application does not know which capabilities exist. Every router is a
-    # feature's contribution, in roster order.
+    # HTTP routing does not name capabilities: every router is a feature's
+    # contribution, taken from the registry in roster order. The composition
+    # root (`blitzecdn.composition`) still wires each capability explicitly.
     for router in registry.api_routers():
         application.include_router(router)
+    add_pagination(application)
     return application
 
 
@@ -96,13 +114,14 @@ _HTTP_STATUS: dict[FailureKind, int] = {
 
 
 def _register_exception_handlers(application: FastAPI) -> None:
+    @application.exception_handler(RequestValidationError)
     @application.exception_handler(ValidationError)
     async def validation_error_handler(
-        _request: object, exc: ValidationError
+        _request: object, exc: RequestValidationError | ValidationError
     ) -> JSONResponse:
         # Cross-field errors found while merging a PATCH are still client errors.
         # A pydantic `ValidationError` is outside core's taxonomy.
-        return _error_response(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        return validation_response(exc)
 
     # One handler for the hierarchy; Starlette resolves by MRO and
     # `_HTTP_STATUS` picks the code.

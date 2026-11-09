@@ -18,6 +18,7 @@ from uuid import uuid4
 from sqlalchemy import create_engine
 
 from blitzecdn.capabilities.backup.domain import BackupComponent
+from blitzecdn.core.ansible.probe import RELEASE_PROBE_FILE
 from blitzecdn.core.config import (
     Settings,
     is_portable_config_key,
@@ -329,7 +330,8 @@ class TlsComponent(_DirectoryComponent):
 
     @property
     def _root(self) -> Path:
-        return self._settings.certificate_dir
+        # The tls capability's material directory, carried by its name.
+        return self._settings.state_dir / "certificates"
 
 
 class AcmeComponent(_DirectoryComponent):
@@ -340,6 +342,17 @@ class AcmeComponent(_DirectoryComponent):
     @property
     def _root(self) -> Path:
         return self._settings.state_dir / "letsencrypt/config"
+
+
+class GeoIpDatabasesComponent(_DirectoryComponent):
+    """The controller's fingerprinted GeoIP databases and its current pointer."""
+
+    component = BackupComponent.GEOIP_DATABASES
+
+    @property
+    def _root(self) -> Path:
+        # Where the geoip slice keeps them; asserted equal by its tests.
+        return self._settings.state_dir / "geoip-databases"
 
 
 class ConfigComponent:
@@ -372,6 +385,9 @@ class ConfigComponent:
             "env": self._settings.environment_path,
             "controller_key": state / "id_ed25519",
             "controller_key.pub": state / "id_ed25519.pub",
+            # Every edge holds it; a new one fails verification until each
+            # edge has been redeployed.
+            "release_probe_token": state / RELEASE_PROBE_FILE,
         }
 
     def present(self) -> bool:
@@ -388,7 +404,7 @@ class ConfigComponent:
             return True
         return any(
             self._files[name].is_file()
-            for name in ("controller_key", "controller_key.pub")
+            for name in ("controller_key", "controller_key.pub", "release_probe_token")
         )
 
     def export(self, staging: Path) -> None:
@@ -458,6 +474,7 @@ class ConfigComponent:
         if private.is_file() != public.is_file():
             raise ConfigurationError("config/ must contain both controller SSH keys")
         meaningful = meaningful or (private.is_file() and public.is_file())
+        meaningful = meaningful or (staging / "release_probe_token").is_file()
         if not meaningful:
             raise ConfigurationError(f"{self.component.value}/ is empty")
 

@@ -1,101 +1,59 @@
-"""The emitted-key contract: what the model sends, what the role declares."""
+"""The emitted-key contract: every key a site sends has an owner.
+
+The edge role takes sites as plain dictionaries, so nothing on the edge would
+notice a key that no contract declares; this does.
+"""
 
 from __future__ import annotations
 
-import pytest
-from support.edge_render import (
-    _role_spec,
-)
+from support.edge_render import role_spec
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.http.contract import (
-    MaxUploadSize,
-)
+from blitzecdn.capabilities.http.contract import SiteVisitorHeaders
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.contract import (
-    CertificateMode,
-    MinimumTlsVersion,
-    SslAutomaticMode,
-    SslMode,
+from blitzecdn.core.domain.site_policy import SitePolicy
+
+#: What a site is, beside its policy.
+_IDENTITY = frozenset({"name", "server_names", "origin_host"})
+
+#: Added by the control plane when it distributes managed certificates.
+_DISTRIBUTION = frozenset(
+    {
+        "certificate_source_path",
+        "certificate_key_source_path",
+        "certificate_source_sha256",
+        "certificate_key_source_sha256",
+    }
 )
 
 
-def test_every_emitted_key_is_declared_by_the_role(desired_state):
-    declared = set(_role_spec()["blitzecdn_nginx_sites"]["options"])
-    # The control plane adds these when distributing managed certificates.
-    declared |= {"certificate_source_path", "certificate_key_source_path"}
+def test_every_emitted_key_belongs_to_the_site_or_its_composed_policy(desired_state):
+    owned = _IDENTITY | set(SitePolicy.setting_fields()) | _DISTRIBUTION
     for site in desired_state["blitzecdn_nginx_sites"]:
-        undeclared = set(site) - declared
-        assert not undeclared, (
-            f"CdnSite emits {sorted(undeclared)}, which the local "
-            "roles/blitzecdn_nginx/meta/argument_specs.yml does not declare."
+        unowned = set(site) - owned
+        assert not unowned, f"CdnSite emits {sorted(unowned)}, which nothing owns"
+
+
+def test_a_site_always_carries_its_identity(desired_state):
+    for site in desired_state["blitzecdn_nginx_sites"]:
+        assert set(site) >= _IDENTITY, site.get("name")
+
+
+def test_the_role_takes_sites_without_naming_a_policy_setting():
+    """A capability adding a setting must not have to edit the core role."""
+    sites = role_spec()["blitzecdn_nginx_sites"]
+    assert sites["type"] == "list"
+    assert sites["elements"] == "dict"
+    assert "options" not in sites
+
+
+def test_nested_blocks_emit_only_their_contract_keys(desired_state):
+    for site in desired_state["blitzecdn_nginx_sites"]:
+        assert set(site.get("firewall", {})) <= set(SiteFirewall.model_fields)
+        assert set(site.get("visitor_headers", {})) <= set(
+            SiteVisitorHeaders.model_fields
         )
-
-
-def test_required_keys_are_always_emitted(desired_state):
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
-    required = {name for name, spec in options.items() if (spec or {}).get("required")}
-    for site in desired_state["blitzecdn_nginx_sites"]:
-        missing = required - set(site)
-        assert not missing, (
-            f"site {site.get('name')!r} omits required {sorted(missing)}"
-        )
-
-
-def test_nginx_role_accepts_only_the_current_ssl_policy():
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
-    assert options["ssl_mode"]["required"] is True
-    assert "origin_scheme" not in options
-
-
-@pytest.mark.parametrize(
-    ("field", "enum"),
-    [
-        ("ssl_mode", SslMode),
-        ("ssl_automatic_mode", SslAutomaticMode),
-        ("minimum_tls_version", MinimumTlsVersion),
-        ("certificate_mode", CertificateMode),
-        ("cache_query_string_mode", CacheQueryStringMode),
-        ("compression", CompressionMode),
-        ("max_upload_size", MaxUploadSize),
-    ],
-)
-def test_role_choices_cover_every_domain_value(field, enum):
-    """A new enum member must not reach a role that rejects it."""
-    declared = set(_role_spec()["blitzecdn_nginx_sites"]["options"][field]["choices"])
-    assert {member.value for member in enum} <= declared, (
-        f"{enum.__name__} has values the role's {field} choices do not allow"
-    )
-
-
-def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
-    """The outer check only sees top-level keys; the firewall is nested.
-
-    Argument validation rejects an undeclared suboption, so a new
-    ``SiteFirewall`` field would fail the deploy; this catches it first.
-    """
-    declared = set(
-        _role_spec()["blitzecdn_nginx_sites"]["options"]["firewall"]["options"]
-    )
-    assert set(SiteFirewall.model_fields) == declared, (
-        "SiteFirewall and the role's firewall suboptions disagree: "
-        f"{sorted(set(SiteFirewall.model_fields) ^ declared)}"
-    )
-    for site in desired_state["blitzecdn_nginx_sites"]:
-        assert set(site.get("firewall", {})) <= declared
-
-
-def test_the_role_defaults_agree_with_the_domain_defaults():
-    """The role's suboption defaults are the values the domain would send."""
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]["visitor_headers"]
-    assert options.get("required", False) is False
-    for name, field in SiteVisitorHeaders.model_fields.items():
-        assert options["options"][name]["default"] == field.default
 
 
 def test_origin_port_is_not_part_of_the_edge_site_contract():
-    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
-    assert "origin_port" not in SitePolicy.model_fields
-    assert "origin_port" not in options
+    assert "origin_port" not in SitePolicy.setting_fields()
+    assert "origin_scheme" not in SitePolicy.setting_fields()
