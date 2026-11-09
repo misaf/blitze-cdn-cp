@@ -767,7 +767,9 @@ blitzecdn domain error-pages example.com --clear
 
 Only the statuses a site has a page for are replaced. An origin's own `403`,
 `404` or `429` reaches visitors as the origin sent it; a `5xx` page replaces
-the origin's `5xx` body too. Pages ship in every configuration release, under
+the origin's `5xx` body too, except with Under Attack Mode, where the origin's
+`5xx` pass through (replacing them would also replace an origin's `401`) and only
+the edge's own `502` and `504` get the page. Pages ship in every configuration release, under
 `pages/<site>/` in the release's Nginx tree (`blitzecdn_nginx_pages_dir`), and
 are served from the edge's disk with `Cache-Control: no-store`. Each is at most
 64 KiB; keep them self-contained, with inline styles and images, since the

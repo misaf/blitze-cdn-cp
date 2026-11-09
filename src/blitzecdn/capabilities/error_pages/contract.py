@@ -57,7 +57,9 @@ class ErrorPagesPolicy(CapabilityPolicy):
             + ", ".join(ERROR_PAGE_STATUSES)
             + ". A 5xx page replaces the origin's own 5xx as well as the "
             "edge's when the origin cannot be reached; 403 and 429 replace "
-            "only the edge's firewall and rate-limit answers. The status is "
+            "only the edge's firewall and rate-limit answers. With "
+            "under_attack_mode, an origin's own 5xx passes through and only the "
+            "edge's 502 and 504 are replaced. The status is "
             f"kept. At most {PAGE_LIMIT // 1024} KiB each, and self-contained: "
             "the origin may be what is down."
         ),
