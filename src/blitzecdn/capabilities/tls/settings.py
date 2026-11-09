@@ -18,7 +18,6 @@ ACME_CA_DOMAIN: Final = "BLITZE_ACME_CA_DOMAIN"
 RECONCILE_INTERVAL: Final = "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS"
 RENEWAL_INTERVAL: Final = "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS"
 RENEWAL_BUDGET: Final = "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS"
-SCAN_INTERVAL: Final = "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS"
 PREFLIGHT_DNS_TIMEOUT: Final = "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS"
 PREFLIGHT_DNS_SERVERS: Final = "BLITZE_PREFLIGHT_DNS_SERVERS"
 PREFLIGHT_DNS_SOURCE: Final = "BLITZE_PREFLIGHT_DNS_SOURCE"
@@ -83,14 +82,6 @@ class CertificateConfig(ConfigurationModel):
             "the rest as skipped."
         ),
     )
-    scan_interval_seconds: int = Field(
-        default=2_592_000,
-        ge=0,
-        le=31_536_000,
-        alias=SCAN_INTERVAL,
-        description="How often Automatic SSL/TLS rescans origins. 0 disables it.",
-    )
-
     preflight_dns_timeout_seconds: int = Field(
         default=5,
         ge=1,

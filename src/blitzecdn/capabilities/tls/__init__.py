@@ -1,4 +1,4 @@
-"""TLS policy, certificate workflows, and automatic origin upgrades."""
+"""TLS policy and certificate management."""
 
 from blitzecdn.capabilities.tls.contract import (
     CERTIFICATE_ROOTS,

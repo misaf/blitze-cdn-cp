@@ -92,22 +92,6 @@ def test_certificates_are_readable(settings):
         )
 
 
-def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
-    with TestClient(control_plane_app(settings)) as client:
-        response = client.post(
-            "/v3/ssl/automatic/reconcile",
-            headers=API_HEADERS,
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "scanned": [],
-        "upgraded": {},
-        "skipped": {},
-        "deployment": None,
-    }
-
-
 def test_renewal_can_be_narrowed_to_named_sites(settings):
     with TestClient(control_plane_app(settings)) as client:
         response = client.post(

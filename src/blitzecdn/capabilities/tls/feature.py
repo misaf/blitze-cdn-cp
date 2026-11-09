@@ -1,7 +1,7 @@
 """Declare the TLS capability: its policy contract, and certificate management.
 
 ``tls`` is the contract and declares only its name, the token refusals name.
-``certificates`` issues, renews and runs Automatic SSL/TLS.
+``certificates`` uploads, issues and renews edge certificates.
 """
 
 from __future__ import annotations
@@ -9,8 +9,6 @@ from __future__ import annotations
 from blitzecdn import __version__
 from blitzecdn.capabilities.http.contract import ProtocolPolicy
 from blitzecdn.capabilities.tls import cli
-from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
-from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
 from blitzecdn.capabilities.tls.certificates.api import routes as certificates_routes
 from blitzecdn.capabilities.tls.contract import (
@@ -60,15 +58,12 @@ CERTIFICATES = Feature(
         name="certificates",
         version=certificates_version,
         provides=frozenset({"certificates"}),
-        summary="Certificate upload, ACME renewal, and Automatic SSL/TLS.",
+        summary="Certificate upload and ACME issuance and renewal.",
     ),
-    api_routers=(certificates_routes.router, automatic_ssl_routes.router),
+    api_routers=(certificates_routes.router,),
     cli_commands=(
         CliCommandGroup(
             feature="certificates", name="cert", app=certificates_cli.cert_app
-        ),
-        CliCommandGroup(
-            feature="certificates", name="ssl", app=automatic_ssl_cli.ssl_app
         ),
     ),
     configuration=(CONFIGURATION,),
