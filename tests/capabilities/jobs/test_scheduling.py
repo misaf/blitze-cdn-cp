@@ -7,6 +7,7 @@ process, a timer or a sleep.
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -316,6 +317,98 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
     JobRunner(queue=queue, scheduler=scheduler, clock=clock).tick()
 
     assert leases == [clock() + timedelta(seconds=queue.lease_seconds)]
+
+
+def _wait_for(predicate, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.005)
+    return True
+
+
+def test_a_deployment_outlasting_its_lease_is_neither_taken_over_nor_misreported(
+    repository,
+):
+    """A long rollout keeps its claim, and its outcome is the one recorded.
+
+    Without a heartbeat a second worker would reclaim the job once the default
+    lease lapsed, and the first worker's result would be discarded.
+    """
+    clock = Clock()
+    taken_over: list[bool] = []
+
+    def other_worker_ticks() -> bool:
+        other_queue = JobQueue(
+            jobs=repository.jobs,
+            handlers=(JobHandler(DeploymentJob, lambda _payload: DONE),),
+            worker_id="worker-b",
+            clock=clock,
+        )
+        other_scheduler = JobScheduler(
+            schedules=repository.schedules,
+            queue=other_queue,
+            uow=repository,
+            clock=clock,
+        )
+        return JobRunner(
+            queue=other_queue, scheduler=other_scheduler, clock=clock
+        ).tick()
+
+    def long_rollout(_payload):
+        (job,) = repository.jobs.list_jobs()
+        clock.advance(queue.lease_seconds + 60)
+        # The heartbeat moves the lease past the clock before anyone else looks.
+        assert _wait_for(lambda: repository.jobs.get(job.id).leased_until > clock())
+        taken_over.append(other_worker_ticks())
+        return DONE
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers=(JobHandler(DeploymentJob, long_rollout),)
+    )
+    queue.enqueue_deployment("dep-1")
+
+    JobRunner(
+        queue=queue, scheduler=scheduler, clock=clock, heartbeat_seconds=0.01
+    ).tick()
+
+    (job,) = repository.jobs.list_jobs()
+    assert taken_over == [False]
+    assert job.status is JobStatus.SUCCEEDED
+    assert job.attempts == 1
+
+
+def test_the_heartbeat_stops_once_another_worker_owns_the_job(repository):
+    """A refused renewal means the fence moved; the old worker stops renewing."""
+    clock = Clock()
+    beats: list[int] = []
+
+    def stalled(_payload):
+        assert _wait_for(lambda: beats)
+        # Room for several more beats, had the first refusal not stopped them.
+        time.sleep(0.1)
+        return DONE
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers=(JobHandler(DeploymentJob, stalled),)
+    )
+    queue.enqueue_deployment("dep-1")
+    runner = JobRunner(
+        queue=queue, scheduler=scheduler, clock=clock, heartbeat_seconds=0.01
+    )
+    # Claimed and held as usual; refused from then on, as after a takeover.
+    runner._hold_for_declared_lease = lambda _claim: queue.lease_seconds
+
+    def refused(_claim, *, seconds=None):
+        beats.append(seconds)
+        return False
+
+    queue.renew = refused
+
+    runner.tick()
+
+    assert beats == [queue.lease_seconds]
 
 
 @pytest.mark.parametrize(("declared", "held"), [(7200, 7200), (60, None)])
