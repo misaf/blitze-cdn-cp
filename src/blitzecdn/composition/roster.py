@@ -12,6 +12,12 @@ from dataclasses import dataclass
 
 from dishka import Provider
 
+from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.automatic_ssl.settings import AutomaticSslConfig
+from blitzecdn.capabilities.automatic_ssl.wiring import (
+    AutomaticSslProvider,
+    automatic_ssl_operations,
+)
 from blitzecdn.capabilities.backup.wiring import BackupProvider
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service import operations as cache_operations
@@ -51,7 +57,6 @@ from blitzecdn.capabilities.security.geoip.wiring import (
 )
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.certificates.service import (
@@ -114,8 +119,9 @@ class OperationInputs:
     deployments: DeploymentService
     deployments_config: DeploymentsConfig
     certificates: CertificateService
-    automatic_ssl: AutomaticSslService
     certificate_config: CertificateConfig
+    automatic_ssl: AutomaticSslService
+    automatic_ssl_config: AutomaticSslConfig
     workflows: WorkflowHistory
     queue_ready: QueueReadiness
     traffic: TrafficService
@@ -183,9 +189,16 @@ def _diagnostics_operations(inputs: OperationInputs) -> FeatureOperations:
 def _certificates_operations(inputs: OperationInputs) -> FeatureOperations:
     return certificates_operations(
         certificates=inputs.certificates,
-        automatic_ssl=inputs.automatic_ssl,
         config=inputs.certificate_config,
         deployment_timeout_seconds=inputs.deployments_config.timeout_seconds,
+        # A newly issued certificate can make a stronger SSL mode workable.
+        after_issuance=inputs.automatic_ssl.reconcile,
+    )
+
+
+def _automatic_ssl_operations(inputs: OperationInputs) -> FeatureOperations:
+    return automatic_ssl_operations(
+        automatic_ssl=inputs.automatic_ssl, config=inputs.automatic_ssl_config
     )
 
 
@@ -240,6 +253,11 @@ ROSTER: tuple[RosterEntry, ...] = (
             renewal_budget_seconds=inputs.certificate_config.renewal_budget_seconds,
             issuance_timeout_seconds=inputs.deployments_config.timeout_seconds,
         ),
+    ),
+    RosterEntry(
+        "blitzecdn.capabilities.automatic_ssl.feature",
+        provider=AutomaticSslProvider,
+        operations=_automatic_ssl_operations,
     ),
     RosterEntry(
         "blitzecdn.capabilities.maintenance.feature", provider=MaintenanceProvider

@@ -1,4 +1,4 @@
-"""TLS policy, certificate workflows, and automatic origin upgrades.
+"""TLS policy and certificate management.
 
 Contracts across the fleet name `tls.contract`, and importing it runs this
 module first. `dns.domain` is one of them, and TLS's implementation depends on

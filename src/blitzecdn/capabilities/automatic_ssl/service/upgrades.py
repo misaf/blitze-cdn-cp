@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from blitzecdn.capabilities.automatic_ssl.domain import SslAutomaticReconciliation
+from blitzecdn.capabilities.automatic_ssl.ports import SslModeUpgrades
 from blitzecdn.capabilities.deployments import DeploymentGateway
 from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import OriginProbe
-from blitzecdn.capabilities.origins import OriginCheck, OriginReport, edge_origins
-from blitzecdn.capabilities.tls.automatic_ssl.domain import SslAutomaticReconciliation
-from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
-from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
+from blitzecdn.capabilities.origins import (
+    OriginCheck,
+    OriginCheckRunner,
+    OriginReport,
+    edge_origins,
+)
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslAutomaticMode,
@@ -34,7 +38,7 @@ class AutomaticSslService:
         sites: SiteReader,
         runner: OriginCheckRunner,
         origin_probe: OriginProbe,
-        site_editor: SiteEditor,
+        site_editor: SslModeUpgrades,
         deployments: DeploymentGateway,
     ) -> None:
         self.sites = sites

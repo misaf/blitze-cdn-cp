@@ -24,38 +24,42 @@ def test_jobs_are_owned_by_the_certificate_capability() -> None:
             f"renew {operator} {budget_seconds}"
         ),
     )
-    automatic_ssl = SimpleNamespace(
-        reconcile=lambda operator: calls.append(f"scan {operator}")
-    )
     config = CertificateConfig(
         reconcile_interval_seconds=3600,
         renewal_interval_seconds=7200,
-        scan_interval_seconds=86_400,
     )
 
     operations = certificates_operations(
         certificates=certificates,
-        automatic_ssl=automatic_ssl,
         config=config,
         deployment_timeout_seconds=900,
+        after_issuance=lambda operator: calls.append(f"issued {operator}"),
     )
     jobs = {job.name: job for job in operations.scheduled_jobs}
 
-    assert set(jobs) == {
-        "automatic-ssl-scan",
-        "certificate-reconciliation",
-        "certificate-renewal",
-    }
+    assert set(jobs) == {"certificate-reconciliation", "certificate-renewal"}
     assert jobs["certificate-renewal"].lease_seconds == 1200
     jobs["certificate-reconciliation"].run("scheduler")
     assert calls == ["reconcile scheduler"]
     issued.append("example-com")
     jobs["certificate-reconciliation"].run("scheduler")
     jobs["certificate-renewal"].run("scheduler")
-    jobs["automatic-ssl-scan"].run("scheduler")
     assert calls[1:] == [
         "reconcile scheduler",
-        "scan scheduler",
+        "issued scheduler",
         "renew scheduler 300",
-        "scan scheduler",
     ]
+
+
+def test_reconciliation_without_a_listener_only_reconciles() -> None:
+    certificates = SimpleNamespace(
+        reconcile_certificates=lambda operator: SimpleNamespace(issued=("a",)),
+    )
+    operations = certificates_operations(
+        certificates=certificates,
+        config=CertificateConfig(),
+        deployment_timeout_seconds=900,
+    )
+
+    jobs = {job.name: job for job in operations.scheduled_jobs}
+    jobs["certificate-reconciliation"].run("scheduler")

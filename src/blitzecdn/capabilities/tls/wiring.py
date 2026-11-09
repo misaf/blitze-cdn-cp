@@ -6,15 +6,13 @@ which is built after the release compiler.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
 from blitzecdn.capabilities.tls.adapters.persistence import PreflightAttemptStore
-from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertbotIssuer
 from blitzecdn.capabilities.tls.certificates.adapters import (
     CertificateStore as CertificateFiles,
@@ -166,24 +164,6 @@ def build_certificate_service(
     )
 
 
-def build_automatic_ssl_service(
-    *,
-    sites: SiteReader,
-    origin_checks: OriginCheckRunner,
-    origin_probe: OriginProbe,
-    site_editor: SiteEditor,
-    deployments: DeploymentGateway,
-) -> AutomaticSslService:
-    """Wire upgrades that apply only what both origin transports prove."""
-    return AutomaticSslService(
-        sites=sites,
-        runner=origin_checks,
-        origin_probe=origin_probe,
-        site_editor=site_editor,
-        deployments=deployments,
-    )
-
-
 #: Names no public CA will issue for (RFC 6761/2606).
 _RESERVED_SUFFIXES = (".test", ".invalid", ".localhost", ".example")
 
@@ -243,22 +223,25 @@ def certificates_rendering(*, store: CertificateStore) -> FeatureRendering[CdnSi
 def certificates_operations(
     *,
     certificates: CertificateService,
-    automatic_ssl: AutomaticSslService,
     config: CertificateConfig,
     deployment_timeout_seconds: int,
+    after_issuance: Callable[[str], object] | None = None,
 ) -> FeatureOperations:
-    """Renewal, reconciliation and the Automatic SSL/TLS scan."""
+    """Renewal and reconciliation.
+
+    ``after_issuance`` runs once a reconciliation pass has issued anything; the
+    composition root hands it whatever reacts to new certificates (the
+    Automatic SSL/TLS scan), so TLS never names what builds on it.
+    """
     budget = config.renewal_budget_seconds
 
     def renew(operator: str) -> None:
         certificates.renew_certificates(operator, budget_seconds=budget)
 
-    def scan(operator: str) -> None:
-        automatic_ssl.reconcile(operator)
-
     def reconcile(operator: str) -> None:
-        if certificates.reconcile_certificates(operator).issued:
-            automatic_ssl.reconcile(operator)
+        issued = certificates.reconcile_certificates(operator).issued
+        if issued and after_issuance is not None:
+            after_issuance(operator)
 
     return FeatureOperations(
         feature="certificates",
@@ -278,19 +261,12 @@ def certificates_operations(
                 # The one job with its own lease: a sweep is bounded by its budget.
                 lease_seconds=deployment_timeout_seconds + budget,
             ),
-            ScheduledJob(
-                feature="certificates",
-                name="automatic-ssl-scan",
-                interval_seconds=config.scan_interval_seconds,
-                run=scan,
-                jitter_seconds=min(86_400, config.scan_interval_seconds // 30),
-            ),
         ),
     )
 
 
 class TlsProvider(Provider):
-    """Certificate files and preflight records, issuance, and Automatic SSL."""
+    """Certificate files and preflight records, and issuance."""
 
     scope = Scope.APP
 
@@ -361,20 +337,3 @@ class TlsProvider(Provider):
         )
 
     history = alias(source=CertificateService, provides=CertificateHistory)
-
-    @provide
-    def automatic_ssl(
-        self,
-        sites: SiteReader,
-        origin_checks: OriginCheckRunner,
-        origin_probe: OriginProbe,
-        site_editor: SiteEditor,
-        deployments: DeploymentGateway,
-    ) -> AutomaticSslService:
-        return build_automatic_ssl_service(
-            sites=sites,
-            origin_checks=origin_checks,
-            origin_probe=origin_probe,
-            site_editor=site_editor,
-            deployments=deployments,
-        )

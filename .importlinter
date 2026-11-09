@@ -297,6 +297,24 @@ allow_indirect_imports = True
 # Composition, the entry points and the migrations environment assemble the
 # capabilities and may name their parts.
 
+[importlinter:contract:automatic_ssl-public-surface]
+name = Other capabilities reach automatic_ssl only through its package
+type = protected
+protected_modules =
+    blitzecdn.capabilities.automatic_ssl.api
+    blitzecdn.capabilities.automatic_ssl.cli
+    blitzecdn.capabilities.automatic_ssl.domain
+    blitzecdn.capabilities.automatic_ssl.feature
+    blitzecdn.capabilities.automatic_ssl.ports
+    blitzecdn.capabilities.automatic_ssl.service
+    blitzecdn.capabilities.automatic_ssl.settings
+    blitzecdn.capabilities.automatic_ssl.wiring
+allowed_importers =
+    blitzecdn.capabilities.automatic_ssl
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
 [importlinter:contract:backup-public-surface]
 name = Other capabilities reach backup only through its package or contract
 type = protected
@@ -553,7 +571,6 @@ protected_modules =
     blitzecdn.capabilities.tls.adapters
     blitzecdn.capabilities.tls.ansible
     blitzecdn.capabilities.tls.api
-    blitzecdn.capabilities.tls.automatic_ssl
     blitzecdn.capabilities.tls.certificates
     blitzecdn.capabilities.tls.cli
     blitzecdn.capabilities.tls.feature

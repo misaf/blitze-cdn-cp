@@ -4,8 +4,8 @@ from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends
 
-from blitzecdn.capabilities.tls.api.models import SslAutomaticReconciliation
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.automatic_ssl.api.models import SslAutomaticReconciliation
+from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
