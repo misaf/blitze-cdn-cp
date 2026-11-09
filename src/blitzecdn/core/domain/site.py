@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from blitzecdn.core.domain.paths import PathLocation
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.domain.validation import (
     HOST_NAME,
@@ -29,6 +31,10 @@ class CdnSite(BaseModel):
     #: block.
     server_names: tuple[str, ...] = Field(default=(), max_length=100)
     origin_host: str
+    #: The path rules this host serves, in the order they are matched: the
+    #: first whose path covers a request answers it, and a request no location
+    #: covers is served by the host's own policy.
+    locations: tuple[PathLocation, ...] = ()
 
     @field_validator("name")
     @classmethod
@@ -59,10 +65,67 @@ class CdnSite(BaseModel):
         return normalized
 
     @model_validator(mode="after")
+    def validate_locations(self) -> Self:
+        """Each location names this host's hostnames, and each rule appears once."""
+        rules = [location.rule for location in self.locations]
+        if len(set(rules)) != len(rules):
+            raise ValueError("a path rule may appear once among a host's locations")
+        scoped = SitePolicy.path_setting_names()
+        for location in self.locations:
+            stray = sorted(set(location.server_names) - set(self.server_names))
+            if stray:
+                raise ValueError(
+                    f"location {location.rule!r} names hostnames this host does "
+                    "not serve: " + ", ".join(stray)
+                )
+            hostname_only = sorted(set(location.settings) - scoped)
+            if hostname_only:
+                raise ValueError(
+                    f"location {location.rule!r} sets settings decided per "
+                    "hostname: " + ", ".join(hostname_only)
+                )
+        return self
+
+    @model_validator(mode="after")
     def validate_contributed_site_checks(self) -> Self:
         """The rules a contract states about a host rather than about a zone."""
         self.policy.validate_for_site(self)
         return self
+
+    @property
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """What the host's policy and each path location's policy require.
+
+        A location can turn on a path-scoped setting its host leaves off, such
+        as the BZ-IPCountry header, so it can need a capability the host does
+        not. Its settings are named with the path rule that set them.
+        """
+        requested = {
+            token: list(settings)
+            for token, settings in self.policy.capability_requirements.items()
+        }
+        host = self.policy.settings(mode="json")
+        for location in self.locations:
+            changed = {
+                name
+                for name, value in location.settings.items()
+                if host.get(name) != value
+            }
+            if not changed:
+                continue
+            scoped = self.policy.applying(location.settings).capability_requirements
+            for token, settings in scoped.items():
+                requested.setdefault(token, []).extend(
+                    f"{setting} (path rule {location.rule!r})"
+                    for setting in settings
+                    # Nested settings are named `block.field`.
+                    if setting.split(".", 1)[0] in changed
+                )
+        return {
+            token: tuple(dict.fromkeys(settings))
+            for token, settings in requested.items()
+            if settings
+        }
 
     @property
     def serves_traffic(self) -> bool:

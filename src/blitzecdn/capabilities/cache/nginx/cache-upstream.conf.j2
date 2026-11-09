@@ -29,7 +29,11 @@
         # that one reads the response, so only proxy_no_cache names it.
 {% set level = site.cache_level | default('standard') %}
 {% set cookie_bypass = level == 'standard' or (site.cache_bypass_cookies | default([], true)) %}
-{% set cookie_variable = (' $blitzecdn_cache_cookie_' ~ (site.name | replace('-', '_'))) if cookie_bypass else '' %}
+{#
+  A path rule's location reads its own map, named by its variable_scope, since
+  its cookies and level can differ from the host's.
+#}
+{% set cookie_variable = (' $blitzecdn_cache_cookie_' ~ ((site.variable_scope | default(site.name)) | replace('-', '_'))) if cookie_bypass else '' %}
         proxy_cache_bypass $http_upgrade $http_authorization{{ cookie_variable }};
         proxy_no_cache $http_upgrade $http_authorization{{ cookie_variable }}{{ ' $blitzecdn_cache_standard_skip' if level == 'standard' else '' }};
         # The key names the listener port, and that is load-bearing rather than

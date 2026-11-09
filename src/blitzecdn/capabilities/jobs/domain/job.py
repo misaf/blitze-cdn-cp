@@ -33,7 +33,8 @@ __all__ = [
     "is_terminal",
 ]
 
-#: The default lease: long enough for a convergence, short enough to recover.
+#: The default lease. The worker renews it while a job runs, so this bounds how
+#: long a dead worker's job waits to be reclaimed, not how long a job may run.
 DEFAULT_LEASE_SECONDS = 900
 
 #: Retry backoff ceiling. Retried failures are transient; a job out of

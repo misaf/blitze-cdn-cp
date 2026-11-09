@@ -22,7 +22,7 @@ from support.paths import CORE_ANSIBLE
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import Domain
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule, derive_hosts
 from blitzecdn.capabilities.error_pages.contract import PAGE_LIMIT, ErrorPagesPolicy
 from blitzecdn.capabilities.error_pages.feature import FEATURES
 from blitzecdn.entrypoints.cli import main as cli
@@ -372,3 +372,36 @@ def test_maintenance_command_toggles_and_keeps_the_page(
     )
     assert reset.exit_code == 0, reset.output
     assert json.loads(reset.stdout)["maintenance_page"] is None
+
+
+def test_a_path_rule_location_keeps_maintenance_and_the_5xx_pages():
+    """Path rules render their own locations; neither setting may skip them."""
+    zone = Domain(
+        name="example.com",
+        policy=Domain.model_validate(
+            {"name": "example.com", "policy": {}}
+        ).policy.applying({"maintenance_mode": True, "error_pages": {"502": PAGE}}),
+    )
+    (host,) = derive_hosts(
+        [zone],
+        [
+            Rule.model_validate(
+                {
+                    "domain": "example.com",
+                    "name": "static",
+                    "path": "/static/",
+                    "overrides": {"cache_valid_success": "1h"},
+                }
+            )
+        ],
+        [DnsRecord(domain="example.com", name="www", value="198.51.100.10")],
+    )
+    rendered = render_site(site_to_ansible(host))
+    location = re.search(r'location ~ "\^/static/" \{\n(.*?)\n    \}', rendered, re.S)
+    named = re.search(
+        r"location @blitzecdn_path_static \{\n(.*?)\n    \}", rendered, re.S
+    )
+
+    assert location and named
+    assert "rewrite ^ /.blitzecdn/internal/maintenance last;" in location.group(1)
+    assert "error_page 502 /.blitzecdn/internal/error-pages/502.html;" in named.group(1)

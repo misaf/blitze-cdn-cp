@@ -200,7 +200,7 @@ class FeatureRegistry:
             seen.add(item.feature)
 
     def _missing_capability_issues(self, site: Site) -> tuple[ValidationIssue, ...]:
-        requested = site.policy.capability_requirements
+        requested = site.capability_requirements
         return tuple(
             ValidationIssue(
                 feature="capabilities",

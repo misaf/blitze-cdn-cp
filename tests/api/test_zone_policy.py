@@ -269,3 +269,74 @@ def test_the_two_surfaces_replace_different_things(settings):
     assert patched.get("denied_countries", []) == [], (
         "PATCH replaces the whole block; a list it does not name is cleared"
     )
+
+
+def test_path_rules_are_written_resolved_and_served_as_locations(settings):
+    with TestClient(control_plane_app(settings)) as client:
+        client.post("/v3/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.post(
+            "/v3/domains/example.com/records",
+            json={"name": "www", "value": "198.51.100.10"},
+            headers=API_HEADERS,
+        )
+        assets = client.post(
+            "/v3/domains/example.com/rules",
+            json={
+                "name": "assets",
+                "priority": 10,
+                "path": "/static/",
+                "overrides": {"cache_valid_success": "7d"},
+            },
+            headers=API_HEADERS,
+        )
+        assert assets.status_code == 201, assets.text
+        moved = client.post(
+            "/v3/domains/example.com/rules",
+            json={
+                "name": "moved",
+                "priority": 20,
+                "path": "/old/",
+                "redirect": {"target": "/new/$1", "status": 308},
+            },
+            headers=API_HEADERS,
+        )
+        assert moved.status_code == 201, moved.text
+        assert moved.json()["redirect"]["target"] == "/new/$1"
+
+        refused = client.post(
+            "/v3/domains/example.com/rules",
+            json={"name": "tls", "path": "/a/", "overrides": {"ssl_mode": "off"}},
+            headers=API_HEADERS,
+        )
+        assert refused.status_code == 422
+        assert "decided per hostname" in refused.text
+
+        resolved = client.get(
+            "/v3/domains/example.com/resolve",
+            params={"hostname": "www.example.com", "path": "/static/a.css"},
+            headers=API_HEADERS,
+        ).json()
+        assert resolved["path_rule"] == "assets"
+        assert resolved["policy"]["cache_valid_success"] == "7d"
+
+        redirected = client.get(
+            "/v3/domains/example.com/resolve",
+            params={"hostname": "www.example.com", "path": "/old/a"},
+            headers=API_HEADERS,
+        ).json()
+        assert redirected["path_rule"] == "moved"
+        assert redirected["redirect"]["status"] == 308
+
+        host = client.get("/v3/hosts/example-com", headers=API_HEADERS).json()
+        assert [location["rule"] for location in host["locations"]] == [
+            "assets",
+            "moved",
+        ]
+
+        unpath = client.patch(
+            "/v3/domains/example.com/rules/assets",
+            json={"path": None},
+            headers=API_HEADERS,
+        )
+        assert unpath.status_code == 200, unpath.text
+        assert unpath.json()["path"] is None

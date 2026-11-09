@@ -194,6 +194,15 @@ def resolve_hostname(
         str, Query(description="The hostname to resolve, e.g. api.example.com.")
     ],
     rules: FromDishka[RuleService],
+    path: Annotated[
+        str | None,
+        Query(
+            description=(
+                "A request path, e.g. /static/app.css, to also apply the first "
+                "path rule covering it. Omit to resolve the hostname alone."
+            )
+        ),
+    ] = None,
 ) -> ResolvedPolicy:
-    """How a hostname is served, and which rule decided it, in one response."""
-    return ResolvedPolicy.from_domain(rules.resolve(domain, hostname))
+    """How a hostname, or one path on it, is served, and which rules decided it."""
+    return ResolvedPolicy.from_domain(rules.resolve(domain, hostname, path))

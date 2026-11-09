@@ -23,6 +23,7 @@ from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
 from blitzecdn.capabilities.dns.domain.patch import setting_annotation
 from blitzecdn.core.domain.composed import ComposedModel
+from blitzecdn.core.domain.paths import PathRedirect as DomainPathRedirect
 from blitzecdn.core.domain.site import CdnSite as DomainCdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.entrypoints.api.models import Model
@@ -181,6 +182,7 @@ class CdnSite(Model, ComposedModel):
     name: str
     server_names: tuple[str, ...]
     origin_host: str
+    locations: tuple[PathLocation, ...] = ()
 
     @classmethod
     def composition_source(cls) -> object:
@@ -195,12 +197,56 @@ class CdnSite(Model, ComposedModel):
         return cls.model_validate(serving_document(value))
 
 
+class PathRedirect(Model):
+    """Answer the requests a path rule matches with a redirect."""
+
+    status: Literal[301, 302, 307, 308] = 301
+    target: str = Field(
+        description=(
+            "An absolute http(s) URL or a path on the same host. On a prefix "
+            "path it may name $1, what followed the prefix, as the visitor "
+            "sent it."
+        )
+    )
+    preserve_query_string: bool = Field(
+        default=True, description="Append the visitor's query string."
+    )
+
+    @classmethod
+    def from_domain(cls, value: DomainPathRedirect) -> Self:
+        return cls.model_validate(value.model_dump(mode="json"))
+
+
+class PathLocation(Model):
+    """One path rule as a virtual host serves it."""
+
+    rule: str
+    path: str
+    server_names: tuple[str, ...]
+    redirect: PathRedirect | None = None
+    settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The path-scoped settings in effect under this path.",
+    )
+
+
 class RuleBody(Model):
     """What a rule matches and changes; ``overrides`` is the typed zone patch body."""
 
     priority: int = Field(default=100, ge=1, le=1000)
     match: str = "*"
-    overrides: DomainPatch
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Makes this a path rule. A path ending in '/' is a prefix "
+            "(/static/), any other is exact (/robots.txt), matched against "
+            "the decoded, normalized request path."
+        ),
+    )
+    overrides: DomainPatch = Field(default_factory=DomainPatch)
+    redirect: PathRedirect | None = Field(
+        default=None, description="A path rule's alternative to overrides."
+    )
     enabled: bool = True
 
 
@@ -213,7 +259,10 @@ class Rule(RuleBody):
     @classmethod
     def from_domain(cls, value: DomainRule) -> Self:
         return cls.model_validate(
-            {**value.model_dump(mode="json"), "overrides": dict(value.overrides)}
+            {
+                **value.model_dump(mode="json", exclude={"overrides"}),
+                "overrides": dict(value.overrides),
+            }
         )
 
 
@@ -235,7 +284,11 @@ class RuleCreate(RuleBody):
                 "name": self.name,
                 "priority": self.priority,
                 "match": self.match if match is None else match,
+                "path": self.path,
                 "overrides": self.overrides.model_dump(exclude_unset=True),
+                "redirect": (
+                    None if self.redirect is None else self.redirect.model_dump()
+                ),
                 "enabled": self.enabled,
             }
         )
@@ -246,7 +299,13 @@ class RulePatch(Model):
 
     priority: PatchValue[Annotated[int, Field(ge=1, le=1000)]] = None
     match: PatchValue[str] = None
+    path: str | None = Field(
+        default=None, description="Null makes this a hostname rule again."
+    )
     overrides: PatchValue[DomainPatch] = None
+    redirect: PathRedirect | None = Field(
+        default=None, description="Null removes the redirect."
+    )
     enabled: PatchValue[bool] = None
 
     def to_domain(self) -> DomainRulePatch:
@@ -257,10 +316,13 @@ class RulePatch(Model):
 
 
 class ResolvedPolicy(Model):
-    """How one hostname is served, and which rule decided it."""
+    """How one hostname, or one path on it, is served, and which rules decided it."""
 
     fqdn: str
     rule: str | None = None
+    path: str | None = None
+    path_rule: str | None = None
+    redirect: PathRedirect | None = None
     policy: Domain
 
     @classmethod
@@ -268,6 +330,13 @@ class ResolvedPolicy(Model):
         return cls(
             fqdn=value.fqdn,
             rule=value.rule,
+            path=value.path,
+            path_rule=value.path_rule,
+            redirect=(
+                None
+                if value.redirect is None
+                else PathRedirect.from_domain(value.redirect)
+            ),
             policy=Domain.from_domain(value.policy),
         )
 
@@ -277,6 +346,8 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "PathLocation",
+    "PathRedirect",
     "RecordCreate",
     "RecordPatch",
     "RecordType",
