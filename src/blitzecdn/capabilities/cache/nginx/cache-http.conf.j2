@@ -8,3 +8,62 @@ proxy_cache_path {{ blitzecdn_edge_runtime.paths.cache }}
 map $request_uri $blitzecdn_uri_without_query {
     ~^([^?]*) $1;
 }
+{#
+  The `standard` cache level (CacheLevel.STANDARD).
+
+  A request for a static file is 1 here, judged by the path's extension
+  before the origin answers: it is what lets a static URL be cached even
+  when the visitor carries a session cookie, since browsers send cookies
+  with every image and stylesheet they fetch.
+#}
+map $uri $blitzecdn_cache_static_uri {
+    default 0;
+    "~*\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|bmp|tiff?|woff2?|ttf|otf|eot|mp4|webm|m4v|mov|mp3|m4a|ogg|oga|wav|flac|pdf|zip|gz|tgz|bz2|xz|7z|rar|tar|wasm)$" 1;
+}
+{#
+  1 when a `standard` site must not store the response: neither the path nor
+  the Content-Type is a static file type, and the origin sent none of the
+  headers that give an entry its lifetime. Without any of them nginx would
+  fall back to proxy_cache_valid and store an HTML page for its full TTL,
+  which is the leak `standard` exists to close.
+
+  `volatile` because it reads the origin's response headers: only
+  proxy_no_cache, which nginx evaluates once the response is in, may read it,
+  and a value cached from an earlier evaluation would predate the response.
+#}
+map "$blitzecdn_cache_static_uri:$upstream_http_content_type:$upstream_http_cache_control$upstream_http_expires$upstream_http_x_accel_expires" $blitzecdn_cache_standard_skip {
+    volatile;
+    default 1;
+    "~^1:" 0;
+    "~*^0:(?:image|font|audio|video)/" 0;
+    "~*^0:(?:text/css|text/javascript|application/javascript|application/wasm|application/pdf|application/zip|application/gzip|application/font-woff2?)\s*(?:;[^:]*)?:" 0;
+    "~^0:[^:]*:." 0;
+}
+{#
+  One map per site whose cookies keep a request away from the cache: 1 when
+  the request carries a bypass cookie. Under `standard` a static file URL is
+  exempt (the `0:` prefix), and no listed cookie means any cookie at all.
+  Under `everything` only listed cookies count, on every URL.
+
+  The condition is the one cache-upstream.conf.j2 reads the variable under;
+  the two must agree, or a site names a variable that was never declared and
+  the edge refuses its configuration.
+#}
+{% for cached in blitzecdn_nginx_sites | default([], true) %}
+{% set level = cached.cache_level | default('standard') %}
+{% set cookies = cached.cache_bypass_cookies | default([], true) %}
+{% if cached.cache_enabled | default(true) and (level == 'standard' or cookies) %}
+{% set names = namespace(items=[]) %}
+{% for cookie in cookies %}
+{% set names.items = names.items + [(cookie | regex_escape) | replace('\\*', '[^=;]*')] %}
+{% endfor %}
+map "$blitzecdn_cache_static_uri:$http_cookie" $blitzecdn_cache_cookie_{{ cached.name | replace('-', '_') }} {
+    default 0;
+{% if names.items %}
+    "~^{{ '0' if level == 'standard' else '[01]' }}:(?:.*;\s*)?(?:{{ names.items | join('|') }})=" 1;
+{% else %}
+    "~^0:." 1;
+{% endif %}
+}
+{% endif %}
+{% endfor %}

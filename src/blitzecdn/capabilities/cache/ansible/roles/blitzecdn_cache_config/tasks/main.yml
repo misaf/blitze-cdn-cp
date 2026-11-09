@@ -1,5 +1,5 @@
 ---
-- name: Validate per-site cache durations
+- name: Validate per-site cache policy
   ansible.builtin.assert:
     that:
       - >-
@@ -8,7 +8,11 @@
       - >-
         item.cache_valid_not_found | default('1m')
         is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
-    fail_msg: "Site {{ item.name }} has an invalid cache duration."
+      - item.cache_level | default('standard') in ['standard', 'everything']
+      - >-
+        item.cache_bypass_cookies | default([], true)
+        | reject('match', '^[A-Za-z0-9_.*-]{1,128}$') | list | length == 0
+    fail_msg: "Site {{ item.name }} has an invalid cache duration, level or bypass cookie."
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
