@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 
 from support.contracts import role_defaults
-from support.edge_render import render_http_fragment, render_site, server_blocks
+from support.edge_render import (
+    nginx_hash_bucket_size,
+    nginx_hash_entry_size,
+    render_http_fragment,
+    render_site,
+    server_blocks,
+)
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule, derive_hosts
@@ -165,8 +171,9 @@ def test_a_path_scope_reads_its_own_cookie_map():
     http = render_http_fragment("cache-http.conf.j2", [site])
 
     path_block = rendered.split("location @blitzecdn_path_assets {", 1)[1]
-    assert "$blitzecdn_cache_cookie_example_com_path_assets" in path_block
-    assert "$blitzecdn_cache_cookie_example_com_path_assets {" in http
+    scope = site["locations"][0]["variable_scope"]
+    assert f"$blitzecdn_cache_cookie_{scope}" in path_block
+    assert f"$blitzecdn_cache_cookie_{scope} {{" in http
     assert "$blitzecdn_cache_cookie_example_com {" in http
 
 
@@ -203,3 +210,15 @@ def test_an_http_listener_that_redirects_to_https_renders_no_path_rules():
 
     assert all('location ~ "^/old/"' not in block for block in http)
     assert all('location ~ "^/old/"' in block for block in https)
+
+
+def test_a_path_scope_variable_fits_the_hash_whatever_the_names():
+    """The longest host and rule names would otherwise overflow the bucket."""
+    host, rule = "a" * 127, "r" + "b" * 62
+    site = {"name": host, "locations": [{"rule": rule}]}
+    from blitzecdn.capabilities.dns.adapters.ansible import variable_scope
+
+    name = "blitzecdn_cache_cookie_" + variable_scope(site["name"], rule)
+    assert nginx_hash_entry_size(name) <= nginx_hash_bucket_size(
+        "variables_hash_bucket_size"
+    )

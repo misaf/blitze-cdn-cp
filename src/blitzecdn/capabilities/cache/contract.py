@@ -61,14 +61,17 @@ class CachePolicy(CapabilityPolicy):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    # Every cache setting is rendered inside the location that proxies, and its
-    # cookie map is declared per path scope, so each one can differ by path.
+    # Rendered inside the location that proxies, with the cookie map declared
+    # per path scope, so each can differ by path. Not `cache_query_string_mode`:
+    # a purge rebuilds the cache key from the host's policy, so a key that
+    # differed by path would let a purge report success and miss the entry.
+    # Not the TTL overrides or ignored origin headers either: they rewrite the
+    # response in the host's origin hop, which has no path scope.
     path_settings: ClassVar[frozenset[str]] = frozenset(
         {
             "cache_enabled",
             "cache_level",
             "cache_bypass_cookies",
-            "cache_query_string_mode",
             "cache_valid_success",
             "cache_valid_not_found",
         }

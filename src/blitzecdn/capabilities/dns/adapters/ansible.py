@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
-__all__ = ["site_to_ansible"]
+__all__ = ["site_to_ansible", "variable_scope"]
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
@@ -29,7 +30,19 @@ def site_to_ansible(site: CdnSite) -> dict[str, Any]:
         document.pop("locations", None)
     else:
         document["locations"] = [
-            {**location, "variable_scope": f"{site.name}_path_{location['rule']}"}
+            {**location, "variable_scope": variable_scope(site.name, location["rule"])}
             for location in document["locations"]
         ]
     return document
+
+
+def variable_scope(host: str, rule: str) -> str:
+    """A fixed-length name for one host's path rule in Nginx variable names.
+
+    Bounded, because a host name and a rule name together can exceed what
+    ``variables_hash_bucket_size`` holds, and Nginx then refuses the whole
+    configuration. Keyed by a digest of both, so distinct pairs stay distinct.
+    """
+    # A name, not a security use; also keeps FIPS builds working.
+    digest = hashlib.sha256(f"{host}/{rule}".encode(), usedforsecurity=False)
+    return f"path_{digest.hexdigest()[:16]}"
