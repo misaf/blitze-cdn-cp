@@ -277,6 +277,80 @@ def test_an_unreadable_fleet_does_not_raise(config, monkeypatch, site):
     assert not _check(report, "dns").passed
 
 
+# ----------------------------------------------------------------------
+# Which edges an HTTP-01 challenge has to reach
+# ----------------------------------------------------------------------
+
+
+def _edges(*names_and_addresses):
+    return [
+        Edge(name=name, host=f"{name}.example.net", public_addresses=(address,))
+        for name, address in names_and_addresses
+    ]
+
+
+def test_a_challenge_skips_edges_the_hostname_does_not_resolve_to(build):
+    edges = _edges(("edge1", "203.0.113.5"), ("edge2", "203.0.113.6"))
+    result = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5"},
+            "203.0.113.5": {"203.0.113.5"},
+            "203.0.113.6": {"203.0.113.6"},
+        },
+        edges=edges,
+    ).challenge_edges("cdn.example.com")
+    assert result.targets == ("edge1",)
+    assert result.skipped == ("edge2",)
+
+
+def test_a_challenge_keeps_every_edge_the_hostname_resolves_to(build):
+    edges = _edges(("edge1", "203.0.113.5"), ("edge2", "2001:db8::6"))
+    result = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5", "2001:db8::6"},
+            "203.0.113.5": {"203.0.113.5"},
+            "2001:db8::6": {"2001:db8::6"},
+        },
+        edges=edges,
+    ).challenge_edges("cdn.example.com")
+    assert result.targets == ("edge1", "edge2")
+    assert result.skipped == ()
+
+
+def test_a_challenge_keeps_an_edge_whose_own_address_does_not_resolve(build):
+    """Nothing shows the hostname is not on it, so it may still be asked."""
+    edges = [
+        *_edges(("edge1", "203.0.113.5"), ("edge2", "203.0.113.6")),
+        Edge(name="edge3", host="edge3.example.net", public_addresses=("gone.test",)),
+    ]
+    result = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5"},
+            "203.0.113.5": {"203.0.113.5"},
+            "203.0.113.6": {"203.0.113.6"},
+        },
+        edges=edges,
+    ).challenge_edges("cdn.example.com")
+    assert result.targets == ("edge1", "edge3")
+    assert result.skipped == ("edge2",)
+
+
+@pytest.mark.parametrize("resolved", [set(), {"198.51.100.99"}])
+def test_a_challenge_for_a_hostname_on_no_known_edge_targets_the_fleet(build, resolved):
+    """Preflight was overridden: only the CA knows which address it will ask."""
+    edges = _edges(("edge1", "203.0.113.5"), ("edge2", "203.0.113.6"))
+    result = build(
+        addresses={
+            "cdn.example.com": resolved,
+            "203.0.113.5": {"203.0.113.5"},
+            "203.0.113.6": {"203.0.113.6"},
+        },
+        edges=edges,
+    ).challenge_edges("cdn.example.com")
+    assert result.targets == ()
+    assert result.skipped == ()
+
+
 def test_a_wildcard_site_is_not_resolved(build):
     wildcard = CdnSite(
         name="wildcard-example-com",
