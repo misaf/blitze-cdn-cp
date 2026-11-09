@@ -10,7 +10,7 @@ from blitzecdn.capabilities.compression.contract import (
     CompressionMode,
     CompressionPolicy,
 )
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.domain_editing import report, update
 

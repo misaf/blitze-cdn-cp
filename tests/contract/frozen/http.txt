@@ -180,6 +180,10 @@ blitzecdn	schema	Deployment.result	AnsibleRun|null optional
 blitzecdn	schema	Deployment.rollback_of	string|null optional
 blitzecdn	schema	Deployment.started_at	string|null optional
 blitzecdn	schema	Deployment.status	DeploymentStatus required
+blitzecdn	schema	DeploymentReference.error	string|null optional
+blitzecdn	schema	DeploymentReference.id	string required
+blitzecdn	schema	DeploymentReference.release_id	string required
+blitzecdn	schema	DeploymentReference.status	DeploymentStatus required
 blitzecdn	schema	DeploymentTarget.attempts	integer required
 blitzecdn	schema	DeploymentTarget.edge	string required
 blitzecdn	schema	DeploymentTarget.finished_at	string|null optional
@@ -458,7 +462,7 @@ blitzecdn	schema	SiteRateLimit.rate	string|null optional
 blitzecdn	schema	SiteRateLimit.status	integer optional
 blitzecdn	schema	SiteVisitorHeaders.connecting_ip	boolean optional
 blitzecdn	schema	SiteVisitorHeaders.ip_country	boolean optional
-blitzecdn	schema	SslAutomaticReconciliation.deployment	Deployment|null optional
+blitzecdn	schema	SslAutomaticReconciliation.deployment	DeploymentReference|null optional
 blitzecdn	schema	SslAutomaticReconciliation.scanned	array[string] optional
 blitzecdn	schema	SslAutomaticReconciliation.skipped	object optional
 blitzecdn	schema	SslAutomaticReconciliation.upgraded	object optional

@@ -96,8 +96,9 @@ allow_indirect_imports = True
 [importlinter:contract:entry-persistence]
 name = Delivery code never reaches persistence directly
 type = forbidden
-# `api/` and `cli` stay outside `adapters/`: they are not private the way an
-# adapter is, and `deployments.api.models` is a published representation.
+# `api/` and `cli` stay outside `adapters/`: they are delivery, assembled by the
+# entry points, rather than private the way an adapter is. No other capability
+# imports either (see the public-surface contracts at the end).
 source_modules =
     blitzecdn.entrypoints.api
     blitzecdn.entrypoints.cli
@@ -286,3 +287,319 @@ source_modules =
 forbidden_modules =
     ansible
 allow_indirect_imports = True
+
+# One public surface per capability. Another capability imports
+# `blitzecdn.capabilities.<name>` (the package, whose `__all__` re-exports the
+# services, ports and values others may use) or its `contract`, never a
+# submodule. INI has no "every other capability", so each capability protects
+# its own submodules; tests/architecture/test_layering.py checks these
+# contracts list every submodule but `contract`, for every capability.
+# Composition, the entry points and the migrations environment assemble the
+# capabilities and may name their parts.
+
+[importlinter:contract:backup-public-surface]
+name = Other capabilities reach backup only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.backup.adapters
+    blitzecdn.capabilities.backup.cli
+    blitzecdn.capabilities.backup.domain
+    blitzecdn.capabilities.backup.feature
+    blitzecdn.capabilities.backup.ports
+    blitzecdn.capabilities.backup.service
+    blitzecdn.capabilities.backup.settings
+    blitzecdn.capabilities.backup.wiring
+allowed_importers =
+    blitzecdn.capabilities.backup
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:cache-public-surface]
+name = Other capabilities reach cache only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.cache.adapters
+    blitzecdn.capabilities.cache.ansible
+    blitzecdn.capabilities.cache.api
+    blitzecdn.capabilities.cache.cli
+    blitzecdn.capabilities.cache.domain
+    blitzecdn.capabilities.cache.feature
+    blitzecdn.capabilities.cache.ports
+    blitzecdn.capabilities.cache.service
+    blitzecdn.capabilities.cache.wiring
+allowed_importers =
+    blitzecdn.capabilities.cache
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:compression-public-surface]
+name = Other capabilities reach compression only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.compression.ansible
+    blitzecdn.capabilities.compression.cli
+    blitzecdn.capabilities.compression.feature
+allowed_importers =
+    blitzecdn.capabilities.compression
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:deployments-public-surface]
+name = Other capabilities reach deployments only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.deployments.adapters
+    blitzecdn.capabilities.deployments.api
+    blitzecdn.capabilities.deployments.cli
+    blitzecdn.capabilities.deployments.domain
+    blitzecdn.capabilities.deployments.feature
+    blitzecdn.capabilities.deployments.ports
+    blitzecdn.capabilities.deployments.service
+    blitzecdn.capabilities.deployments.settings
+    blitzecdn.capabilities.deployments.wiring
+allowed_importers =
+    blitzecdn.capabilities.deployments
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:diagnostics-public-surface]
+name = Other capabilities reach diagnostics only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.diagnostics.api
+    blitzecdn.capabilities.diagnostics.cli
+    blitzecdn.capabilities.diagnostics.domain
+    blitzecdn.capabilities.diagnostics.feature
+    blitzecdn.capabilities.diagnostics.ports
+    blitzecdn.capabilities.diagnostics.service
+    blitzecdn.capabilities.diagnostics.wiring
+allowed_importers =
+    blitzecdn.capabilities.diagnostics
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:dns-public-surface]
+name = Other capabilities reach dns only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.dns.adapters
+    blitzecdn.capabilities.dns.api
+    blitzecdn.capabilities.dns.cli
+    blitzecdn.capabilities.dns.domain
+    blitzecdn.capabilities.dns.feature
+    blitzecdn.capabilities.dns.ports
+    blitzecdn.capabilities.dns.service
+    blitzecdn.capabilities.dns.wiring
+allowed_importers =
+    blitzecdn.capabilities.dns
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:edges-public-surface]
+name = Other capabilities reach edges only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.edges.adapters
+    blitzecdn.capabilities.edges.api
+    blitzecdn.capabilities.edges.cli
+    blitzecdn.capabilities.edges.domain
+    blitzecdn.capabilities.edges.feature
+    blitzecdn.capabilities.edges.ports
+    blitzecdn.capabilities.edges.service
+    blitzecdn.capabilities.edges.settings
+    blitzecdn.capabilities.edges.wiring
+allowed_importers =
+    blitzecdn.capabilities.edges
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:hardening-public-surface]
+name = Other capabilities reach hardening only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.hardening.ansible
+    blitzecdn.capabilities.hardening.feature
+allowed_importers =
+    blitzecdn.capabilities.hardening
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:http-public-surface]
+name = Other capabilities reach http only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.http.cli
+    blitzecdn.capabilities.http.domain
+    blitzecdn.capabilities.http.feature
+    blitzecdn.capabilities.http.http3
+    blitzecdn.capabilities.http.wiring
+allowed_importers =
+    blitzecdn.capabilities.http
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:jobs-public-surface]
+name = Other capabilities reach jobs only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.jobs.adapters
+    blitzecdn.capabilities.jobs.api
+    blitzecdn.capabilities.jobs.cli
+    blitzecdn.capabilities.jobs.domain
+    blitzecdn.capabilities.jobs.feature
+    blitzecdn.capabilities.jobs.ports
+    blitzecdn.capabilities.jobs.service
+    blitzecdn.capabilities.jobs.wiring
+allowed_importers =
+    blitzecdn.capabilities.jobs
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:maintenance-public-surface]
+name = Other capabilities reach maintenance only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.maintenance.feature
+    blitzecdn.capabilities.maintenance.ports
+    blitzecdn.capabilities.maintenance.service
+    blitzecdn.capabilities.maintenance.wiring
+allowed_importers =
+    blitzecdn.capabilities.maintenance
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:origins-public-surface]
+name = Other capabilities reach origins only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.origins.adapters
+    blitzecdn.capabilities.origins.ansible
+    blitzecdn.capabilities.origins.api
+    blitzecdn.capabilities.origins.cli
+    blitzecdn.capabilities.origins.domain
+    blitzecdn.capabilities.origins.feature
+    blitzecdn.capabilities.origins.ports
+    blitzecdn.capabilities.origins.service
+    blitzecdn.capabilities.origins.settings
+    blitzecdn.capabilities.origins.wiring
+allowed_importers =
+    blitzecdn.capabilities.origins
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:releases-public-surface]
+name = Other capabilities reach releases only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.releases.adapters
+    blitzecdn.capabilities.releases.api
+    blitzecdn.capabilities.releases.cli
+    blitzecdn.capabilities.releases.domain
+    blitzecdn.capabilities.releases.feature
+    blitzecdn.capabilities.releases.ports
+    blitzecdn.capabilities.releases.service
+    blitzecdn.capabilities.releases.wiring
+allowed_importers =
+    blitzecdn.capabilities.releases
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:resolver-public-surface]
+name = Other capabilities reach resolver only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.resolver.ansible
+    blitzecdn.capabilities.resolver.feature
+allowed_importers =
+    blitzecdn.capabilities.resolver
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:security-public-surface]
+name = Other capabilities reach security only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.security.ansible
+    blitzecdn.capabilities.security.cli
+    blitzecdn.capabilities.security.domain
+    blitzecdn.capabilities.security.feature
+    blitzecdn.capabilities.security.geoip
+    blitzecdn.capabilities.security.settings
+    blitzecdn.capabilities.security.wiring
+allowed_importers =
+    blitzecdn.capabilities.security
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:tls-public-surface]
+name = Other capabilities reach tls only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.tls.adapters
+    blitzecdn.capabilities.tls.ansible
+    blitzecdn.capabilities.tls.api
+    blitzecdn.capabilities.tls.automatic_ssl
+    blitzecdn.capabilities.tls.certificates
+    blitzecdn.capabilities.tls.cli
+    blitzecdn.capabilities.tls.feature
+    blitzecdn.capabilities.tls.ports
+    blitzecdn.capabilities.tls.settings
+    blitzecdn.capabilities.tls.wiring
+allowed_importers =
+    blitzecdn.capabilities.tls
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:traffic-public-surface]
+name = Other capabilities reach traffic only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.traffic.adapters
+    blitzecdn.capabilities.traffic.ansible
+    blitzecdn.capabilities.traffic.api
+    blitzecdn.capabilities.traffic.cli
+    blitzecdn.capabilities.traffic.domain
+    blitzecdn.capabilities.traffic.feature
+    blitzecdn.capabilities.traffic.ports
+    blitzecdn.capabilities.traffic.service
+    blitzecdn.capabilities.traffic.settings
+    blitzecdn.capabilities.traffic.wiring
+allowed_importers =
+    blitzecdn.capabilities.traffic
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
+[importlinter:contract:workflows-public-surface]
+name = Other capabilities reach workflows only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.workflows.adapters
+    blitzecdn.capabilities.workflows.api
+    blitzecdn.capabilities.workflows.cli
+    blitzecdn.capabilities.workflows.domain
+    blitzecdn.capabilities.workflows.feature
+    blitzecdn.capabilities.workflows.ports
+    blitzecdn.capabilities.workflows.service
+    blitzecdn.capabilities.workflows.wiring
+allowed_importers =
+    blitzecdn.capabilities.workflows
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints

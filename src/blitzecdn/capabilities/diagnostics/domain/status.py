@@ -5,12 +5,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.deployments.domain import ConvergenceHealth
-from blitzecdn.capabilities.jobs.domain.observability import (
-    QueueStatistics,
-    WorkerHeartbeat,
-)
-from blitzecdn.capabilities.workflows.domain.statistics import WorkflowStatistics
+from blitzecdn.capabilities.deployments import ConvergenceHealth
+from blitzecdn.capabilities.jobs import QueueStatistics, WorkerHeartbeat
+from blitzecdn.capabilities.workflows import WorkflowStatistics
 
 WORKER_STALE_SECONDS = 30
 

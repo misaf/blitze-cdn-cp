@@ -15,7 +15,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Literal
 
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
+from blitzecdn.capabilities.deployments import DeploymentRequirementKind
 from blitzecdn.capabilities.tls.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CERTIFICATE_WORKFLOW,

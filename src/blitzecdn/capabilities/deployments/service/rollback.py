@@ -17,7 +17,7 @@ from blitzecdn.capabilities.deployments.ports import (
     SettingRestore,
     ZoneStore,
 )
-from blitzecdn.capabilities.releases.domain import ReleaseInputs
+from blitzecdn.capabilities.releases import ReleaseInputs
 from blitzecdn.core.exceptions import ConflictError
 
 __all__ = ["adopt_inputs", "require_unchanged_canonical", "select_target"]

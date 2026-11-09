@@ -8,7 +8,7 @@ from fastapi.responses import PlainTextResponse
 from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
-from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.core.features import Operations
 from blitzecdn.entrypoints.api.dependencies import require_operator

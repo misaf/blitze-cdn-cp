@@ -1,6 +1,7 @@
 """The HTTP representations this capability publishes, and the bodies it takes.
 
-``Deployment`` is reused by other capabilities that answer with a convergence.
+Other capabilities do not import these: one that answers with a deployment it
+started defines its own representation of it, so a change here stays here.
 """
 
 from __future__ import annotations

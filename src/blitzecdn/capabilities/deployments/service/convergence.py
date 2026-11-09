@@ -50,8 +50,8 @@ from blitzecdn.capabilities.deployments.service import (
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutOutcome
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
-from blitzecdn.capabilities.releases.domain import Release
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.releases import Release
+from blitzecdn.capabilities.workflows import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.validation import validate_edge_limit

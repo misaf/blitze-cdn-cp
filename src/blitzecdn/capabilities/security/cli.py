@@ -6,8 +6,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns import DnsService, DomainPatch
 from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES, SecurityPolicy
 from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import common
