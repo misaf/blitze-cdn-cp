@@ -8,9 +8,9 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blitzecdn.capabilities.deployments.domain import Deployment
+from blitzecdn.capabilities.deployments import Deployment
 from blitzecdn.capabilities.tls.contract import CertificateVersion
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.workflows import WorkflowKind
 from blitzecdn.core.domain.validation import hostname
 
 #: The journal entry an issuance opens, named by the capability that opens it.

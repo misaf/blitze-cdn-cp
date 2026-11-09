@@ -10,9 +10,9 @@ import typer
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.capabilities.traffic.domain import UsageQuery
+from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 from blitzecdn.entrypoints.cli.domain_editing import report, update

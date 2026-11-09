@@ -22,9 +22,9 @@ from blitzecdn.capabilities.cache.domain import (
     purge_tag,
 )
 from blitzecdn.capabilities.cache.ports import CacheRunner, CacheUsage
-from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.tls.contract import TlsPolicy
-from blitzecdn.capabilities.traffic.domain import UsageQuery
+from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import HostRun

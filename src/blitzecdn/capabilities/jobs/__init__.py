@@ -9,6 +9,11 @@ handlers tolerate duplicates.
 from __future__ import annotations
 
 from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedule
+from blitzecdn.capabilities.jobs.domain.observability import (
+    QueueStatistics,
+    WorkerHeartbeat,
+)
+from blitzecdn.capabilities.jobs.ports import WorkerHistory
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
     SCHEDULED_JOB,
@@ -29,6 +34,9 @@ __all__ = [
     "JobScheduler",
     "JobStatus",
     "OperationService",
+    "QueueStatistics",
     "Schedule",
     "ScheduleSpec",
+    "WorkerHeartbeat",
+    "WorkerHistory",
 ]

@@ -2,7 +2,8 @@
 
 A workflow on top of TLS, not part of it: TLS owns certificates and the
 encryption policy; this capability reads sites, probes origins from every
-edge, writes the upgrade back through TLS and deploys the result.
+edge, writes the upgrade back through TLS and deploys the result. No other
+capability builds on it, so its public surface is its version alone.
 """
 
 from blitzecdn.core.runtime.resources import distribution_version

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.workflows import WorkflowKind
 from blitzecdn.core.domain.identifiers import DeploymentId, Operator
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 

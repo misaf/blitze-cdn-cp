@@ -22,6 +22,7 @@ capability may name, and module-scope import cycles.
 from __future__ import annotations
 
 import ast
+import configparser
 from collections import defaultdict
 from pathlib import Path
 
@@ -46,12 +47,6 @@ def _is_domain(path: Path) -> bool:
         part.removesuffix(".py") for part in parts
     }
 
-
-_PUBLIC_CROSS_CAPABILITY_MODULES = {
-    "domain",
-    "contract",
-    "ports",
-}
 
 #: Names that must never become a top-level capability package: each is a
 #: strategy, protocol version, mode or detail of an existing capability. Mapped to
@@ -147,8 +142,8 @@ def test_layer_first_packages_have_no_source_modules():
 #: A capability's contact with a caller: everything under `api/` and `cli`.
 #:
 #: Positional, like `adapters/`, so a new delivery module is under the rule
-#: without being listed. They stay outside `adapters/` because `api.models` is a
-#: published contract while adapters must stay unreachable.
+#: without being listed. They stay outside `adapters/` because the entry points
+#: assemble them, while adapters are chosen only by the composition root.
 def _is_entry(path: Path) -> bool:
     parts = path.relative_to(_CAPABILITIES).parts
     return "api" in parts or "cli" in {part.removesuffix(".py") for part in parts}
@@ -162,24 +157,84 @@ def _entry_files() -> list[Path]:
     ]
 
 
-def test_cross_capability_imports_use_contract_modules():
+#: Who may name a capability's submodules besides the capability itself: the
+#: code that assembles capabilities rather than being one of them.
+_ASSEMBLERS = {"blitzecdn.assets", "blitzecdn.composition", "blitzecdn.entrypoints"}
+
+
+def _capability_packages() -> list[Path]:
+    return sorted(
+        path
+        for path in _CAPABILITIES.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    )
+
+
+def _submodules(package: Path) -> set[str]:
+    """A package's direct children that Python can import, by name."""
+    return {
+        child.stem if child.suffix == ".py" else child.name
+        for child in package.iterdir()
+        if (child.suffix == ".py" and child.stem != "__init__")
+        or (child.is_dir() and (child / "__init__.py").is_file())
+    }
+
+
+def _lines(value: str) -> set[str]:
+    return {line.strip() for line in value.splitlines() if line.strip()}
+
+
+def test_every_capability_s_public_surface_is_protected():
+    """Another capability names the package or its `contract`, nothing deeper.
+
+    import-linter enforces it, one `protected` contract per capability, because
+    INI cannot say "every other capability". What it cannot do is notice a
+    capability, or a submodule, that its contract forgot: this does.
+    """
+    config = configparser.ConfigParser()
+    config.read(REPO_ROOT / ".importlinter", encoding="utf-8")
     offenders: list[str] = []
-    prefix = "blitzecdn.capabilities."
-    for path in _capability_files():
-        owner = _capability_name(path)
-        for imported in sorted(_imports(path)):
-            if not imported.startswith(prefix):
-                continue
-            parts = imported.removeprefix(prefix).split(".")
-            if parts[0] == owner or len(parts) == 1:
-                continue
-            # HTTP representation reuse belongs to delivery. Concrete
-            # runtime implementations are wired only in the composition root.
-            published = parts[1:] == ["api", "models"]
-            if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES and not (
-                published and _is_entry(path)
-            ):
-                offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
+    for package in _capability_packages():
+        name = f"blitzecdn.capabilities.{package.name}"
+        section = f"importlinter:contract:{package.name}-public-surface"
+        if section not in config:
+            offenders.append(f"{section} is missing")
+            continue
+        contract = config[section]
+        expected = {
+            "type": "protected",
+            "protected_modules": {
+                f"{name}.{child}" for child in _submodules(package) - {"contract"}
+            },
+            "allowed_importers": {name, *_ASSEMBLERS},
+        }
+        actual = {
+            "type": contract.get("type", "").strip(),
+            "protected_modules": _lines(contract.get("protected_modules", "")),
+            "allowed_importers": _lines(contract.get("allowed_importers", "")),
+        }
+        offenders.extend(
+            f"{section} {key}: expected {expected[key]!r}, found {actual[key]!r}"
+            for key in expected
+            if actual[key] != expected[key]
+        )
+    assert offenders == []
+
+
+def test_every_capability_package_declares_its_public_surface():
+    """The package is what another capability imports, so it says what it offers."""
+    offenders = [
+        f"{path.relative_to(_SOURCE)} has no __all__"
+        for path in (package / "__init__.py" for package in _capability_packages())
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for node in ast.parse(path.read_text(encoding="utf-8")).body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+        )
+    ]
     assert offenders == []
 
 
@@ -329,17 +384,37 @@ def test_no_internal_module_dependency_cycles():
 
     Module-scope imports only. Deferred imports keep runtime-only integrations
     outside the import graph; core schema lifecycle owns no repository imports.
+
+    Importing `a.b.c` runs `a/b/__init__.py` first, so an import also depends on
+    every package above what it names, except the importer's own ancestors,
+    which are already initialising. Other capabilities import a capability's
+    package, so its `__init__` is part of the graph like any other module.
     """
+    # A package is its `__init__.py`, named as it is imported.
     modules = {
-        "blitzecdn." + ".".join(path.relative_to(_SOURCE).with_suffix("").parts): path
+        "blitzecdn."
+        + ".".join(path.relative_to(_SOURCE).with_suffix("").parts).removesuffix(
+            ".__init__"
+        ): path
         for path in _SOURCE.rglob("*.py")
         if "migrations" not in path.parts
     }
     graph: dict[str, set[str]] = defaultdict(set)
     for module, path in modules.items():
-        graph[module].update(
-            name for name in _module_scope_imports(path) if name in modules
-        )
+        own_ancestors = {
+            module.rsplit(".", depth)[0] for depth in range(1, module.count(".") + 1)
+        }
+        for name in _module_scope_imports(path):
+            parts = name.split(".")
+            graph[module].update(
+                prefix
+                for prefix in (
+                    ".".join(parts[:end]) for end in range(1, len(parts) + 1)
+                )
+                if prefix in modules
+                and prefix not in own_ancestors
+                and prefix != module
+            )
     visiting: list[str] = []
     visited: set[str] = set()
 
