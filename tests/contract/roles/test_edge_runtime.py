@@ -446,7 +446,9 @@ def test_nginx_logs_requests_to_files_and_errors_to_docker():
     assert (
         site.count("access_log {{ blitzecdn_edge_runtime.paths.logs }}/domains/") == 2
     )
-    # Per server block: the hostname file, or off when access logging is disabled.
-    assert site.count("\n    access_log ") == 4
+    # Per server block: the hostname file, or off when access logging is disabled;
+    # plus the origin hop, off because the visitor-facing server logged the visit.
+    assert site.count("\n    access_log ") == 5
+    assert site.count("\n    access_log off;") == 3
     assert 'max-size: "32m"' in COMPOSE_TEMPLATE
     assert 'max-file: "3"' in COMPOSE_TEMPLATE

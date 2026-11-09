@@ -31,21 +31,25 @@
 {% macro upstream_name(origin) -%}
 blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {%- endmacro %}
-{% macro proxy(listener_port, visitor_scheme='http') %}
-{% set origin = origin_of(listener_port, visitor_scheme) | string %}
-{% set origin_scheme = origin.split(':')[0] %}
-{% set secure = visitor_scheme == 'https' %}
-        proxy_pass {{ origin_scheme }}://{{ upstream_name(origin) }};
-        proxy_http_version 1.1;
-        proxy_set_header Host {{ item.origin_request_host | default('$host') }};
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header BZ-Connecting-IP {{ '$remote_addr' if connecting_ip else '""' }};
-        proxy_set_header BZ-IPCountry $blitzecdn_visitor_ip_country;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $blitzecdn_connection_upgrade;
-{% if origin_scheme == 'https' %}
+{#
+  The origin hop. nginx's cache reads its lifetime and its exclusions from the
+  response with directives that take no variables (proxy_cache_valid,
+  proxy_ignore_headers), so the only per-site, per-response lever is the
+  response itself. A capability that needs one contributes an `origin`
+  fragment; when any renders for an origin, the site's listeners for it
+  proxy to a loopback server of their own (the hop servers below) whose location
+  carries the fragments, so they rewrite the origin's headers before the
+  cache, one hop up, reads them. A site with no such fragment is proxied
+  straight to its origin as before and pays nothing.
+#}
+{% macro origin_fragments(origin) -%}
+{{ fragments('origin', origin.split(':')[1] | int, origin.split(':')[0]) }}
+{%- endmacro %}
+{% macro hop_name(origin) -%}
+{{ item.name }}.{{ origin | replace(':', '-') }}.hop.blitzecdn.invalid
+{%- endmacro %}
+{% macro origin_tls(origin) %}
+{% if origin.split(':')[0] == 'https' %}
         proxy_ssl_server_name on;
         proxy_ssl_name {{ item.origin_sni | default(item.origin_request_host | default(item.origin_host)) }};
         proxy_ssl_verify {{ 'on' if ssl_mode == 'full_strict' else 'off' }};
@@ -53,6 +57,34 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_ssl_verify_depth 5;
 {% endif %}
+{% endif %}
+{% endmacro %}
+{% macro proxy(listener_port, visitor_scheme='http') %}
+{% set origin = origin_of(listener_port, visitor_scheme) | string %}
+{% set origin_scheme = origin.split(':')[0] %}
+{% set secure = visitor_scheme == 'https' %}
+{% set hop = origin_fragments(origin) | trim %}
+{% if hop %}
+        # Through the origin hop, which talks to the origin itself and is
+        # told which Host to send it.
+        proxy_pass http://blitzecdn_origin_hop;
+        proxy_http_version 1.1;
+        proxy_set_header Host {{ hop_name(origin) }};
+        proxy_set_header BZ-Origin-Host {{ item.origin_request_host | default('$host') }};
+{% else %}
+        proxy_pass {{ origin_scheme }}://{{ upstream_name(origin) }};
+        proxy_http_version 1.1;
+        proxy_set_header Host {{ item.origin_request_host | default('$host') }};
+{% endif %}
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header BZ-Connecting-IP {{ '$remote_addr' if connecting_ip else '""' }};
+        proxy_set_header BZ-IPCountry $blitzecdn_visitor_ip_country;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $blitzecdn_connection_upgrade;
+{% if not hop %}
+{{ origin_tls(origin) }}
 {% endif %}
         proxy_connect_timeout {{ blitzecdn_nginx_proxy_connect_timeout }};
         proxy_read_timeout {{ blitzecdn_nginx_proxy_read_timeout }};
@@ -158,6 +190,56 @@ upstream {{ upstream_name(origin) }} {
     keepalive_timeout {{ blitzecdn_nginx_upstream_keepalive_timeout }};
 {% endif %}
 }
+{% endfor %}
+{#
+  One hop server per origin that has origin fragments, on the shared loopback
+  port and told apart by Host. It does what proxy() does for a site without a
+  hop, less what the visitor-facing hop already did: the X-Forwarded-* and
+  BZ-* headers arrive set and pass through, the body was already limited and
+  read, and the visit was already logged and counted. Neither direction is
+  buffered here: the cache-side hop buffers both, and a second copy of a large
+  object on disk would buy nothing.
+
+  The X-Accel-* controls are the origin's instructions to the edge, so this
+  hop passes them up for the cache-side hop to act on, as it would without
+  the hop, rather than obeying them itself. X-Accel-Expires is the origin
+  fragments' to pass or replace.
+
+  limit_conn is set for the whole edge in nginx.conf, and here every request
+  comes from 127.0.0.1: counted against one address, the hop would cap the
+  whole edge's misses at one visitor's limit. Dry-run keeps the count and
+  drops the cap; visitors stay limited where they connect.
+#}
+{% for origin in origins.wanted %}
+{% set hop = origin_fragments(origin) | trim %}
+{% if hop %}
+server {
+    listen 127.0.0.1:{{ blitzecdn_nginx_origin_hop_port }};
+    server_name {{ hop_name(origin) }};
+    access_log off;
+    client_max_body_size 0;
+    limit_conn_dry_run on;
+    location / {
+        proxy_pass {{ origin.split(':')[0] }}://{{ upstream_name(origin) }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_bz_origin_host;
+        proxy_set_header BZ-Origin-Host "";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $blitzecdn_connection_upgrade;
+        proxy_request_buffering off;
+        proxy_buffering off;
+{{ origin_tls(origin) }}
+        proxy_connect_timeout {{ blitzecdn_nginx_proxy_connect_timeout }};
+        proxy_read_timeout {{ blitzecdn_nginx_proxy_read_timeout }};
+        proxy_ignore_headers X-Accel-Redirect X-Accel-Limit-Rate X-Accel-Buffering X-Accel-Charset;
+        proxy_pass_header X-Accel-Redirect;
+        proxy_pass_header X-Accel-Limit-Rate;
+        proxy_pass_header X-Accel-Buffering;
+        proxy_pass_header X-Accel-Charset;
+        {{ hop }}
+    }
+}
+{% endif %}
 {% endfor %}
 {% for hostname in item.server_names %}
 {% set first_hostname = loop.first %}
