@@ -8,8 +8,8 @@ from collections.abc import Callable, Sequence
 from dishka import Provider, Scope, provide
 
 from blitzecdn.assets import ansible as core_ansible
-from blitzecdn.capabilities.dns.ports import RuleReader, ZoneStore
-from blitzecdn.capabilities.edges.ports import EdgeStore
+from blitzecdn.capabilities.dns import RuleReader, ZoneStore
+from blitzecdn.capabilities.edges import EdgeStore
 from blitzecdn.capabilities.releases.adapters.persistence import (
     ReleaseStore as ReleaseTable,
 )

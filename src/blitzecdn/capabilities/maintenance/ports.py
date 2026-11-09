@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from blitzecdn.capabilities.deployments.domain import Deployment
+from blitzecdn.capabilities.deployments import Deployment
 from blitzecdn.core.features import ScheduledJob
 
 __all__ = ["Deployments", "JobTable"]

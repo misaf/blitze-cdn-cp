@@ -13,7 +13,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.dns.domain import Domain, Rule
+from blitzecdn.capabilities.dns import Domain, Rule
 from blitzecdn.core.domain.site_policy import SitePolicy
 
 __all__ = ["HostExplanation", "SettingOrigin", "SettingSource", "explain"]

@@ -6,7 +6,7 @@ issued certificate or an Automatic SSL upgrade changes is TLS's decision.
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.dns.domain import SiteChange
+from blitzecdn.capabilities.dns import SiteChange
 from blitzecdn.capabilities.tls.certificates.ports import SiteWriter
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
