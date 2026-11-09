@@ -7,8 +7,9 @@ row's provider and builders come from the capability's own `wiring.py`.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from dishka import Provider
 
@@ -40,7 +41,7 @@ from blitzecdn.capabilities.edges.service import operations as edge_operations
 from blitzecdn.capabilities.edges.wiring import EdgesProvider
 from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
-from blitzecdn.capabilities.jobs.ports import OperationRun
+from blitzecdn.capabilities.jobs.ports import QueuedOperation
 from blitzecdn.capabilities.jobs.wiring import JobsProvider, QueueReadiness
 from blitzecdn.capabilities.maintenance.wiring import MaintenanceProvider
 from blitzecdn.capabilities.origins.service import operations as origin_operations
@@ -148,7 +149,7 @@ class RosterEntry:
     provider: type[Provider] | None = None
     rendering: Callable[[RenderingInputs], FeatureRendering[CdnSite]] | None = None
     operations: Callable[[OperationInputs], FeatureOperations] | None = None
-    queued: Callable[[OperationInputs], Mapping[str, OperationRun]] | None = None
+    queued: Callable[[OperationInputs], Iterable[QueuedOperation[Any]]] | None = None
     leases: Callable[[OperationInputs], Mapping[str, int]] | None = None
 
 
@@ -228,9 +229,7 @@ ROSTER: tuple[RosterEntry, ...] = (
     RosterEntry(
         "blitzecdn.capabilities.edges.feature",
         provider=EdgesProvider,
-        queued=lambda inputs: edge_operations.operation_handlers(
-            inputs.edge_operations
-        ),
+        queued=lambda inputs: edge_operations.queued_operations(inputs.edge_operations),
     ),
     RosterEntry("blitzecdn.capabilities.jobs.feature", provider=JobsProvider),
     RosterEntry("blitzecdn.capabilities.releases.feature", provider=ReleasesProvider),
@@ -245,7 +244,7 @@ ROSTER: tuple[RosterEntry, ...] = (
         provider=TlsProvider,
         rendering=_certificates_rendering,
         operations=_certificates_operations,
-        queued=lambda inputs: certificate_operations.operation_handlers(
+        queued=lambda inputs: certificate_operations.queued_operations(
             inputs.certificates,
             renewal_budget_seconds=inputs.certificate_config.renewal_budget_seconds,
         ),
@@ -271,7 +270,7 @@ ROSTER: tuple[RosterEntry, ...] = (
     RosterEntry(
         "blitzecdn.capabilities.cache.feature",
         provider=CacheProvider,
-        queued=lambda inputs: cache_operations.operation_handlers(inputs.cache),
+        queued=lambda inputs: cache_operations.queued_operations(inputs.cache),
     ),
     RosterEntry(
         "blitzecdn.capabilities.traffic.feature",
@@ -286,7 +285,7 @@ ROSTER: tuple[RosterEntry, ...] = (
     RosterEntry(
         "blitzecdn.capabilities.origins.feature",
         provider=OriginsProvider,
-        queued=lambda inputs: origin_operations.operation_handlers(inputs.origins),
+        queued=lambda inputs: origin_operations.queued_operations(inputs.origins),
     ),
     RosterEntry(
         "blitzecdn.capabilities.security.geoip.feature",
@@ -344,16 +343,18 @@ def capability_providers() -> tuple[Provider, ...]:
     return tuple(entry.provider() for entry in ROSTER if entry.provider is not None)
 
 
-def bind_queued_operations(inputs: OperationInputs) -> dict[str, OperationRun]:
-    """Every queueable edge operation's run, by kind; a kind is owned once."""
-    runs: dict[str, OperationRun] = {}
+def bind_queued_operations(
+    inputs: OperationInputs,
+) -> dict[str, QueuedOperation[Any]]:
+    """Every queueable edge operation, by its payload's kind; a kind is owned once."""
+    runs: dict[str, QueuedOperation[Any]] = {}
     for entry in ROSTER:
         if entry.queued is None:
             continue
-        for kind, run in entry.queued(inputs).items():
-            if kind in runs:
-                raise ValueError(f"edge operation {kind!r} is queued twice")
-            runs[kind] = run
+        for operation in entry.queued(inputs):
+            if operation.kind in runs:
+                raise ValueError(f"edge operation {operation.kind!r} is queued twice")
+            runs[operation.kind] = operation
     return runs
 
 

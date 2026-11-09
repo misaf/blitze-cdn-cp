@@ -51,14 +51,11 @@ uv run blitzecdn-worker      # Schedule and consume durable jobs
 ```
 
 Control endpoints use `/v3`, independently of the application release version.
-Legacy `/v1` and `/v2` contracts are not served by this application. `/docs`
-and `/openapi.json` describe the current API; `/health` and `/metrics` remain
-unversioned. See [request defaults](docs/api-defaults.md) for creation values,
-PATCH semantics, inheritance, and operation scope.
+`/docs` and `/openapi.json` describe the current API; `/health` and `/metrics`
+remain unversioned. See [request defaults](docs/api-defaults.md) for creation
+values, PATCH semantics, inheritance, and operation scope.
 See [queued API work](docs/queued-operations.md) for submission responses,
 polling headers, and result handling.
-Existing clients should follow the [v2 to v3 migration guide](docs/migration-v2-v3.md)
-before changing their API prefix.
 
 Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
@@ -67,9 +64,8 @@ metrics, worker heartbeats, and logs.
 
 Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
 deployment ID for its per-edge progress. Read stored hourly cache effectiveness with
-`uv run blitzecdn cache stats --start ... --end ...`. These
-replace the former root commands `status` and `stats`; update scripts to use
-the resource groups. Controller diagnostics remain `blitzecdn overview`.
+`uv run blitzecdn cache stats --start ... --end ...`. Controller diagnostics
+use `blitzecdn overview`.
 
 Local setup does not provision an edge. Remote operations require registered
 edges, SSH access, and appropriate host privileges. Production host installation
@@ -106,6 +102,12 @@ Each capability contains only the parts it needs:
 - `feature`: declarations of contributed routes, commands, and other features.
 - `wiring`: construction and binding of capability behavior.
 - `ansible` and `nginx`: capability-owned automation and configuration fragments.
+
+A part is a single module (`cli.py`, `domain.py`) until it outgrows one file,
+then a package of the same name (`cli/`, `domain/`). Both forms are the same
+part and follow the same rules, so a difference between capabilities only
+reflects size. A capability that holds several slices, such as `tls` with
+`tls/certificates/`, keeps each slice's parts inside that slice.
 
 Core does not import capabilities. Services do not import adapters. Delivery
 code does not access persistence directly. Capabilities receive collaborators

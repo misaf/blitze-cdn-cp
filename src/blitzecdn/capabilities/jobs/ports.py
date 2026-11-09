@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, NewType, Protocol
 
@@ -10,6 +11,7 @@ from blitzecdn.capabilities.jobs.domain import (
     Job,
     JobClaim,
     JobOutcome,
+    JobPayload,
     JobStatus,
     Schedule,
 )
@@ -22,18 +24,31 @@ __all__ = [
     "JobHandler",
     "JobStore",
     "OperationLeases",
-    "OperationRun",
     "OperationRuns",
+    "QueuedOperation",
     "ScheduleStore",
     "WorkerHistory",
     "WorkerProgress",
 ]
 
-#: One edge operation's run: its JSON payload in, its JSON report out.
-OperationRun = Callable[[Mapping[str, Any]], dict[str, Any]]
 
-#: Every edge operation the API may queue, by kind, and its run in the worker.
-OperationRuns = NewType("OperationRuns", dict[str, OperationRun])
+@dataclass(frozen=True, slots=True)
+class QueuedOperation[P: JobPayload]:
+    """One edge operation the API may queue: its payload model and its run.
+
+    The run takes the validated payload and returns its JSON report.
+    """
+
+    payload: type[P]
+    run: Callable[[P], dict[str, Any]]
+
+    @property
+    def kind(self) -> str:
+        return self.payload.kind
+
+
+#: Every edge operation the API may queue, by kind.
+OperationRuns = NewType("OperationRuns", dict[str, QueuedOperation[Any]])
 
 #: How long a claim on an operation of each kind should be good for, in
 #: seconds, for kinds whose run can outlast the queue's default lease.
@@ -131,11 +146,19 @@ class ScheduleStore(Protocol):
     def list_schedules(self) -> Sequence[Schedule]: ...
 
 
-class JobHandler(Protocol):
-    """Does the work for one kind of job, given only its payload.
+@dataclass(frozen=True, slots=True)
+class JobHandler[P: JobPayload]:
+    """Does the work for one kind of job, given only its validated payload.
 
-    Answers with a :data:`~blitzecdn.capabilities.jobs.domain.JobOutcome`; raising
-    is for the unexpected.
+    ``handle`` answers with a
+    :data:`~blitzecdn.capabilities.jobs.domain.JobOutcome`; raising is for the
+    unexpected. The queue validates the stored payload against ``payload``
+    first, so a handler never sees a payload of the wrong shape.
     """
 
-    def __call__(self, payload: Mapping[str, Any]) -> JobOutcome: ...
+    payload: type[P]
+    handle: Callable[[P], JobOutcome]
+
+    @property
+    def kind(self) -> str:
+        return self.payload.kind

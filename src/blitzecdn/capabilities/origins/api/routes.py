@@ -4,10 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.capabilities.origins.api.models import OriginCheckRequest
-from blitzecdn.capabilities.origins.service.operations import (
-    CHECK_OPERATION,
-    check_payload,
-)
+from blitzecdn.capabilities.origins.service.operations import OriginCheckJob
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,
@@ -38,7 +35,7 @@ def check_origins(
     """Queue the edges connecting to their origins; the result is an OriginReport."""
     queued = as_queued(
         queued_operations.submit(
-            CHECK_OPERATION, check_payload(operator, host_limit=request.host_limit)
+            OriginCheckJob(operator=operator, host_limit=request.host_limit)
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")

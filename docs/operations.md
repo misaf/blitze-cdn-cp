@@ -1,8 +1,7 @@
 # Operational visibility
 
-The current API uses `/v3`. Legacy production APIs `/v1` and `/v2` are
-different contracts and are not served by this application. The API version
-is independent of the BlitzeCDN application version.
+The current API uses `/v3`. The API version is independent of the BlitzeCDN
+application version.
 
 Read local controller state with:
 

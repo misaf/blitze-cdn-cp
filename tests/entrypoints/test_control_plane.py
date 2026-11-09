@@ -31,11 +31,7 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
     Rule,
 )
-from blitzecdn.capabilities.jobs import (
-    DEPLOYMENT_JOB,
-    SCHEDULED_JOB,
-    JobQueue,
-)
+from blitzecdn.capabilities.jobs import DeploymentJob, JobQueue, ScheduledFiring
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import (
     Repository,
@@ -135,7 +131,9 @@ def test_only_the_worker_container_installs_the_queue_handlers(settings):
     try:
         worker = container.get(Worker)
         assert worker.runner.queue is container.get(JobQueue)
-        assert {DEPLOYMENT_JOB, SCHEDULED_JOB} <= set(worker.runner.queue.handlers)
+        assert {DeploymentJob.kind, ScheduledFiring.kind} <= set(
+            worker.runner.queue.handlers
+        )
     finally:
         container.close()
 

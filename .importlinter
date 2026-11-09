@@ -570,7 +570,6 @@ type = protected
 protected_modules =
     blitzecdn.capabilities.tls.adapters
     blitzecdn.capabilities.tls.ansible
-    blitzecdn.capabilities.tls.api
     blitzecdn.capabilities.tls.certificates
     blitzecdn.capabilities.tls.cli
     blitzecdn.capabilities.tls.feature
