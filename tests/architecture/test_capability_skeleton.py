@@ -1,9 +1,10 @@
 """Every capability is built from the same parts, under one name each.
 
 A part may be a module or a package — `cli.py` and `dns/cli/` are both the
-CLI — but it may not be a third name for a job one of these already does. A
-new module goes into the part it belongs to, and the layering rules that part
-is held to come with it.
+CLI. It starts as a module and becomes a package once it outgrows one file;
+the choice carries no other meaning. It may not be a third name for a job one
+of these already does. A new module goes into the part it belongs to, and the
+layering rules that part is held to come with it.
 """
 
 from __future__ import annotations
