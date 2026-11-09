@@ -12,7 +12,7 @@ from blitzecdn.capabilities.dns.api.models import RecordCreate, RuleCreate
 from blitzecdn.capabilities.dns.domain import DnsRecord, Rule
 from blitzecdn.capabilities.edges.api.models import Edge as ApiEdge
 from blitzecdn.capabilities.edges.domain import Edge
-from blitzecdn.capabilities.tls.api.models import (
+from blitzecdn.capabilities.tls.certificates.api.models import (
     CertificateRequest as ApiCertificateRequest,
 )
 from blitzecdn.capabilities.tls.certificates.domain import CertificateRequest
