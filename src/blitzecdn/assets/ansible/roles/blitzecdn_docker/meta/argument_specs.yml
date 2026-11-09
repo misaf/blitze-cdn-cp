@@ -16,6 +16,13 @@ argument_specs:
     options:
       blitzecdn_docker_repository_url: {type: str, required: true}
       blitzecdn_docker_gpg_url: {type: str, required: true}
+      blitzecdn_docker_gpg_fingerprint:
+        type: str
+        required: true
+        description: >-
+          The fingerprint of Docker's apt signing key. The keyring must hold
+          this primary key and no other, or the role stops before configuring
+          the repository.
       blitzecdn_docker_keyring: {type: path, required: true}
       blitzecdn_docker_list_file: {type: path, required: true}
       blitzecdn_docker_packages:

@@ -87,6 +87,7 @@ blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_sudoers_file	ty
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_systemd_dir	type=path required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_update_backup	type=str default=''
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_daemon_config_file	type=path required
+blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_gpg_fingerprint	type=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_gpg_url	type=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_keyring	type=path required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_list_file	type=path required
