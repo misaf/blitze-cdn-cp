@@ -18,19 +18,19 @@ class PreflightAttemptStore:
         self._db = database
 
     def get(self, site: str) -> PreflightAttempt | None:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(PreflightAttemptRow, site)
             return None if row is None else _attempt(row)
 
     def list_all(self) -> list[PreflightAttempt]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(PreflightAttemptRow).order_by(PreflightAttemptRow.site)
             )
             return [_attempt(row) for row in rows]
 
     def record(self, attempt: PreflightAttempt) -> None:
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(PreflightAttemptRow, attempt.site)
             if row is None:
                 session.add(PreflightAttemptRow(**attempt.model_dump()))
@@ -42,14 +42,14 @@ class PreflightAttemptStore:
             row.summary = attempt.summary
 
     def clear(self, site: str) -> None:
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 delete(PreflightAttemptRow).where(PreflightAttemptRow.site == site)
             )
 
     def retain(self, sites: Collection[str]) -> None:
         """Forget every site not named, such as one deleted or now certified."""
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 delete(PreflightAttemptRow).where(
                     PreflightAttemptRow.site.not_in(list(sites))

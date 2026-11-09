@@ -47,7 +47,7 @@ class ReleaseStore:
         """
         if release.inputs_digest != inputs.digest:
             raise ConfigurationError("release inputs do not match the compiled digest")
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 sqlite_insert(ReleaseInputsRow)
                 .values(
@@ -73,7 +73,7 @@ class ReleaseStore:
 
     def save_configuration(self, release: Release, bundle: ConfigurationBundle) -> None:
         """Record what a release rendered to, once; rollbacks ship that first render."""
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 sqlite_insert(ReleaseConfigurationRow)
                 .values(
@@ -89,7 +89,7 @@ class ReleaseStore:
 
     def configuration(self, release_id: str) -> ConfigurationBundle:
         """The configuration tree a stored release rendered to, verified."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = self._row(session, release_id)
             stored = session.get(ReleaseConfigurationRow, row.digest)
             if stored is None:
@@ -111,12 +111,12 @@ class ReleaseStore:
             return bundle
 
     def get(self, release_id: str) -> Release:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return self._release(self._row(session, release_id))
 
     def inputs_for(self, release_id: str) -> ReleaseInputs:
         """The canonical state a release was compiled from, for a rollback."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = self._row(session, release_id)
             inputs = session.get(ReleaseInputsRow, row.inputs_digest)
             if inputs is None:
@@ -133,7 +133,7 @@ class ReleaseStore:
             return decoded
 
     def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return read_page(
                 session,
                 select(ReleaseRow).order_by(
@@ -145,7 +145,7 @@ class ReleaseStore:
             )
 
     def list_releases(self, limit: int | None = 20) -> list[Release]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(ReleaseRow).order_by(ReleaseRow.created_at.desc()).limit(limit)
             ).all()
@@ -157,7 +157,7 @@ class ReleaseStore:
         The deployments foreign key enforces "nothing names it". Inputs are kept, since
         every release compiled from them names them.
         """
-        with self._db.session() as session:
+        with self._db.writer() as session:
             survivors = (
                 select(ReleaseRow.digest)
                 .order_by(ReleaseRow.created_at.desc())

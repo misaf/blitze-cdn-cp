@@ -41,7 +41,7 @@ class AuditLog:
         resource_id: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> AuditEvent:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = AuditEventRow(
                 created_at=self._db.now(),
                 operator=operator,
@@ -64,7 +64,7 @@ class AuditLog:
             return event
 
     def get_audit_event(self, event_id: int) -> AuditEvent:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(AuditEventRow, event_id)
             if row is None:
                 raise NotFoundError(f"audit event {event_id} does not exist")
@@ -73,7 +73,7 @@ class AuditLog:
     def paginate_audit_events(
         self, *, limit: int, offset: int
     ) -> PageResult[AuditEvent]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return read_page(
                 session,
                 select(AuditEventRow).order_by(AuditEventRow.id.desc()),
@@ -83,7 +83,7 @@ class AuditLog:
             )
 
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(AuditEventRow).order_by(AuditEventRow.id.desc()).limit(limit)
             ).all()

@@ -27,7 +27,7 @@ class WorkflowStore:
         self._db = database
 
     def statistics(self) -> WorkflowStatistics:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             counts = {
                 WorkflowStatus(status): count
                 for status, count in session.execute(
@@ -72,7 +72,7 @@ class WorkflowStore:
         resource_id: str | None = None,
     ) -> Workflow:
         now = self._db.now()
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = WorkflowRow(
                 id=workflow_id,
                 kind=kind,
@@ -95,7 +95,7 @@ class WorkflowStore:
         step: WorkflowStep | None = None,
         error: str | None = None,
     ) -> Workflow:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(WorkflowRow, workflow_id)
             if row is None:
                 raise NotFoundError(f"workflow {workflow_id!r} does not exist")
@@ -109,14 +109,14 @@ class WorkflowStore:
             return self._workflow(row)
 
     def get(self, workflow_id: str) -> Workflow:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(WorkflowRow, workflow_id)
             if row is None:
                 raise NotFoundError(f"workflow {workflow_id!r} does not exist")
             return self._workflow(row)
 
     def unfinished(self) -> list[Workflow]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(WorkflowRow)
                 .where(
@@ -134,7 +134,7 @@ class WorkflowStore:
         Unfinished ones never go, and neither does NEEDS_REVIEW: it is the only
         record of interrupted external work until an operator acknowledges it.
         """
-        with self._db.session() as session:
+        with self._db.writer() as session:
             retained = (
                 WorkflowStatus.PENDING.value,
                 WorkflowStatus.RUNNING.value,
@@ -156,7 +156,7 @@ class WorkflowStore:
             return cast("CursorResult[Any]", result).rowcount
 
     def paginate_workflows(self, *, limit: int, offset: int) -> PageResult[Workflow]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return read_page(
                 session,
                 select(WorkflowRow).order_by(
@@ -168,7 +168,7 @@ class WorkflowStore:
             )
 
     def list_workflows(self, limit: int = 100) -> list[Workflow]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(WorkflowRow).order_by(WorkflowRow.created_at.desc()).limit(limit)
             ).all()

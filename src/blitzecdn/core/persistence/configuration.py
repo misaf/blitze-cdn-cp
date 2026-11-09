@@ -24,7 +24,7 @@ class AnsibleSettingStore:
         self._db = database
 
     def list_settings(self) -> dict[str, Any]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(AnsibleSettingRow).order_by(AnsibleSettingRow.name)
             ).all()
@@ -33,7 +33,7 @@ class AnsibleSettingStore:
     def set_setting(self, name: str, value: Any) -> None:
         # Checked in the store, not the CLI: these rows reach every host.
         name = validate_setting_name(name)
-        with self._db.session() as session:
+        with self._db.writer() as session:
             statement = sqlite_insert(AnsibleSettingRow).values(
                 name=name, value=value, updated_at=self._db.now()
             )
@@ -49,7 +49,7 @@ class AnsibleSettingStore:
 
     def delete_setting(self, name: str) -> None:
         name = validate_setting_name(name)
-        with self._db.session() as session:
+        with self._db.writer() as session:
             result = _rows_affected(
                 session.execute(
                     delete(AnsibleSettingRow).where(AnsibleSettingRow.name == name)
@@ -62,7 +62,7 @@ class AnsibleSettingStore:
         """Restore the table wholesale for a rollback, revalidating every name."""
         names = {name: validate_setting_name(name) for name in settings}
         now = self._db.now()
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(delete(AnsibleSettingRow))
             session.flush()
             session.add_all(
