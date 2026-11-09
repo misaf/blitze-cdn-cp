@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from pydantic import BaseModel
 
@@ -29,6 +29,11 @@ class CapabilityPolicy(BaseModel):
     Subclasses override :attr:`capability_requirements` when a value they hold
     needs a runtime implementation.
     """
+
+    #: The settings a path rule may override, which the capability renders per
+    #: request path inside a server. Every other setting is decided once per
+    #: hostname: TLS, certificates and the origin cannot differ by path.
+    path_settings: ClassVar[frozenset[str]] = frozenset()
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:

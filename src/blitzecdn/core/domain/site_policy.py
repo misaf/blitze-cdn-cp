@@ -94,6 +94,20 @@ class SitePolicy(ComposedModel):
         return fields
 
     @classmethod
+    def path_setting_names(cls) -> frozenset[str]:
+        """The flat settings a path rule may override; see ``path_settings``."""
+        names: set[str] = set()
+        for contract in cls.component_types().values():
+            unknown = contract.path_settings - set(contract.model_fields)
+            if unknown:
+                raise FeatureError(
+                    f"{contract.__name__} declares path settings it does not "
+                    "have: " + ", ".join(sorted(unknown))
+                )
+            names |= contract.path_settings
+        return frozenset(names)
+
+    @classmethod
     def from_settings(cls, settings: Mapping[str, Any]) -> Self:
         """Decode the flat format, explicitly; unknown names fail rather than vanish."""
         unknown = sorted(set(settings) - set(cls.setting_fields()))

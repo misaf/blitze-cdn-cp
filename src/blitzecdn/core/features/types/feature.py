@@ -76,6 +76,11 @@ class Site(Protocol):
     @property
     def policy(self) -> RequestsCapabilities: ...
 
+    @property
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """What the site's policy requires, and what any narrower scope of it does."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class Feature:

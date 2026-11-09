@@ -76,6 +76,10 @@ class RuleRow(Base):
     name: Mapped[str] = mapped_column(primary_key=True)
     priority: Mapped[int] = mapped_column()
     match: Mapped[str] = mapped_column()
+    #: Set on a path rule only.
+    path: Mapped[str | None] = mapped_column(default=None)
     overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: A path rule's redirect, as ``PathRedirect`` dumps it.
+    redirect: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime)

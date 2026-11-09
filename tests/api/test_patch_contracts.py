@@ -20,7 +20,7 @@ PATCHES = [
         },
     ),
     (RecordPatch, set()),
-    (RulePatch, set()),
+    (RulePatch, {"path", "redirect"}),
     (EdgePatch, {"private_key_file", "capabilities"}),
 ]
 
@@ -113,7 +113,11 @@ def test_invalid_patch_nulls_return_field_errors_without_mutating_resources(sett
         resources = [
             ("/v3/domains/example.com", DomainPatch, PATCHES[0][1]),
             ("/v3/domains/example.com/records/www", RecordPatch, set()),
-            ("/v3/domains/example.com/rules/no-cache", RulePatch, set()),
+            (
+                "/v3/domains/example.com/rules/no-cache",
+                RulePatch,
+                {"path", "redirect"},
+            ),
             ("/v3/edges/patch-edge", EdgePatch, PATCHES[3][1]),
         ]
         for path, model, nullable in resources:
