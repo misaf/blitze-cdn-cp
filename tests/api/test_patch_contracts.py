@@ -16,6 +16,7 @@ PATCHES = [
             "origin_sni",
             "certificate_path",
             "certificate_key_path",
+            "maintenance_page",
         },
     ),
     (RecordPatch, set()),

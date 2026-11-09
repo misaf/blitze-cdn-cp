@@ -36,6 +36,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "domain cache", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain cache-query-string", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain compression", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain error-pages", "PATCH /v3/domains/{domain}", ""),
+    ("blitzecdn", "domain maintenance", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain firewall", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain under-attack", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain rate-limit", "PATCH /v3/domains/{domain}", ""),

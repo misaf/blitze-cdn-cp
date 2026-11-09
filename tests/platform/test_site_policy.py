@@ -60,6 +60,7 @@ def test_composed_policy_persists_nested_values_and_projects_flat_settings():
         "origin",
         "cache",
         "compression",
+        "error_pages",
         "security",
         "headers",
     }

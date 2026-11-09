@@ -1,0 +1,50 @@
+{% if not default_server %}
+{% set pages = site.error_pages | default({}, true) or {} %}
+{% set maintenance = site.maintenance_mode | default(false) %}
+{% if pages or maintenance %}
+{#
+  The site's pages are files in the release, rendered by this capability's
+  page resources into blitzecdn_nginx_pages_dir/<site>/. Every error_page here
+  is inherited by the locations that set none of their own: `location /`,
+  where the firewall and the rate limit answer 403 and 429, and the
+  denied-path locations. @blitzecdn_upstream may set its own, so
+  error-pages-upstream.conf.j2 repeats the 5xx there.
+
+  The longer prefix wins over core's `^~ /.blitzecdn/`, and `internal` keeps
+  a visitor from requesting a page directly. A page is never cached: it
+  stands in for a response that failed, not for the URL that was asked for.
+#}
+{% for status in pages | sort %}
+    error_page {{ status }} /.blitzecdn/internal/error-pages/{{ status }}.html;
+{% endfor %}
+    location ^~ /.blitzecdn/internal/error-pages/ {
+        internal;
+        alias {{ blitzecdn_nginx_pages_dir }}/{{ site.name }}/;
+        types { }
+        default_type text/html;
+        charset utf-8;
+        add_header Cache-Control "no-store" always;
+    }
+{% if maintenance %}
+{#
+  error-pages-access.conf.j2 rewrites a visitor's request here. Its own
+  error_page, so the maintenance page and not the site's 503 page answers,
+  with the Retry-After only maintenance sends.
+#}
+    location = /.blitzecdn/internal/maintenance {
+        internal;
+        error_page 503 /.blitzecdn/internal/error-pages/maintenance.html;
+        return 503;
+    }
+    location = /.blitzecdn/internal/error-pages/maintenance.html {
+        internal;
+        alias {{ blitzecdn_nginx_pages_dir }}/{{ site.name }}/maintenance.html;
+        types { }
+        default_type text/html;
+        charset utf-8;
+        add_header Retry-After {{ site.maintenance_retry_after | default(300) | int }} always;
+        add_header Cache-Control "no-store" always;
+    }
+{% endif %}
+{% endif %}
+{% endif %}

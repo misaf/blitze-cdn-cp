@@ -121,6 +121,7 @@ argument_specs:
           Shared memory for every origin upstream group on the edge, used when
           resolvers are set so origins re-resolve at runtime.
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}
+      blitzecdn_nginx_pages_dir: {type: path, required: true}
       blitzecdn_nginx_http3_listener_owner: {type: str, required: true}
       blitzecdn_nginx_config_test_image:
         type: str
