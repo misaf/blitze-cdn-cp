@@ -10,10 +10,10 @@ from blitzecdn.capabilities.automatic_ssl.settings import (
     CONFIGURATION,
     AutomaticSslConfig,
 )
-from blitzecdn.capabilities.deployments.ports import DeploymentGateway
-from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.edges.ports import OriginProbe
-from blitzecdn.capabilities.origins.ports import OriginCheckRunner
+from blitzecdn.capabilities.deployments import DeploymentGateway
+from blitzecdn.capabilities.dns import SiteReader
+from blitzecdn.capabilities.edges import OriginProbe
+from blitzecdn.capabilities.origins import OriginCheckRunner
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 

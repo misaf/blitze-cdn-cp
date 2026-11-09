@@ -3,9 +3,9 @@
 from datetime import datetime
 from typing import Protocol
 
-from blitzecdn.capabilities.backup.domain import BackupRecord
-from blitzecdn.capabilities.deployments.domain import ConvergenceHealth
-from blitzecdn.capabilities.jobs.domain.observability import QueueStatistics
+from blitzecdn.capabilities.backup import BackupRecord
+from blitzecdn.capabilities.deployments import ConvergenceHealth
+from blitzecdn.capabilities.jobs import QueueStatistics
 
 
 class QueueHistory(Protocol):

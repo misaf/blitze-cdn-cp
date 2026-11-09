@@ -21,7 +21,7 @@ from blitzecdn.capabilities.deployments.ports import (
     YamlWriter,
     ZoneEditor,
 )
-from blitzecdn.capabilities.releases.domain import Release
+from blitzecdn.capabilities.releases import Release
 
 __all__ = ["DeploymentValidation"]
 

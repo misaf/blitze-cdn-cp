@@ -16,10 +16,9 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.capabilities.dns.domain import Rule
-from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
-from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
+from blitzecdn.capabilities.dns import Rule, ZoneEditor, ZoneStore
+from blitzecdn.capabilities.releases import Release, ReleaseInputs
+from blitzecdn.capabilities.workflows import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
