@@ -11,12 +11,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from support.jobs import handling
 from support.stores import Stores
 
-from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
+from blitzecdn.capabilities.jobs.domain import (
+    DONE,
+    DeploymentJob,
+    JobStatus,
+    ScheduledFiring,
+)
+from blitzecdn.capabilities.jobs.ports import JobHandler
 from blitzecdn.capabilities.jobs.service import (
-    DEPLOYMENT_JOB,
-    SCHEDULED_JOB,
     JobQueue,
     JobRunner,
     JobScheduler,
@@ -47,7 +52,7 @@ def repository(settings):
 def scheduler_for(repository, clock, *, handlers=None) -> tuple[JobScheduler, JobQueue]:
     queue = JobQueue(
         jobs=repository.jobs,
-        handlers=handlers or {},
+        handlers=handlers or (),
         worker_id="worker-a",
         clock=clock,
     )
@@ -282,7 +287,7 @@ def test_a_scheduled_job_runs_under_the_lease_its_schedule_declares(repository):
         return DONE
 
     scheduler, queue = scheduler_for(
-        repository, clock, handlers={SCHEDULED_JOB: observe}
+        repository, clock, handlers=(JobHandler(ScheduledFiring, observe),)
     )
     scheduler.register([HOURLY])
     clock.advance(3600)
@@ -303,7 +308,7 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
         return DONE
 
     scheduler, queue = scheduler_for(
-        repository, clock, handlers={DEPLOYMENT_JOB: observe}
+        repository, clock, handlers=(JobHandler(DeploymentJob, observe),)
     )
     scheduler.register([HOURLY])
     queue.enqueue_deployment("dep-1")
@@ -328,7 +333,7 @@ def test_an_operation_holds_the_lease_its_kind_declares(repository, declared, he
         return DONE
 
     scheduler, queue = scheduler_for(
-        repository, clock, handlers={"certificates.renew": observe}
+        repository, clock, handlers=handling({"certificates.renew": observe})
     )
     repository.jobs.enqueue(
         kind="certificates.renew", payload={}, available_at=clock(), max_attempts=1
@@ -351,7 +356,9 @@ def test_worker_bounds_finished_job_history_and_preserves_live_work(
 ):
     clock = Clock()
     scheduler, queue = scheduler_for(
-        repository, clock, handlers={"work": lambda _payload: DONE} if succeeds else {}
+        repository,
+        clock,
+        handlers=handling({"work": lambda _payload: DONE}) if succeeds else (),
     )
     queue.retention = 1
     running = repository.jobs.enqueue(kind="work", payload={}, available_at=clock())

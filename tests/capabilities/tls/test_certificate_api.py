@@ -27,11 +27,11 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.certificates.service.operations import (
-    RECONCILE_OPERATION,
-    RENEW_OPERATION,
-    REQUEST_OPERATION,
-    operation_handlers,
+    CertificateReconcileJob,
+    CertificateRenewalJob,
+    CertificateRequestJob,
     operation_leases,
+    queued_operations,
 )
 
 
@@ -122,11 +122,17 @@ def test_renewal_is_bounded_by_the_configured_budget(monkeypatch):
         return RenewalResult()
 
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    run = operation_handlers(
-        CertificateService.__new__(CertificateService), renewal_budget_seconds=42
-    )[RENEW_OPERATION]
-    result = run(
-        {"operator": "tester", "within_days": 30, "force": True, "sites": ["a"]}
+    (renewal,) = (
+        operation
+        for operation in queued_operations(
+            CertificateService.__new__(CertificateService), renewal_budget_seconds=42
+        )
+        if operation.payload is CertificateRenewalJob
+    )
+    result = renewal.run(
+        CertificateRenewalJob(
+            operator="tester", within_days=30, force=True, sites=("a",)
+        )
     )
 
     assert result == {"renewed": [], "skipped": [], "failed": []}
@@ -144,9 +150,9 @@ def test_a_queued_sweep_is_leased_for_its_budget_and_one_more_issuance():
     assert operation_leases(
         renewal_budget_seconds=7200, issuance_timeout_seconds=1800
     ) == {
-        REQUEST_OPERATION: 1800,
-        RENEW_OPERATION: 9000,
-        RECONCILE_OPERATION: 9000,
+        CertificateRequestJob.kind: 1800,
+        CertificateRenewalJob.kind: 9000,
+        CertificateReconcileJob.kind: 9000,
     }
 
 
@@ -156,8 +162,14 @@ def test_the_worker_holds_certificate_operations_for_their_declared_lease(
     control, _ = seeded()
     leases = control.worker.runner.operation_leases
 
-    assert leases[RENEW_OPERATION] > control.worker.runner.queue.lease_seconds
-    assert set(leases) >= {REQUEST_OPERATION, RENEW_OPERATION, RECONCILE_OPERATION}
+    assert (
+        leases[CertificateRenewalJob.kind] > control.worker.runner.queue.lease_seconds
+    )
+    assert set(leases) >= {
+        CertificateRequestJob.kind,
+        CertificateRenewalJob.kind,
+        CertificateReconcileJob.kind,
+    }
 
 
 def test_renewal_is_queued_rather_than_run_in_the_request(

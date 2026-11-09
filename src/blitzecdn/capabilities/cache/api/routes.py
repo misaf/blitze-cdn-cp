@@ -14,10 +14,8 @@ from blitzecdn.capabilities.cache.api.models import (
 )
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.cache.service.operations import (
-    CONNECTIONS_OPERATION,
-    PURGE_OPERATION,
-    connections_payload,
-    purge_payload,
+    CacheConnectionsJob,
+    CachePurgeJob,
 )
 from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.capabilities.traffic import UsageQuery
@@ -64,15 +62,14 @@ def purge_cache(
     )
     queued = as_queued(
         queued_operations.submit(
-            PURGE_OPERATION,
-            purge_payload(
-                operator,
-                entries=targets.entries,
-                prefixes=targets.prefixes,
-                tags=targets.tags,
+            CachePurgeJob(
+                operator=operator,
+                entries=tuple(targets.entries),
+                prefixes=tuple(targets.prefixes),
+                tags=tuple(targets.tags),
                 purge_all=request.purge_all,
                 host_limit=request.host_limit,
-            ),
+            )
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
@@ -142,8 +139,7 @@ def cache_connections(
     """Queue a live read of nginx's connection counters; the result is a report."""
     queued = as_queued(
         queued_operations.submit(
-            CONNECTIONS_OPERATION,
-            connections_payload(operator, host_limit=request.host_limit),
+            CacheConnectionsJob(operator=operator, host_limit=request.host_limit)
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")

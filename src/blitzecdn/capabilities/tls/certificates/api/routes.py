@@ -15,14 +15,11 @@ from blitzecdn.capabilities.tls.certificates.api.models import (
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.certificates.service.operations import (
     RECONCILE_DEDUPE_KEY,
-    RECONCILE_OPERATION,
     RENEW_DEDUPE_KEY,
-    RENEW_OPERATION,
-    REQUEST_OPERATION,
-    reconcile_payload,
-    renew_payload,
+    CertificateReconcileJob,
+    CertificateRenewalJob,
+    CertificateRequestJob,
     request_dedupe_key,
-    request_payload,
 )
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
@@ -82,12 +79,11 @@ def renew_certificates(
     return _accepted(
         response,
         queued_operations.submit(
-            RENEW_OPERATION,
-            renew_payload(
-                operator,
+            CertificateRenewalJob(
+                operator=operator,
                 within_days=request.within_days,
                 force=request.force,
-                sites=request.sites,
+                sites=None if request.sites is None else tuple(request.sites),
             ),
             dedupe_key=RENEW_DEDUPE_KEY,
         ),
@@ -114,8 +110,7 @@ def reconcile_certificates(
     return _accepted(
         response,
         queued_operations.submit(
-            RECONCILE_OPERATION,
-            reconcile_payload(operator),
+            CertificateReconcileJob(operator=operator),
             dedupe_key=RECONCILE_DEDUPE_KEY,
         ),
     )
@@ -163,9 +158,8 @@ def request_certificate(
     return _accepted(
         response,
         queued_operations.submit(
-            REQUEST_OPERATION,
-            request_payload(
-                operator,
+            CertificateRequestJob(
+                operator=operator,
                 name=name,
                 email=request.email,
                 skip_preflight=request.skip_preflight,

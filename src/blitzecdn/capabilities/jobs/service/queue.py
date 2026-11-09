@@ -8,32 +8,46 @@ is not attempted.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Any
+
+from pydantic import ValidationError
 
 from blitzecdn.capabilities.jobs.domain import (
     DEFAULT_LEASE_SECONDS,
     Defer,
+    DeploymentJob,
     Done,
     Fail,
     Job,
     JobClaim,
+    JobPayload,
     JobStatus,
     Retry,
+    ScheduledFiring,
     backoff_for,
 )
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
 from blitzecdn.core.ports.clock import Clock
 
-__all__ = ["DEPLOYMENT_JOB", "SCHEDULED_JOB", "JobQueue"]
+__all__ = ["JobQueue", "handler_table"]
 
 _LOGGER = logging.getLogger(__name__)
 _DEFERRAL_SECONDS = 5
 
-#: The queued work kinds and their payload keys: a durable cross-process contract.
-DEPLOYMENT_JOB = "deployment"
-SCHEDULED_JOB = "scheduled"
+
+def handler_table(
+    handlers: Iterable[JobHandler[Any]],
+) -> dict[str, JobHandler[Any]]:
+    """Handlers by the kind their payload model names; a kind is handled once."""
+    table: dict[str, JobHandler[Any]] = {}
+    for handler in handlers:
+        if handler.kind in table:
+            raise ValueError(f"job kind {handler.kind!r} has two handlers")
+        table[handler.kind] = handler
+    return table
 
 
 class JobQueue:
@@ -43,7 +57,7 @@ class JobQueue:
         self,
         *,
         jobs: JobStore,
-        handlers: Mapping[str, JobHandler],
+        handlers: Iterable[JobHandler[Any]],
         worker_id: str,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
         retention: int = 200,
@@ -51,28 +65,46 @@ class JobQueue:
     ) -> None:
         self.jobs = jobs
         #: Kind to handler; the worker learns nothing else about a job.
-        self.handlers = dict(handlers)
+        self.handlers = handler_table(handlers)
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
         self.retention = retention
         #: Injected so tests can move time.
         self.clock = clock
 
-    def consume_with(self, handlers: Mapping[str, JobHandler]) -> None:
+    def consume_with(self, handlers: Iterable[JobHandler[Any]]) -> None:
         """Hand the queue its handlers once, after the services they call exist."""
         if self.handlers:
             raise RuntimeError("this queue already has its handlers")
-        self.handlers = dict(handlers)
+        self.handlers = handler_table(handlers)
 
     # -- Publishing ----------------------------------------------------
 
+    def enqueue(
+        self,
+        job: JobPayload,
+        *,
+        available_at: datetime | None = None,
+        dedupe_key: str | None = None,
+        max_attempts: int = 3,
+    ) -> Job | None:
+        """Queue one job of ``job``'s kind, stored as its JSON.
+
+        ``None`` when ``dedupe_key`` is already in flight.
+        """
+        return self.jobs.enqueue(
+            kind=job.kind,
+            payload=job.as_json(),
+            available_at=available_at or self.clock(),
+            dedupe_key=dedupe_key,
+            max_attempts=max_attempts,
+        )
+
     def enqueue_deployment(self, deployment_id: str) -> Job | None:
         """Queue a convergence for the worker, deduplicated on the deployment id."""
-        return self.jobs.enqueue(
-            kind=DEPLOYMENT_JOB,
-            payload={"deployment_id": deployment_id},
-            available_at=self.clock(),
-            dedupe_key=f"{DEPLOYMENT_JOB}:{deployment_id}",
+        return self.enqueue(
+            DeploymentJob(deployment_id=deployment_id),
+            dedupe_key=f"{DeploymentJob.kind}:{deployment_id}",
         )
 
     def enqueue_scheduled(
@@ -82,11 +114,10 @@ class JobQueue:
 
         Recurring work retries by recurring, against fresh state.
         """
-        return self.jobs.enqueue(
-            kind=SCHEDULED_JOB,
-            payload={"job": job},
-            available_at=available_at or self.clock(),
-            dedupe_key=f"{SCHEDULED_JOB}:{job}",
+        return self.enqueue(
+            ScheduledFiring(job=job),
+            available_at=available_at,
+            dedupe_key=f"{ScheduledFiring.kind}:{job}",
             max_attempts=max_attempts,
         )
 
@@ -113,7 +144,7 @@ class JobQueue:
 
         ``Done`` completes, ``Defer`` requeues free, ``Retry`` backs off spending an
         attempt, ``Fail`` fails now; an escaping exception counts as ``Retry``. A kind
-        with no handler fails permanently, naming the kind.
+        with no handler, or a payload its model refuses, fails permanently.
         """
         job = claim.job
         handler = self.handlers.get(job.kind)
@@ -125,6 +156,15 @@ class JobQueue:
                 permanent=True,
             )
             return
+        try:
+            payload = handler.payload.model_validate(job.payload)
+        except ValidationError as exc:
+            reason = _invalid_payload(job.kind, exc)
+            _LOGGER.warning(
+                "job %s (%s) failed permanently: %s", job.id, job.kind, reason
+            )
+            self._fail(claim, reason, permanent=True)
+            return
         context = {
             "job_id": job.id,
             "job_kind": job.kind,
@@ -135,7 +175,7 @@ class JobQueue:
         started = monotonic()
         _LOGGER.info("job handler started", extra=context)
         try:
-            outcome = handler(job.payload)
+            outcome = handler.handle(payload)
         except Exception as exc:
             _LOGGER.exception("job %s (%s) failed", job.id, job.kind, extra=context)
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)
@@ -225,3 +265,15 @@ class JobQueue:
             None if permanent or job.exhausted else now + backoff_for(job.attempts)
         )
         self.jobs.fail(job.id, claim.fence, now=now, error=error, retry_at=retry_at)
+
+
+def _invalid_payload(kind: str, error: ValidationError) -> str:
+    """Which fields of a stored payload its kind's model refused, and why.
+
+    Names fields and messages only: the values may be private.
+    """
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in issue['loc']) or '(payload)'}: {issue['msg']}"
+        for issue in error.errors(include_url=False, include_input=False)
+    )
+    return f"the {kind!r} job's payload does not fit its model: {problems}"

@@ -18,6 +18,11 @@ from blitzecdn.capabilities.jobs.domain.job import (
     backoff_for,
     is_terminal,
 )
+from blitzecdn.capabilities.jobs.domain.payload import (
+    DeploymentJob,
+    JobPayload,
+    ScheduledFiring,
+)
 from blitzecdn.capabilities.jobs.domain.schedule import Schedule, next_due
 
 __all__ = [
@@ -26,14 +31,17 @@ __all__ = [
     "MAX_BACKOFF_SECONDS",
     "TERMINAL_STATUSES",
     "Defer",
+    "DeploymentJob",
     "Done",
     "Fail",
     "Job",
     "JobClaim",
     "JobOutcome",
+    "JobPayload",
     "JobStatus",
     "Retry",
     "Schedule",
+    "ScheduledFiring",
     "backoff_for",
     "is_terminal",
     "next_due",
