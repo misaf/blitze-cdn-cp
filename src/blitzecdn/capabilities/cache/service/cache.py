@@ -19,6 +19,7 @@ from blitzecdn.capabilities.cache.domain import (
     PurgeEntry,
     PurgePrefix,
     PurgeResult,
+    purge_tag,
 )
 from blitzecdn.capabilities.cache.ports import CacheRunner, CacheUsage
 from blitzecdn.capabilities.dns.ports import SiteReader
@@ -38,6 +39,12 @@ class PurgeTargets(NamedTuple):
 
     entries: tuple[PurgeEntry, ...] = ()
     prefixes: tuple[PurgePrefix, ...] = ()
+    tags: tuple[str, ...] = ()
+
+
+#: Tags one purge may name. Each is matched in the same pass over every cached
+#: file as the prefixes, and the API caps both alike.
+MAX_PURGE_TAGS = 50
 
 
 class CacheService:
@@ -66,6 +73,7 @@ class CacheService:
         *,
         entries: Sequence[PurgeEntry] = (),
         prefixes: Sequence[PurgePrefix] = (),
+        tags: Sequence[str] = (),
         purge_all: bool = False,
         host_limit: str | None = None,
     ) -> PurgeResult:
@@ -74,11 +82,12 @@ class CacheService:
         A purge that silently matches nothing looks the same as one that worked.
         """
         targets = self.check_purge(
-            entries=entries, prefixes=prefixes, purge_all=purge_all
+            entries=entries, prefixes=prefixes, tags=tags, purge_all=purge_all
         )
         run = self.runner.run_cache_purge(
             entries=targets.entries,
             prefixes=targets.prefixes,
+            tags=targets.tags,
             purge_all=purge_all,
             host_limit=host_limit,
         )
@@ -86,6 +95,7 @@ class CacheService:
             purged_at=self.clock(),
             entries=targets.entries,
             prefixes=targets.prefixes,
+            tags=targets.tags,
             purge_all=purge_all,
             host_limit=host_limit,
             hosts=run.hosts,
@@ -104,6 +114,7 @@ class CacheService:
                     "prefixes": [
                         prefix.model_dump(mode="json") for prefix in targets.prefixes
                     ],
+                    "tags": list(targets.tags),
                     "host_limit": host_limit,
                     "complete": report.complete,
                     "failed": [host.host for host in report.failed],
@@ -119,21 +130,22 @@ class CacheService:
         *,
         entries: Sequence[PurgeEntry] = (),
         prefixes: Sequence[PurgePrefix] = (),
+        tags: Sequence[str] = (),
         purge_all: bool = False,
     ) -> PurgeTargets:
         """Refuse a purge that could only report success having removed nothing.
 
-        Returns the entries and prefixes as the edges will match them. Run
-        before queueing a purge, so a bad request fails when it is made.
+        Returns the entries, prefixes and tags as the edges will match them.
+        Run before queueing a purge, so a bad request fails when it is made.
         """
-        if purge_all and (entries or prefixes):
+        if purge_all and (entries or prefixes or tags):
             raise ConflictError(
-                "purge everything and purge named entries or prefixes are "
+                "purge everything and purge named entries, prefixes or tags are "
                 "different operations; ask for one or the other"
             )
-        if not purge_all and not entries and not prefixes:
+        if not purge_all and not entries and not prefixes and not tags:
             raise ConflictError(
-                "nothing to purge: give at least one entry or prefix, or purge all"
+                "nothing to purge: give at least one entry, prefix or tag, or purge all"
             )
         owners = self._site_owners()
         return PurgeTargets(
@@ -141,6 +153,7 @@ class CacheService:
             prefixes=(
                 self._resolve_purge_prefixes(prefixes, owners) if prefixes else ()
             ),
+            tags=_resolve_purge_tags(tags),
         )
 
     def _site_owners(self) -> _SiteOwners:
@@ -329,6 +342,31 @@ class _SiteOwners(NamedTuple):
             (site for suffix, site in self.wildcards if host.endswith(f".{suffix}")),
             None,
         )
+
+
+def _resolve_purge_tags(tags: Sequence[str]) -> tuple[str, ...]:
+    """Tags as the edges match them: validated, lowercased, each named once.
+
+    No site owns a tag, so unlike a prefix there is no hostname to check: a tag
+    matches on every hostname the edges cache, and one no origin sends removes
+    nothing. The edge reports how many files it removed.
+    """
+    invalid: list[str] = []
+    resolved: list[str] = []
+    for tag in tags:
+        try:
+            resolved.append(purge_tag(tag))
+        except ValueError as error:
+            invalid.append(f"{tag!r} ({error})")
+    if invalid:
+        raise ConflictError("invalid purge tags: " + "; ".join(invalid))
+    unique = tuple(dict.fromkeys(resolved))
+    if len(unique) > MAX_PURGE_TAGS:
+        raise ConflictError(
+            f"at most {MAX_PURGE_TAGS} tags can be purged at once; "
+            f"{len(unique)} were given"
+        )
+    return unique
 
 
 def _refuse_unknown_hosts(unknown: set[str]) -> None:

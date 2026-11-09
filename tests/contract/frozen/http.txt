@@ -370,6 +370,7 @@ blitzecdn	schema	PurgeRequest.entries	array[PurgeEntry] optional
 blitzecdn	schema	PurgeRequest.host_limit	string|null optional
 blitzecdn	schema	PurgeRequest.prefixes	array[PurgePrefix] optional
 blitzecdn	schema	PurgeRequest.purge_all	boolean optional
+blitzecdn	schema	PurgeRequest.tags	array[string] optional
 blitzecdn	schema	QueueStatistics.counts	object optional
 blitzecdn	schema	QueueStatistics.expired_leases	integer optional
 blitzecdn	schema	QueueStatistics.oldest_ready_age_seconds	number optional

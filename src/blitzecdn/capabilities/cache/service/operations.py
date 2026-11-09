@@ -32,6 +32,7 @@ def purge_payload(
     *,
     entries: Sequence[PurgeEntry],
     prefixes: Sequence[PurgePrefix] = (),
+    tags: Sequence[str] = (),
     purge_all: bool,
     host_limit: str | None,
 ) -> dict[str, Any]:
@@ -39,6 +40,7 @@ def purge_payload(
         "operator": operator,
         "entries": [entry.model_dump(mode="json") for entry in entries],
         "prefixes": [prefix.model_dump(mode="json") for prefix in prefixes],
+        "tags": list(tags),
         "purge_all": purge_all,
         "host_limit": host_limit,
     }
@@ -62,6 +64,8 @@ def operation_handlers(
                 PurgePrefix.model_validate(prefix)
                 for prefix in payload.get("prefixes", ())
             ],
+            # Likewise for purges queued before tags existed.
+            tags=[str(tag) for tag in payload.get("tags", ())],
             purge_all=bool(payload["purge_all"]),
             host_limit=payload.get("host_limit"),
         )

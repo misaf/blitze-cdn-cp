@@ -26,6 +26,11 @@ blitzecdn_cache_purge_entries: []
 # start with host + prefix, across every scheme, port, method and encoding.
 blitzecdn_cache_purge_prefixes: []
 
+# Tags to remove: every cached response whose stored Cache-Tag header names one
+# of them, on any hostname. Matched case-insensitively, read from the head of
+# every cached file in the same pass as the prefixes.
+blitzecdn_cache_purge_tags: []
+
 # Remove every cached response on the edge instead of named entries. Kept as a
 # separate flag rather than "no entries means everything" so an empty list from
 # a caller that filtered too hard cannot silently empty the whole cache.

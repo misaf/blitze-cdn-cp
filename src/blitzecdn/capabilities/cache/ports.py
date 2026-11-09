@@ -49,6 +49,7 @@ class CacheRunner(Protocol):
         *,
         entries: Sequence[PurgeEntry],
         prefixes: Sequence[PurgePrefix],
+        tags: Sequence[str],
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun: ...
