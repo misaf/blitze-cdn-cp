@@ -1,4 +1,4 @@
-"""Issuance, upload, renewal and the Automatic SSL scan, at the service level.
+"""Issuance, upload and renewal, at the service level.
 
 Built through ``certificate_control_plane``, which builds the composition
 root's services and substitutes only the named seam.
@@ -15,10 +15,8 @@ from support.application import seed_proxied_record
 from support.certificates import (
     FakePreflight,
     RecordingIssuer,
-    automatic_origin_report,
     certificate_control_plane,
     proxied_site_with_certificate,
-    seed_automatic_ssl_record,
 )
 from support.control_plane import (
     FakeRunner,
@@ -322,117 +320,6 @@ def test_a_deployment_queued_before_the_material_does_not_satisfy_it(
     fresh_run = control.deployments.converge(fresh, "alice")
     assert fresh_run.status is DeploymentStatus.SUCCEEDED
     assert not requirements.pending(kind)
-
-
-@pytest.mark.parametrize(
-    ("tls_verified", "expected"),
-    [(True, SslMode.FULL_STRICT), (False, SslMode.FULL)],
-)
-def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
-    settings, tls_verified, expected
-):
-    runner = FakeRunner(
-        [
-            ansible_run(automatic_origin_report(SslMode.OFF)),
-            ansible_run(
-                automatic_origin_report(
-                    SslMode.FULL_STRICT,
-                    tls_verified=tls_verified,
-                )
-            ),
-            ansible_run(host_run("edge-a")),
-        ]
-    )
-    repository = Stores(settings.database_path)
-    control = certificate_control_plane(settings, runner=runner)
-    seed_automatic_ssl_record(control)
-
-    result = control.automatic_ssl.reconcile("scheduler")
-
-    assert result.upgraded == {"example-com": expected}
-    assert result.skipped == {}
-    assert result.deployment is not None
-    assert result.deployment.status is DeploymentStatus.SUCCEEDED
-    site = control.sites.get_site("example-com")
-    assert site.policy[TlsPolicy].ssl_mode is expected
-    assert site.policy[TlsPolicy].ssl_automatic_mode is SslAutomaticMode.AUTO
-    event = next(
-        event
-        for event in repository.audit_log.list_audit_events(20)
-        if event.action == "ssl.automatic.upgraded"
-    )
-    assert event.action == "ssl.automatic.upgraded"
-    assert event.details["to"] == expected.value
-
-
-def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
-    runner = FakeRunner(
-        [
-            ansible_run(automatic_origin_report(SslMode.OFF)),
-            ansible_run(
-                automatic_origin_report(
-                    SslMode.FULL_STRICT,
-                    reachable=False,
-                )
-            ),
-            ansible_run(host_run("edge-a")),
-        ]
-    )
-    control = certificate_control_plane(settings, runner=runner)
-    seed_automatic_ssl_record(control)
-
-    result = control.automatic_ssl.reconcile("scheduler")
-
-    assert result.upgraded == {"example-com": SslMode.FLEXIBLE}
-    assert (
-        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode
-        is SslMode.FLEXIBLE
-    )
-
-
-def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
-    runner = FakeRunner()
-    control = certificate_control_plane(settings, runner=runner)
-    seed_automatic_ssl_record(control, automatic=SslAutomaticMode.CUSTOM)
-
-    result = control.automatic_ssl.reconcile("scheduler")
-
-    assert result.scanned == ()
-    assert result.upgraded == {}
-    assert runner.playbooks == []
-    assert (
-        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode is SslMode.OFF
-    )
-
-
-def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
-    runner = FakeRunner(
-        [
-            ansible_run(
-                automatic_origin_report(
-                    SslMode.FULL,
-                    reachable=True,
-                )
-            ),
-            ansible_run(
-                automatic_origin_report(
-                    SslMode.FULL_STRICT,
-                    reachable=False,
-                )
-            ),
-        ]
-    )
-    control = certificate_control_plane(settings, runner=runner)
-    seed_automatic_ssl_record(control, mode=SslMode.FULL)
-
-    result = control.automatic_ssl.reconcile("scheduler")
-
-    assert result.upgraded == {}
-    assert "example-com" in result.skipped
-    assert result.deployment is None
-    assert (
-        control.sites.get_site("example-com").policy[TlsPolicy].ssl_mode is SslMode.FULL
-    )
 
 
 def test_reconcile_issues_ready_first_certificate_and_queues_its_deployment(

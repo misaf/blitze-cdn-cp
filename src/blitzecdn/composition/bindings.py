@@ -14,6 +14,7 @@ from typing import cast
 
 from dishka import Provider, Scope, alias, provide
 
+from blitzecdn.capabilities.automatic_ssl.ports import SslModeUpgrades
 from blitzecdn.capabilities.backup.service import BackupService
 from blitzecdn.capabilities.cache.ports import CacheUsage
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
@@ -38,6 +39,7 @@ from blitzecdn.capabilities.edges.ports import OriginProbe as EdgeOriginProbe
 from blitzecdn.capabilities.jobs.ports import JobStore
 from blitzecdn.capabilities.maintenance.ports import Deployments
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
+from blitzecdn.capabilities.origins.ports import OriginCheckRunner
 from blitzecdn.capabilities.origins.ports import OriginProbe as OriginsOriginProbe
 from blitzecdn.capabilities.origins.ports import SiteReader as OriginsSiteReader
 from blitzecdn.capabilities.releases.service import ReleaseService
@@ -48,10 +50,10 @@ from blitzecdn.capabilities.security.geoip.ports import (
 from blitzecdn.capabilities.security.geoip.ports import (
     ReleaseHistory as GeoIpReleases,
 )
-from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.certificates.ports import (
     CertbotTimeout,
     RecordReader,
+    SiteEditor,
     SiteWriter,
 )
 from blitzecdn.capabilities.tls.certificates.ports import (
@@ -92,6 +94,9 @@ class PortBindings(Provider):
     site_writer = alias(source=HostService, provides=SiteWriter)
     record_reader = alias(source=DnsService, provides=RecordReader)
     origin_sites = alias(source=HostService, provides=OriginsSiteReader)
+
+    # -- TLS decides what an Automatic SSL/TLS upgrade writes, and where.
+    ssl_mode_upgrades = alias(source=SiteEditor, provides=SslModeUpgrades)
 
     # -- the deployment lock, its budget and its durable reasons.
     geoip_lock = alias(source=DeploymentRunner, provides=DeploymentLock)

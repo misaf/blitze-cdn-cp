@@ -5,7 +5,8 @@ settings live beside their owner:
 
 | Group | Definition |
 | --- | --- |
-| Certificates, Automatic SSL and preflight DNS | `capabilities/tls/settings.py` |
+| Certificates and preflight DNS | `capabilities/tls/settings.py` |
+| Automatic SSL/TLS scan interval | `capabilities/automatic_ssl/settings.py` |
 | Deployment timeout, retention and drift checks | `capabilities/deployments/settings.py` |
 | Controller origin-probe timeout | `capabilities/origins/settings.py` |
 | Edge teardown play | `capabilities/edges/settings.py` |

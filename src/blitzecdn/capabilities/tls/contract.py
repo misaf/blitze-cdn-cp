@@ -1,7 +1,7 @@
 """The TLS capability's configuration contract: modes, versions and managed paths.
 
-Pure values; issuance and the Automatic SSL/TLS scan live in
-``tls.certificates`` and ``tls.automatic_ssl``.
+Pure values; issuance lives in ``tls.certificates``. The Automatic SSL/TLS
+scan is its own capability, ``automatic_ssl``, which builds on this contract.
 """
 
 import re

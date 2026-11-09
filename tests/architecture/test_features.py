@@ -22,6 +22,8 @@ from support.policy import site_from_settings
 from support.stores import Stores
 from typer import Typer
 
+from blitzecdn.capabilities.automatic_ssl.settings import AutomaticSslConfig
+from blitzecdn.capabilities.automatic_ssl.wiring import automatic_ssl_operations
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
 from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
@@ -549,16 +551,18 @@ def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
     config = CertificateConfig(
         reconcile_interval_seconds=0,
         renewal_interval_seconds=0,
-        scan_interval_seconds=0,
     )
     operations = baseline.bind_operations(
         (
             _drift([], interval=0),
             certificates_operations(
                 certificates=SimpleNamespace(),
-                automatic_ssl=SimpleNamespace(),
                 config=config,
                 deployment_timeout_seconds=900,
+            ),
+            automatic_ssl_operations(
+                automatic_ssl=SimpleNamespace(),
+                config=AutomaticSslConfig(scan_interval_seconds=0),
             ),
         )
     )

@@ -15,8 +15,10 @@ from cryptography.x509.oid import NameOID
 from dishka import Container, Provider, make_container
 from dishka.integrations.fastapi import FastapiProvider
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
@@ -49,7 +51,6 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
@@ -654,6 +655,19 @@ def with_capability_settings(settings: Settings, **values: object) -> Settings:
             }
         }
     )
+
+
+def registered_schedules(settings: Settings) -> dict[str, tuple[int, int]]:
+    """What an API process registered, by job name, as ``(interval, lease)``.
+
+    Read from the database, since a schedule must outlive the process.
+    """
+    with TestClient(create_app(settings)):
+        pass
+    return {
+        item.name: (item.interval_seconds, item.lease_seconds)
+        for item in Stores(settings.database_path).schedules.list_schedules()
+    }
 
 
 @pytest.fixture

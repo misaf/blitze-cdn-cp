@@ -2,9 +2,8 @@
 
 from datetime import datetime
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 
-from blitzecdn.capabilities.deployments import DeploymentStatus
 from blitzecdn.capabilities.tls.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateSource,
@@ -13,7 +12,6 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateRequest as DomainCertificateRequest,
 )
-from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.entrypoints.api.models import Model
 
 
@@ -80,28 +78,3 @@ class RenewRequest(Model):
             "An empty list is invalid."
         ),
     )
-
-
-class DeploymentReference(Model):
-    """The deployment an operation started, as TLS reports it.
-
-    TLS owns this representation rather than reusing the deployments API's: a
-    change to how deployments are published must not change TLS's responses.
-    Follow ``GET /v3/deployments/{id}`` for the full record.
-    """
-
-    # Built from the full deployment record; the fields it leaves out are the
-    # deployments API's to publish, not unknown input.
-    model_config = ConfigDict(extra="ignore")
-
-    id: str
-    status: DeploymentStatus
-    release_id: str
-    error: str | None = None
-
-
-class SslAutomaticReconciliation(Model):
-    scanned: tuple[str, ...] = ()
-    upgraded: dict[str, SslMode] = Field(default_factory=dict)
-    skipped: dict[str, str] = Field(default_factory=dict)
-    deployment: DeploymentReference | None = None
