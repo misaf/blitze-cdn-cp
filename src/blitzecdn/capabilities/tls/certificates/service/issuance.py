@@ -22,6 +22,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
+    ChallengeEdges,
     PreflightAttempt,
     PreflightBackoff,
     PreflightReport,
@@ -164,6 +165,10 @@ class CertificateService:
         return info
 
     # -- Preflight -----------------------------------------------------
+
+    def challenge_edges(self, hostname: str) -> ChallengeEdges:
+        """The edges an HTTP-01 challenge for ``hostname`` has to be placed on."""
+        return self.execution.preflight.challenge_edges(hostname)
 
     def certificate_preflight(self, name: str) -> PreflightReport:
         """Report whether HTTP-01 could validate this site right now, without the CA."""

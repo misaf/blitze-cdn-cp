@@ -13,6 +13,7 @@ from blitzecdn.capabilities.tls.certificates.domain.certificate import (
 from blitzecdn.capabilities.tls.certificates.domain.preflight import (
     PREFLIGHT_BACKOFF_MAX_SECONDS,
     TTL_CUTOVER_ADVISORY_SECONDS,
+    ChallengeEdges,
     PreflightAttempt,
     PreflightBackoff,
     PreflightCheck,
@@ -29,6 +30,7 @@ __all__ = [
     "CertificateRequest",
     "CertificateSource",
     "CertificateStatus",
+    "ChallengeEdges",
     "PreflightAttempt",
     "PreflightBackoff",
     "PreflightCheck",

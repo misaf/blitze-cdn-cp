@@ -16,6 +16,7 @@ from dishka import Provider, Scope, decorate
 
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
+    ChallengeEdges,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
@@ -181,6 +182,10 @@ class FakePreflight:
                 for name in self.failures
             ),
         )
+
+    def challenge_edges(self, hostname: str) -> ChallengeEdges:
+        """The whole fleet, as when the hostname reaches no edge we can see."""
+        return ChallengeEdges(hostname=hostname)
 
 
 # --- builders the certificate and Automatic SSL suites share ----------------
