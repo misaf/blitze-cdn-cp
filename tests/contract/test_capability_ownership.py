@@ -57,7 +57,7 @@ _CAPABILITY_POLICIES = {
 
 #: Fields on the site model that belong to no capability policy because they
 #: are the site's *identity* rather than its configuration.
-_SITE_IDENTITY = {"name", "server_names", "origin_host", "enabled"}
+_SITE_IDENTITY = {"name", "server_names", "origin_host", "enabled", "locations"}
 
 
 def _owned_fields() -> dict[str, str]:

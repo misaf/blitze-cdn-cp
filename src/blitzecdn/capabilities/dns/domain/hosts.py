@@ -9,6 +9,9 @@ zone cannot fail every read.
 Names are certificate paths: ``example-com`` for a zone, ``example-com--api``
 for its ``api`` rule, and an origin slug for each origin after the first.
 Renaming a rule changes the name; nothing here moves files.
+
+Path rules never form a host of their own. Each becomes a location on every
+host with a hostname its ``match`` covers, layered on that host's policy.
 """
 
 from __future__ import annotations
@@ -21,10 +24,12 @@ from dataclasses import dataclass
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.dns.domain.record import DnsRecord
-from blitzecdn.capabilities.dns.domain.resolution import resolve_policy
+from blitzecdn.capabilities.dns.domain.resolution import merge_overrides, resolve_policy
 from blitzecdn.capabilities.dns.domain.rule import Rule
 from blitzecdn.capabilities.dns.domain.zone import Domain
+from blitzecdn.core.domain.paths import PathLocation
 from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 __all__ = [
     "UnservableHost",
@@ -178,7 +183,11 @@ def _derive(
     used: set[str] = set()
     for zone_name, zone in sorted(by_zone.items()):
         ordered = sorted(rules_by_zone[zone_name], key=lambda item: item.order)
-        groups: list[str | None] = [None, *(rule.name for rule in ordered)]
+        groups: list[str | None] = [
+            None,
+            *(rule.name for rule in ordered if not rule.is_path_rule),
+        ]
+        path_rules = [rule for rule in ordered if rule.is_path_rule and rule.enabled]
         for rule_name in groups:
             base = host_name(zone_name, rule_name)
             origins = sorted(
@@ -209,10 +218,14 @@ def _derive(
                             "name": name,
                             "server_names": server_names,
                             "origin_host": origin,
+                            "locations": _locations(policy, path_rules, server_names),
                         }
                     )
-                except ValidationError as exc:
-                    refusals[(name, server_names)] = _reason(exc)
+                except ValueError as exc:
+                    # ValidationError is a ValueError; a wildcard refusal is not.
+                    refusals[(name, server_names)] = (
+                        _reason(exc) if isinstance(exc, ValidationError) else str(exc)
+                    )
                     continue
                 hosts.append(site)
     return hosts, [
@@ -221,6 +234,66 @@ def _derive(
             refusals.items(), key=lambda item: (item[0][1], item[0][0] or "")
         )
     ]
+
+
+def _locations(
+    policy: Domain, path_rules: Sequence[Rule], server_names: tuple[str, ...]
+) -> tuple[PathLocation, ...]:
+    """The path rules covering any of a host's hostnames, in match order.
+
+    A location's settings are the path-scoped ones of the host's policy with the
+    rule's overrides merged on, validated whole like any policy, so a rule that
+    cannot sit on this host fails the host here rather than at the edge.
+    """
+    scoped = SitePolicy.path_setting_names()
+    locations: list[PathLocation] = []
+    for rule in path_rules:
+        _refuse_a_partial_wildcard(rule, server_names)
+        covered = tuple(name for name in server_names if rule.matches(name))
+        if not covered or rule.path is None:
+            continue
+        if rule.redirect is not None:
+            locations.append(
+                PathLocation(
+                    rule=rule.name,
+                    path=rule.path,
+                    server_names=covered,
+                    redirect=rule.redirect,
+                )
+            )
+            continue
+        merged = merge_overrides(policy, rule.overrides).policy.settings(mode="json")
+        locations.append(
+            PathLocation(
+                rule=rule.name,
+                path=rule.path,
+                server_names=covered,
+                settings={name: merged[name] for name in sorted(scoped)},
+            )
+        )
+    return tuple(locations)
+
+
+def _refuse_a_partial_wildcard(rule: Rule, server_names: tuple[str, ...]) -> None:
+    """Raise when a path rule covers only some of the names a wildcard serves.
+
+    A ``*.example.com`` server answers ``shop.example.com`` too, but it renders
+    once for every name it covers, so a path rule matching ``shop.example.com``
+    alone has nowhere to go. Leaving it out would serve those requests without
+    it while ``resolve`` says it applies; refusing names it instead.
+    """
+    if rule.match == "*":
+        return
+    target = rule.match.removeprefix("*.")
+    for name in server_names:
+        if not name.startswith("*.") or rule.matches(name):
+            continue
+        if target.endswith("." + name[2:]):
+            raise ValueError(
+                f"path rule {rule.name!r} matches {rule.match!r}, only some of "
+                f"the hostnames the wildcard {name!r} serves; match the "
+                f"wildcard itself, or add a proxied record for {target!r}"
+            )
 
 
 def _policy_for(zone: Domain, rules: Sequence[Rule], rule_name: str | None) -> Domain:
@@ -246,7 +319,7 @@ def host_source(
         if name == base or name.startswith(f"{base}{_SEPARATOR}"):
             candidates.append((base, domain.name, None))
         for rule in rules:
-            if rule.domain != domain.name:
+            if rule.domain != domain.name or rule.is_path_rule:
                 continue
             base = host_name(domain.name, rule.name)
             if name == base or name.startswith(f"{base}{_SEPARATOR}"):

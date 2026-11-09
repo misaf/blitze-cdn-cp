@@ -3,6 +3,13 @@
 A rule is a match and the overrides it sets, never a whole policy. Rules are
 ordered by ``priority`` and the first enabled match is the only one applied, so
 an operator can predict the result without simulating merges.
+
+A rule with a ``path`` is a path rule. Matching is hostname, then path: a
+hostname is served by the first hostname rule (one without a path) that
+matches it, and a request on that hostname by the first path rule whose
+``match`` and ``path`` both cover it, layered on the hostname's policy. A path
+rule overrides only the settings a capability declares path-scoped, or
+redirects; TLS, certificates and the origin stay per hostname.
 """
 
 from __future__ import annotations
@@ -13,9 +20,11 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.dns.domain.patch import DomainPatch
+from blitzecdn.core.domain.paths import PathRedirect, path_matches, validate_rule_path
+from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.domain.validation import SITE_NAME, hostname
 
-__all__ = ["Rule", "RulePatch"]
+__all__ = ["Rule", "RulePatch", "validate_rule_action"]
 
 #: A rule may not change the zone's identity. The origin is the record's value,
 #: not a zone setting.
@@ -38,8 +47,8 @@ def _validate_match(value: str) -> str:
 def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
     """Every key a zone setting and every value acceptable, checked via ``DomainPatch``.
 
-    An empty mapping is refused: it would shadow every later rule while changing
-    nothing.
+    Whether the rule may be empty, and which settings its kind may override, is
+    the rule's question: see ``Rule.validate_action``.
     """
     unknown = sorted(set(value) - set(DomainPatch.composed().model_fields))
     if unknown:
@@ -50,11 +59,6 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
     forbidden = sorted(set(value) & _NOT_OVERRIDABLE)
     if forbidden:
         raise ValueError("a rule cannot override: " + ", ".join(forbidden))
-    if not value:
-        raise ValueError(
-            "a rule must override at least one setting; one that overrides "
-            "nothing would still match, and shadow every rule after it"
-        )
     # Raises for a value the zone would refuse, with pydantic's own message. One
     # setting at a time: validators that need neighbouring settings, and the
     # cross-contract rules, need the zone too, so ``RuleService`` asks them of the
@@ -63,6 +67,56 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
     # Who may set ``certificate_mode`` is ``RuleService``'s question: this also runs
     # on rehydrated rules, including the issuer's.
     return dict(value)
+
+
+def validate_rule_action(
+    path: str | None,
+    overrides: Mapping[str, Any],
+    redirect: PathRedirect | None,
+) -> None:
+    """A hostname rule overrides; a path rule overrides path settings or redirects.
+
+    An empty rule is refused: it would still match, and shadow every rule after
+    it while changing nothing.
+    """
+    if path is None:
+        if redirect is not None:
+            raise ValueError(
+                "only a path rule can redirect; give the rule a path, such as '/old/'"
+            )
+        if not overrides:
+            raise ValueError(
+                "a rule must override at least one setting; one that overrides "
+                "nothing would still match, and shadow every rule after it"
+            )
+        return
+    if redirect is not None:
+        if overrides:
+            raise ValueError(
+                "a path rule either redirects or overrides settings, not both: "
+                "a redirected request never reaches the settings"
+            )
+        if redirect.uses_suffix and not path.endswith("/"):
+            raise ValueError(
+                "a redirect target can name $1 only on a prefix path, one "
+                "ending in '/'; an exact path has nothing after it"
+            )
+        return
+    if not overrides:
+        raise ValueError(
+            "a path rule must override at least one setting or redirect; one "
+            "that does neither would still match, and shadow every path rule "
+            "after it"
+        )
+    scoped = SitePolicy.path_setting_names()
+    hostname_only = sorted(set(overrides) - scoped)
+    if hostname_only:
+        raise ValueError(
+            "a path rule can override only "
+            + ", ".join(sorted(scoped))
+            + "; these are decided per hostname, so set them on a rule without "
+            "a path: " + ", ".join(hostname_only)
+        )
 
 
 class Rule(BaseModel):
@@ -75,7 +129,12 @@ class Rule(BaseModel):
     #: Lower runs first; ties break on the name for one deterministic answer.
     priority: int = Field(default=100, ge=1, le=1000)
     match: str = "*"
-    overrides: Mapping[str, Any]
+    #: Makes this a path rule: a prefix (``/static/``) or exact (``/robots.txt``)
+    #: match on the normalized request path.
+    path: str | None = None
+    overrides: Mapping[str, Any] = Field(default_factory=dict)
+    #: A path rule's alternative to overrides: answer with a redirect.
+    redirect: PathRedirect | None = None
     enabled: bool = True
 
     @field_validator("domain")
@@ -98,10 +157,21 @@ class Rule(BaseModel):
     def validate_match(cls, value: str) -> str:
         return _validate_match(value)
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str | None) -> str | None:
+        return None if value is None else validate_rule_path(value)
+
     @field_validator("overrides")
     @classmethod
     def validate_overrides(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
         return _validate_overrides(value)
+
+    @model_validator(mode="after")
+    def validate_action(self) -> Self:
+        """What each kind of rule may do; see :func:`validate_rule_action`."""
+        validate_rule_action(self.path, self.overrides, self.redirect)
+        return self
 
     @model_validator(mode="after")
     def validate_match_is_inside_the_zone(self) -> Self:
@@ -116,8 +186,20 @@ class Rule(BaseModel):
             )
         return self
 
+    @property
+    def is_path_rule(self) -> bool:
+        return self.path is not None
+
+    def matches_path(self, fqdn: str, path: str) -> bool:
+        """Whether this path rule covers a request. Hostname rules cover none."""
+        return (
+            self.path is not None
+            and self.matches(fqdn)
+            and path_matches(self.path, path)
+        )
+
     def matches(self, fqdn: str) -> bool:
-        """Whether this rule covers a hostname. Disabled rules cover nothing."""
+        """Whether ``match`` covers a hostname. Disabled rules cover nothing."""
         if not self.enabled:
             return False
         candidate = fqdn.strip().lower().rstrip(".")
@@ -136,15 +218,24 @@ class Rule(BaseModel):
 class RulePatch(BaseModel):
     """A partial update to a rule; ``domain`` and ``name``, its identity, are fixed.
 
-    ``overrides`` replaces wholesale, so a setting can be taken off a rule.
+    ``overrides`` replaces wholesale, so a setting can be taken off a rule. An
+    explicit ``None`` for ``path`` or ``redirect`` removes it; the rule as a
+    whole is validated after the merge.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     priority: int | None = Field(default=None, ge=1, le=1000)
     match: str | None = None
+    path: str | None = None
     overrides: Mapping[str, Any] | None = None
+    redirect: PathRedirect | None = None
     enabled: bool | None = None
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str | None) -> str | None:
+        return None if value is None else validate_rule_path(value)
 
     @field_validator("match")
     @classmethod

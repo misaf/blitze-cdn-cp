@@ -49,7 +49,12 @@ map "$blitzecdn_cache_static_uri:$upstream_http_content_type:$upstream_http_cach
   the two must agree, or a site names a variable that was never declared and
   the edge refuses its configuration.
 #}
-{% for cached in blitzecdn_nginx_sites | default([], true) %}
+{#
+  A path rule's location is a scope of its own: the host's settings with the
+  rule's merged in, under the location's variable_scope. Its map is declared
+  here beside its host's for the same reason.
+#}
+{% macro cookie_map(cached, scope) %}
 {% set level = cached.cache_level | default('standard') %}
 {% set cookies = cached.cache_bypass_cookies | default([], true) %}
 {% if cached.cache_enabled | default(true) and (level == 'standard' or cookies) %}
@@ -57,7 +62,7 @@ map "$blitzecdn_cache_static_uri:$upstream_http_content_type:$upstream_http_cach
 {% for cookie in cookies %}
 {% set names.items = names.items + [(cookie | regex_escape) | replace('\\*', '[^=;]*')] %}
 {% endfor %}
-map "$blitzecdn_cache_static_uri:$http_cookie" $blitzecdn_cache_cookie_{{ cached.name | replace('-', '_') }} {
+map "$blitzecdn_cache_static_uri:$http_cookie" $blitzecdn_cache_cookie_{{ scope | replace('-', '_') }} {
     default 0;
 {% if names.items %}
     "~^{{ '0' if level == 'standard' else '[01]' }}:(?:.*;\s*)?(?:{{ names.items | join('|') }})=" 1;
@@ -66,6 +71,14 @@ map "$blitzecdn_cache_static_uri:$http_cookie" $blitzecdn_cache_cookie_{{ cached
 {% endif %}
 }
 {% endif %}
+{% endmacro %}
+{% for cached in blitzecdn_nginx_sites | default([], true) %}
+{{ cookie_map(cached, cached.name) }}
+{% for location in cached.locations | default([], true) %}
+{% if not location.redirect %}
+{{ cookie_map(cached | combine(location.settings), location.variable_scope) }}
+{% endif %}
+{% endfor %}
 {% endfor %}
 {#
   Edge TTL overrides and ignored origin headers, read in the origin hop by

@@ -85,7 +85,11 @@ class RuleStore:
     def _apply(self, row: RuleRow, rule: Rule) -> None:
         row.priority = rule.priority
         row.match = rule.match
+        row.path = rule.path
         row.overrides = dict(rule.overrides)
+        row.redirect = (
+            None if rule.redirect is None else rule.redirect.model_dump(mode="json")
+        )
         row.enabled = rule.enabled
         row.updated_at = self._db.now()
 
@@ -97,7 +101,9 @@ class RuleStore:
                 "name": row.name,
                 "priority": row.priority,
                 "match": row.match,
+                "path": row.path,
                 "overrides": row.overrides,
+                "redirect": row.redirect,
                 "enabled": row.enabled,
             }
         )

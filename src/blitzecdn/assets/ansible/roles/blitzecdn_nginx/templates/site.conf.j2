@@ -4,11 +4,15 @@
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
 {% set max_upload_size = item.max_upload_size | default('100m') %}
-{% set visitor_headers = item.visitor_headers | default({}, true) or {} %}
-{% set connecting_ip = visitor_headers.connecting_ip | default(true) %}
-{% macro fragments(context, listener_port, visitor_scheme, redirect_https=false, first_hostname=true) %}
+{#
+  `scope` is what a fragment sees as `site`: the host itself, or for a path
+  rule's location the host with that rule's path-scoped settings merged in. A
+  scope carries `variable_scope`, which names the http-level variables a
+  path-scoped setting is read through, so a path never reads its host's.
+#}
+{% macro fragments(context, listener_port, visitor_scheme, redirect_https=false, first_hostname=true, scope=none) %}
 {% for resource in blitzecdn_nginx_resources[context] | default([]) %}
-{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false, 'first_hostname': first_hostname}) }}
+{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item if scope is none else scope, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false, 'first_hostname': first_hostname}) }}
 {% endfor %}
 {% endmacro %}
 {#
@@ -59,7 +63,9 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% endif %}
 {% endif %}
 {% endmacro %}
-{% macro proxy(listener_port, visitor_scheme='http') %}
+{% macro proxy(listener_port, visitor_scheme='http', scope=none) %}
+{% set visitor_headers = ((scope if scope is not none else item).visitor_headers | default({}, true)) or {} %}
+{% set connecting_ip = visitor_headers.connecting_ip | default(true) %}
 {% set origin = origin_of(listener_port, visitor_scheme) | string %}
 {% set origin_scheme = origin.split(':')[0] %}
 {% set secure = visitor_scheme == 'https' %}
@@ -110,7 +116,59 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
         return 404;
     }
 {% endmacro %}
-{% macro route(listener_port, visitor_scheme, redirect_https=false) %}
+{#
+  A host's path rules, as regex locations in the order they are matched.
+  Regex, never prefix: Nginx takes the first matching regex location in the
+  order written, which is what makes "first path rule wins" hold however the
+  paths nest, and a plain prefix would instead be chosen by length. Matched
+  against the normalized $uri, as the firewall's paths are. The `^~` prefixes
+  above — the ACME challenge, /.blitzecdn/ and the firewall's case-sensitive
+  denied paths — stop the regex search, and its case-insensitive denied paths
+  are written earlier, so neither is ever shadowed by a path rule.
+
+  An HTTP listener that redirects to HTTPS renders none: `location /` sends
+  every request there first, and the HTTPS listener applies the path rules.
+#}
+{% macro path_locations(listener_port, visitor_scheme, hostname) %}
+{% for location in item.locations | default([], true) %}
+{% if hostname in location.server_names %}
+{% set pattern = '^' ~ (location.path | regex_escape) ~ ('' if location.path.endswith('/') else '$') %}
+    location ~ "{{ pattern }}" {
+{% if location.redirect %}
+{% set redirect = location.redirect %}
+{% set query = '$is_args$args' if redirect.preserve_query_string | default(true) else '' %}
+{% if '$1' in redirect.target %}
+        {#
+          The suffix is taken from $request_uri, still percent-encoded as the
+          visitor sent it: a capture of the decoded $uri could carry a CR or LF
+          into the Location header. A request whose raw form spells the path
+          differently (`/%6Fld/`) is still matched by the location above, and
+          is redirected without its suffix.
+        #}
+        if ($request_uri ~ "^{{ location.path | regex_escape }}([^?]*)") {
+            return {{ redirect.status }} "{{ redirect.target }}{{ query }}";
+        }
+{% endif %}
+        return {{ redirect.status }} "{{ redirect.target | replace('$1', '') }}{{ query }}";
+{% else %}
+{% set scope = item | combine(location.settings, {'variable_scope': location.variable_scope}) %}
+{{ fragments('access', listener_port, visitor_scheme, false, true, scope) }}
+        root {{ blitzecdn_edge_runtime.paths.empty }};
+        try_files /__blitzecdn_dispatch__ @blitzecdn_path_{{ location.rule }};
+    }
+    location @blitzecdn_path_{{ location.rule }} {
+        set $blitzecdn_visitor_ip_country "";
+{{ fragments('upstream', listener_port, visitor_scheme, false, true, scope) }}
+{{ proxy(listener_port, visitor_scheme, scope) }}
+{% endif %}
+    }
+{% endif %}
+{% endfor %}
+{% endmacro %}
+{% macro route(listener_port, visitor_scheme, redirect_https=false, hostname='') %}
+{% if not redirect_https %}
+{{ path_locations(listener_port, visitor_scheme, hostname) }}
+{% endif %}
     location / {
 {{ fragments('access', listener_port, visitor_scheme, redirect_https) }}
         root {{ blitzecdn_edge_runtime.paths.empty }};
@@ -264,7 +322,7 @@ server {
         try_files $uri =404;
     }
 {{ reserved_locations() }}
-{{ route(port, 'http', tls and (item.always_use_https | default(false))) }}
+{{ route(port, 'http', tls and (item.always_use_https | default(false)), hostname) }}
 }
 {% endfor %}
 {% if tls %}
@@ -306,7 +364,7 @@ server {
         try_files $uri =404;
     }
 {{ reserved_locations() }}
-{{ route(port, 'https') }}
+{{ route(port, 'https', false, hostname) }}
 }
 {% endfor %}
 {% endif %}

@@ -44,6 +44,17 @@
         | selectattr('ip_country', 'defined')
         | selectattr('ip_country')
         | list | length == 0
+      # A path rule's location can turn the header on where its host does not.
+      - >-
+        blitzecdn_geoip_enabled
+        or blitzecdn_nginx_sites | default([])
+        | selectattr('locations', 'defined')
+        | map(attribute='locations') | flatten
+        | selectattr('settings.visitor_headers', 'defined')
+        | map(attribute='settings.visitor_headers')
+        | selectattr('ip_country', 'defined')
+        | selectattr('ip_country')
+        | list | length == 0
     fail_msg: >-
       A site asks for country-based filtering or the BZ-IPCountry visitor
       header, but GeoIP is off on {{ inventory_hostname }}. Run

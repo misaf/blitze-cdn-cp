@@ -17,6 +17,7 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneReader,
 )
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.paths import validate_rule_path
 
 __all__ = ["RuleService"]
 
@@ -45,10 +46,15 @@ class RuleService:
     def get_rule(self, domain: str, name: str) -> Rule:
         return self.rules.get_rule(domain, name)
 
-    def resolve(self, domain: str, fqdn: str) -> ResolvedPolicy:
-        """How one hostname is served, and which rule decided it."""
+    def resolve(
+        self, domain: str, fqdn: str, path: str | None = None
+    ) -> ResolvedPolicy:
+        """How a hostname, or a path on it, is served, and which rules decided it."""
         return resolve_policy(
-            self.zones.get_domain(domain), self.rules.list_rules(domain), fqdn
+            self.zones.get_domain(domain),
+            self.rules.list_rules(domain),
+            fqdn,
+            None if path is None else validate_rule_path(path),
         )
 
     def create_rule(self, rule: Rule, operator: str) -> Rule:
@@ -67,7 +73,12 @@ class RuleService:
                     "rule.created",
                     "rule",
                     f"{rule.domain}/{rule.name}",
-                    {"match": rule.match, "overrides": sorted(rule.overrides)},
+                    {
+                        "match": rule.match,
+                        "path": rule.path,
+                        "overrides": sorted(rule.overrides),
+                        "redirect": rule.redirect is not None,
+                    },
                 )
             )
         return created
