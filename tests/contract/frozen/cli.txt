@@ -33,10 +33,12 @@ blitzecdn	command	blitzecdn domain cache	<name> type=str required --on/--off typ
 blitzecdn	command	blitzecdn domain cache-query-string	<name> type=str required --mode type=choice[include,ignore] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
+blitzecdn	command	blitzecdn domain error-pages	<name> type=str required --page type=str --clear type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --allow-method type=str --deny-method type=str --allow-path type=str --deny-path type=str --case-insensitive-paths/--case-sensitive-paths type=boolean --clear type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain hosts	--json type=boolean default=False
 blitzecdn	command	blitzecdn domain http3	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain list	--json type=boolean default=False
+blitzecdn	command	blitzecdn domain maintenance	<name> type=str required --on/--off type=boolean --page type=file --default-page type=boolean default=False --retry-after type=int --json type=boolean default=False
 blitzecdn	command	blitzecdn domain max-upload-size	<name> type=str required --size type=choice[100m,200m] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain minimum-tls	<name> type=str required --version type=choice[1.2,1.3] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain origin	<name> type=str required --request-host type=str --no-request-host type=boolean default=False --sni type=str --no-sni type=boolean default=False --allow-private-origin/--no-allow-private-origin type=boolean --json type=boolean default=False

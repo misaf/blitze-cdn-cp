@@ -14,6 +14,7 @@ blitzecdn_nginx_resources:
   upstream: []
   origin: []
   module: []
+  page: []
 # The Nginx dynamic modules the installed capabilities need loaded, composed by
 # the control plane and delivered as an extra-var on every run. Empty here so
 # the role stands on its own, and empty is a valid edge: HTTP/1.1, HTTP/2,
@@ -87,6 +88,11 @@ blitzecdn_nginx_upstream_zone_size: 32m
 # bind it.
 blitzecdn_nginx_origin_hop_port: 8091
 blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
+# Documents a site serves itself, such as its error pages: the `page`
+# resources, rendered into the release under `<this>/<site name>/`. Inside the
+# release's Nginx tree, so they ship and roll back with the configuration that
+# refers to them.
+blitzecdn_nginx_pages_dir: "{{ blitzecdn_edge_runtime.paths.nginx }}/pages"
 # Which site carries `reuseport` on the QUIC listener. Nginx accepts it on
 # exactly one server block, so this names the owner rather than the capability
 # — the capability itself is blitzecdn_edge_runtime.listeners.http3, which the

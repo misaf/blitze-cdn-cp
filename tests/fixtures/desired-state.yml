@@ -8,6 +8,9 @@ blitzecdn_nginx_sites:
       ip_country: false
     under_attack_mode: false
     compression: brotli
+    error_pages: {}
+    maintenance_mode: false
+    maintenance_retry_after: 300
     cache_enabled: true
     cache_level: standard
     cache_bypass_cookies: []
@@ -53,6 +56,9 @@ blitzecdn_nginx_sites:
         - /.git
       case_insensitive_paths: false
     compression: brotli
+    error_pages: {}
+    maintenance_mode: false
+    maintenance_retry_after: 300
     cache_enabled: false
     cache_level: standard
     cache_bypass_cookies: []
@@ -78,4 +84,4 @@ blitzecdn_nginx_sites:
     server_names:
       - static.example.com
     origin_host: 192.0.2.10
-blitzecdn_release_digest: 108404ba6a1873b648b854a3efac5cc8faaaadfe6fcddbdaa8df730f51ddb77b
+blitzecdn_release_digest: d660f4f401d14a68f3bb0336f8bc0c84fdd9259d295a142f6b84dbda5985694d

@@ -43,4 +43,6 @@ DOMAIN_ORDER = (
     "visitor-headers",
     "firewall",
     "rate-limit",
+    "error-pages",
+    "maintenance",
 )

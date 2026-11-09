@@ -1,0 +1,21 @@
+{#
+  Maintenance mode answers before anything else in the location runs: before
+  the firewall's and the rate limit's rules, and before dispatch to the cache
+  or the origin. A listener that only redirects to HTTPS keeps redirecting, so
+  the visitor meets maintenance on the scheme the site is served on.
+
+  firewall.allow_sources are exempt, so the owner can still reach the origin;
+  error-pages-http.conf.j2 declares the per-site geo this reads, under the
+  same condition. `rewrite … last` rather than `return`, so the maintenance
+  location's own error_page answers instead of the site's 503 page.
+#}
+{% if site.maintenance_mode | default(false) and not redirect_https %}
+{% set firewall = site.firewall | default({}, true) or {} %}
+{% if firewall.allow_sources | default([], true) %}
+        if ($blitzecdn_maintenance_{{ site.name | replace('-', '_') }}) {
+            rewrite ^ /.blitzecdn/internal/maintenance last;
+        }
+{% else %}
+        rewrite ^ /.blitzecdn/internal/maintenance last;
+{% endif %}
+{% endif %}
