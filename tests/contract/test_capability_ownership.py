@@ -15,6 +15,7 @@ from support.paths import CORE_ANSIBLE, SOURCE
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import CompressionPolicy
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.error_pages.contract import ErrorPagesPolicy
 from blitzecdn.capabilities.http.contract import (
     HeaderPolicy,
     ProtocolPolicy,
@@ -49,6 +50,7 @@ _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 _CAPABILITY_POLICIES = {
     "cache": CachePolicy,
     "compression": CompressionPolicy,
+    "error_pages": ErrorPagesPolicy,
     "http": (ProtocolPolicy, HeaderPolicy),
     "security": SecurityPolicy,
     "tls": TlsPolicy,

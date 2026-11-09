@@ -30,6 +30,13 @@ class NginxContribution:
     modules, rendered into the runtime's modules directory under their name
     without ``.j2``. They ship in the configuration release, so they must not
     carry a secret.
+
+    ``page_fragments`` are not Nginx configuration either but documents a site
+    serves itself, such as an error page. Each is rendered once per site, with
+    ``site`` set, into ``blitzecdn_nginx_pages_dir/<site>/`` under its name
+    without ``.j2``; a render that is empty or only whitespace writes no file,
+    so a site that does not use a page carries none. They ship in the
+    configuration release, readable by the edge's workers.
     """
 
     feature: str
@@ -40,3 +47,4 @@ class NginxContribution:
     upstream_fragments: tuple[str, ...] = ()
     origin_fragments: tuple[str, ...] = ()
     module_fragments: tuple[str, ...] = ()
+    page_fragments: tuple[str, ...] = ()

@@ -1,0 +1,22 @@
+{% if site.maintenance_mode | default(false) %}
+{% set pages = site.error_pages | default({}, true) or {} %}
+{% if site.maintenance_page | default('', true) %}
+{{ site.maintenance_page }}
+{% elif pages.get('503', '') %}
+{{ pages['503'] }}
+{% else %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Down for maintenance</title>
+<style>body{font-family:system-ui,sans-serif;max-width:36rem;margin:15vh auto;padding:0 1rem;color:#222}h1{font-weight:600}</style>
+</head>
+<body>
+<h1>Down for maintenance</h1>
+<p>This site is briefly unavailable for scheduled maintenance. Please try again shortly.</p>
+</body>
+</html>
+{% endif %}
+{% endif %}
