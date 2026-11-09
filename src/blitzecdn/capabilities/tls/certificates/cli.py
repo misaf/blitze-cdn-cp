@@ -304,12 +304,16 @@ _ACME_DOMAIN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 def cert_acme_hook(
     action: Annotated[str, typer.Argument(help="'present' or 'absent'.")],
 ) -> None:
-    """Put one HTTP-01 challenge on every edge, or take it off again.
+    """Put one HTTP-01 challenge on the edges, or take it off again.
 
     Certbot runs this as its manual auth and cleanup hook, with the challenge
     in `CERTBOT_*` variables; nobody types it, so it is hidden. Every value is
     checked against a strict pattern before it reaches a playbook, because
     the environment is certbot's and the playbook writes files on the edges.
+
+    Only the edges the hostname resolves to are targeted, so one edge that is
+    down cannot block every certificate in the fleet; the edges left out are
+    named on stderr, which certbot keeps in its log.
     """
     domain = os.environ.get("CERTBOT_DOMAIN", "")
     token = os.environ.get("CERTBOT_TOKEN", "")
@@ -320,9 +324,18 @@ def cert_acme_hook(
         _acme_fail("invalid ACME challenge environment", ExitCode.INVALID_INPUT)
     if action == "present" and not _ACME_VALIDATION.fullmatch(validation):
         _acme_fail("invalid ACME validation value", ExitCode.INVALID_INPUT)
+    edges = common.service(CertificateService).challenge_edges(domain)
+    if edges.skipped:
+        typer.echo(
+            f"challenge for {domain} placed on {', '.join(edges.targets)}; "
+            f"challenge not placed on {', '.join(edges.skipped)}, which "
+            f"{domain} does not resolve to",
+            err=True,
+        )
     run = common.service(PlaybookRunner).run_playbook(
         name="acme-challenge",
         playbook=ansible.ACME_CHALLENGE_PLAYBOOK,
+        host_limit=",".join(edges.targets) or None,
         variables={
             "blitzecdn_acme_action": action,
             "blitzecdn_acme_domain": domain,

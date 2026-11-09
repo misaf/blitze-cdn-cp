@@ -24,6 +24,7 @@ from blitzecdn.capabilities.tls.certificates.adapters.authoritative import (
 )
 from blitzecdn.capabilities.tls.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
+    ChallengeEdges,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
@@ -170,20 +171,55 @@ class CertificatePreflight:
         unresolvable edge is skipped; ``validate`` reports it.
         """
         addresses: set[str] = set()
+        for resolved in self._addresses_by_edge(self._address_resolver()).values():
+            addresses |= resolved
+        return addresses
+
+    def _addresses_by_edge(self, resolver: Lookup | None) -> dict[str, set[str]]:
+        """Each recorded edge's public addresses, resolved; empty if unreadable."""
         try:
             edges = self._edges.list_edges()
         except Exception:  # noqa: BLE001 -- an unreadable fleet is reported by
             # `validate` and by every deploy; preflight must not be the thing
             # that turns it into a stack trace.
-            return addresses
+            return {}
         # Edges are ours, not the customer's: an edge named by hostname is
         # resolved the same way as the site, so both sides of the comparison
         # come from one view.
-        resolver = self._address_resolver()
+        by_edge: dict[str, set[str]] = {}
         for edge in edges:
+            resolved: set[str] = set()
             for address in edge.effective_public_addresses:
-                addresses |= _resolve(address, resolver)
-        return addresses
+                resolved |= _resolve(address, resolver)
+            by_edge[edge.name] = resolved
+        return by_edge
+
+    # ------------------------------------------------------------------
+    # Which edges does an HTTP-01 challenge have to reach?
+    # ------------------------------------------------------------------
+
+    def challenge_edges(self, hostname: str) -> ChallengeEdges:
+        """The edges the CA could fetch ``hostname``'s challenge from.
+
+        Only those have to hold the token, so an edge that is down while the
+        hostname points elsewhere cannot block its certificate. An edge whose
+        own address does not resolve is kept: nothing shows the hostname is not
+        on it. When the hostname reaches no edge we can see — it does not
+        resolve here, or preflight was overridden for a resolver that answers
+        differently — every edge is targeted, as only the CA knows which it asks.
+        """
+        resolver = self._address_resolver()
+        hostname_addresses = _resolve(hostname, resolver)
+        by_edge = self._addresses_by_edge(resolver)
+        targets = tuple(
+            name
+            for name, addresses in by_edge.items()
+            if not addresses or addresses & hostname_addresses
+        )
+        if not any(by_edge[name] & hostname_addresses for name in targets):
+            return ChallengeEdges(hostname=hostname)
+        skipped = tuple(name for name in by_edge if name not in targets)
+        return ChallengeEdges(hostname=hostname, targets=targets, skipped=skipped)
 
     # ------------------------------------------------------------------
     # Does CAA permit our CA?

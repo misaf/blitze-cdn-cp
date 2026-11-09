@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from support.control_plane import ansible_run, host_run
 from typer.testing import CliRunner
 
+from blitzecdn.capabilities.tls.certificates.domain import ChallengeEdges
+from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.entrypoints.cli import main as cli
 from blitzecdn.entrypoints.cli.common import ExitCode
@@ -18,15 +20,22 @@ _CHALLENGE = {
 }
 
 
-def _fleet(monkeypatch, settings, run):
+def _fleet(monkeypatch, settings, run, edges=None):
     calls = []
+    edges = edges or ChallengeEdges(hostname=_CHALLENGE["CERTBOT_DOMAIN"])
 
     class Fleet:
         def run_playbook(self, **values):
             calls.append(values)
             return run
 
-    container = SimpleNamespace(get=lambda _kind: Fleet())
+    class Certificates:
+        def challenge_edges(self, hostname):
+            assert hostname == _CHALLENGE["CERTBOT_DOMAIN"]
+            return edges
+
+    services = {CertificateService: Certificates()}
+    container = SimpleNamespace(get=lambda kind: services.get(kind) or Fleet())
     monkeypatch.setattr(cli.common, "container", lambda: container)
     return calls
 
@@ -39,6 +48,26 @@ def test_the_hook_validates_and_runs_the_challenge_play(monkeypatch, settings):
     assert result.exit_code == 0, result.output
     assert calls[0]["name"] == "acme-challenge"
     assert calls[0]["variables"]["blitzecdn_acme_action"] == "present"
+    # The hostname points at no edge we can see, so only the CA knows which it
+    # will ask: every edge gets the token, as before.
+    assert calls[0]["host_limit"] is None
+
+
+def test_the_hook_skips_edges_the_hostname_does_not_resolve_to(monkeypatch, settings):
+    calls = _fleet(
+        monkeypatch,
+        settings,
+        ansible_run(host_run("edge-a")),
+        ChallengeEdges(
+            hostname="cdn.example.com", targets=("edge-a",), skipped=("edge-b",)
+        ),
+    )
+
+    result = runner.invoke(cli.app, ["cert", "acme-hook", "present"], env=_CHALLENGE)
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["host_limit"] == "edge-a"
+    assert "challenge not placed on edge-b" in result.output
 
 
 def test_the_hook_fails_closed_before_any_play(monkeypatch, settings):
