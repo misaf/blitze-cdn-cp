@@ -26,6 +26,16 @@ readonly CONTROL_PLANE_DOCKERFILE=src/blitzecdn/assets/docker/control-plane/Dock
 readonly CONTROL_PLANE_SOURCE_TAG=blitzecdn-control-plane:local
 # Where the image carries the tree it was built from, playbooks included.
 readonly IMAGE_ANSIBLE_DIR=/opt/blitzecdn/src/blitzecdn/assets/ansible
+# Who signs a release's control-plane image: this repository's image workflow,
+# run for that release's tag, keylessly through GitHub's OIDC issuer. The tag
+# is appended per image, so an image published as 6.1.0 has to have been
+# signed by the v6.1.0 run and not by any other release's.
+readonly CONTROL_PLANE_SIGNER=https://github.com/misaf/blitze-cdn-cp/.github/workflows/control-plane-image.yml@refs/tags/v
+readonly CONTROL_PLANE_SIGNER_ISSUER=https://token.actions.githubusercontent.com
+# The cosign that checks that signature, pinned by digest: the engine refuses
+# any other bytes under the tag, so the checker cannot be swapped by the same
+# registry that serves what it checks.
+readonly COSIGN_IMAGE=ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage_root() {
@@ -64,10 +74,16 @@ usage_image_environment() {
                        tag must be the release version.
   BLITZECDN_CONTROL_PLANE_ARCHIVE
                        Load the image from this `docker save` archive instead
-                       of pulling it, for a host without registry access
+                       of pulling it, for a host without registry access. A
+                       loaded image is not signature-checked: check the
+                       archive before handing it over.
   BLITZECDN_CONTROL_PLANE_BUILD=1
                        standalone only: build the image from the source
                        checkout this script is in; needs Docker Hub and PyPI
+  BLITZECDN_CONTROL_PLANE_VERIFY=0
+                       Run a registry image without checking that the release
+                       workflow signed it, for a mirror that does not carry
+                       the signatures. Prefer naming it by @sha256:DIGEST.
 EOF
 }
 
@@ -333,6 +349,7 @@ converge_uninstall() {
 DOCKER_KEYRING=/etc/apt/keyrings/docker.asc
 DOCKER_SOURCES_FILE=/etc/apt/sources.list.d/docker.sources
 DOCKER_DAEMON_CONFIG_FILE=/etc/docker/daemon.json
+DOCKER_KEY_FINGERPRINT=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
 
 # templates/docker.sources.j2, for: ID VERSION_CODENAME ARCHITECTURE
@@ -381,6 +398,23 @@ converge_host_file() {
   install -o root -g root -m 0644 "${staged}" "${path}"
 }
 
+# Whether a key file holds Docker's apt signing key and nothing else: apt
+# trusts every key in the keyring for the whole repository, so a second key
+# beside the right one is as bad as the wrong one. In GnuPG's colon listing a
+# primary key's `pub` record is followed by its own `fpr` record. Read with a
+# throwaway GnuPG home, so nothing is imported into root's.
+docker_key_trusted() {
+  local key=$1 home fingerprints
+  command -v gpg >/dev/null || die 1 \
+    "error: gpg is needed to check Docker's apt signing key; install it, then rerun"
+  home=$(mktemp -d)
+  cleanup_paths+=("${home}")
+  fingerprints=$(GNUPGHOME=${home} gpg --batch --show-keys --with-colons "${key}" 2>/dev/null |
+    awk -F: '$1 == "fpr" && primary { print $10 } { primary = ($1 == "pub") }') ||
+    return 1
+  [[ ${fingerprints} == "${DOCKER_KEY_FINGERPRINT}" ]]
+}
+
 # Install Docker Engine and Compose from Docker's own repository, exactly as
 # blitzecdn_docker does, which then finds nothing to change. The engine has to
 # exist before the image this installer runs everything else from.
@@ -401,6 +435,9 @@ ensure_docker() {
       --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
       -o "${key}" "https://download.docker.com/linux/${id}/gpg" ||
       die 1 "error: could not download Docker's apt signing key"
+    docker_key_trusted "${key}" || die 1 \
+      "error: https://download.docker.com/linux/${id}/gpg did not serve Docker's apt signing key ${DOCKER_KEY_FINGERPRINT} alone; nothing was trusted" \
+      "Check where download.docker.com resolves from this host, then rerun."
     install -o root -g root -m 0644 "${key}" "${DOCKER_KEYRING}"
   fi
   # Redirected rather than piped, so the helper runs in this shell and its
@@ -448,13 +485,45 @@ resolve_image_digest() {
   printf '%s\n' "${image}${digest}"
 }
 
+# Refuse a registry image this release's workflow did not sign, before anything
+# runs it: the installer runs it privileged, in the host's PID namespace.
+#
+# Checked by digest, the digest the installer then runs, so the registry
+# cannot serve other bytes between the check and the run; and against the
+# signer for the image's own tag, so a release cannot be swapped for another.
+# cosign also requires the signature to be in Sigstore's transparency log.
+verify_control_plane_image() {
+  local image=$1 version signed
+  if [[ ${BLITZECDN_CONTROL_PLANE_VERIFY:-1} == 0 ]]; then
+    echo "warning: BLITZECDN_CONTROL_PLANE_VERIFY=0: running ${image} without checking its signature" >&2
+    return 0
+  fi
+  [[ ${image} == *@sha256:* ]] || die 1 \
+    "error: ${image} has no registry digest, so its signature cannot be checked; nothing was run from it" \
+    "Pull it from the registry, load it with BLITZECDN_CONTROL_PLANE_ARCHIVE, or set" \
+    "BLITZECDN_CONTROL_PLANE_VERIFY=0 to run it unchecked."
+  version=$(image_version "${image}") || die 2 \
+    "error: ${image} names no release version, so there is no release signer to check it against"
+  signed="$(image_repository "${image}")@${image##*@}"
+  echo "Checking that the v${version} release workflow signed ${signed}..." >&2
+  docker run --rm --network=host "${COSIGN_IMAGE}" verify \
+    --certificate-identity "${CONTROL_PLANE_SIGNER}${version}" \
+    --certificate-oidc-issuer "${CONTROL_PLANE_SIGNER_ISSUER}" \
+    "${signed}" >/dev/null || die 1 \
+    "error: ${signed} is not signed by the v${version} release workflow; nothing was run from it" \
+    "If the registry is a mirror without the signatures, pin the release's published" \
+    "digest and set BLITZECDN_CONTROL_PLANE_VERIFY=0."
+}
+
 # Make a control-plane image available to the local engine and print the
 # reference to run it by. Progress goes to stderr: stdout is the return value.
 #
-# Pulled from the registry by default. BLITZECDN_CONTROL_PLANE_ARCHIVE loads it
-# from a `docker save` archive instead, and BLITZECDN_CONTROL_PLANE_BUILD=1
-# builds it from the source checkout this script is in — the fallback when no
-# published image can be reached, at the price of needing Docker Hub and PyPI.
+# Pulled from the registry by default, and then only run once its signature
+# checks out. BLITZECDN_CONTROL_PLANE_ARCHIVE loads it from a `docker save`
+# archive instead, and BLITZECDN_CONTROL_PLANE_BUILD=1 builds it from the
+# source checkout this script is in — the fallback when no published image can
+# be reached, at the price of needing Docker Hub and PyPI. Both are the
+# operator's own bytes and are not signature-checked.
 obtain_control_plane_image() {
   local image=$1
   if [[ ${BLITZECDN_CONTROL_PLANE_BUILD:-0} == 1 ]]; then
@@ -477,13 +546,34 @@ obtain_control_plane_image() {
     docker image inspect "${image}" >/dev/null 2>&1 ||
       die 1 "error: ${BLITZECDN_CONTROL_PLANE_ARCHIVE} does not contain ${image}" \
         "Set BLITZECDN_CONTROL_PLANE_IMAGE to the reference the archive holds."
-  elif ! docker image inspect "${image}" >/dev/null 2>&1; then
+    resolve_image_digest "${image}"
+    return 0
+  fi
+
+  local pulled=0
+  if ! docker image inspect "${image}" >/dev/null 2>&1; then
     echo "Pulling ${image}..." >&2
     pull_image "${image}" || die 1 \
       "error: could not pull the control-plane image ${image}" \
       "Retry, or load it with BLITZECDN_CONTROL_PLANE_ARCHIVE."
+    pulled=1
   fi
-  resolve_image_digest "${image}"
+  image=$(resolve_image_digest "${image}")
+  # A repair re-run finds the image the services already run; it was checked,
+  # or loaded by the operator, when it was installed. Anything else is checked.
+  if [[ ${pulled} -eq 1 ]] || ! is_installed_image "${image}"; then
+    verify_control_plane_image "${image}"
+  fi
+  printf '%s\n' "${image}"
+}
+
+# Whether an image is, by ID, the one the installed Compose project runs.
+is_installed_image() {
+  local installed wanted current
+  installed=$(installed_control_plane_image) || return 1
+  wanted=$(docker image inspect --format '{{.Id}}' "$1" 2>/dev/null) || return 1
+  current=$(docker image inspect --format '{{.Id}}' "${installed}" 2>/dev/null) || return 1
+  [[ -n ${wanted} && ${wanted} == "${current}" ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -516,10 +606,14 @@ EOF
   cat <<'EOF'
 
 Everything runs from the release's published control-plane image, which this
-pulls from ghcr.io; the host gets Docker Engine and no Python packages, and
-needs no copy of the source. Fetch this script for the release to install:
+pulls from ghcr.io and runs only once cosign shows the release's own workflow
+signed it; the host gets Docker Engine and no Python packages, and needs no
+copy of the source. Fetch this script for the release to install, and check it
+was built by that release before running it:
 
   curl -fsSLO https://raw.githubusercontent.com/misaf/blitze-cdn-cp/vX.Y.Z/install.sh
+  gh attestation verify install.sh --repo misaf/blitze-cdn-cp \
+    --source-ref refs/tags/vX.Y.Z
 
 The installation leaves that release's installer on the host as
 blitzecdn-install. Re-running standalone repairs the release that is installed
@@ -551,11 +645,11 @@ cmd_standalone() {
   require_same_release "${image}"
 
   # The least this host needs before Ansible can run: an interpreter for the
-  # play's modules, and curl and CA certificates to fetch Docker's signing key.
-  # Everything else belongs to the control-plane role.
+  # play's modules, curl and CA certificates to fetch Docker's signing key, and
+  # gpg to check it. Everything else belongs to the control-plane role.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y ca-certificates curl python3
+  apt-get install -y ca-certificates curl gpg python3
 
   # The engine, then the image: Ansible, its collections and the application
   # all come from the image, so nothing is installed from PyPI.
