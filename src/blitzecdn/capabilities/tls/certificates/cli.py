@@ -9,8 +9,7 @@ from typing import Annotated, Any, NoReturn
 
 import typer
 
-from blitzecdn.capabilities.deployments import DeploymentService
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments import DeploymentService, DeploymentStatus
 from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn.capabilities.tls.certificates.service import CertificateService

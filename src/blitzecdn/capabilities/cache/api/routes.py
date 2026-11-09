@@ -20,7 +20,7 @@ from blitzecdn.capabilities.cache.service.operations import (
     purge_payload,
 )
 from blitzecdn.capabilities.jobs import OperationService
-from blitzecdn.capabilities.traffic.domain import UsageQuery
+from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.entrypoints.api.dependencies import (
     OperatorDependency,
     require_operator,

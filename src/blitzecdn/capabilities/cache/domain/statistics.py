@@ -11,10 +11,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from blitzecdn.capabilities.traffic.domain import (
-    CACHE_CONSULTED_OUTCOMES,
-    CACHE_HIT_OUTCOMES,
-)
+from blitzecdn.capabilities.traffic import CACHE_CONSULTED_OUTCOMES, CACHE_HIT_OUTCOMES
 
 __all__ = [
     "CACHE_CONSULTED_OUTCOMES",

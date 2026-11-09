@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from dishka import Provider, Scope, alias, provide
 
-from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
+from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
 from blitzecdn.capabilities.tls.adapters.persistence import PreflightAttemptStore
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService

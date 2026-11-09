@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
-from blitzecdn.capabilities.traffic.domain import TrafficUsage, UsageQuery
+from blitzecdn.capabilities.traffic import TrafficUsage, UsageQuery
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
 

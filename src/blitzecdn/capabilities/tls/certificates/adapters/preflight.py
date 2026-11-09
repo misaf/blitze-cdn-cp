@@ -18,7 +18,7 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 
-from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
+from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
 from blitzecdn.capabilities.tls.certificates.adapters.authoritative import (
     AuthoritativeResolver,
 )

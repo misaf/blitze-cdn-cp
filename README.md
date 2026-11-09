@@ -113,6 +113,16 @@ through dependency injection and do not reach back into composition. Imports
 between capabilities must follow the declared dependency graph and use the
 permitted public boundaries.
 
+Each capability has one public surface. Another capability imports either
+`blitzecdn.capabilities.<name>`, whose package `__init__` lists in `__all__`
+the services, ports and values others may use, or
+`blitzecdn.capabilities.<name>.contract` for policy and values. It never
+imports a submodule such as `domain`, `ports`, `service`, `adapters`, `api`
+or `cli`. Only composition, the entry points and the migrations environment
+assemble capabilities from their parts. API representations belong to one
+capability: a capability that reports another's object defines its own model
+for it.
+
 These rules are executable: [.importlinter](.importlinter) checks import
 direction, while [architecture tests](tests/architecture/) check capability
 layout, dependency declarations, and other structural constraints.
