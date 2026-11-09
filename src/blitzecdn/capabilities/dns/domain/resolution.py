@@ -1,7 +1,9 @@
 """What a zone's policy becomes for one hostname, and which rule decided it.
 
 All of "first match wins", as a function over values. The rule's name is
-returned too, because "why is this hostname not caching" needs both.
+returned too, because "why is this hostname not caching" needs both. Matching
+is hostname, then path: the first hostname rule decides the hostname's policy,
+and with a request path the first path rule covering it is layered on that.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from blitzecdn.capabilities.dns.domain.rule import Rule
 from blitzecdn.capabilities.dns.domain.zone import Domain
+from blitzecdn.core.domain.paths import PathRedirect
 
 __all__ = ["ResolvedPolicy", "merge_overrides", "resolve_policy"]
 
@@ -26,8 +29,14 @@ class ResolvedPolicy(BaseModel):
     #: The merged policy, still a ``Domain``, so every zone invariant is checked
     #: and an impossible rule is refused here rather than at the edge.
     policy: Domain
-    #: The rule that applied, or ``None`` when the zone answered by itself.
+    #: The hostname rule that applied, or ``None`` when the zone answered by itself.
     rule: str | None = None
+    #: The request path asked about, when one was.
+    path: str | None = None
+    #: The path rule that applied to ``path``, if any.
+    path_rule: str | None = None
+    #: Set when ``path_rule`` redirects; ``policy`` is then the hostname's.
+    redirect: PathRedirect | None = None
 
 
 def merge_overrides(zone: Domain, overrides: Mapping[str, Any]) -> Domain:
@@ -44,14 +53,35 @@ def merge_overrides(zone: Domain, overrides: Mapping[str, Any]) -> Domain:
     return Domain(name=zone.name, policy=zone.policy.applying(overrides))
 
 
-def resolve_policy(zone: Domain, rules: Sequence[Rule], fqdn: str) -> ResolvedPolicy:
-    """Merge the first matching rule's overrides onto the zone's policy.
+def resolve_policy(
+    zone: Domain, rules: Sequence[Rule], fqdn: str, path: str | None = None
+) -> ResolvedPolicy:
+    """Merge the first matching hostname rule's overrides onto the zone's policy.
 
-    ``rules`` is re-sorted rather than trusted, since order is the semantics.
+    With ``path``, the first path rule covering it is then layered on top. Rules
+    are re-sorted rather than trusted, since order is the semantics.
     """
-    for rule in sorted(rules, key=lambda item: item.order):
-        if not rule.matches(fqdn):
+    ordered = sorted(rules, key=lambda item: item.order)
+    policy, decided_by = zone, None
+    for rule in ordered:
+        if rule.is_path_rule or not rule.matches(fqdn):
             continue
-        merged = merge_overrides(zone, rule.overrides)
-        return ResolvedPolicy(fqdn=fqdn, policy=merged, rule=rule.name)
-    return ResolvedPolicy(fqdn=fqdn, policy=zone, rule=None)
+        policy, decided_by = merge_overrides(zone, rule.overrides), rule.name
+        break
+    resolved = ResolvedPolicy(fqdn=fqdn, policy=policy, rule=decided_by, path=path)
+    if path is None:
+        return resolved
+    for rule in ordered:
+        if not rule.matches_path(fqdn, path):
+            continue
+        if rule.redirect is not None:
+            return resolved.model_copy(
+                update={"path_rule": rule.name, "redirect": rule.redirect}
+            )
+        return resolved.model_copy(
+            update={
+                "path_rule": rule.name,
+                "policy": merge_overrides(policy, rule.overrides),
+            }
+        )
+    return resolved

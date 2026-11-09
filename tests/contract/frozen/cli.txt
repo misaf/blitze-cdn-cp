@@ -74,10 +74,10 @@ blitzecdn	command	blitzecdn release list	--limit type=int range default=20 --jso
 blitzecdn	command	blitzecdn release render	--output/-o type=path required --release type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn release show	<release_id> type=str --limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn rollback	<deployment_id> type=str --yes/-y type=boolean default=False --check type=boolean default=False --json type=boolean default=False
-blitzecdn	command	blitzecdn rule add	<domain> type=str required <name> type=str required --set type=str required --match type=str default='*' --priority type=int default=100 --json type=boolean default=False
+blitzecdn	command	blitzecdn rule add	<domain> type=str required <name> type=str required --set type=str --match type=str default='*' --path type=str --redirect type=str --redirect-status type=int --keep-query/--drop-query type=boolean --priority type=int default=100 --json type=boolean default=False
 blitzecdn	command	blitzecdn rule list	<domain> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn rule remove	<domain> type=str required <name> type=str required --yes/-y type=boolean default=False
-blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
+blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --path type=str --no-path type=boolean default=False --redirect type=str --redirect-status type=int --keep-query/--drop-query type=boolean --no-redirect type=boolean default=False --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
 blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
 blitzecdn	command	blitzecdn setup	--env-file type=path default=PosixPath('.env')

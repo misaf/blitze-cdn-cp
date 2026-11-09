@@ -3,6 +3,7 @@
 import re
 from collections.abc import Mapping
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -59,6 +60,22 @@ class CachePolicy(CapabilityPolicy):
     """Cache behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # Rendered inside the location that proxies, with the cookie map declared
+    # per path scope, so each can differ by path. Not `cache_query_string_mode`:
+    # a purge rebuilds the cache key from the host's policy, so a key that
+    # differed by path would let a purge report success and miss the entry.
+    # Not the TTL overrides or ignored origin headers either: they rewrite the
+    # response in the host's origin hop, which has no path scope.
+    path_settings: ClassVar[frozenset[str]] = frozenset(
+        {
+            "cache_enabled",
+            "cache_level",
+            "cache_bypass_cookies",
+            "cache_valid_success",
+            "cache_valid_not_found",
+        }
+    )
 
     cache_enabled: bool = True
     cache_level: CacheLevel = Field(
