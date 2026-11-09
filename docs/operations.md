@@ -332,6 +332,62 @@ host in `known_hosts.loopback` beside it and rewrites only that file. A
 checkout without the controller's SSH configuration uses your own SSH client
 and `~/.ssh/known_hosts` instead, and `edge add` leaves host keys to it.
 
+## The controller's SSH key
+
+The controller deploys with one SSH identity, `/var/lib/blitzecdn/id_ed25519`
+(`/opt/blitzecdn/.state/id_ed25519` inside the containers). An edge registered
+without `--private-key-file` is reached with it. Ansible then becomes root on
+every edge, so **whoever holds this key is root on the whole fleet**, and a
+compromised controller is a compromised fleet. Protect it accordingly:
+
+- **Where it lives.** The state directory is `0700` and the key `0600`, owned
+  by the containers' numeric identity (65534). Root on the controller can read
+  it, and so can anything that can read the state directory: a mounted volume,
+  a container escape, a disk image.
+- **Backups.** Every full backup holds the private key, so an archive is as
+  sensitive as the key itself. Keep copies encrypted and access-controlled, as
+  [Backups](#backups) says.
+- **On a standalone host.** The host is its own edge: the role authorizes the
+  key for the deployment account (`deploy`, with passwordless sudo), and the
+  controller reaches it over loopback. That entry carries
+  `from="127.0.0.1,::1",no-agent-forwarding,no-X11-forwarding,no-port-forwarding`,
+  so a copy of the key does not log in from anywhere else. A converge adds the
+  options to an entry that lacks them.
+- **On other edges.** You put the public key in the edge account's
+  `authorized_keys` yourself. Restrict it the same way to the controller's
+  address, so the key is useless off the controller:
+
+  ```text
+  from="198.51.100.7",no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... blitzecdn-local-controller
+  ```
+
+  The edge firewall already limits SSH to the edge's `--ssh-source` networks;
+  `from=` narrows this one key further, to the one address that uses it.
+
+Narrowing sudo to particular commands is not an option: Ansible's `become`
+runs arbitrary module code as root.
+
+### Rotating the key
+
+There is no rotation command. To replace the key, for example after a backup
+archive leaked:
+
+1. Move the old pair aside on the controller:
+   `sudo mv /var/lib/blitzecdn/id_ed25519{,.old}` and the same for `.pub`.
+2. Run `sudo blitzecdn-install standalone ...` again with the installed
+   options. The role creates a new pair and authorizes it for the loopback
+   deployment account.
+3. On every edge, add the new public key (with its `from=` options) to the
+   deployment account's `authorized_keys`, then run `blitzecdn deploy` to
+   check that each edge accepts it.
+4. Remove the old public key from every edge, and from the standalone host's
+   `~deploy/.ssh/authorized_keys`, which the role only adds to. Then delete
+   the `.old` files.
+
+Backups taken before the rotation still hold the old private key. Once the old
+key is removed everywhere it no longer opens anything, but treat those archives
+as sensitive until they age out.
+
 ## Host commands and Compose
 
 The installed `blitzecdn` command runs disposable CLI containers through Docker

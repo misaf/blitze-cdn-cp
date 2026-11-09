@@ -58,6 +58,20 @@ def test_a_converge_never_rewrites_the_edge_host_keys():
     assert writers == []
 
 
+def test_controller_key_is_accepted_only_over_loopback():
+    """The key gives root on this host; a stolen copy must not work remotely (#174)."""
+    module = role_task("Authorize the controller key for the deployment account")[
+        "ansible.posix.authorized_key"
+    ]
+    source, _, rest = module["key_options"].partition('",')
+    assert source == 'from="127.0.0.1,::1'
+    assert set(rest.split(",")) == {
+        "no-agent-forwarding",
+        "no-X11-forwarding",
+        "no-port-forwarding",
+    }
+
+
 def test_controlplane_role_does_not_clean_up_host_application_units():
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
     assert "blitzecdn_controlplane_obsolete_units" not in defaults

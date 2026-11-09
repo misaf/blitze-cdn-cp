@@ -115,10 +115,17 @@
     src: "{{ blitzecdn_controlplane_state_dir }}/id_ed25519.pub"
   register: blitzecdn_controlplane_public_key
 
+# The deployment account has passwordless root, and the controller only ever
+# reaches this host over loopback (the containers run with host networking).
+# `from=` keeps a copy of the private key, taken from a backup or a leaked
+# state volume, from logging in as root from anywhere else. A converge rewrites
+# the options on a key authorized without them.
 - name: Authorize the controller key for the deployment account
   ansible.posix.authorized_key:
     user: "{{ blitzecdn_controlplane_deploy_user }}"
     key: "{{ blitzecdn_controlplane_public_key.content | b64decode | trim }}"
+    key_options: >-
+      from="127.0.0.1,::1",no-agent-forwarding,no-X11-forwarding,no-port-forwarding
     state: present
 
 # Recorded rather than trusted on first use: the controller runs SSH with
