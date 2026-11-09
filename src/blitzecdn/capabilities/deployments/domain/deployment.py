@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.workflows import WorkflowKind
 from blitzecdn.core.domain.identifiers import DeploymentId, Operator
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 
@@ -22,6 +22,8 @@ class DeploymentRequirementKind(StrEnum):
     """
 
     CERTIFICATES = "certificates"
+    #: The controller holds a GeoIP database no release has shipped yet.
+    GEOIP_DATABASE = "geoip_database"
 
 
 class DeploymentStatus(StrEnum):

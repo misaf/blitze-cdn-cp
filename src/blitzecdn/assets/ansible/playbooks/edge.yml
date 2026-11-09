@@ -91,6 +91,16 @@
              | default(blitzecdn_edge_runtime.image) }}
       when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
       tags: [always, stage, nginx]
+    # The token that guards /.blitzecdn/release, reconciled on staging and
+    # activation alike and whether or not the release is already sealed, so
+    # redeploying an unchanged release repairs an edge holding an old token.
+    # Activation reloads Nginx, which is what puts a rewritten file in effect.
+    - name: Install the controller's release probe token
+      ansible.builtin.import_role:
+        name: blitzecdn_nginx
+        tasks_from: release-probe.yml
+      when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
+      tags: [always, stage, nginx]
   roles:
     - role: blitzecdn_base
       tags: [base, activate]

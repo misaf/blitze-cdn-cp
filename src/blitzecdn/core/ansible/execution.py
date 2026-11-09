@@ -26,6 +26,10 @@ from ansible_runner import (
 
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.events import RunnerEvents
+from blitzecdn.core.ansible.probe import (
+    RELEASE_PROBE_ENVIRONMENT,
+    release_probe_token,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.core.exceptions import ExecutionError
@@ -193,13 +197,24 @@ class PlaybookExecutor:
     def _environment(self) -> dict[str, str]:
         # The controller's environment minus every `BLITZE_*` name, so no role
         # can `lookup('env')` the operators' API keys. What a play needs is
-        # added back by name below: the database path and declared secrets.
+        # added back by name below: the database path, the state directory
+        # and declared secrets.
         environment = {
             name: value
             for name, value in os.environ.items()
             if not name.startswith("BLITZE_")
         }
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
+        # The installed controller mounts its SSH configuration under state;
+        # checkouts normally use the operator's SSH agent and user config.
+        # Common args add the optional config without replacing ansible.cfg's
+        # authentication and connection options. An explicit operator override
+        # keeps precedence, as it does for the other SSH environment settings.
+        ssh_config = self._settings.state_dir / ".ssh" / "config"
+        if ssh_config.is_file():
+            environment.setdefault(
+                "ANSIBLE_SSH_COMMON_ARGS", shlex.join(("-F", str(ssh_config)))
+            )
         # Overrides ansible.cfg's `roles_path`, which can only name directories
         # relative to itself and so cannot reach roles inside the package.
         environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(
@@ -220,6 +235,15 @@ class PlaybookExecutor:
         # runs from `ansible_dir`.
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
+        )
+        # The controller's own state directory, so a role can name release
+        # material by a path relative to it. A release pinning absolute paths
+        # would render differently on a controller restored somewhere else.
+        environment["BLITZE_STATE_DIR"] = str(self._settings.state_dir.resolve())
+        # What the edge requires before it reveals its release digest; the
+        # controller's serving verification sends the same value.
+        environment[RELEASE_PROBE_ENVIRONMENT] = release_probe_token(
+            self._settings.state_dir
         )
         # Declared capability secrets, through the environment rather than
         # `--extra-vars`, which every user on the controller can read in the

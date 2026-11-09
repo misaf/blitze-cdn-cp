@@ -16,9 +16,9 @@ from support.control_plane import (
     seed_site,
     with_capability_settings,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 _SECRET = "parity-test-signing-key-" + "x" * 32
@@ -37,7 +37,7 @@ def _assert_parity(control: ControlPlane, tmp_path: Path) -> ConfigurationBundle
 
 
 def test_a_plain_and_a_disabled_tls_site_are_rendered_and_kept(settings, tmp_path):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(settings=settings, repository=repository)
     seed_site(control, origin_request_host="origin.example.com", ssl_mode="off")
     seed_site(
@@ -90,7 +90,7 @@ def test_an_uploaded_certificate_is_rendered_and_kept(
 
 def test_fleet_settings_and_under_attack_are_rendered_and_kept(settings, tmp_path):
     configured = with_capability_settings(settings, under_attack_secret=_SECRET)
-    repository = Repository(configured.database_path)
+    repository = Stores(configured.database_path)
     control = build_application(settings=configured, repository=repository)
     for name, value in {
         "blitzecdn_security_under_attack_enabled": True,

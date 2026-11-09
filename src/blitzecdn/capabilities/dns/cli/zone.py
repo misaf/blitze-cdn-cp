@@ -9,13 +9,13 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.adapters.documents import serving_document
+from blitzecdn.capabilities.dns import DnsService, serving_document
 from blitzecdn.capabilities.dns.cli.app import domain_app
-from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 
 @domain_app.command("add")
@@ -100,6 +100,13 @@ def domain_origin(
         bool,
         typer.Option("--no-sni", help="Offer the request host as the TLS name again."),
     ] = False,
+    allow_private_origin: Annotated[
+        bool | None,
+        typer.Option(
+            "--allow-private-origin/--no-allow-private-origin",
+            help="Let records point at private addresses (10/8, 192.168/16, ...).",
+        ),
+    ] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Set the identity the edge presents on this zone's origin leg.
@@ -118,6 +125,11 @@ def domain_origin(
     and a setting an operator can turn on but never off is one they have to
     edit the database to undo.
 
+    `--allow-private-origin` lets a record point at a private address, one
+    on the provider's own network rather than the internet. It is off by
+    default because the edge reaches it from inside that network. Loopback,
+    link-local and metadata addresses stay refused either way.
+
     Options you do not name are left as they are.
     """
     for value, clear, flag in (
@@ -129,6 +141,7 @@ def domain_origin(
     supplied: dict[str, object] = {
         "origin_request_host": None if no_request_host else request_host,
         "origin_sni": None if no_sni else sni,
+        "allow_private_origin": allow_private_origin,
     }
     named = {
         field: value
@@ -136,10 +149,14 @@ def domain_origin(
         if value is not None or field in _cleared(no_request_host, no_sni)
     }
     if not named:
-        raise typer.BadParameter("give at least one of --request-host or --sni")
+        raise typer.BadParameter(
+            "give at least one of --request-host, --sni or --allow-private-origin"
+        )
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
-    identity = zone.policy.origin.origin_request_host or "the visitor's Host header"
+    identity = (
+        zone.policy[OriginPolicy].origin_request_host or "the visitor's Host header"
+    )
     report(
         zone,
         f"{zone.name} reaches its origin as {identity}.",
@@ -161,7 +178,7 @@ def domain_enable(
     stops being converged. Unproxying the records instead would change what DNS
     answers with, which is a different decision.
     """
-    zone = update(name, DomainPatch(enabled=on))
+    zone = update(name, DomainPatch.model_validate({"enabled": on}))
     report(
         zone,
         f"{zone.name} is now {'enabled' if on else 'disabled'}.",

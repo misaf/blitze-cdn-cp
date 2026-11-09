@@ -1,8 +1,16 @@
 """Prometheus text exposition with fixed, bounded labels."""
 
+from collections.abc import Callable
+from datetime import datetime
+
+from blitzecdn.capabilities.deployments import ConvergenceHealth
 from blitzecdn.capabilities.diagnostics.domain.status import OperationalStatus
-from blitzecdn.capabilities.jobs.domain import JobStatus
-from blitzecdn.capabilities.workflows.domain import WorkflowStatus
+from blitzecdn.capabilities.jobs import JobStatus
+from blitzecdn.capabilities.workflows import WorkflowStatus
+
+
+def _timestamp(moment: datetime | None) -> float:
+    return moment.timestamp() if moment else 0
 
 
 def operational_metrics(report: OperationalStatus) -> str:
@@ -126,5 +134,59 @@ def operational_metrics(report: OperationalStatus) -> str:
         "certificate_next_expiry_timestamp_seconds",
         "Earliest managed certificate expiry, or zero when none exist.",
         certificates.next_expiry_at.timestamp() if certificates.next_expiry_at else 0,
+    )
+    gauge(
+        "certificates_preflight_blocked",
+        "Sites waiting for a first certificate whose last preflight blocked.",
+        certificates.preflight_blocked,
+    )
+    # A timestamp rather than an age, like the expiry above: the scrape is the
+    # clock, so `time() - blitzecdn_backup_last_success_timestamp_seconds`
+    # is the age, and a controller that never backed up reads as infinitely
+    # old rather than as fresh.
+    backups = report.backups
+    gauge(
+        "backup_last_success_timestamp_seconds",
+        "Completion time of the last full backup, or zero when none is recorded.",
+        backups.last_completed_at.timestamp() if backups.last_completed_at else 0,
+    )
+    gauge(
+        "backup_last_success_size_bytes",
+        "Size of the last full backup archive, or zero when none is recorded.",
+        backups.last_size_bytes or 0,
+    )
+
+    # Timestamps again, and per kind: `applied` for real full-fleet runs,
+    # `drift_check` for check-mode ones. A failure refused before any
+    # deployment was recorded counts too, so a setting that blocks every
+    # compile still raises the streak.
+    def per_kind(
+        name: str, help_text: str, value: Callable[[ConvergenceHealth], float]
+    ) -> None:
+        lines.extend(
+            [
+                f"# HELP blitzecdn_{name} {help_text}",
+                f"# TYPE blitzecdn_{name} gauge",
+                *(
+                    f'blitzecdn_{name}{{kind="{health.kind.value}"}} {value(health)}'
+                    for health in report.convergence
+                ),
+            ]
+        )
+
+    per_kind(
+        "convergence_last_success_timestamp_seconds",
+        "Time of the last successful full-fleet run, or zero when none.",
+        lambda health: _timestamp(health.last_success_at),
+    )
+    per_kind(
+        "convergence_last_failure_timestamp_seconds",
+        "Time of the last failed full-fleet run, or zero when none.",
+        lambda health: _timestamp(health.last_failure_at),
+    )
+    per_kind(
+        "convergence_consecutive_failures",
+        "Full-fleet runs failed since the last success.",
+        lambda health: health.consecutive_failures,
     )
     return "\n".join(lines) + "\n"

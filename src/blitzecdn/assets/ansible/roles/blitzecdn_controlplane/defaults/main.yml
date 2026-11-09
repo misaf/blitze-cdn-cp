@@ -4,6 +4,9 @@
 # to exist before Ansible can run at all: Docker Engine and this image, which
 # carries Ansible and its collections. Application processes run only in the
 # Compose project.
+#
+# Where the image holds the project it was built from, install.sh included. A
+# path inside the containers, not on the host: a server has no source tree.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
 blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
@@ -11,27 +14,46 @@ blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
 # /opt/blitzecdn and everything in it, and the one thing that must survive
 # that is the backup taken before it.
 blitzecdn_controlplane_backup_dir: /var/backups/blitzecdn
+# Scheduled full backups, then retention over the backup directory. A systemd
+# timer runs them through the CLI wrapper rather than the worker, because only
+# the wrapper can stage the root-only environment file into the archive. The
+# schedule is a systemd OnCalendar expression; empty disables the timer.
+blitzecdn_controlplane_backup_schedule: daily
+# Newest archives kept after each scheduled backup; 0 keeps every archive.
+blitzecdn_controlplane_backup_retain_count: 7
+blitzecdn_controlplane_systemd_dir: /etc/systemd/system
 blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
+# The release's own install.sh, copied out of the image so every later update
+# and uninstall runs the installer of the release that is installed.
+blitzecdn_controlplane_installer: /usr/local/sbin/blitzecdn-install
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
+# The installed release's files, kept by each run before it replaces them and
+# put back if the run fails. Under the configuration directory, root-only,
+# because the Compose environment among them holds the credentials; the
+# uninstall removes it with the rest of that directory.
+blitzecdn_controlplane_previous_release_dir: /etc/blitzecdn/previous-release
+# The archive `install.sh update` took before converging, which a failed
+# update names in its recovery steps. Empty on a standalone run, and from an
+# installer that predates it; the message then names the backup directory.
+blitzecdn_controlplane_update_backup: ""
 blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
 blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 # The published image this release runs: API, worker, CLI, and the Ansible
-# that converges this host. Pinned to the release's own version, moved with it
-# by `just release-version`, and read from here by install.sh, which pulls it
-# and passes the reference it resolved back in as this variable — by digest
-# when the registry gave one, so the services and the CLI wrapper run exactly
-# the bytes that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1)
-# passes its local tag instead.
+# that converges this host. Pinned to the release's own version and moved with
+# it by `just release-version`, as install.sh's own pin is. install.sh always
+# passes the reference it resolved as this variable — by digest when the
+# registry gave one, so the services and the CLI wrapper run exactly the bytes
+# that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1) passes its
+# local tag instead.
 blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.1.0
-# Where the CLI wrapper stages a restore's configuration. On the host's tmpfs,
-# and mounted at the same path into the container that runs the wrapper,
-# because the Docker daemon resolves the staging bind mount against the host.
+# Where the CLI wrapper stages backup configuration, on the host's tmpfs.
+# File helpers see this host path; application containers see /run/blitzecdn-backup.
 blitzecdn_controlplane_runtime_dir: /run/blitzecdn
 
 # python3 is absent here on purpose: the installer has already had to install
 # it, because the play's modules run under the host's own interpreter.
-blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo]
+blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo, util-linux]
 
 # Set on a first installation only. An existing environment file keeps its
 # credentials; supplying an address repoints the ACME account, and omitting it
@@ -41,7 +63,10 @@ blitzecdn_controlplane_certificate_reconcile_seconds: 600
 blitzecdn_controlplane_ssl_automatic_scan_seconds: 2592000
 blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
-blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
+# Preflight asks each zone's authoritative nameservers by default; `host` opts
+# into the controller's own resolver. Servers, comma-separated, replace both.
+blitzecdn_controlplane_preflight_dns_source: authoritative
+blitzecdn_controlplane_preflight_dns_servers: ""
 
 # The API listener, and the host firewall rules that admit it.
 #

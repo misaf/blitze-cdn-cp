@@ -14,17 +14,24 @@ set dotenv-load := false
 # Ansible needs these to find the vendored roles and the inventory plugin.
 export ANSIBLE_CONFIG := "src/blitzecdn/assets/ansible/ansible.cfg"
 export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
-# ansible.cfg no longer names this: it can only point inside the wheel the
-# platform roles now ship in, and collections are state.
+# ansible.cfg does not name this: it can only point inside the wheel the
+# platform roles ship in, and collections are state.
 export ANSIBLE_COLLECTIONS_PATH := ".state/collections"
+# Setting the variable above turns off ansible-lint's isolation, and it then
+# uses ANSIBLE_HOME (default ~/.ansible) as its cache and puts
+# `$ANSIBLE_HOME/collections` ahead of every configured path. On a machine with
+# user-installed collections, lint would resolve modules from versions that
+# requirements.yml does not pin, which CI and production do not use. A
+# project-local home keeps every Ansible tool here on the pinned set.
+export ANSIBLE_HOME := ".state/ansible-home"
 
 collections := ".state/collections"
 
-# Ansible's role search path is deliberately not a variable here any more.
+# Ansible's role search path is deliberately not a variable here.
 # `blitzecdn ansible roles-path` composes it from the installed distributions
 # with the function the composition root calls, so the path a lint step checks
-# against is the path a deployment resolves against. Spelling it out was a
-# second answer to a question that already had one, and it could disagree
+# against is the path a deployment resolves against. Spelling it out would be a
+# second answer to a question that already has one, and it could disagree
 # with the first without anything saying so.
 
 # List the available recipes.
@@ -34,6 +41,22 @@ default:
 # Install the application and development tools, then pinned Ansible collections.
 install: && collections
     uv sync --frozen
+
+# Only git, uv and just are needed on a laptop: Python, Ansible, ShellCheck and
+# the collections all come from the project environment. Docker is optional;
+# what needs it runs in GitHub Actions (docs/testing.md).
+#
+# Set up a fresh checkout, then report what this machine can and cannot run.
+setup: install
+    @bash scripts/doctor.sh local
+
+# Tasks: local (the default), docker-lint, integration, ci, or all. Every task
+# is reported; only the named ones decide the exit status, so a laptop without
+# Docker passes `just doctor` and fails `just doctor integration`.
+#
+# Which tasks this machine can run, with a fix for each missing prerequisite.
+doctor *tasks:
+    @bash scripts/doctor.sh {{tasks}}
 
 # The third-party collections the roles are converged with, pinned exactly by
 # `requirements.yml`.
@@ -57,26 +80,14 @@ lock:
 lock-check:
     uv lock --check
 
-# Repin the uv that install.sh downloads, refreshing its checksums together.
+# Copy the blitzecdn_docker role's packages, apt source and daemon.json into
+# install.sh's generated block.
 #
-# The version and the hashes have to move as one. Bumping the version alone
-# leaves install.sh comparing a new download against an old hash and refusing
-# to run, which looks exactly like the tampering the check exists to catch.
-uv-pin version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-                  x86_64-apple-darwin aarch64-apple-darwin; do
-        sum=$(curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/astral-sh/uv/releases/download/{{version}}/uv-${triple}.tar.gz.sha256" \
-            | awk '{print $1}')
-        [[ -n "${sum}" ]] || { echo "no checksum for ${triple}" >&2; exit 1; }
-        name="UV_SHA256_${triple//-/_}"
-        sed -i.bak -E "s|^${name}=.*|${name}=\"${sum}\"|" install.sh
-    done
-    sed -i.bak -E 's|^UV_VERSION=.*|UV_VERSION="{{version}}"|' install.sh
-    rm -f install.sh.bak
-    echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
+# The installer is downloaded on its own and has to install Docker before the
+# image that runs the role exists, so it carries a copy. Edit the role, then run
+# this; the suite fails while the copy is stale.
+installer-sync:
+    uv run python scripts/installer_sync.py
 
 # Move the application version, both edge image pins and the control-plane
 # image pin together. Publishing the corresponding images remains an explicit
@@ -116,6 +127,11 @@ release-version version:
             r"(?m)^(blitzecdn_controlplane_image: .*blitzecdn-control-plane):\S+$",
             r"\1:%s" % version,
         ),
+        # The release a downloaded install.sh installs.
+        "install.sh": (
+            r"(?m)^(readonly CONTROL_PLANE_IMAGE=.*blitzecdn-control-plane):\S+$",
+            r"\1:%s" % version,
+        ),
     }
     for name, (pattern, replacement) in pins.items():
         path = pathlib.Path(name)
@@ -132,14 +148,14 @@ release-version version:
 # Format and lint every distribution in the workspace, and check the import
 # contracts in `.importlinter`.
 lint:
-    uv run ruff format --check src tests
-    uv run ruff check src tests
+    uv run ruff format --check src tests scripts
+    uv run ruff check src tests scripts
     uv run lint-imports
 
 # Rewrite what `lint` would complain about.
 fmt:
-    uv run ruff format src tests
-    uv run ruff check --fix src tests
+    uv run ruff format src tests scripts
+    uv run ruff check --fix src tests scripts
 
 # Strict source and shared-helper typing. Test cases remain unannotated.
 types:
@@ -148,7 +164,9 @@ types:
 # Lint the shell scripts that run as root.
 shell-lint:
     uv run shellcheck install.sh \
-        tests/container-install.sh tests/http3-edge-integration.sh
+        tests/container-install.sh tests/http3-edge-integration.sh \
+        scripts/collect-diagnostics.sh scripts/doctor.sh \
+        scripts/collections-check.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -232,17 +250,22 @@ test-profile *args:
 # distributions with the very functions the composition root calls at run time
 # — so what this recipe checks is what a deployment would actually resolve.
 #
-# They used to be two literals in this file, and both had drifted. The slot
-# list omitted `blitzecdn_resolver`, which declares an edge role, and named no
-# teardown slot at all, so the decommission play had never been checked with a
-# capability in it. Neither mistake is visible by reading: a slot is declared
-# by the contributing package, and this file cannot see a declaration.
+# Literals here would drift without anyone noticing: a slot is declared by the
+# contributing package, and this file cannot see a declaration.
 #
 # A shebang recipe so both values are resolved once and shared by every command
 # below, rather than reloading the plugin tree per line.
 ansible-check:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Without the pinned collections, a role fails with an unresolved module
+    # (`community.general.timezone`) that does not say what to do.
+    if ! pins="$(bash scripts/collections-check.sh)"; then
+        printf 'ansible-check: pinned collections are missing from {{collections}}:\n' >&2
+        printf '%s\n' "$pins" | awk '$3 != "ok" { print "  " $1 " " $2 }' >&2
+        printf 'run `just collections`\n' >&2
+        exit 1
+    fi
     uv run yamllint .
     export ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)"
     slots="$(uv run blitzecdn ansible slots)"
@@ -331,16 +354,79 @@ check-quick: lint types shell-lint ansible-check test-fast
 # Everything CI runs. Run this before pushing.
 check: lock-check lint types shell-lint test ansible-check docker-lint audit build
 
+# --- GitHub Actions ----------------------------------------------------------
+#
+# The infrastructure checks — container installs, the HTTP/3 edge, Dockerfile
+# lint without hadolint — run in CI, so a laptop without Docker gets their
+# results by pushing. These two recipes need `gh` (`just doctor ci`).
+
+# BRANCH defaults to the current one. Refuses a branch whose local head is not
+# what GitHub has, since CI would then test a commit other than yours.
+#
+# Run the CI workflow on the pushed head of BRANCH and follow it to the end.
+ci-run branch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    branch="{{branch}}"
+    branch=${branch:-$(git branch --show-current)}
+    git fetch --quiet origin "${branch}"
+    sha=$(git rev-parse "origin/${branch}")
+    local_sha=$(git rev-parse --verify --quiet "refs/heads/${branch}" || true)
+    if [[ -n ${local_sha} && ${local_sha} != "${sha}" ]]; then
+        echo "${branch} is at ${local_sha} here but ${sha} on GitHub: push first." >&2
+        exit 1
+    fi
+    # The dispatch returns no run ID and the run appears a moment later, so the
+    # new run is the one on this commit that was not there before. Matching on
+    # the commit alone would pick up an earlier dispatch of the same commit and
+    # report its result as this one's.
+    runs_on_commit() {
+        gh run list --workflow ci.yml --event workflow_dispatch --commit "${sha}" \
+            --limit 100 --json databaseId --jq '.[].databaseId'
+    }
+    before=" $(runs_on_commit | tr '\n' ' ') "
+    gh workflow run ci.yml --ref "${branch}"
+    run=""
+    for _ in $(seq 30); do
+        for candidate in $(runs_on_commit); do
+            [[ ${before} == *" ${candidate} "* ]] || { run=${candidate}; break; }
+        done
+        [[ -n ${run} ]] && break
+        sleep 2
+    done
+    [[ -n ${run:-} ]] || { echo "the dispatched run did not appear; see the Actions tab" >&2; exit 1; }
+    echo "Testing ${sha}: $(gh run view "${run}" --json url --jq .url)"
+    gh run watch "${run}" --exit-status
+
+# RUN defaults to the newest run of the CI workflow on the current branch.
+#
+# Download a CI run's reports and failure diagnostics to .state/ci/RUN.
+ci-download run="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    run="{{run}}"
+    if [[ -z ${run} ]]; then
+        run=$(gh run list --workflow ci.yml --branch "$(git branch --show-current)" \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+    fi
+    [[ -n ${run} ]] || { echo "no CI run found for this branch" >&2; exit 1; }
+    gh run download "${run}" --dir ".state/ci/${run}"
+    echo "Downloaded run ${run} to .state/ci/${run}"
+
 # --- published surfaces --------------------------------------------------
+
+# Measure the edge traffic collector's records/s per core, plain and gzip.
+# docs/traffic-accounting.md sizes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES from it.
+bench-traffic records="200000":
+    uv run python scripts/traffic_collector_benchmark.py --records {{records}}
 
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #
 # Run this only when a change to a *public* surface is intended: the HTTP
-# routes and schemas, the CLI commands, the plugin hooks and contribution
-# types, the published SDK symbols, the Ansible roles and variables, or the
-# database schema. Everything in those files is something outside this
-# repository can bind to — an operator's inventory, a third-party wheel, an API
-# client — and after the first release changing one is a version decision
+# routes and schemas, the CLI commands, the Ansible roles and variables, or
+# the database schema. Everything in those files is something outside this
+# repository can bind to — an operator's inventory or an API client — and
+# after the first release changing one is a version decision
 # rather than a refresh.
 #
 # Deliberately not a `--update` flag on the tests: a flag is one keystroke away
@@ -350,7 +436,7 @@ check: lock-check lint types shell-lint test ansible-check docker-lint audit bui
 # Every shipped surface has one owner, the application distribution.
 refreeze:
     uv sync --frozen
-    uv run python tests/refreeze.py
+    uv run python scripts/refreeze.py
     @git diff --stat -- tests/contract/frozen || true
 
 # --- database -----------------------------------------------------------
@@ -368,7 +454,7 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests ansible -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # Build and install the single wheel in a fresh environment outside the checkout.
 test-installation *args:

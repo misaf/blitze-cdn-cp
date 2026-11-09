@@ -20,7 +20,6 @@ blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_edge_http3_enabled: true
 blitzecdn_nginx_http3_listener_owner: site-one-test
 blitzecdn_geoip_enabled: true
-blitzecdn_geoip_update_enabled: false
 blitzecdn_geoip_edition: GeoIP2-Country-Test
 blitzecdn_security_under_attack_enabled: true
 # The config-test container has no network, so keep origin lookup deferred
@@ -37,7 +36,7 @@ blitzecdn_nginx_resolvers: [127.0.0.11]
 # cannot work is not refused until nginx tries to open it.
 blitzecdn_nginx_sites:
   - name: site-one-test
-    server_names: [site-one.test]
+    server_names: [site-one.test, site-alias.test]
     origin_host: blitzecdn-http3-origin
     origin_request_host: site-one.test
     origin_sni: site-one.test

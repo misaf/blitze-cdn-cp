@@ -19,6 +19,9 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStep,
 )
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
+from blitzecdn.core.domain.events import DomainEvent
+from blitzecdn.core.exceptions import ConflictError, ExecutionError
+from blitzecdn.core.ports.clock import system_clock
 
 
 class FakeJournal:
@@ -66,6 +69,9 @@ class FakeJournal:
         )
         return self.workflows[workflow_id]
 
+    def get(self, workflow_id: str) -> Workflow:
+        return self.workflows[workflow_id]
+
     def unfinished(self) -> list[Workflow]:
         return [
             workflow
@@ -76,6 +82,14 @@ class FakeJournal:
     def prune_finished(self, keep: int) -> int:
         self.pruned_to.append(keep)
         return 0
+
+
+class RecordingEvents:
+    def __init__(self) -> None:
+        self.recorded: list[DomainEvent] = []
+
+    def record(self, event: DomainEvent) -> None:
+        self.recorded.append(event)
 
 
 class RecordingUnitOfWork:
@@ -106,8 +120,15 @@ def uow() -> RecordingUnitOfWork:
 
 
 @pytest.fixture
-def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork):
-    return WorkflowCoordinator(journal=journal, uow=uow, retention=5)
+def events() -> RecordingEvents:
+    return RecordingEvents()
+
+
+@pytest.fixture
+def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork, events):
+    return WorkflowCoordinator(
+        journal=journal, uow=uow, events=events, retention=5, clock=system_clock
+    )
 
 
 def test_a_workflow_opens_running_and_closes_succeeded(coordinator, journal):
@@ -173,7 +194,44 @@ def test_an_exception_closes_the_workflow_failed_and_still_propagates(
 
     closed = next(iter(journal.workflows.values()))
     assert closed.status is WorkflowStatus.FAILED
-    assert closed.error == "RuntimeError: the fleet lock was taken"
+    assert closed.error is not None
+    assert closed.error.startswith("RuntimeError: ")
+
+
+def test_an_operator_facing_error_is_recorded_in_full(coordinator, journal):
+    """A `BlitzeError` is written to be read, and is what the API already shows."""
+    with (
+        pytest.raises(ExecutionError),
+        coordinator.run("certificate", "alice"),
+    ):
+        raise ExecutionError("certificate request timed out")
+
+    closed = next(iter(journal.workflows.values()))
+    assert closed.error == "ExecutionError: certificate request timed out"
+
+
+def test_an_unexpected_error_message_stays_out_of_the_journal(
+    coordinator, journal, caplog
+):
+    """The journal is persisted, backed up and served; the message may hold a
+    credential. Only the type is recorded, and the detail goes to the local log.
+    """
+    endpoint = "https://user:hunter2@dns.example/api"
+    with (
+        caplog.at_level("ERROR"),
+        pytest.raises(RuntimeError),
+        coordinator.run("certificate", "alice", "example-com"),
+    ):
+        raise RuntimeError(f"could not reach {endpoint}")
+
+    closed = next(iter(journal.workflows.values()))
+    assert closed.status is WorkflowStatus.FAILED
+    assert "hunter2" not in closed.error
+    assert closed.error.startswith("RuntimeError: ")
+    assert "controller log" in closed.error
+    [record] = [r for r in caplog.records if r.name.endswith("coordinator")]
+    assert record.workflow_id == closed.id
+    assert "hunter2" in caplog.text
 
 
 def test_an_interrupt_is_recorded_too(coordinator, journal):
@@ -187,7 +245,8 @@ def test_an_interrupt_is_recorded_too(coordinator, journal):
 
     closed = next(iter(journal.workflows.values()))
     assert closed.status is WorkflowStatus.FAILED
-    assert closed.error == "KeyboardInterrupt: "
+    assert closed.error is not None
+    assert closed.error.startswith("KeyboardInterrupt: ")
 
 
 def test_retention_is_applied_when_a_workflow_closes(coordinator, journal):
@@ -276,3 +335,45 @@ def test_recovery_for_one_resource_leaves_everything_else_running(coordinator, j
 
     assert [workflow.id for workflow in recovered] == ["died-in"]
     assert journal.workflows["in-the-api"].status is WorkflowStatus.RUNNING
+
+
+def test_acknowledging_an_interrupted_workflow_marks_it_reviewed(
+    coordinator, journal, events
+):
+    """Sign-off keeps the evidence, names who gave it, audits it, then prunes."""
+    journal.create("interrupted", "certificate", "alice", "example-com")
+    coordinator.reconcile_interrupted()
+
+    reviewed = coordinator.acknowledge("interrupted", "bob")
+
+    assert reviewed.status is WorkflowStatus.REVIEWED
+    assert reviewed.error is not None
+    assert reviewed.error.startswith("the controller restarted")
+    assert reviewed.steps[-1].name == "reviewed"
+    assert reviewed.steps[-1].details == {"operator": "bob"}
+    (event,) = events.recorded
+    assert (event.operator, event.action, event.resource_id) == (
+        "bob",
+        "workflow.reviewed",
+        "interrupted",
+    )
+    assert journal.pruned_to == [5]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        WorkflowStatus.RUNNING,
+        WorkflowStatus.SUCCEEDED,
+        WorkflowStatus.REVIEWED,
+    ],
+)
+def test_only_needs_review_can_be_acknowledged(coordinator, journal, events, status):
+    journal.create("other", "certificate", "alice")
+    journal.advance("other", status)
+
+    with pytest.raises(ConflictError, match="only needs_review"):
+        coordinator.acknowledge("other", "bob")
+
+    assert journal.workflows["other"].status is status
+    assert events.recorded == []

@@ -6,8 +6,13 @@ Decommissioning writes no deployment and takes no deployment lock.
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
-from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore
+from blitzecdn.capabilities.edges.domain import (
+    LOOPBACK_HOSTS,
+    Edge,
+    EdgePatch,
+    HostKey,
+)
+from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore, HostKeyStore
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
@@ -24,11 +29,13 @@ class EdgeOperationsService:
         events: EventRecorder,
         runner: EdgeRunner,
         edges: EdgeStore,
+        host_keys: HostKeyStore,
         uow: UnitOfWork,
     ) -> None:
         self.events = events
         self.runner = runner
         self.edges = edges
+        self.host_keys = host_keys
         self.uow = uow
 
     # -- The roster ----------------------------------------------------
@@ -88,6 +95,51 @@ class EdgeOperationsService:
         with self.uow.transaction():
             self.edges.delete_edge(name)
             self.events.record(domain_event(operator, "edge.removed", "edge", name))
+
+    # -- SSH host keys -------------------------------------------------
+
+    def manages_host_keys(self, edge: Edge) -> bool:
+        """Whether enrolling this edge's key is the controller's job.
+
+        Not in a checkout, where the operator's own SSH client and known_hosts
+        decide, and not for the loopback pair the control-plane role records.
+        """
+        return self.host_keys.managed and edge.host not in LOOPBACK_HOSTS
+
+    def scan_host_keys(self, edge: Edge) -> tuple[HostKey, ...]:
+        """What the host at ``edge``'s address offers; nothing is trusted yet."""
+        return self.host_keys.scan(edge.host, edge.port)
+
+    def trusted_host_keys(self, edge: Edge) -> tuple[HostKey, ...]:
+        return self.host_keys.trusted(edge.host, edge.port)
+
+    def trust_host_keys(
+        self, edge: Edge, keys: tuple[HostKey, ...], operator: str
+    ) -> None:
+        """Trust ``keys`` for ``edge``'s address, replacing what was trusted before.
+
+        Audited with the fingerprints, so a rotation can be traced to who
+        accepted it.
+        """
+        if not keys:
+            raise ConfigurationError("refusing to trust an empty set of host keys")
+        with self.uow.transaction():
+            self.events.record(
+                domain_event(
+                    operator,
+                    "edge.host_key_trusted",
+                    "edge",
+                    edge.name,
+                    {
+                        "host": edge.host,
+                        "port": edge.port,
+                        "fingerprints": [
+                            f"{key.key_type} {key.fingerprint}" for key in keys
+                        ],
+                    },
+                )
+            )
+            self.host_keys.trust(edge.host, edge.port, keys)
 
     # -- Decommissioning -----------------------------------------------
 

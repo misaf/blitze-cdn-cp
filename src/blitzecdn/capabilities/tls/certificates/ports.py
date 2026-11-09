@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Protocol
+from typing import Any, NewType, Protocol
 
-from blitzecdn.capabilities.deployments.ports import (
+from blitzecdn.capabilities.deployments import (
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.capabilities.dns.domain import DnsRecord
-from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.dns import DnsRecord, SiteChange, SiteReader
+from blitzecdn.capabilities.releases import Release, ReleaseInputs
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
+    PreflightAttempt,
     PreflightReport,
 )
 from blitzecdn.capabilities.tls.contract import (
@@ -24,16 +23,33 @@ from blitzecdn.capabilities.tls.contract import (
     CertificateVersion,
     SslMode,
 )
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.workflows import WorkflowKind
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
+
+#: How long one Certbot run may take. Issuance runs under the deployment lock,
+#: so the composition root hands it the deployment budget.
+CertbotTimeout = NewType("CertbotTimeout", int)
+
+
+class SiteWriter(Protocol):
+    """DNS's one write to the zone or rule behind a host; see `HostService`."""
+
+    def change_site(
+        self, site_name: str, decide: Callable[[CdnSite], SiteChange | None]
+    ) -> CdnSite | None: ...
 
 
 class SiteEditor(Protocol):
     """Record issuance results against the zone or rule that authored a host."""
 
     def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
+        self,
+        site: CdnSite,
+        mode: CertificateMode,
+        version: CertificateVersion,
+        operator: str,
     ) -> CdnSite: ...
 
     def apply_automatic_ssl_upgrade(
@@ -79,6 +95,20 @@ class Preflight(Protocol):
     ) -> PreflightReport: ...
 
 
+class PreflightAttempts(Protocol):
+    """The last blocked preflight of each site waiting for a certificate."""
+
+    def get(self, site: str) -> PreflightAttempt | None: ...
+
+    def list_all(self) -> list[PreflightAttempt]: ...
+
+    def record(self, attempt: PreflightAttempt) -> None: ...
+
+    def clear(self, site: str) -> None: ...
+
+    def retain(self, sites: Collection[str]) -> None: ...
+
+
 class WorkflowProgress(Protocol):
     def checkpoint(
         self, name: str, details: dict[str, Any] | None = None
@@ -103,6 +133,7 @@ class WorkflowCoordinator(Protocol):
 
 
 __all__ = [
+    "CertbotTimeout",
     "CertificateStore",
     "DeploymentGateway",
     "DeploymentLocker",
@@ -111,10 +142,12 @@ __all__ = [
     "Issuer",
     "MaterialReferences",
     "Preflight",
+    "PreflightAttempts",
     "RecordReader",
     "ReleaseHistory",
     "SiteEditor",
     "SiteReader",
+    "SiteWriter",
     "UnitOfWork",
     "WorkflowCoordinator",
     "WorkflowProgress",

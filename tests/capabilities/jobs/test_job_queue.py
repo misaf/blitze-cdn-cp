@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import event
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.jobs.domain import (
     backoff_for,
 )
 from blitzecdn.capabilities.jobs.service import JobQueue
-from blitzecdn.composition import Repository
 
 _START = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -42,7 +42,7 @@ class Clock:
 
 @pytest.fixture
 def repository(settings):
-    return Repository(settings.database_path)
+    return Stores(settings.database_path)
 
 
 def queue_for(
@@ -463,8 +463,8 @@ def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(setting
     Under BEGIN IMMEDIATE the enqueue waits instead. Two repositories stand in for
     the processes, and the enqueue fires from the worker's own UPDATE.
     """
-    worker_side = Repository(settings.database_path)
-    api_side = Repository(settings.database_path)
+    worker_side = Stores(settings.database_path)
+    api_side = Stores(settings.database_path)
     queue = queue_for(worker_side, handlers={})
     queue.jobs.enqueue(kind="work", payload={}, available_at=_START)
     racing: list[threading.Thread] = []

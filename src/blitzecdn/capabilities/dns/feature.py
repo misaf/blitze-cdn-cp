@@ -5,7 +5,11 @@ from __future__ import annotations
 from blitzecdn import __version__
 from blitzecdn.capabilities.dns import cli
 from blitzecdn.capabilities.dns.api import routes
-from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
+from blitzecdn.core.features import (
+    CliCommandGroup,
+    Feature,
+    FeatureMetadata,
+)
 
 FEATURES = (
     Feature(

@@ -14,10 +14,13 @@ from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
-from support.control_plane import FakeEdgeStore, settings  # noqa: F401
+from support.control_plane import (  # noqa: F401
+    FakeEdgeStore,
+    fleet_runner,
+    settings,
+)
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.exceptions import FeatureError
@@ -149,7 +152,7 @@ def test_the_resolved_path_is_what_ansible_is_actually_given(
         raise AssertionError("stop after the environment is built")
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    runner = ansible.AnsibleRunner(
+    runner = fleet_runner(
         settings,
         EdgeRoster(FakeEdgeStore()),
         EdgeContributions.of(
@@ -181,7 +184,7 @@ def test_a_runner_nobody_gave_a_path_still_finds_the_control_plane_s_roles(
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     with pytest.raises(AssertionError):
-        ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore())).run(check=False)
+        fleet_runner(settings, EdgeRoster(FakeEdgeStore())).run(check=False)
 
     assert captured["ANSIBLE_ROLES_PATH"] == str(settings.ansible_dir / "roles")
 
@@ -192,8 +195,9 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
 ):
     """The controller's own credentials stay in the controller.
 
-    A play receives the database path and the secrets installed features declared
-    among the `BLITZE_*` names, plus the controller's other variables, which
+    A play receives the database path, the state directory, the release probe
+    token and the secrets installed features declared among the `BLITZE_*`
+    names, plus the controller's other variables, which
     Ansible itself may need.
     """
     captured: dict[str, str] = {}
@@ -203,11 +207,11 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
         raise AssertionError("stop after the environment is built")
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    monkeypatch.setenv("BLITZE_API_KEYS", "operator:" + "k" * 40)
-    monkeypatch.setenv("BLITZE_API_KEY", "k" * 40)
+    monkeypatch.setenv("BLITZE_API_KEYS", "operator:" + "0123456789abcdef" * 3)
+    monkeypatch.setenv("BLITZE_API_KEY", "fedcba9876543210" * 3)
     monkeypatch.setenv("BLITZE_SOMETHING_UNCLAIMED", "1")
     monkeypatch.setenv("SSH_AUTH_SOCK", "/run/user/1000/agent.sock")
-    runner = ansible.AnsibleRunner(
+    runner = fleet_runner(
         settings,
         EdgeRoster(FakeEdgeStore()),
         EdgeContributions.of(
@@ -221,6 +225,8 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
     assert sorted(name for name in captured if name.startswith("BLITZE_")) == [
         "BLITZE_DATABASE_PATH",
         "BLITZE_MAXMIND_LICENSE_KEY",
+        "BLITZE_RELEASE_PROBE_TOKEN",
+        "BLITZE_STATE_DIR",
     ]
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "licence"
     assert captured["SSH_AUTH_SOCK"] == "/run/user/1000/agent.sock"
@@ -301,7 +307,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
         raise AssertionError("stop once the command line is built")
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    runner = ansible.AnsibleRunner(
+    runner = fleet_runner(
         settings,
         EdgeRoster(FakeEdgeStore()),
         EdgeContributions.of(

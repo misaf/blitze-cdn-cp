@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import Field, model_validator
 
 from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
 from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
 from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.entrypoints.api.requests import PatchValue
 
 
 class Edge(Model):
@@ -37,12 +38,12 @@ class Edge(Model):
 
 
 class EdgePatch(Model):
-    host: str | None = None
-    user: str | None = None
-    port: int | None = Field(default=None, ge=1, le=65535)
+    host: PatchValue[str] = None
+    user: PatchValue[str] = None
+    port: PatchValue[Annotated[int, Field(ge=1, le=65535)]] = None
     private_key_file: str | None = None
-    public_addresses: tuple[str, ...] | None = None
-    ssh_sources: tuple[str, ...] | None = None
+    public_addresses: PatchValue[tuple[str, ...]] = None
+    ssh_sources: PatchValue[tuple[str, ...]] = None
     capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
     def to_domain(self) -> DomainEdgePatch:

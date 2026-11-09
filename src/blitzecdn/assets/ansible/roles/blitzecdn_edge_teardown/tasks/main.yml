@@ -40,11 +40,10 @@
 # An operator tears a host down with `-e
 # blitzecdn_edge_teardown_remove_data=false`, and `-e name=value` hands the
 # play the *string* "false" whatever the argument spec says the type is. A
-# non-empty string is true, so the bare conditional this used to be read
+# non-empty string is true, so a bare conditional would read
 # "false" as "yes, destroy it" — TLS material, the configuration tree, ACME
 # state and the cache, on the one invocation whose whole purpose was to keep
-# them. ansible-core 2.19 and later refuse a non-boolean conditional outright,
-# which is how this was finally seen rather than obeyed.
+# them. ansible-core 2.19 and later refuse a non-boolean conditional outright.
 - name: Remove the managed-site registry
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_managed_sites_file }}"
@@ -156,11 +155,15 @@
 # Found rather than listed. The units on an edge are whichever ones the
 # capabilities wrote, and this role has no way to know — and no business
 # knowing — which of them converged this host. Everything we install is named
-# `blitzecdn-*`, and nothing else is.
+# `blitzecdn-*`, and nothing else is, except the controller's own backup units:
+# on a standalone host the controller is also an edge, and decommissioning that
+# edge must not take the controller's scheduled backups with it. Uninstall
+# removes those itself.
 - name: Find edge-owned timers and service units
   ansible.builtin.find:
     paths: /etc/systemd/system
     patterns: "{{ blitzecdn_edge_teardown_unit_prefix }}*.service,{{ blitzecdn_edge_teardown_unit_prefix }}*.timer"
+    excludes: blitzecdn-backup.service,blitzecdn-backup.timer
     file_type: file
   register: blitzecdn_edge_teardown_units
 
@@ -185,16 +188,49 @@
 
 # The kernel drop-in alone. The SSH policy and the Fail2Ban jail are the
 # hardening capability's files, removed by its own teardown role.
+- name: Restore the saved kernel baseline before removing the drop-in
+  ansible.builtin.include_role:
+    name: blitzecdn_kernel
+  vars:
+    blitzecdn_kernel_sysctl: {}
+    blitzecdn_kernel_sysctl_file: "{{ blitzecdn_edge_teardown_sysctl_file }}"
+
 - name: Remove managed kernel settings
   ansible.builtin.file:
-    path: "{{ blitzecdn_edge_teardown_sysctl_file }}"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "{{ blitzecdn_edge_teardown_sysctl_file }}"
+    - "{{ blitzecdn_edge_teardown_sysctl_file }}.baseline.json"
   notify: Reapply kernel settings after edge teardown
 
-- name: Remove the access log
+- name: Remove Nginx log rotation
   ansible.builtin.file:
-    path: "{{ blitzecdn_edge_teardown_access_log_path }}"
+    path: /etc/logrotate.d/blitzecdn-nginx
     state: absent
+
+- name: Remove hostname logs and archives
+  ansible.builtin.file:
+    path: "{{ blitzecdn_edge_teardown_domain_logs_path }}"
+    state: absent
+  when: blitzecdn_edge_teardown_remove_logs | bool
+
+- name: Find the global error log and its archives
+  ansible.builtin.find:
+    paths: "{{ blitzecdn_edge_teardown_error_log_path | dirname }}"
+    patterns:
+      - "{{ blitzecdn_edge_teardown_error_log_path | basename }}"
+      - "{{ blitzecdn_edge_teardown_error_log_path | basename }}.*"
+  register: blitzecdn_edge_teardown_error_logs
+  when: blitzecdn_edge_teardown_remove_logs | bool
+
+- name: Remove the global error log and its archives
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ blitzecdn_edge_teardown_error_logs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
   when: blitzecdn_edge_teardown_remove_logs | bool
 # The report the control plane records against the decommission. Anything still
 # listed here needs a human on the host, because after the inventory entry goes
@@ -212,7 +248,9 @@
   register: blitzecdn_edge_teardown_residue
   loop: >-
     {{
-      [blitzecdn_edge_teardown_sysctl_file]
+      [blitzecdn_edge_teardown_sysctl_file,
+       blitzecdn_edge_teardown_sysctl_file ~ '.baseline.json',
+       '/etc/logrotate.d/blitzecdn-nginx']
       + ([blitzecdn_edge_teardown_state_path,
           blitzecdn_edge_teardown_cache_path,
           blitzecdn_edge_teardown_acme_root,
@@ -221,7 +259,8 @@
           blitzecdn_edge_teardown_empty_root,
           blitzecdn_edge_teardown_data_path]
          if blitzecdn_edge_teardown_remove_data | bool else [])
-      + ([blitzecdn_edge_teardown_access_log_path]
+      + ([blitzecdn_edge_teardown_error_log_path,
+          blitzecdn_edge_teardown_domain_logs_path]
          if blitzecdn_edge_teardown_remove_logs | bool else [])
       + (blitzecdn_edge_teardown_units.files | map(attribute='path') | list)
     }}

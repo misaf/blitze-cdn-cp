@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, NewType, Protocol
 
 from blitzecdn.capabilities.jobs.domain import (
     Job,
@@ -18,7 +18,26 @@ from blitzecdn.capabilities.jobs.domain.observability import (
     WorkerObservations,
 )
 
-__all__ = ["JobHandler", "JobStore", "ScheduleStore", "WorkerHistory", "WorkerProgress"]
+__all__ = [
+    "JobHandler",
+    "JobStore",
+    "OperationLeases",
+    "OperationRun",
+    "OperationRuns",
+    "ScheduleStore",
+    "WorkerHistory",
+    "WorkerProgress",
+]
+
+#: One edge operation's run: its JSON payload in, its JSON report out.
+OperationRun = Callable[[Mapping[str, Any]], dict[str, Any]]
+
+#: Every edge operation the API may queue, by kind, and its run in the worker.
+OperationRuns = NewType("OperationRuns", dict[str, OperationRun])
+
+#: How long a claim on an operation of each kind should be good for, in
+#: seconds, for kinds whose run can outlast the queue's default lease.
+OperationLeases = NewType("OperationLeases", dict[str, int])
 
 
 class JobStore(Protocol):

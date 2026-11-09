@@ -7,29 +7,46 @@ that has no checkout — the same way every capability carries its own Ansible.
 There is no host inventory file to edit: the inventory plugin
 reads registered edges and fleet configuration from the control-plane database.
 
-Install the controller from the project root, then register and deploy an edge:
+Prepare a controller checkout from the project root with Python 3.15.2+, `uv` and
+`just`, then register and deploy an edge:
 
 ```bash
-BLITZECDN_DEV=1 ./install.sh
+just install
+uv run blitzecdn setup
 
-blitzecdn edge add edge-01 \
+uv run blitzecdn edge add edge-01 \
   --host 192.0.2.10 \
   --public-address 203.0.113.10 \
   --user deploy \
   --ssh-source 198.51.100.0/24
-blitzecdn validate
-blitzecdn plan
-blitzecdn deploy
+uv run blitzecdn validate
+uv run blitzecdn plan
+uv run blitzecdn deploy
 ```
 
-Use a non-root SSH user, verified host keys, and at least one trusted management
-CIDR. Managed edges must be fresh Ubuntu 26.04 LTS hosts.
+Use a non-root SSH user and at least one trusted management CIDR. Managed edges
+must be fresh Ubuntu 26.04 LTS hosts.
+
+**Edge Python floor: 3.12.** The control plane itself needs Python 3.15.2, but
+it only ever runs inside the control-plane image. A few standalone
+standard-library scripts under `roles/*/files/` (for example
+`configuration_release.py` and the traffic capability's `collect_traffic.py`)
+are copied to the edge and run with the edge's own `python3`, so they stay on
+Python 3.12 syntax and standard-library APIs. Ruff lints them with a `py312`
+target, and `tests/contract/test_edge_python.py` runs them under Python 3.12.
+
+On an installed controller, `edge add` scans the edge's SSH host key and trusts
+it only after you confirm the fingerprint, or when it matches
+`--host-key-fingerprint`. `blitzecdn edge host-key NAME` replaces it after a
+rotation. In a checkout, your own SSH client and `~/.ssh/known_hosts` verify
+edges; add each key there yourself. See "Edge SSH host keys" in
+`docs/operations.md`.
 
 Inspect the generated inventory when troubleshooting:
 
 ```bash
 ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
-  ansible-inventory --list
+  uv run ansible-inventory --list
 ```
 
 The main entry points are:
@@ -124,16 +141,15 @@ calls, so a play run this way resolves exactly what a deployment would:
 ```bash
 ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg \
 ANSIBLE_LOCAL_TEMP=.state/ansible-local \
-ANSIBLE_ROLES_PATH="$(blitzecdn ansible roles-path)" \
-  ansible-playbook src/blitzecdn/assets/ansible/playbooks/edge.yml \
-  --extra-vars "$(blitzecdn ansible slots)"
+ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)" \
+  uv run ansible-playbook src/blitzecdn/assets/ansible/playbooks/edge.yml \
+  --extra-vars "$(uv run blitzecdn ansible slots)"
 ```
 
 Which slot a role belongs to is declared by the package that ships it and
 cannot be worked out by reading this repository, which is why writing the list
-by hand is the one part of this that reliably goes wrong: the justfile's copy
-had drifted in both directions before these commands existed — one edge role
-missing, and the teardown slot never passed at all.
+by hand is the one part of this that reliably goes wrong: a role goes
+missing, or a slot such as teardown is never passed at all.
 
 `just ansible-check` does exactly this for the syntax and lint gates.
 
@@ -145,3 +161,6 @@ just ansible-check
 
 See the [full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
 configuration, upgrades, rollback, and recovery.
+
+Edge capacity defaults, kernel overrides, BBR, and withdrawal behavior are
+documented in [edge capacity](../../../../docs/edge-capacity.md).

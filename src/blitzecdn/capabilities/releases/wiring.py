@@ -5,21 +5,49 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 
-from blitzecdn.capabilities.edges.ports import EdgeStore
-from blitzecdn.capabilities.releases.domain import EdgeCapabilities, ReleaseFinding
+from dishka import Provider, Scope, provide
+
+from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.dns import RuleReader, ZoneStore
+from blitzecdn.capabilities.edges import EdgeStore
+from blitzecdn.capabilities.releases.adapters.persistence import (
+    ReleaseStore as ReleaseTable,
+)
+from blitzecdn.capabilities.releases.domain import (
+    EdgeCapabilities,
+    ReleaseFinding,
+    ReleaseInputs,
+)
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
     ConfigurationRenderer,
+    ReleaseReferences,
     ReleaseStore,
     StateContributors,
 )
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.rendering import EdgeRenderer
+from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.validation import matches_edge_limit
-from blitzecdn.core.features import Severity, ValidationIssue
+from blitzecdn.core.features import (
+    FeatureRegistry,
+    Rendering,
+    Severity,
+    ValidationIssue,
+)
+from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.operations import FleetSettings
 
-__all__ = ["FeatureSiteChecks", "StoredEdgeTargets", "build_release_service"]
+__all__ = [
+    "FeatureSiteChecks",
+    "ReleasesProvider",
+    "StoredCanonicalState",
+    "StoredEdgeTargets",
+    "build_release_service",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,3 +121,84 @@ def build_release_service(
         retention=retention,
         renderer=renderer,
     )
+
+
+class StoredCanonicalState:
+    """The zones, rules and fleet settings a release compiles, read in one
+    transaction so no write between the reads can be observed."""
+
+    def __init__(
+        self,
+        *,
+        zones: ZoneStore,
+        rules: RuleReader,
+        settings: FleetSettings,
+        uow: UnitOfWork,
+    ) -> None:
+        self._zones = zones
+        self._rules = rules
+        self._settings = settings
+        self._uow = uow
+
+    def release_inputs(self) -> ReleaseInputs:
+        with self._uow.transaction():
+            return ReleaseInputs.of(
+                self._zones.list_domains(),
+                self._zones.list_records(),
+                self._rules.list_rules(),
+                settings=self._settings.list_settings(),
+            )
+
+
+class ReleasesProvider(Provider):
+    """The release table, the canonical state it compiles, and the compiler."""
+
+    scope = Scope.APP
+
+    @provide
+    def releases(
+        self, database: Database, referenced: ReleaseReferences
+    ) -> ReleaseStore:
+        return ReleaseTable(database, referenced)
+
+    @provide
+    def state(
+        self,
+        zones: ZoneStore,
+        rules: RuleReader,
+        settings: FleetSettings,
+        uow: UnitOfWork,
+    ) -> CanonicalState:
+        return StoredCanonicalState(
+            zones=zones, rules=rules, settings=settings, uow=uow
+        )
+
+    @provide
+    def service(
+        self,
+        settings: Settings,
+        state: CanonicalState,
+        releases: ReleaseStore,
+        features: FeatureRegistry,
+        edges: EdgeStore,
+        rendering: Rendering[CdnSite],
+        edge_contributions: EdgeContributions,
+        uow: UnitOfWork,
+    ) -> ReleaseService:
+        return build_release_service(
+            state=state,
+            releases=releases,
+            edges=edges,
+            contributors=rendering,
+            objections=rendering.site_objections,
+            capabilities=tuple(features.capabilities),
+            allow_empty_sites=settings.allow_empty_sites,
+            retention=settings.history_retention,
+            uow=uow,
+            # The shipped templates and defaults, from the package itself,
+            # whatever directory its playbooks run from.
+            renderer=EdgeRenderer(
+                ansible_dir=core_ansible.ROLES_PATH.parent,
+                contributions=edge_contributions,
+            ),
+        )

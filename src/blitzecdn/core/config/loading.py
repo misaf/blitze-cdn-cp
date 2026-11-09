@@ -221,10 +221,7 @@ def _layout(root: Path) -> dict[str, Any]:
         "ansible_dir": core_ansible.ROLES_PATH.parent,
         "inventory_path": core_ansible.INVENTORY_PATH,
         "playbook_path": core_ansible.EDGE_PLAYBOOK,
-        "decommission_playbook_path": core_ansible.DECOMMISSION_PLAYBOOK,
         "generated_vars_path": state / "desired-state.yml",
-        "deployment_lock_path": state / "deployment.lock",
-        "certificate_dir": state / "certificates",
     }
 
 

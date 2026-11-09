@@ -19,6 +19,28 @@ blitzecdn_security_under_attack_enabled: false
 # fleet so a clearance survives an edge change inside this window.
 blitzecdn_security_under_attack_passage_seconds: 1800
 
+# Proof-of-work difficulty of the browser challenge, in leading zero bits of a
+# SHA-256 hash. A browser computes about 2^bits hashes on average before it
+# passes, so every extra bit doubles the work. The page awaits one Web Crypto
+# digest at a time, roughly 40 microseconds each on a laptop and several times
+# that on a phone:
+#
+#   16 bits  ~65,000 hashes   a few seconds on a laptop
+#   18 bits  ~260,000         about ten seconds on a laptop
+#   20 bits  ~1 million       about forty seconds on a laptop, minutes on a phone
+#
+# The ceiling is 20 because a challenge token expires 300 seconds after it is
+# issued: beyond that, a slow but honest client finishes a correct proof only
+# to have it refused, and starts the work again.
+#
+# The challenge always stops clients that run no JavaScript. Against headless
+# browsers the work is only a cost per clearance, so a higher value slows a
+# scraper or flood down at the price of making every real visitor — the ones
+# on old phones most of all — wait and burn battery once per passage window.
+# Raise it while a fleet is under sustained attack from JavaScript-capable
+# clients, then lower it again. Between 8 and 20.
+blitzecdn_security_under_attack_difficulty_bits: 16
+
 # Fleet-wide HMAC key for stateless challenges and clearance cookies.
 #
 # Read from the controller's environment, never written down here: the control

@@ -19,7 +19,7 @@ from blitzecdn.capabilities.jobs.domain.observability import (
     WorkerObservations,
 )
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class WorkerMonitor:
         self,
         directory: Path,
         *,
-        clock: Clock = system_clock,
+        clock: Clock,
         interval: float = 5,
     ) -> None:
         self.directory = directory
@@ -59,7 +59,7 @@ class WorkerMonitor:
                 if path.is_symlink():
                     raise ValueError("worker record is a symlink")
                 workers.append(WorkerHeartbeat.model_validate_json(path.read_bytes()))
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 unreadable += 1
         return WorkerObservations(workers=tuple(workers), unreadable=unreadable)
 
@@ -133,7 +133,7 @@ class WorkerMonitor:
             self._state = self._state.model_copy(update={"heartbeat_at": self.clock()})
             try:
                 atomic_write_bytes(self._path, self._state.model_dump_json().encode())
-            except (OSError, ConfigurationError):
+            except OSError, ConfigurationError:
                 _LOGGER.exception("could not publish worker heartbeat")
 
     def _prune(self) -> None:

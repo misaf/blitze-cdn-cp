@@ -16,10 +16,11 @@ argument_specs:
         the decommission slot runs before blitzecdn_edge_teardown, for a capability
         withdrawing what it wrote from a host that is leaving inventory.
       - >-
-        A capability role reads the shared edge runtime contract and notifies
-        the fleet's "Validate and reload Nginx" handler exactly as core's roles
-        do. It must not read another role's variables, and nothing here reads
-        its.
+        A capability role reads the shared edge runtime contract. What it
+        writes into the configuration tree reaches the running edge through the
+        release it is staged into, which is tested, sealed and activated by
+        blitzecdn_config_release — it notifies no handler of its own. It must
+        not read another role's variables, and nothing here reads its.
     options:
       blitzecdn_capabilities_roles:
         type: list

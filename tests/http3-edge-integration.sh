@@ -40,6 +40,13 @@ origin="blitzecdn-http3-origin-${suffix}"
 workdir=$(mktemp -d)
 
 cleanup() {
+  local status=$?
+  # DIAGNOSTICS_DIR collects the edge host's journal and container logs, and
+  # the origin's, from a failed run before they go; CI keeps them as an
+  # artifact.
+  if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
+    bash "${project_dir}/scripts/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${edge}" "${origin}"
+  fi
   # `-v`: the edge host's anonymous volumes go with it. They hold a whole
   # container engine's images, and a runner that keeps them keeps gigabytes.
   docker rm -f -v "${edge}" "${origin}" >/dev/null 2>&1 || true
@@ -70,11 +77,17 @@ render_release() {
     "${release_dir}" "${EDGE_RELEASE_DIR}" "$@"
 }
 
+# What the control plane generates once and keeps under its state directory:
+# the edge answers /.blitzecdn/release only to a request carrying it.
+probe_token=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
+readonly probe_token
+
 # The shipped edge play against the rendered release; extra arguments go to
 # ansible-playbook. Variables in the order a control plane layers them: the
 # capability contributions, the runner's, then the execution document.
 converge() {
-  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook \
+  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} \
+    BLITZE_RELEASE_PROBE_TOKEN=${probe_token} ansible-playbook \
     -i ${EDGE_INVENTORY} ${EDGE_PLAYBOOK} \
     -e @${EDGE_RELEASE_DIR}/contributions.yml -e @${RELEASE_RUNNER} \
     -e @${EDGE_RELEASE_DIR}/release.yml $*"
@@ -85,12 +98,21 @@ converge() {
 # step returns explicitly, because callers capture a failure with `|| true` and
 # `set -e` does not apply inside a function called that way.
 deploy() {
-  local digest served
+  local digest served hidden
   digest=$(render_release "$@") || return
   converge || return
-  served=$("${client[@]}" https://site-one.test/.blitzecdn/release) || return
+  served=$("${client[@]}" -H "X-BlitzeCDN-Probe: ${probe_token}" \
+    https://site-one.test/.blitzecdn/release) || return
   if [[ ${served} != "${digest}" ]]; then
     printf 'FAIL: the edge serves release %s, not %s\n' "${served}" "${digest}" >&2
+    return 1
+  fi
+  # Anyone without the token must not learn which release this edge runs.
+  # The client fails on 404, which is the expected answer; the code decides.
+  hidden=$("${client[@]}" -o /dev/null -w '%{http_code}' \
+    https://site-one.test/.blitzecdn/release) || true
+  if [[ ${hidden} != 404 ]]; then
+    printf 'FAIL: the release marker answered %s without the probe token\n' "${hidden}" >&2
     return 1
   fi
   converge --tags commit
@@ -116,7 +138,7 @@ printf '  %s\n' "${module_args[@]}"
 
 # Core's roles, then each capability's: the search path the control plane
 # composes at run time, from the same function, as the edge host sees the
-# checkout. Not a literal, which is how it drifted once.
+# checkout. Not a literal, which would drift.
 roles_path=$(uv run --project "${project_dir}" --no-sync blitzecdn ansible roles-path)
 ROLES_PATH=${roles_path//"${project_dir}"//workspace}
 [[ ${ROLES_PATH} == /workspace/* && ${ROLES_PATH} != *"${project_dir}"* ]] ||
@@ -270,6 +292,19 @@ http2=$("${client[@]}" --http2 -o /dev/null -w 'protocol=%{http_version} code=%{
 printf '%s' "${http2}"
 grep -q 'protocol=2 code=200' <<<"${http2}"
 
+say "Edge-wide visitor limits do not throttle ordinary traffic"
+in_edge "docker exec blitzecdn-edge nginx -T -c ${ACTIVE_CONF} 2>&1 | grep -q 'limit_conn blitzecdn_conn_per_ip'"
+in_edge "docker exec blitzecdn-edge nginx -T -c ${ACTIVE_CONF} 2>&1 | grep -q 'client_body_timeout 10s'"
+# A page load's worth of parallel requests from one address, well under the
+# per-address ceiling: every one must be served, none refused with 429.
+# Bodies go to throwaway files in the --rm client container: one `-o` covers
+# only the first URL of a glob, `#1` names one file per request.
+burst=$("${client[@]}" --http1.1 --parallel --parallel-max 40 -o '/tmp/burst-#1' -w '%{http_code}\n' 'https://site-one.test/?burst=[1-80]' || true)
+if grep -vqx 200 <<<"${burst}"; then
+  printf '%s\n' "${burst}" | sort | uniq -c
+  fail "ordinary parallel traffic was not all served 200"
+fi
+
 say "HTTP/3 request over UDP/443"
 http3=$("${client[@]}" --http3-only -D - -o /dev/null -w 'protocol=%{http_version} code=%{http_code}\n' https://site-one.test/)
 printf '%s' "${http3}"
@@ -280,6 +315,71 @@ say "Brotli filter response"
 brotli=$("${client[@]}" --http2 -H 'Accept-Encoding: br' -D - -o /dev/null https://site-one.test/)
 printf '%s' "${brotli}"
 grep -qi 'content-encoding: br' <<<"${brotli}"
+
+say "Hostname access/error isolation and log rotation"
+alias_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS)
+"${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+  -A 'quoted" backslash\ client' -e 'https://site-alias.test/from?reset=probe-secret' \
+  -o /dev/null 'https://site-alias.test/hostname-access-probe?token=probe-secret'
+# Flexible mode uses TLS to the origin on alternate HTTPS ports. The test
+# origin has no listener on 2053, so this deliberately produces an upstream
+# failure in the alias's server block without changing the running edge.
+alias_error=$("${alias_client[@]}" --resolve "site-alias.test:2053:${edge_ip}" \
+  -o /dev/null -w '%{http_code}' https://site-alias.test:2053/hostname-error-probe)
+[[ "${alias_error}" == 502 ]] || fail "the alias did not produce the expected upstream failure"
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge "! grep -q 'hostname-access-probe' /var/log/nginx/domains/site-one.test.access.log"
+in_edge "grep -q 'hostname-error-probe' /var/log/nginx/domains/site-alias.test.error.log"
+in_edge "! grep -q 'hostname-error-probe' /var/log/nginx/domains/site-one.test.error.log"
+log_identity=$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')
+in_edge 'logrotate --force --state /tmp/blitzecdn-logrotate.state /etc/logrotate.d/blitzecdn-nginx'
+[[ "$(in_edge 'stat -c "%u:%g:%a" /var/log/nginx/domains/site-alias.test.access.log')" == "${log_identity}" ]] ||
+  fail "rotation changed hostname log ownership or permissions"
+# Reopening happens asynchronously in the workers after the master is signalled.
+for _attempt in {1..10}; do
+  "${alias_client[@]}" --resolve "site-alias.test:443:${edge_ip}" \
+    -o /dev/null https://site-alias.test/hostname-after-rotation
+  if in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"; then
+    break
+  fi
+  sleep 1
+done
+in_edge "grep -q 'hostname-access-probe' /var/log/nginx/domains/site-alias.test.access.log.1"
+in_edge "grep -q 'hostname-after-rotation' /var/log/nginx/domains/site-alias.test.access.log"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.error.log.1'
+
+say "Structured hostname records contain numeric visitor byte counters"
+docker exec -i "${edge}" python3 - <<'PY'
+import json
+from datetime import datetime
+from pathlib import Path
+
+root = Path('/var/log/nginx/domains')
+for hostname in ('site-one.test', 'site-alias.test'):
+    records = [
+        json.loads(line)
+        for path in root.glob(hostname + '.access.log*')
+        for line in path.read_text().splitlines()
+    ]
+    assert records, hostname
+    for record in records:
+        assert record['schema_version'] == 1
+        assert record['hostname'] == hostname
+        assert datetime.fromisoformat(record['timestamp']).tzinfo is not None
+        for key in ('bytes_sent', 'body_bytes_sent'):
+            assert type(record[key]) is int and record[key] >= 0
+        assert type(record['status']) is int
+    assert sum(record['bytes_sent'] for record in records) > 0
+    if hostname == 'site-alias.test':
+        probe = next(r for r in records if '/hostname-access-probe ' in r['request'])
+        assert probe['user_agent'] == 'quoted" backslash\\ client'
+        # Default privacy settings: no query strings and a truncated address.
+        assert probe['request'].startswith('GET /hostname-access-probe HTTP/')
+        assert probe['referer'] == 'https://site-alias.test/from'
+        assert probe['client_ip'].endswith(('.0', '::')), probe['client_ip']
+for path in root.glob('*.access.log*'):
+    assert b'probe-secret' not in path.read_bytes(), path
+PY
 
 # --------------------------------------------------------------------------
 # HTTP-01
@@ -411,6 +511,10 @@ in_edge 'test -s /etc/blitzecdn/tls/integration.key' ||
   fail "a runtime teardown destroyed the TLS material"
 in_edge 'test -d /var/cache/nginx/blitzecdn' ||
   fail "a runtime teardown destroyed the cache"
+in_edge 'test -s /var/log/nginx/domains/site-alias.test.access.log.1' ||
+  fail "a runtime teardown destroyed retained hostname logs"
+in_edge '! test -e /etc/logrotate.d/blitzecdn-nginx' ||
+  fail "a runtime teardown left the log rotation policy"
 
 say "Destroying the persistent state on request"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml"

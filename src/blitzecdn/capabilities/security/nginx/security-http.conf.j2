@@ -4,3 +4,69 @@ include {{ blitzecdn_security_under_attack_key_file }};
 js_var $blitzecdn_under_attack_location;
 limit_req_zone $binary_remote_addr zone=blitzecdn_under_attack_verify:10m rate=30r/m;
 {% endif %}
+{#
+  One geo per site with allow_sources: 1 for a client the site's firewall
+  exempts from its country and method rules, 0 for everyone else. Site names
+  are [a-z0-9-], so swapping '-' for '_' keeps every variable name distinct.
+  security-access.conf.j2 reads it under the same condition.
+#}
+{% for firewalled in blitzecdn_nginx_sites | default([], true) %}
+{% set firewall = firewalled.firewall | default({}, true) or {} %}
+{% if firewall.allow_sources | default([], true) %}
+geo $blitzecdn_firewall_exempt_{{ firewalled.name | replace('-', '_') }} {
+    default 0;
+{% for source in firewall.allow_sources %}
+    {{ source }} 1;
+{% endfor %}
+}
+{% endif %}
+{% endfor %}
+{#
+  One shared zone per rate rung any site uses, never one per site: Nginx fixes
+  the rate per zone, and the contract offers a fixed ladder of rates, so the
+  memory an edge sets aside is bounded by the ladder however many sites limit
+  their traffic. The zone name mirrors the contract's rate_limit_zone. 5m holds
+  about thirty thousand clients per rung (a state is ~64 bytes plus its key of
+  up to ~80); Nginx evicts the oldest when it fills. Twelve rungs bound an edge
+  at 60m.
+
+  Each limited site gets a map yielding its key, "<site>:<client>", or "" for a
+  request the limit does not count, which Nginx does not track: a client its
+  firewall exempts, or a path outside rate_limit.paths. The site's access
+  fragment copies it into the zones' shared key. firewall.case_insensitive_paths
+  makes the path match `~*`, as it does for the firewall's own path rules, so
+  /LOGIN cannot dodge a /login limit on an origin that ignores case. A map rather than `if … set`
+  in the location, because a matching `if` loses the location's try_files.
+#}
+{% set rates = namespace(used=[]) %}
+{% for limited in blitzecdn_nginx_sites | default([], true) %}
+{% set rate_limit = limited.rate_limit | default({}, true) or {} %}
+{% if rate_limit.rate | default('', true) %}
+{% if rate_limit.rate not in rates.used %}
+{% set rates.used = rates.used + [rate_limit.rate] %}
+{% endif %}
+{% set suffix = limited.name | replace('-', '_') %}
+{% set limited_firewall = limited.firewall | default({}, true) or {} %}
+{% set exempt = limited_firewall.allow_sources | default([], true) %}
+{% set patterns = namespace(items=[]) %}
+{% for path in rate_limit.paths | default([], true) %}
+{% set patterns.items = patterns.items + [(path | regex_escape) ~ ('' if path.endswith('/') else '$')] %}
+{% endfor %}
+map "{{ ('$blitzecdn_firewall_exempt_' ~ suffix) if exempt else '0' }}:$uri" $blitzecdn_rate_limit_key_{{ suffix }} {
+    default "";
+    "~{{ '*' if limited_firewall.case_insensitive_paths | default(false) else '' }}^0:{% if patterns.items %}({{ patterns.items | join('|') }}){% endif %}" "{{ limited.name }}:$binary_remote_addr";
+}
+{% endif %}
+{% endfor %}
+{#
+  Declared once here, so the zones' key is a known variable even on an edge
+  where no rendered server sets it; the access fragment's `set` overrides it.
+#}
+{% if rates.used %}
+map "" $blitzecdn_rate_limit_key {
+    default "";
+}
+{% endif %}
+{% for rate in rates.used | sort %}
+limit_req_zone $blitzecdn_rate_limit_key zone=blitzecdn_rate_{{ rate | replace('/', '') }}:5m rate={{ rate }};
+{% endfor %}

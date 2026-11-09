@@ -3,14 +3,69 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, computed_field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    computed_field,
+    field_validator,
+)
 
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.validation import hostname
 
-__all__ = ["PurgeEntry", "PurgeResult"]
+__all__ = [
+    "MAX_TAG",
+    "PurgeEntry",
+    "PurgePrefix",
+    "PurgeResult",
+    "PurgeTag",
+    "purge_tag",
+]
+
+#: The longest request target nginx logs that a purge will name.
+MAX_URI = 2048
+#: The longest tag a purge will name, as Cloudflare caps one Cache-Tag value.
+MAX_TAG = 1024
+
+
+def purge_tag(value: str) -> str:
+    """One tag as the origin names it in ``Cache-Tag``, folded to lowercase.
+
+    Tags are case-insensitive: the edge lowercases what it reads from the
+    stored header too, so ``Product-42`` purges entries tagged ``product-42``.
+    A tag is one comma-separated item of the header's value, so it cannot
+    contain a comma, and the edge trims whitespace around it, so it cannot
+    contain any.
+    """
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError("a tag cannot be empty")
+    if len(candidate) > MAX_TAG:
+        raise ValueError(f"a tag must be at most {MAX_TAG} characters")
+    if "," in candidate or any(c.isspace() for c in candidate):
+        raise ValueError("a tag cannot contain commas or whitespace")
+    if not candidate.isascii() or not candidate.isprintable():
+        raise ValueError("a tag must be printable ASCII")
+    return candidate.lower()
+
+
+#: Every cached response whose stored ``Cache-Tag`` header names this tag.
+PurgeTag = Annotated[str, AfterValidator(purge_tag)]
+
+
+def _request_target(value: str, field: str) -> str:
+    candidate = value.strip()
+    if not candidate.startswith("/"):
+        raise ValueError(f"{field} must be an absolute path beginning with '/'")
+    if len(candidate) > MAX_URI:
+        raise ValueError(f"{field} must be at most {MAX_URI} characters")
+    if any(character.isspace() for character in candidate):
+        raise ValueError(f"{field} cannot contain whitespace")
+    return candidate
 
 
 class PurgeEntry(BaseModel):
@@ -35,14 +90,33 @@ class PurgeEntry(BaseModel):
     @classmethod
     def validate_uri(cls, value: str) -> str:
         """The request target as nginx logged it; ``/a/./b`` is its own entry."""
-        candidate = value.strip()
-        if not candidate.startswith("/"):
-            raise ValueError("uri must be an absolute path beginning with '/'")
-        if len(candidate) > 2048:
-            raise ValueError("uri must be at most 2048 characters")
-        if any(character.isspace() for character in candidate):
-            raise ValueError("uri cannot contain whitespace")
-        return candidate
+        return _request_target(value, "uri")
+
+
+class PurgePrefix(BaseModel):
+    """Every cached response for a hostname under one request-target ``prefix``.
+
+    The default prefix, ``/``, is the whole hostname. Both schemes, every
+    listener port, method and encoding match: a prefix names content, and each
+    of those variants serves it. Matching is by plain string prefix on the
+    request target as nginx keyed it, so ``/blog`` also matches ``/blogroll``;
+    end the prefix with ``/`` to name a directory.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str
+    prefix: str = "/"
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        return hostname(value)
+
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, value: str) -> str:
+        return _request_target(value, "prefix")
 
 
 class PurgeResult(BaseModel):
@@ -56,6 +130,8 @@ class PurgeResult(BaseModel):
 
     purged_at: datetime
     entries: tuple[PurgeEntry, ...] = ()
+    prefixes: tuple[PurgePrefix, ...] = ()
+    tags: tuple[PurgeTag, ...] = ()
     purge_all: bool = False
     host_limit: str | None = None
     hosts: tuple[HostRun, ...] = ()

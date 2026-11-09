@@ -18,8 +18,8 @@ blitzecdn_edge_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 # Systemd units this collection installs, matched rather than listed.
 #
 # A list would have to name every unit any capability might install, which puts
-# `blitzecdn-geoipupdate.timer` — a unit only the `geoip` package's role ever
-# writes — in a core role that has never heard of that package. The prefix is
+# units only a capability's own role ever writes in a core role that has never
+# heard of that capability. The prefix is
 # the contract instead: a unit under /etc/systemd/system whose name starts with
 # this is ours, and teardown removes it whether the capability that wrote it is
 # still installed or not. That last part matters most: a host is usually
@@ -59,4 +59,5 @@ blitzecdn_edge_teardown_remove_data: true
 # Logs are evidence and survive by default, even under remove_data. A
 # decommissioned host is often decommissioned because something went wrong on it.
 blitzecdn_edge_teardown_remove_logs: false
-blitzecdn_edge_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_edge_teardown_error_log_path: /var/log/nginx/error.log
+blitzecdn_edge_teardown_domain_logs_path: /var/log/nginx/domains

@@ -12,7 +12,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.edges.domain.origins import OriginCheck
+from blitzecdn.capabilities.origins.contract import OriginCheck
 
 
 class EdgeOriginChecks(BaseModel):

@@ -6,7 +6,7 @@ Storage and release inputs serialize the nested domain values instead.
 from typing import Any
 
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 
 
 def serving_document(value: Domain | CdnSite) -> dict[str, Any]:

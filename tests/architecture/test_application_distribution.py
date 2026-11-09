@@ -51,11 +51,14 @@ def test_all_shipped_features_share_the_application_version():
 
 #: The slices that realize an edge capability and nothing more. They sit with
 #: the capabilities they serve; this is what keeps them from growing a service.
+#:
+#: Not `security/geoip`: its database is downloaded once on the controller and
+#: shipped as release material, so it owns a refresh service, a store and a
+#: command, the way certificates do.
 EDGE_PROVIDERS = (
     "capabilities/hardening",
     "capabilities/http/http3",
     "capabilities/resolver",
-    "capabilities/security/geoip",
 )
 
 

@@ -7,7 +7,7 @@ zone behind it. Helpers used by one module stay beside its tests.
 import pytest
 from typer.testing import CliRunner
 
-from blitzecdn.composition import FleetRunner, Repository
+from blitzecdn.composition import FleetRunner
 from blitzecdn.core.config import Settings
 from blitzecdn.entrypoints.cli import main as cli
 from support.control_plane import (
@@ -15,11 +15,12 @@ from support.control_plane import (
     cli_control_plane,
     repository_on,
 )
+from support.stores import Stores
 
 runner = CliRunner()
 
 
-def _seed_site(
+def seed_cli_site(
     control: ControlPlane,
     label: str = "api",
     origin: str = "198.51.100.20",
@@ -48,7 +49,7 @@ def _seed_site(
     return name or "example-com"
 
 
-def _control(
+def cli_control(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
@@ -56,5 +57,5 @@ def _control(
     return cli_control_plane(settings, monkeypatch, runner_double)
 
 
-def _store(settings: Settings) -> Repository:
+def store(settings: Settings) -> Stores:
     return repository_on(settings)

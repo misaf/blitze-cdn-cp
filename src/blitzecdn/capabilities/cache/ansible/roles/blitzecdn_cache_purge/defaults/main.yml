@@ -20,6 +20,17 @@ blitzecdn_cache_purge_levels: "1:2"
 # control plane builds these; it owns which hostnames are purgeable.
 blitzecdn_cache_purge_entries: []
 
+# Hostname + request-target prefixes to remove, each a mapping of host + prefix.
+# A prefix of "/" is the whole hostname. These cannot be hashed into paths, so
+# the role reads the key back from every cached file and deletes the ones that
+# start with host + prefix, across every scheme, port, method and encoding.
+blitzecdn_cache_purge_prefixes: []
+
+# Tags to remove: every cached response whose stored Cache-Tag header names one
+# of them, on any hostname. Matched case-insensitively, read from the head of
+# every cached file in the same pass as the prefixes.
+blitzecdn_cache_purge_tags: []
+
 # Remove every cached response on the edge instead of named entries. Kept as a
 # separate flag rather than "no entries means everything" so an empty list from
 # a caller that filtered too hard cannot silently empty the whole cache.
@@ -32,11 +43,15 @@ blitzecdn_cache_purge_all: false
 blitzecdn_cache_purge_methods: [GET, HEAD]
 
 # Listener ports are part of the cache key because each one reaches the same
-# port on the origin. These must match the Nginx role's public listener sets.
+# port on the origin, and two origin ports may be two different services — see
+# the proxy_cache_key comment in cache-upstream.conf.j2. A URL can therefore be
+# cached once per listener, and purging it means deleting every port's entry.
+# These must match the Nginx role's public listener sets; the control plane's
+# tests assert they do.
 blitzecdn_cache_purge_http_ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
 blitzecdn_cache_purge_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
 
-# The values $blitzecdn_accept_encoding can take, from the map in
-# blitzecdn-cache.conf. With normalization on, one URL has one entry per
+# The values $blitzecdn_accept_encoding can take, from the map in the
+# blitzecdn_nginx role's http.conf.j2. With normalization on, one URL has one entry per
 # encoding and all of them have to go.
 blitzecdn_cache_purge_encodings: ["", gzip, br]

@@ -47,8 +47,9 @@ def _resolver(answer) -> type[FakeResolver]:
 
 
 @pytest.fixture
-def settings() -> SimpleNamespace:
-    return SimpleNamespace(preflight_dns_servers=(), preflight_dns_timeout_seconds=5)
+def settings() -> dict[str, Any]:
+    """The certificates feature's preflight DNS settings, as `doctor` reads them."""
+    return {"servers": (), "source": "authoritative", "timeout_seconds": 5}
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, answer) -> type[FakeResolver]:
@@ -63,7 +64,7 @@ def test_a_resolver_that_rejects_a_name_that_cannot_exist_passes(monkeypatch, se
 
     _patch(monkeypatch, nxdomain)
 
-    result = check_resolver(settings)
+    result = check_resolver(**settings)
 
     assert result.passed
     assert "rejects names that cannot exist" in result.detail
@@ -77,7 +78,7 @@ def test_an_empty_answer_passes_for_the_same_reason(monkeypatch, settings):
 
     _patch(monkeypatch, no_answer)
 
-    assert check_resolver(settings).passed
+    assert check_resolver(**settings).passed
 
 
 def test_a_resolver_that_does_not_answer_at_all_passes(monkeypatch, settings):
@@ -92,7 +93,7 @@ def test_a_resolver_that_does_not_answer_at_all_passes(monkeypatch, settings):
 
     _patch(monkeypatch, timeout)
 
-    result = check_resolver(settings)
+    result = check_resolver(**settings)
 
     assert result.passed
     assert "did not answer the probe" in result.detail
@@ -110,7 +111,7 @@ def test_a_resolver_that_answers_a_reserved_name_fails_and_names_the_addresses(
         ],
     )
 
-    result = check_resolver(settings)
+    result = check_resolver(**settings)
 
     assert not result.passed
     assert "10.0.0.1, 10.0.0.2" in result.detail
@@ -130,9 +131,9 @@ def test_the_probe_asks_for_a_reserved_name_it_has_never_asked_before(
 
     resolver = _patch(monkeypatch, nxdomain)
 
-    check_resolver(settings)
+    check_resolver(**settings)
     first = resolver.last.asked
-    check_resolver(settings)
+    check_resolver(**settings)
     second = resolver.last.asked
 
     assert first[0].endswith(".invalid")
@@ -148,10 +149,10 @@ def test_the_probe_is_bounded_by_the_configured_timeout(monkeypatch, settings):
     def nxdomain(_name, _rdatatype):
         raise dns.resolver.NXDOMAIN
 
-    settings.preflight_dns_timeout_seconds = 2
+    settings["timeout_seconds"] = 2
     resolver = _patch(monkeypatch, nxdomain)
 
-    check_resolver(settings)
+    check_resolver(**settings)
 
     assert resolver.last.timeout == 2.0
     assert resolver.last.lifetime == 2.0
@@ -165,10 +166,10 @@ def test_configured_servers_are_probed_and_named_in_the_detail(monkeypatch, sett
     def nxdomain(_name, _rdatatype):
         raise dns.resolver.NXDOMAIN
 
-    settings.preflight_dns_servers = ("192.0.2.1", "192.0.2.2")
+    settings["servers"] = ("192.0.2.1", "192.0.2.2")
     resolver = _patch(monkeypatch, nxdomain)
 
-    result = check_resolver(settings)
+    result = check_resolver(**settings)
 
     assert resolver.last.nameservers == ["192.0.2.1", "192.0.2.2"]
     assert "(192.0.2.1, 192.0.2.2)" in result.detail
@@ -180,7 +181,7 @@ def test_the_host_resolver_is_named_when_none_is_configured(monkeypatch, setting
 
     resolver = _patch(monkeypatch, nxdomain)
 
-    result = check_resolver(settings)
+    result = check_resolver(**{**settings, "source": "host"})
 
     assert resolver.last.nameservers == []
     assert "(host resolver)" in result.detail

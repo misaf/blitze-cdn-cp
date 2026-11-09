@@ -11,17 +11,26 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
+import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 #: Written beside the staged tree by the edge, never shipped in a bundle.
 RUNTIME_IMAGE = "runtime-image"
+#: Content-addressed certificate material the edge installs per site.
+TLS_MATERIAL = re.compile(r"(?:fullchain|privkey)-[0-9a-f]{64}\.pem")
+#: What Ansible's `backup: true` once left beside a replaced file.
+TLS_BACKUP = re.compile(
+    TLS_MATERIAL.pattern + r"\.[0-9]+\.[0-9]{4}-[0-9]{2}-[0-9]{2}@[0-9:]{8}~"
+)
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -61,6 +70,7 @@ class ConfigurationRelease:
         self.seal = self.candidate / "manifest.json"
         self.current = root / "current"
         self.journal = root / f".{digest}.transaction.json"
+        self.staged = root / f".{digest}.staged"
         self.records = records
 
     def inventory(self) -> dict[str, str]:
@@ -95,6 +105,9 @@ class ConfigurationRelease:
         way the tree must match the manifest exactly.
         """
         files, links, manifest = read_bundle(bundle)
+        # A retained old release may be staged again before activation. Protect
+        # it across helper invocations, even if another commit runs in between.
+        atomic_write(self.staged, b"")
         if self.seal.exists():
             self.verify()
         else:
@@ -182,6 +195,7 @@ class ConfigurationRelease:
         elif current == self.digest:
             # Already committed: deploying the same release again must not
             # manufacture a rollback transaction pointing at itself.
+            self.staged.unlink(missing_ok=True)
             return
         else:
             data = {
@@ -196,6 +210,8 @@ class ConfigurationRelease:
             }
             self.save_journal(data)
         self.switch(self.digest)
+        self.staged.unlink(missing_ok=True)
+        sync_directory(self.root)
 
     def rollback(self) -> None:
         if not self.journal.exists():
@@ -220,15 +236,150 @@ class ConfigurationRelease:
         data["status"] = "rolled_back"
         self.save_journal(data)
 
-    def commit(self) -> None:
+    def commit(self, keep_older: int = 2, tls_root: Path | None = None) -> None:
+        if keep_older < 0:
+            raise ValueError("older release retention must not be negative")
         self.verify()
         if self.pointer() != self.digest:
             raise ValueError("cannot commit a release that is not active")
         data = self.read_journal()
         if data["status"] == "rolled_back":
             raise ValueError("cannot commit a withdrawn activation")
-        data["status"] = "committed"
-        self.save_journal(data)
+        if data["status"] != "committed":
+            data["status"] = "committed"
+            self.save_journal(data)
+        # The serving transaction is already durable. A collection failure must
+        # not send the controller down the failed-activation rollback path.
+        try:
+            self.prune(keep_older)
+            # Only after release collection succeeded: the surviving trees are
+            # then exactly the configurations this edge may still serve.
+            if tls_root is not None:
+                self.prune_tls(tls_root)
+        except (OSError, ValueError) as exc:
+            print(f"configuration release cleanup deferred: {exc}", file=sys.stderr)
+
+    def referenced_tls(self, tls_root: Path) -> set[Path]:
+        """Managed TLS files named by any release tree still on this edge.
+
+        Every surviving tree counts, journaled or not: a retained release can
+        be rolled back to, and an unjournaled one may be mid-deployment.
+        """
+        reference = re.compile(
+            re.escape(str(tls_root)).encode()
+            + rb"/([^/\s;'\"]+)/("
+            + TLS_MATERIAL.pattern.encode()
+            + rb")"
+        )
+        referenced: set[Path] = set()
+        for tree in self.root.iterdir():
+            if re.fullmatch(r"[0-9a-f]{64}", tree.name) is None:
+                continue
+            if tree.is_symlink() or not tree.is_dir():
+                raise ValueError(f"release tree is not a directory: {tree}")
+            for path in tree.rglob("*"):
+                if path.is_file() and not path.is_symlink():
+                    referenced.update(
+                        tls_root / site.decode() / name.decode()
+                        for site, name in reference.findall(path.read_bytes())
+                    )
+        return referenced
+
+    def prune_tls(self, tls_root: Path) -> None:
+        """Remove certificate and key versions no retained release references.
+
+        Material is content addressed, so each renewal adds files and nothing
+        else ever removes them. Only exact managed names are deleted, never
+        through a symbolic link; anything else under the root is left alone.
+        Directories of deleted sites go once they are empty.
+        """
+        if not tls_root.exists() and not tls_root.is_symlink():
+            return
+        if tls_root.is_symlink() or not tls_root.is_dir():
+            raise ValueError(f"managed TLS root is not a directory: {tls_root}")
+        referenced = self.referenced_tls(tls_root)
+        for site in sorted(tls_root.iterdir()):
+            if site.is_symlink() or not site.is_dir():
+                continue
+            removed = False
+            for path in sorted(site.iterdir()):
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if (
+                    TLS_MATERIAL.fullmatch(path.name) and path not in referenced
+                ) or TLS_BACKUP.fullmatch(path.name):
+                    path.unlink()
+                    removed = True
+            if removed:
+                sync_directory(site)
+            if not any(site.iterdir()):
+                site.rmdir()
+                removed = True
+            if removed:
+                sync_directory(tls_root)
+
+    def prune(self, keep_older: int) -> None:
+        """Collect completed transactions; callers hold the edge mutation lock.
+
+        Unjournaled trees and staging markers are deliberately left alone: they
+        may belong to a deployment between stage and activate. Pending journals
+        protect both sides of recovery. Completed journals do not pin their
+        entire predecessor chain.
+        """
+        current = self.pointer()
+        protected = {current}
+        completed = []
+        # Validate all managed journals before deleting anything. Corrupt state
+        # must defer collection, rather than hide an unknown recovery target.
+        for journal in sorted(self.root.glob(".*.transaction.json")):
+            match = re.fullmatch(r"\.([0-9a-f]{64})\.transaction\.json", journal.name)
+            if match is None:
+                continue
+            if journal.is_symlink():
+                raise ValueError(f"transaction journal is a symbolic link: {journal}")
+            data = json.loads(journal.read_text())
+            if not isinstance(data, dict):
+                raise ValueError(f"invalid transaction journal: {journal}")
+            status, previous = data.get("status"), data.get("previous")
+            if (
+                status not in ("pending", "committed", "rolled_back")
+                or "previous" not in data
+                or (
+                    previous is not None
+                    and (
+                        not isinstance(previous, str)
+                        or re.fullmatch(r"[0-9a-f]{64}", previous) is None
+                    )
+                )
+            ):
+                raise ValueError(f"invalid transaction journal: {journal}")
+            digest = match[1]
+            if (
+                digest == current
+                or status == "pending"
+                or (status == "rolled_back" and current == previous)
+            ):
+                protected.update((digest, previous))
+            if status != "pending":
+                completed.append((journal.stat().st_mtime_ns, digest, journal))
+        protected.update(
+            match[1]
+            for path in self.root.glob(".*.staged")
+            if (match := re.fullmatch(r"\.([0-9a-f]{64})\.staged", path.name))
+        )
+        older = sorted(
+            (entry for entry in completed if entry[1] not in protected), reverse=True
+        )
+        for _, digest, journal in older[keep_older:]:
+            tree = self.root / digest
+            if tree.is_symlink():
+                raise ValueError(f"release tree is a symbolic link: {tree}")
+            # Tree first: after a crash the journal still identifies an orphan
+            # for the next commit to collect. rmtree is safe to retry halfway.
+            if tree.exists():
+                shutil.rmtree(tree)
+            journal.unlink()
+            sync_directory(self.root)
 
 
 def read_bundle(
@@ -272,20 +423,32 @@ def main() -> None:
     parser.add_argument("root", type=Path)
     parser.add_argument("digest")
     parser.add_argument("records", nargs="*", type=Path)
+    parser.add_argument("--keep-older", type=int, default=2)
+    parser.add_argument(
+        "--tls-root",
+        type=Path,
+        help="managed TLS root to collect unreferenced material from on commit",
+    )
     args = parser.parse_args()
-    if args.operation == "stage":
-        (bundle,) = args.records
-        ConfigurationRelease(args.root, args.digest, ()).stage(bundle)
-        return
+    if args.keep_older < 0:
+        parser.error("--keep-older must not be negative")
     release = ConfigurationRelease(args.root, args.digest, tuple(args.records))
-    operations = {
+    operations: dict[str, Callable[[], None]] = {
+        "stage": lambda: release.stage(args.records[0]),
         "seal": release.seal_candidate,
         "verify": release.verify,
         "activate": release.activate,
         "rollback": release.rollback,
-        "commit": release.commit,
+        "commit": lambda: release.commit(args.keep_older, args.tls_root),
     }
-    operations[args.operation]()
+    if args.operation == "verify":
+        release.verify()
+    else:
+        # All deployed mutations share one lock, including stage and seal.
+        # Keep the lock file: unlinking it can split waiters across two inodes.
+        with (args.root / ".mutation.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            operations[args.operation]()
 
 
 if __name__ == "__main__":

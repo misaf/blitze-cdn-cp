@@ -8,8 +8,21 @@
 #
 # The modules named are built with Nginx's own pkg-oss tooling against this
 # exact base image, keeping the binary and dynamic modules ABI-compatible.
-ARG NGINX_IMAGE=nginx:1.31.4-alpine
-FROM ${NGINX_IMAGE} AS module-builder
+#
+# The base is pinned to the digest of its multi-platform index, not just to a
+# tag: a tag is a pointer the publisher may move, so the same Dockerfile would
+# otherwise build a different image on a different day, and a rebuilt base's
+# security fixes would arrive only when someone noticed. Dependabot's `docker`
+# entry proposes the new digest instead, as a reviewable diff.
+#
+# It is written out on both `FROM` lines rather than held in an `ARG`, and the
+# repetition is the price of that tracking: Dependabot does not resolve a
+# `FROM ${...}`, so an image behind a build argument is one it never updates.
+# Dependabot rewrites every line naming the image in one change, and
+# test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules
+# fails if the two stages ever name different references — the builder and
+# the runtime being the same image is what the ABI guarantee rests on.
+FROM nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913 AS module-builder
 
 # The pkg-oss module names to build, space separated. Empty builds nothing,
 # which is a valid image: everything BlitzeCDN needs from Nginx itself —
@@ -55,7 +68,7 @@ RUN mkdir -p /tmp/packages \
           done; \
       fi
 
-FROM ${NGINX_IMAGE}
+FROM nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
 
 # The shared objects the image's own module list loads, space separated, and
 # one directive per module for the build-time probe below. Both are emitted by
@@ -113,8 +126,10 @@ RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-buil
 
 # BlitzeCDN owns the default server, not the example bundled with the image.
 # Keep the official persistent log destinations and add Docker's stdout/stderr
-# streams at the same configuration level. Managed sites declare their own
-# access logs below this level and therefore add stdout in site.conf.j2 too.
+# streams at the same configuration level, for anything running this image
+# without a controller. Managed sites declare their own access logs below this
+# level, which replace these: requests go only to the hostname file, and only
+# errors reach Docker, through stderr in site.conf.j2.
 #
 # That example server is emptied rather than deleted, and the difference
 # matters. Removing a file inherited from the base image records a whiteout in
