@@ -12,7 +12,6 @@ from support.paths import REPO_ROOT
 
 from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible import runner as ansible_runner_module
 from blitzecdn.core.ansible.contributions import EdgeContributions
@@ -24,6 +23,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     ExecutionError,
 )
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 #: The package under test, for the subprocess in the lock test below.
 PROJECT_SRC = REPO_ROOT / "src"
@@ -113,14 +113,14 @@ def _runner_command(arguments: dict[str, object]) -> list[str]:
 
 
 def test_deployment_lock_serializes_processes(settings):
-    first = ansible.DeploymentLock(deployment_lock(settings))
+    first = DeploymentLock(deployment_lock(settings))
     with (
         first,
         pytest.raises(DeploymentBusyError),
-        ansible.DeploymentLock(deployment_lock(settings)),
+        DeploymentLock(deployment_lock(settings)),
     ):
         pass
-    with ansible.DeploymentLock(deployment_lock(settings)):
+    with DeploymentLock(deployment_lock(settings)):
         pass
 
 
@@ -135,7 +135,7 @@ def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
             "import sys",
             f"sys.path.insert(0, {str(PROJECT_SRC)!r})",
             "from pathlib import Path",
-            "from blitzecdn.core.ansible import DeploymentLock",
+            "from blitzecdn.core.runtime.lock import DeploymentLock",
             "from blitzecdn.core.exceptions import DeploymentBusyError",
             "try:",
             f"    with DeploymentLock(Path({str(deployment_lock(settings))!r})):",
@@ -145,7 +145,7 @@ def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
         ]
     )
 
-    with ansible.DeploymentLock(deployment_lock(settings)):
+    with DeploymentLock(deployment_lock(settings)):
         held = subprocess.run(  # noqa: S603 - fixed argv built here
             [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
         )

@@ -10,6 +10,7 @@ import fcntl
 from contextlib import AbstractContextManager
 from pathlib import Path
 from types import TracebackType
+from typing import TextIO
 
 from blitzecdn.core.exceptions import DeploymentBusyError
 
@@ -19,7 +20,7 @@ __all__ = ["DeploymentLock"]
 class DeploymentLock(AbstractContextManager["DeploymentLock"]):
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._stream: object | None = None
+        self._stream: TextIO | None = None
 
     def __enter__(self) -> DeploymentLock:
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -40,6 +41,6 @@ class DeploymentLock(AbstractContextManager["DeploymentLock"]):
     ) -> None:
         if self._stream is not None:
             stream = self._stream
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
-            stream.close()  # type: ignore[attr-defined]
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            stream.close()
             self._stream = None
