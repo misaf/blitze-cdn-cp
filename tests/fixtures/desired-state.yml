@@ -9,6 +9,8 @@ blitzecdn_nginx_sites:
     under_attack_mode: false
     compression: brotli
     cache_enabled: true
+    cache_level: standard
+    cache_bypass_cookies: []
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
@@ -50,6 +52,8 @@ blitzecdn_nginx_sites:
       case_insensitive_paths: false
     compression: brotli
     cache_enabled: false
+    cache_level: standard
+    cache_bypass_cookies: []
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
@@ -70,4 +74,4 @@ blitzecdn_nginx_sites:
     server_names:
       - static.example.com
     origin_host: 192.0.2.10
-blitzecdn_release_digest: a5ddf18abe589dd787eb4f3537ffc7079b56f7c60af17a00d7772acb89fa147c
+blitzecdn_release_digest: 108404ba6a1873b648b854a3efac5cc8faaaadfe6fcddbdaa8df730f51ddb77b

@@ -19,8 +19,19 @@
         # leaks: bypass alone still stores the private answer for the next
         # anonymous visitor, and no_cache alone still serves them an entry
         # stored earlier.
-        proxy_cache_bypass $http_upgrade $http_authorization;
-        proxy_no_cache $http_upgrade $http_authorization;
+        #
+        # A cookie is a credential too, and the common case: a framework that
+        # sets its session cookie at login and renders /account without a
+        # Cache-Control of its own. The site's cookie map (cache-http.conf.j2)
+        # is 1 for such a request, under the same condition as here. Under
+        # `standard` the edge also stores nothing the origin gave no lifetime
+        # to unless it is a static file type ($blitzecdn_cache_standard_skip);
+        # that one reads the response, so only proxy_no_cache names it.
+{% set level = site.cache_level | default('standard') %}
+{% set cookie_bypass = level == 'standard' or (site.cache_bypass_cookies | default([], true)) %}
+{% set cookie_variable = (' $blitzecdn_cache_cookie_' ~ (site.name | replace('-', '_'))) if cookie_bypass else '' %}
+        proxy_cache_bypass $http_upgrade $http_authorization{{ cookie_variable }};
+        proxy_no_cache $http_upgrade $http_authorization{{ cookie_variable }}{{ ' $blitzecdn_cache_standard_skip' if level == 'standard' else '' }};
         # The key names the listener port, and that is load-bearing rather than
         # an inefficiency. The edge preserves the visitor's destination port
         # toward the origin (site.conf.j2's proxy macro, SslMode.origin_port_for):

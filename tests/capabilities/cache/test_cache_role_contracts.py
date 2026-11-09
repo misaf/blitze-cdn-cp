@@ -273,12 +273,19 @@ def test_nothing_private_is_cached_or_served_from_cache():
 
     The fourth was added: a response to an authorized request is neither stored
     nor served from cache. Both directives are needed: bypass alone still stores,
-    and no_cache alone still serves an earlier entry.
+    and no_cache alone still serves an earlier entry. The cookie bypass the
+    cache level adds is covered, per level, in test_cache_levels.
     """
     template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
 
-    assert "proxy_cache_bypass $http_upgrade $http_authorization;" in template
-    assert "proxy_no_cache $http_upgrade $http_authorization;" in template
+    assert (
+        "proxy_cache_bypass $http_upgrade $http_authorization{{ cookie_variable }};"
+        in template
+    )
+    assert (
+        "proxy_no_cache $http_upgrade $http_authorization{{ cookie_variable }}"
+        in template
+    )
     # None of this capability's nginx fragments may tell nginx to
     # disregard what the origin said about cacheability.
     for fragment in sorted(NGINX_DIR.glob("*.conf.j2")):

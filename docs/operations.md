@@ -618,6 +618,39 @@ set `blitzecdn_edge_teardown_domain_logs_path` and
 `/error.log` appended before teardown. Logs remain local to each edge; this step adds no log
 retrieval API or cross-edge statistics.
 
+## Cache levels
+
+A cached site has a cache level, and it decides what the edge stores when the
+origin says nothing about caching:
+
+- `standard` (the default) stores a response only when it is a static file type
+  (by URL extension, such as `.css`, `.js`, images, fonts, media and archives, or
+  by a `Content-Type` such as `image/*`, `font/*` or `text/css`), or when the
+  origin gave it a lifetime with `Cache-Control`, `Expires` or
+  `X-Accel-Expires`. A request carrying a cookie skips the cache, neither served
+  from it nor stored in it, unless its URL is a static file. An HTML page is
+  therefore never cached unless the origin asks for it.
+- `everything` stores every 200, 301, 302 and 404 for `cache_valid_success` and
+  `cache_valid_not_found`, whatever its type and whoever asked. Choose it only
+  for an origin that marks per-visitor responses `Cache-Control: private`: one
+  that renders a logged-in page without it would have that page served to the
+  next visitor.
+
+`cache_bypass_cookies` names the cookies that skip the cache; `*` matches any
+run of name characters, as in `wordpress_logged_in_*`. Under `standard` it
+narrows "any cookie" to those names, so analytics cookies no longer turn every
+page into a miss; under `everything` it is the only cookie rule there is.
+
+```bash
+blitzecdn domain cache example.com --level standard --bypass-cookie sessionid
+blitzecdn domain cache example.com --clear-bypass-cookies
+```
+
+Whatever the level, a request with `Authorization` or a WebSocket upgrade is
+never cached, and nginx still refuses to store a response with `Set-Cookie` or
+`Cache-Control: private`, `no-cache` or `no-store`. Bypassed requests count as
+`BYPASS` in [cache statistics](#cache-statistics).
+
 ## Cache statistics
 
 Cache effectiveness is read from stored hourly rows, never by sampling edges.

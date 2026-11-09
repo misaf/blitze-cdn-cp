@@ -29,7 +29,7 @@ blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
 blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain always-use-https	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
-blitzecdn	command	blitzecdn domain cache	<name> type=str required --on/--off type=boolean --success type=str --not-found type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn domain cache	<name> type=str required --on/--off type=boolean --success type=str --not-found type=str --level type=choice[standard,everything] --bypass-cookie type=str --clear-bypass-cookies type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain cache-query-string	<name> type=str required --mode type=choice[include,ignore] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
