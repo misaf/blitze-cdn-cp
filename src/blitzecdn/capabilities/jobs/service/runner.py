@@ -11,9 +11,11 @@ import threading
 from collections.abc import Callable, Mapping
 from types import FrameType
 
-from blitzecdn.capabilities.jobs.domain import JobClaim
+from pydantic import ValidationError
+
+from blitzecdn.capabilities.jobs.domain import JobClaim, ScheduledFiring
 from blitzecdn.capabilities.jobs.ports import WorkerProgress
-from blitzecdn.capabilities.jobs.service.queue import SCHEDULED_JOB, JobQueue
+from blitzecdn.capabilities.jobs.service.queue import JobQueue
 from blitzecdn.capabilities.jobs.service.scheduling import JobScheduler
 from blitzecdn.core.ports.clock import Clock
 
@@ -89,8 +91,13 @@ class JobRunner:
         Claims start with the default lease; renewed under the fence right after.
         """
         job = claim.job
-        if job.kind == SCHEDULED_JOB:
-            declared = self.scheduler.leases().get(str(job.payload.get("job", "")))
+        if job.kind == ScheduledFiring.kind:
+            try:
+                firing = ScheduledFiring.model_validate(job.payload)
+            except ValidationError:
+                # Running it fails the job and says why; no lease to declare.
+                return
+            declared = self.scheduler.leases().get(firing.job)
         else:
             # An operation's lease only ever lengthens the default one.
             declared = max(

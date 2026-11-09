@@ -12,16 +12,19 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import event
+from support.jobs import handling
 from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
     Defer,
+    DeploymentJob,
     Fail,
     JobStatus,
     Retry,
     backoff_for,
 )
+from blitzecdn.capabilities.jobs.ports import JobHandler
 from blitzecdn.capabilities.jobs.service import JobQueue
 
 _START = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -46,10 +49,11 @@ def repository(settings):
 
 
 def queue_for(
-    repository, *, worker: str = "worker-a", clock=None, **kwargs
+    repository, *, worker: str = "worker-a", clock=None, handlers=None, **kwargs
 ) -> JobQueue:
     return JobQueue(
         jobs=repository.jobs,
+        handlers=handling(handlers or {}),
         worker_id=worker,
         clock=clock or Clock(),
         **kwargs,
@@ -545,14 +549,14 @@ def test_a_refused_duplicate_inside_a_transaction_leaves_it_usable(repository):
 def test_a_publishing_queue_is_given_its_handlers_once(repository):
     queue = queue_for(repository, handlers={})
     record = []
-    queue.consume_with({"work": ran(record, "work")})
+    queue.consume_with(handling({"work": ran(record, "work")}))
     queue.jobs.enqueue(kind="work", payload={"id": "a"}, available_at=_START)
 
     queue.run_one()
 
     assert record == ["work:a"]
     with pytest.raises(RuntimeError, match="already has its handlers"):
-        queue.consume_with({})
+        queue.consume_with(())
 
 
 def test_a_retry_outcome_spends_an_attempt_and_records_its_reason(repository):
@@ -584,3 +588,68 @@ def test_a_handler_that_returns_no_outcome_fails_permanently(repository):
     failed = queue.get(job.id)
     assert failed.status is JobStatus.FAILED
     assert "not a job outcome" in (failed.last_error or "")
+
+
+# -- Typed payloads --------------------------------------------------------
+
+
+def test_enqueue_stores_a_job_as_its_kind_and_its_payload_s_json(repository):
+    queue = queue_for(repository)
+
+    job = queue.enqueue(DeploymentJob(deployment_id="d-1"), max_attempts=2)
+
+    assert job is not None
+    assert job.kind == "deployment"
+    assert job.payload == {"deployment_id": "d-1"}
+    assert job.max_attempts == 2
+
+
+def test_a_handler_is_given_its_kind_s_validated_payload(repository):
+    seen: list[DeploymentJob] = []
+
+    def handle(job: DeploymentJob):
+        seen.append(job)
+        return DONE
+
+    queue = queue_for(repository)
+    queue.consume_with((JobHandler(DeploymentJob, handle),))
+    queue.enqueue_deployment("d-1")
+
+    queue.run_one()
+
+    assert seen == [DeploymentJob(deployment_id="d-1")]
+
+
+def test_a_payload_its_model_refuses_fails_at_once_naming_the_fields(repository):
+    """A renamed or missing field is not retried: every attempt would meet it."""
+    called: list[object] = []
+    queue = queue_for(repository)
+    queue.consume_with((JobHandler(DeploymentJob, called.append),))
+    job = queue.jobs.enqueue(
+        kind="deployment",
+        payload={"deploymentId": "private-value"},
+        available_at=_START,
+        max_attempts=3,
+    )
+
+    queue.run_one()
+
+    failed = queue.get(job.id)
+    assert called == []
+    assert failed.status is JobStatus.FAILED
+    assert failed.attempts == 1
+    error = failed.last_error or ""
+    assert "payload does not fit its model" in error
+    assert "deployment_id: Field required" in error
+    assert "deploymentId: Extra inputs are not permitted" in error
+    assert "private-value" not in error
+
+
+def test_a_kind_cannot_be_handled_twice(repository):
+    twice = (
+        JobHandler(DeploymentJob, lambda _job: DONE),
+        JobHandler(DeploymentJob, lambda _job: DONE),
+    )
+
+    with pytest.raises(ValueError, match="'deployment' has two handlers"):
+        queue_for(repository).consume_with(twice)

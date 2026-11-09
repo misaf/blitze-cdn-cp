@@ -13,8 +13,8 @@ from support.stores import Stores
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service.operations import (
-    PURGE_OPERATION,
-    operation_handlers,
+    CachePurgeJob,
+    queued_operations,
 )
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import RunStatus
@@ -286,17 +286,20 @@ def test_named_entries_and_prefixes_purge_together(settings):
     assert len(purged_prefixes(fake)[0]) == 1
 
 
-def test_a_purge_queued_before_prefixes_existed_still_runs(settings):
-    """Its stored payload has no prefixes field, and it is not retried."""
+def _queued_purge(cache, stored):
+    """Run a queued purge from its stored JSON, as the worker would."""
+    (purge,) = (op for op in queued_operations(cache) if op.payload is CachePurgeJob)
+    return purge.run(CachePurgeJob.model_validate(stored))
+
+
+def test_a_queued_purge_that_names_no_prefixes_or_tags_purges_neither(settings):
     control = build_application(
         settings=settings,
         repository=Stores(settings.database_path),
         runner=FakeRunner([_purge_run()]),
     )
 
-    result = operation_handlers(control.cache)[PURGE_OPERATION](
-        {"operator": "alice", "entries": [], "purge_all": True, "host_limit": None}
-    )
+    result = _queued_purge(control.cache, {"operator": "alice", "purge_all": True})
 
     assert result["prefixes"] == []
     assert result["tags"] == []
@@ -454,7 +457,8 @@ def test_a_queued_tag_purge_runs_with_its_tags(settings):
         settings=settings, repository=Stores(settings.database_path), runner=fake
     )
 
-    result = operation_handlers(control.cache)[PURGE_OPERATION](
+    result = _queued_purge(
+        control.cache,
         {
             "operator": "alice",
             "entries": [],
@@ -462,7 +466,7 @@ def test_a_queued_tag_purge_runs_with_its_tags(settings):
             "tags": ["home"],
             "purge_all": False,
             "host_limit": None,
-        }
+        },
     )
 
     assert result["tags"] == ["home"]

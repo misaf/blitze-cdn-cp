@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 import socket
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from dishka import Provider, Scope, provide
 from sqlalchemy.exc import SQLAlchemyError
@@ -73,13 +74,13 @@ def build_job_queue(
     *,
     jobs: JobStore,
     retention: int,
-    handlers: Mapping[str, JobHandler] | None = None,
+    handlers: Iterable[JobHandler[Any]] = (),
     clock: Clock,
 ) -> JobQueue:
     """Wire the queue; ``handlers`` is empty for a publish-only process like the API."""
     return JobQueue(
         jobs=jobs,
-        handlers=handlers if handlers is not None else {},
+        handlers=handlers,
         worker_id=worker_identity(),
         retention=retention,
         clock=clock,
