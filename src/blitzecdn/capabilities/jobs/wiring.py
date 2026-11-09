@@ -18,6 +18,7 @@ from blitzecdn.capabilities.jobs.adapters.persistence import (
 from blitzecdn.capabilities.jobs.ports import (
     JobHandler,
     JobStore,
+    OperationLeases,
     OperationRuns,
     ScheduleStore,
     WorkerHistory,
@@ -172,6 +173,7 @@ class JobsProvider(Provider):
         scheduler: JobScheduler,
         progress: WorkerProgress,
         clock: Clock,
+        operation_leases: OperationLeases,
     ) -> JobRunner:
         return JobRunner(
             queue=queue,
@@ -179,4 +181,5 @@ class JobsProvider(Provider):
             poll_seconds=settings.worker_poll_seconds,
             clock=clock,
             progress=progress,
+            operation_leases=operation_leases,
         )

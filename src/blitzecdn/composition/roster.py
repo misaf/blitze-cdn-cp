@@ -88,6 +88,7 @@ __all__ = [
     "OperationInputs",
     "RenderingInputs",
     "RosterEntry",
+    "bind_operation_leases",
     "bind_operations",
     "bind_queued_operations",
     "bind_renderings",
@@ -133,7 +134,8 @@ class RosterEntry:
 
     ``provider`` builds the capability's stores and services; it is required
     of every capability that has a service. ``queued`` are the edge operations
-    the API may queue and the worker runs.
+    the API may queue and the worker runs; ``leases`` are the claims, by kind,
+    that must outlast the queue's default lease.
     """
 
     module: str
@@ -141,6 +143,7 @@ class RosterEntry:
     rendering: Callable[[RenderingInputs], FeatureRendering[CdnSite]] | None = None
     operations: Callable[[OperationInputs], FeatureOperations] | None = None
     queued: Callable[[OperationInputs], Mapping[str, OperationRun]] | None = None
+    leases: Callable[[OperationInputs], Mapping[str, int]] | None = None
 
 
 def _security_rendering(inputs: RenderingInputs) -> FeatureRendering[CdnSite]:
@@ -232,6 +235,10 @@ ROSTER: tuple[RosterEntry, ...] = (
         queued=lambda inputs: certificate_operations.operation_handlers(
             inputs.certificates,
             renewal_budget_seconds=inputs.certificate_config.renewal_budget_seconds,
+        ),
+        leases=lambda inputs: certificate_operations.operation_leases(
+            renewal_budget_seconds=inputs.certificate_config.renewal_budget_seconds,
+            issuance_timeout_seconds=inputs.deployments_config.timeout_seconds,
         ),
     ),
     RosterEntry(
@@ -330,3 +337,17 @@ def bind_queued_operations(inputs: OperationInputs) -> dict[str, OperationRun]:
                 raise ValueError(f"edge operation {kind!r} is queued twice")
             runs[kind] = run
     return runs
+
+
+def bind_operation_leases(inputs: OperationInputs) -> dict[str, int]:
+    """Each queueable operation's declared lease, by kind; only queued kinds."""
+    runs = bind_queued_operations(inputs)
+    leases: dict[str, int] = {}
+    for entry in ROSTER:
+        if entry.leases is None:
+            continue
+        for kind, seconds in entry.leases(inputs).items():
+            if kind not in runs:
+                raise ValueError(f"lease declared for unqueued operation {kind!r}")
+            leases[kind] = seconds
+    return leases
