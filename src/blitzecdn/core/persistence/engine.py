@@ -1,7 +1,8 @@
 """The engine, the session, and the transaction boundary.
 
 Owns the connection, the process-wide write lock, and the Unit of Work every
-store joins.
+store joins. Writes serialize on that lock; reads outside a Unit of Work skip it
+and run beside the writer, as SQLite's WAL mode allows.
 """
 
 from __future__ import annotations
@@ -55,6 +56,11 @@ def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
     deferred transactions and committing around DDL behind SQLAlchemy. And
     ``BEGIN IMMEDIATE``, so a use case reserves the writer at its boundary and a
     busy database fails before any work, not halfway through it.
+
+    Every other transaction is a lock-free read, so SQLite itself refuses its
+    writes with ``PRAGMA query_only``: a store that writes through a reader fails
+    on the first statement instead of racing the writer for an upgrade that a
+    deferred snapshot can lose.
     """
 
     @event.listens_for(engine, "connect")
@@ -72,7 +78,9 @@ def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
 
     @event.listens_for(engine, "begin")
     def _on_begin(connection: Any) -> None:
-        connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate.get() else "BEGIN")
+        writing = immediate.get()
+        connection.exec_driver_sql(f"PRAGMA query_only = {0 if writing else 1}")
+        connection.exec_driver_sql("BEGIN IMMEDIATE" if writing else "BEGIN")
 
 
 class Database:
@@ -124,13 +132,28 @@ class Database:
         return Session(self.engine, expire_on_commit=False)
 
     @contextmanager
-    def session(self) -> Iterator[Session]:
-        """Join the Unit of Work, else commit or roll back this store call."""
+    def reader(self) -> Iterator[Session]:
+        """Join the Unit of Work, else read in a deferred, read-only transaction.
+
+        Outside a Unit of Work this takes no lock: WAL lets it read its snapshot
+        while another thread holds the writer, so a long transaction never stalls
+        ``/health`` or a listing. SQLite refuses any write it attempts.
+        """
         ambient = self._session.get()
         if ambient is not None:
             yield ambient
             return
-        with self.lock, self._new_session() as session, session.begin():
+        with self._new_session() as session, session.begin():
+            yield session
+
+    @contextmanager
+    def writer(self) -> Iterator[Session]:
+        """Join the Unit of Work, else open one around this store call.
+
+        Every write reserves the writer up front, so a store that reads before it
+        writes never meets the snapshot-upgrade failure a deferred transaction can.
+        """
+        with self._write() as session:
             yield session
 
     @contextmanager
@@ -139,8 +162,14 @@ class Database:
 
         No savepoints: failures must escape the outer scope to roll back.
         """
-        if self._session.get() is not None:
+        with self._write():
             yield
+
+    @contextmanager
+    def _write(self) -> Iterator[Session]:
+        ambient = self._session.get()
+        if ambient is not None:
+            yield ambient
             return
         immediate = self._immediate.set(True)
         try:
@@ -150,7 +179,7 @@ class Database:
                 session.connection()
                 token = self._session.set(session)
                 try:
-                    yield
+                    yield session
                 finally:
                     self._session.reset(token)
         finally:

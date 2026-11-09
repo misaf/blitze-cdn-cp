@@ -3,6 +3,7 @@ import threading
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 from support.control_plane import advance, build_application
 from support.policy import domain_from_settings, site_from_settings
@@ -474,6 +475,55 @@ def test_begin_immediate_reserves_the_cross_process_writer(settings):
             other.execute("BEGIN IMMEDIATE")
     finally:
         other.close()
+
+
+@pytest.mark.parametrize("pool_connections", [False, True])
+def test_a_long_transaction_does_not_block_a_read_in_another_thread(
+    settings, pool_connections
+):
+    """Reads outside a Unit of Work skip the write lock and read beside the writer.
+
+    The writer holds its transaction until the read in the other thread has
+    finished; were reads still serialized on the lock, that read would wait for
+    the writer and the writer for it, and the timeout would fire.
+    """
+    repository = Stores(settings.database_path, pool_connections=pool_connections)
+    repository.zones.create_domain(Domain(name="committed.example"))
+    read: list[list[str]] = []
+    finished = threading.Event()
+
+    def read_domains() -> None:
+        read.append([domain.name for domain in repository.zones.list_domains()])
+        finished.set()
+
+    try:
+        with repository.transaction():
+            repository.zones.create_domain(Domain(name="uncommitted.example"))
+            reader = threading.Thread(target=read_domains)
+            reader.start()
+            assert finished.wait(timeout=10), "the read waited for the writer"
+            reader.join()
+    finally:
+        repository.close()
+
+    # The read saw the last committed snapshot, not the open transaction.
+    assert read == [["committed.example"]]
+
+
+def test_a_read_outside_a_transaction_cannot_write(settings):
+    """SQLite refuses a write made through the lock-free read path."""
+    repository = Stores(settings.database_path)
+    try:
+        with (
+            pytest.raises(OperationalError, match="readonly"),
+            repository.database.reader() as session,
+        ):
+            session.connection().exec_driver_sql("DELETE FROM ansible_settings WHERE 0")
+        # The pragma does not stick to the connection: writers still write.
+        repository.ansible_settings.set_setting("blitzecdn_forks", 5)
+        assert repository.ansible_settings.list_settings() == {"blitzecdn_forks": 5}
+    finally:
+        repository.close()
 
 
 def test_record_updates_detect_a_stale_expected_version(settings):

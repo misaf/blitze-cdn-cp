@@ -46,7 +46,7 @@ def paginated_client(settings, seeded, monkeypatch):
         deployment = control.deployments.deploy("tester")
         repository.workflows.create(f"workflow-{number}", "certificate", "tester")
     # Force timestamp ties so page traversal also checks the ID tie-breaker.
-    with repository.database.session() as session:
+    with repository.database.writer() as session:
         for row in [DeploymentRow, ReleaseRow, WorkflowRow]:
             session.execute(
                 update(row).values(created_at=datetime(2026, 1, 1, tzinfo=UTC))

@@ -148,7 +148,7 @@ def test_pruning_is_bounded_and_expired_rows_are_hidden_during_catch_up(
     retention_store,
 ):
     store, repository = retention_store
-    with repository.database.session() as session:
+    with repository.database.writer() as session:
         session.execute(
             insert(TrafficHourRow),
             [
@@ -165,7 +165,7 @@ def test_pruning_is_bounded_and_expired_rows_are_hidden_during_catch_up(
         )
     first = store.prune(30)
     assert first.deleted_hours == 10_000 and first.more
-    with repository.database.session() as session:
+    with repository.database.reader() as session:
         assert session.scalar(select(func.count()).select_from(TrafficHourRow)) == 1
     assert rows(store).total == 0
     second = store.prune(30)
@@ -196,7 +196,7 @@ def test_failed_audit_rolls_back_deletion_and_watermark(
     with pytest.raises(RuntimeError, match="audit failed"):
         service.prune("alice", retention_days=30)
     assert rows(store).total == 1
-    with repository.database.session() as session:
+    with repository.database.reader() as session:
         assert session.get(TrafficRetentionRow, 1) is None
     service.prune("alice", retention_days=0)
     assert rows(store).total == 1
@@ -220,7 +220,7 @@ def test_retention_schedule_runs_without_edges_or_collection_and_can_be_disabled
         job = control.job_queue.enqueue_scheduled("prune-traffic")
         control.job_runner.tick()
         assert control.repository.jobs.get(job.id).status is JobStatus.SUCCEEDED
-        with control.repository.database.session() as session:
+        with control.repository.database.reader() as session:
             assert session.get(TrafficRetentionRow, 1) is not None
     finally:
         control.container.close()

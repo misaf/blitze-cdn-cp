@@ -59,7 +59,7 @@ class TrafficStore:
         self._db = database
 
     def collection_status(self, edge: str) -> CollectionRecord | None:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(TrafficCollectionRow, edge)
             if row is None:
                 return None
@@ -76,7 +76,7 @@ class TrafficStore:
     def start_collection(
         self, edges: Sequence[str], attempt_id: str, started_at: datetime
     ) -> None:
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             for edge in edges:
                 row = session.get(TrafficCollectionRow, edge)
                 if row is None:
@@ -93,7 +93,7 @@ class TrafficStore:
                     row.last_error = None
 
     def finish_collection(self, result: EdgeCollection, attempt_id: str) -> None:
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(TrafficCollectionRow, result.edge)
             if row is None or row.attempt_id != attempt_id:
                 return
@@ -115,7 +115,7 @@ class TrafficStore:
         proposed = (
             self._db.now().astimezone(UTC) - timedelta(days=retention_days)
         ).replace(minute=0, second=0, microsecond=0)
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             state = session.get(TrafficRetentionRow, 1)
             if state is None:
                 state = TrafficRetentionRow(id=1, cutoff=proposed)
@@ -171,7 +171,7 @@ class TrafficStore:
         statement = statement.order_by(
             TrafficHourRow.hour, TrafficHourRow.hostname, TrafficHourRow.edge
         )
-        with self._db.session() as session:
+        with self._db.reader() as session:
             state = session.get(TrafficRetentionRow, 1)
             if state is not None:
                 statement = statement.where(TrafficHourRow.hour >= state.cutoff)
@@ -197,7 +197,7 @@ class TrafficStore:
 
     def checkpoints(self) -> dict[str, tuple[LogCursor, ...]]:
         grouped: dict[str, list[LogCursor]] = {}
-        with self._db.session() as session:
+        with self._db.reader() as session:
             for row in session.scalars(
                 select(TrafficCursorRow).order_by(
                     TrafficCursorRow.latest_hour,
@@ -212,7 +212,7 @@ class TrafficStore:
         self, edge: str, collection: CollectedUsage, *, path_limit: int = 0
     ) -> EdgeCollection:
         requests = bytes_sent = 0
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             state = session.get(TrafficRetentionRow, 1)
             for batch in collection.batches:
                 current = session.get(TrafficCursorRow, (edge, batch.end.stream_id))
@@ -396,7 +396,7 @@ class TrafficStore:
             query,
         )
         statement = statement.group_by(bucket).order_by(bucket)
-        with self._db.session() as session:
+        with self._db.reader() as session:
             statement = self._retained(session, statement, TrafficHourRow)
             page = read_page(
                 session,
@@ -443,7 +443,7 @@ class TrafficStore:
         statement = statement.group_by(TrafficPathHourRow.path).order_by(
             requests.desc(), TrafficPathHourRow.path
         )
-        with self._db.session() as session:
+        with self._db.reader() as session:
             statement = self._retained(session, statement, TrafficPathHourRow)
             page = read_page(
                 session,
@@ -523,7 +523,7 @@ class TrafficStore:
     def hourly(
         self, *, edge: str, hostname: str, start: datetime, end: datetime
     ) -> tuple[HourlyUsage, ...]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(TrafficHourRow)
                 .where(
