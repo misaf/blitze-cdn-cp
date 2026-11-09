@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible, variable_scope
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
@@ -19,7 +19,7 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
     resolve_policy,
 )
-from blitzecdn.capabilities.dns.domain.hosts import host_source
+from blitzecdn.capabilities.dns.domain.hosts import host_source, unservable_hosts
 from blitzecdn.core.domain.paths import PathRedirect, path_matches, path_pattern
 from blitzecdn.core.domain.site_policy import SitePolicy
 
@@ -280,7 +280,8 @@ def test_the_edge_document_names_each_locations_variable_scope():
 
     (location,) = site_to_ansible(host)["locations"]
 
-    assert location["variable_scope"] == "example-com_path_assets"
+    assert location["variable_scope"] == variable_scope("example-com", "assets")
+    assert location["variable_scope"] != variable_scope("example-com", "other")
     assert location["path"] == "/static/"
 
 
@@ -288,3 +289,56 @@ def test_a_host_without_path_rules_carries_no_locations_to_the_edge():
     (host,) = derive_hosts([ZONE], [], [_record("www")])
 
     assert "locations" not in site_to_ansible(host)
+
+
+def test_query_string_mode_stays_per_hostname():
+    """A purge rebuilds the cache key from the host's policy alone."""
+    with pytest.raises(ValidationError, match="cache_query_string_mode"):
+        _rule("q", path="/static/", overrides={"cache_query_string_mode": "ignore"})
+
+
+def test_a_path_rule_narrower_than_a_wildcard_server_is_refused_by_name():
+    """The wildcard server renders once for every name, so it cannot be honoured."""
+    rules = [
+        _rule(
+            "shop",
+            match="shop.example.com",
+            path="/cart/",
+            overrides={"cache_enabled": False},
+        )
+    ]
+    records = [_record("*")]
+
+    assert derive_hosts([ZONE], rules, records) == []
+    (refused,) = unservable_hosts([ZONE], rules, records)
+    assert "path rule 'shop'" in refused.reason
+    assert "*.example.com" in refused.reason
+
+
+def test_a_path_rule_matching_the_wildcard_itself_is_served():
+    rules = [
+        _rule(
+            "all",
+            match="*.example.com",
+            path="/cart/",
+            overrides={"cache_enabled": False},
+        )
+    ]
+
+    (host,) = derive_hosts([ZONE], rules, [_record("*")])
+
+    assert host.locations[0].server_names == ("*.example.com",)
+
+
+def test_a_location_can_require_a_capability_its_host_does_not():
+    rules = [
+        _rule(
+            "country", path="/geo/", overrides={"visitor_headers": {"ip_country": True}}
+        )
+    ]
+    (host,) = derive_hosts([ZONE], rules, [_record("www")])
+
+    assert "geoip" not in host.policy.capability_requirements
+    assert host.capability_requirements["geoip"] == (
+        "visitor_headers.ip_country (path rule 'country')",
+    )

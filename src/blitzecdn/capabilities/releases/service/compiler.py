@@ -108,7 +108,7 @@ def _capability_findings(
     module). An edge that declared nothing is assumed to have what the controller
     has.
     """
-    requested = site.policy.capability_requirements
+    requested = site.capability_requirements
     for token in sorted(set(requested) - set(installed)):
         settings = ", ".join(requested[token])
         yield ReleaseFinding(

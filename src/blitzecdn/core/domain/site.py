@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -90,6 +91,41 @@ class CdnSite(BaseModel):
         """The rules a contract states about a host rather than about a zone."""
         self.policy.validate_for_site(self)
         return self
+
+    @property
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """What the host's policy and each path location's policy require.
+
+        A location can turn on a path-scoped setting its host leaves off, such
+        as the BZ-IPCountry header, so it can need a capability the host does
+        not. Its settings are named with the path rule that set them.
+        """
+        requested = {
+            token: list(settings)
+            for token, settings in self.policy.capability_requirements.items()
+        }
+        host = self.policy.settings(mode="json")
+        for location in self.locations:
+            changed = {
+                name
+                for name, value in location.settings.items()
+                if host.get(name) != value
+            }
+            if not changed:
+                continue
+            scoped = self.policy.applying(location.settings).capability_requirements
+            for token, settings in scoped.items():
+                requested.setdefault(token, []).extend(
+                    f"{setting} (path rule {location.rule!r})"
+                    for setting in settings
+                    # Nested settings are named `block.field`.
+                    if setting.split(".", 1)[0] in changed
+                )
+        return {
+            token: tuple(dict.fromkeys(settings))
+            for token, settings in requested.items()
+            if settings
+        }
 
     @property
     def serves_traffic(self) -> bool:

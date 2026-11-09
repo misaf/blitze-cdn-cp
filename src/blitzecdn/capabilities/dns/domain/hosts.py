@@ -221,8 +221,11 @@ def _derive(
                             "locations": _locations(policy, path_rules, server_names),
                         }
                     )
-                except ValidationError as exc:
-                    refusals[(name, server_names)] = _reason(exc)
+                except ValueError as exc:
+                    # ValidationError is a ValueError; a wildcard refusal is not.
+                    refusals[(name, server_names)] = (
+                        _reason(exc) if isinstance(exc, ValidationError) else str(exc)
+                    )
                     continue
                 hosts.append(site)
     return hosts, [
@@ -245,6 +248,7 @@ def _locations(
     scoped = SitePolicy.path_setting_names()
     locations: list[PathLocation] = []
     for rule in path_rules:
+        _refuse_a_partial_wildcard(rule, server_names)
         covered = tuple(name for name in server_names if rule.matches(name))
         if not covered or rule.path is None:
             continue
@@ -268,6 +272,28 @@ def _locations(
             )
         )
     return tuple(locations)
+
+
+def _refuse_a_partial_wildcard(rule: Rule, server_names: tuple[str, ...]) -> None:
+    """Raise when a path rule covers only some of the names a wildcard serves.
+
+    A ``*.example.com`` server answers ``shop.example.com`` too, but it renders
+    once for every name it covers, so a path rule matching ``shop.example.com``
+    alone has nowhere to go. Leaving it out would serve those requests without
+    it while ``resolve`` says it applies; refusing names it instead.
+    """
+    if rule.match == "*":
+        return
+    target = rule.match.removeprefix("*.")
+    for name in server_names:
+        if not name.startswith("*.") or rule.matches(name):
+            continue
+        if target.endswith("." + name[2:]):
+            raise ValueError(
+                f"path rule {rule.name!r} matches {rule.match!r}, only some of "
+                f"the hostnames the wildcard {name!r} serves; match the "
+                f"wildcard itself, or add a proxied record for {target!r}"
+            )
 
 
 def _policy_for(zone: Domain, rules: Sequence[Rule], rule_name: str | None) -> Domain:
