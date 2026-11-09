@@ -7,10 +7,9 @@ submitted or read, so deployment and scheduled jobs stay internal.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Iterable
 
-from blitzecdn.capabilities.jobs.domain import Job
+from blitzecdn.capabilities.jobs.domain import Job, JobPayload
 from blitzecdn.capabilities.jobs.service.queue import JobQueue
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
@@ -24,23 +23,12 @@ class OperationService:
         self.queue = queue
         self.kinds = frozenset(kinds)
 
-    def submit(
-        self,
-        kind: str,
-        payload: Mapping[str, Any],
-        *,
-        dedupe_key: str | None = None,
-    ) -> Job:
-        """Queue one run of ``kind``; refuse a second while ``dedupe_key`` is busy."""
+    def submit(self, operation: JobPayload, *, dedupe_key: str | None = None) -> Job:
+        """Queue one run; refuse a second while ``dedupe_key`` is busy."""
+        kind = operation.kind
         if kind not in self.kinds:
             raise NotFoundError(f"no operation kind {kind!r} is declared")
-        job = self.queue.jobs.enqueue(
-            kind=kind,
-            payload=payload,
-            available_at=self.queue.clock(),
-            dedupe_key=dedupe_key,
-            max_attempts=1,
-        )
+        job = self.queue.enqueue(operation, dedupe_key=dedupe_key, max_attempts=1)
         if job is None:
             raise ConflictError(
                 f"a {kind} operation for the same target is already queued or "

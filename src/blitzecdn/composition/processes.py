@@ -6,7 +6,7 @@ it: the API's node startup, and the worker's job handlers.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,19 +21,20 @@ from blitzecdn.capabilities.deployments.service.convergence import DeploymentSer
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
     Defer,
+    DeploymentJob,
     Done,
     Fail,
     JobOutcome,
+    JobPayload,
     Retry,
+    ScheduledFiring,
 )
-from blitzecdn.capabilities.jobs.ports import JobHandler, OperationRun, OperationRuns
-from blitzecdn.capabilities.jobs.service import (
-    DEPLOYMENT_JOB,
-    SCHEDULED_JOB,
-    JobQueue,
-    JobRunner,
-    JobScheduler,
+from blitzecdn.capabilities.jobs.ports import (
+    JobHandler,
+    OperationRuns,
+    QueuedOperation,
 )
+from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
 from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.composition.infrastructure import Adapters, InfrastructureProvider
@@ -114,10 +115,10 @@ class WorkerProvider(Provider):
     ) -> Worker:
         """Only this installs the queue's handlers."""
         queue.consume_with(
-            {
-                **_job_handlers(deployments, maintenance),
-                **_operation_handlers(runs),
-            }
+            (
+                *_job_handlers(deployments, maintenance),
+                *_operation_handlers(runs.values()),
+            )
         )
         return Worker(runner=runner, scheduler=scheduler, operations=operations)
 
@@ -156,12 +157,12 @@ def handoff_container(
 
 def _job_handlers(
     deployments: DeploymentService, maintenance: MaintenanceService
-) -> dict[str, JobHandler]:
+) -> tuple[JobHandler[Any], ...]:
     """What each job kind does in the worker; both handlers tolerate redelivery."""
     failed_states = TERMINAL_STATUSES - {DeploymentStatus.SUCCEEDED}
 
-    def deployment(payload: Mapping[str, Any]) -> JobOutcome:
-        deployment_id = str(payload["deployment_id"])
+    def deployment(job: DeploymentJob) -> JobOutcome:
+        deployment_id = job.deployment_id
         try:
             result = deployments.run_queued(deployment_id)
         except DeploymentBusyError as exc:
@@ -184,23 +185,28 @@ def _job_handlers(
             )
         return DONE
 
-    def scheduled(payload: Mapping[str, Any]) -> JobOutcome:
-        maintenance.run(str(payload["job"]))
+    def scheduled(firing: ScheduledFiring) -> JobOutcome:
+        maintenance.run(firing.job)
         return DONE
 
-    return {DEPLOYMENT_JOB: deployment, SCHEDULED_JOB: scheduled}
+    return (
+        JobHandler(DeploymentJob, deployment),
+        JobHandler(ScheduledFiring, scheduled),
+    )
 
 
-def _operation_handlers(runs: Mapping[str, OperationRun]) -> dict[str, JobHandler]:
+def _operation_handlers(
+    operations: Iterable[QueuedOperation[Any]],
+) -> tuple[JobHandler[Any], ...]:
     """Each edge operation as a job: its report is the result, a refusal fails it."""
 
-    def handler(run: OperationRun) -> JobHandler:
-        def handle(payload: Mapping[str, Any]) -> JobOutcome:
+    def handler[P: JobPayload](operation: QueuedOperation[P]) -> JobHandler[P]:
+        def handle(payload: P) -> JobOutcome:
             try:
-                return Done(result=run(payload))
+                return Done(result=operation.run(payload))
             except BlitzeError as error:
                 return Fail(str(error))
 
-        return handle
+        return JobHandler(operation.payload, handle)
 
-    return {kind: handler(run) for kind, run in runs.items()}
+    return tuple(handler(operation) for operation in operations)

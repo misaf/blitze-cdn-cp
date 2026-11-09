@@ -7,9 +7,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
 from blitzecdn.capabilities.edges.service.operations import (
-    REMOVE_OPERATION,
+    EdgeRemovalJob,
     remove_dedupe_key,
-    remove_payload,
 )
 from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.entrypoints.api.dependencies import (
@@ -97,8 +96,9 @@ def remove_edge(
     edges.get_edge(name)
     queued = as_queued(
         queued_operations.submit(
-            REMOVE_OPERATION,
-            remove_payload(operator, name=name, decommission=decommission, force=force),
+            EdgeRemovalJob(
+                operator=operator, name=name, decommission=decommission, force=force
+            ),
             dedupe_key=remove_dedupe_key(name),
         )
     )

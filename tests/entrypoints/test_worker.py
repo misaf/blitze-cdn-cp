@@ -11,6 +11,7 @@ import signal
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from support.jobs import handling
 from support.stores import Stores
 
 import blitzecdn.composition as composition
@@ -79,7 +80,8 @@ def test_sigterm_during_a_claimed_job_finishes_it_then_stops(
     def worker_container(resolved: Settings):
         container = _RecordingContainer(real_container(resolved))
         worker = container.get(Worker)
-        worker.runner.queue.handlers["example"] = handler
+        (example,) = handling({"example": handler})
+        worker.runner.queue.handlers[example.kind] = example
         built.append(container)
         return container
 
