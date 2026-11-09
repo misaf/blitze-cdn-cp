@@ -31,9 +31,9 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 
 def test_remote_rollout_runs_after_admission_commits(settings):
