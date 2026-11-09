@@ -8,12 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, cast
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, SecretStr
-
-if TYPE_CHECKING:
-    from blitzecdn.core.features.resolution.configuration import CapabilityConfig
 
 __all__ = [
     "CapabilitySetting",
@@ -29,7 +26,7 @@ class ConfigurationModel(BaseModel):
 
     Fields use their existing ``BLITZE_*`` name as an alias. Pydantic owns
     defaults, validation and normalization; declarations remain available to
-    introspection, backup portability checks and older extensions.
+    introspection and backup portability checks.
     """
 
     model_config = ConfigDict(
@@ -59,6 +56,7 @@ class ConfigurationModel(BaseModel):
                         name=alias,
                         summary=field.description or "",
                         minimum_bytes=int(cast(int, metadata.get("minimum_bytes", 0))),
+                        ansible=metadata.get("ansible", True) is not False,
                     )
                 )
             else:
@@ -85,11 +83,6 @@ class ConfigurationModel(BaseModel):
             model=cls,
         )
 
-    @classmethod
-    def from_capability_config(cls, config: CapabilityConfig) -> Self:
-        """Compatibility for callers already holding a scoped configuration."""
-        return config.as_model(cls)
-
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentKey:
@@ -105,6 +98,10 @@ class EnvironmentKey:
     summary: str = ""
     required: bool = False
     minimum_bytes: int = 0
+    #: Whether Ansible's subprocess environment receives this secret. False for
+    #: a credential only the controller itself uses, so no playbook — and no
+    #: edge a playbook writes to — can ever be handed it.
+    ansible: bool = True
 
     def __post_init__(self) -> None:
         if self.minimum_bytes < 0:
@@ -172,13 +169,12 @@ class ConfigurationContribution:
     """
 
     feature: str
-    #: Secrets. Only these are copied into Ansible's subprocess environment,
-    #: they remain ``SecretStr`` throughout, and they never travel through argv
-    #: or desired state.
+    #: The owning Pydantic model validates every configuration contribution.
+    model: type[ConfigurationModel]
+    #: Secrets. Only these — and of them only those with ``ansible`` set — are
+    #: copied into Ansible's subprocess environment; they remain ``SecretStr``
+    #: throughout, and they never travel through argv or desired state.
     environment_keys: tuple[EnvironmentKey, ...] = ()
     #: Non-secrets. Resolved to the declared type and handed back through
     #: :class:`~blitzecdn.core.features.resolution.CapabilityConfig`.
     settings: tuple[CapabilitySetting, ...] = ()
-    #: Built-ins validate once through their owning Pydantic model. Extensions
-    #: may continue declaring individual settings and environment keys.
-    model: type[ConfigurationModel] | None = None

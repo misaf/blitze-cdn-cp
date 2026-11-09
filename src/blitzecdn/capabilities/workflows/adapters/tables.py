@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, Index, String
+from sqlalchemy import CheckConstraint, Index
 from sqlalchemy.dialects.sqlite import JSON
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
-from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime
 
 __all__ = ["WorkflowRow"]
 
 
-class WorkflowRow(Base, table=True):
+class WorkflowRow(Base):
     """Crash-visible progress for work that crosses out of this transaction."""
 
     __tablename__ = "workflows"
@@ -26,7 +26,8 @@ class WorkflowRow(Base, table=True):
             name="workflows_kind_check",
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
+            "status IN "
+            "('pending', 'running', 'succeeded', 'failed', 'needs_review', 'reviewed')",
             name="workflows_status_check",
         ),
         # `created_at`, not `updated_at`: every query here orders by the
@@ -36,14 +37,14 @@ class WorkflowRow(Base, table=True):
         Index("ix_workflows_created_at", "created_at"),
     )
 
-    id: str = Field(sa_column=Column(String, primary_key=True))
-    kind: str
-    resource_id: str | None = None
-    status: str
-    operator: str
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    id: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column()
+    resource_id: Mapped[str | None] = mapped_column()
+    status: Mapped[str] = mapped_column()
+    operator: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
     #: An append-only list of checkpoints. Ordered, read whole, never queried
     #: into — a child table would buy nothing but joins.
-    steps: list[Any] = Field(default_factory=list, sa_type=JSON)
-    error: str | None = None
+    steps: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column()

@@ -13,8 +13,9 @@
       ansible.builtin.include_tasks: prepare.yml
       when: blitzecdn_edge_stack_resolved_image is not defined
 
-    # Re-rendered rather than assumed: prepare.yml wrote this file, but a
-    # rollback further down rewrites it, and a converge that resumes after one
+    # Rendered here, after the release is activated, so the file always names
+    # the image this converge resolved — and re-rendered on every run, because
+    # a rollback further down rewrites it and a converge that resumes after one
     # must not leave the previous version's compose file describing the fleet.
     - name: Render the Compose project
       ansible.builtin.import_tasks: compose.yml
@@ -59,9 +60,7 @@
       community.docker.docker_container_exec:
         container: "{{ blitzecdn_edge_runtime.container }}"
         argv: [nginx, -s, reload, -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
-      when:
-        - not ansible_check_mode
-        - blitzecdn_config_release_enabled | default(false) | bool
+      when: not ansible_check_mode
 
     - name: Verify the edge is serving
       ansible.builtin.import_tasks: health.yml

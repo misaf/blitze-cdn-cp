@@ -1,4 +1,34 @@
 {% set firewall = site.firewall | default({}, true) or {} %}
+{#
+  allow_sources exempt a client from the country and method rules as well as
+  from deny_sources. Those rules are `if … return`, which runs in the rewrite
+  phase, before `allow` and `deny` are consulted in the access phase; on their
+  own they would refuse an allowed network before its `allow` was ever read.
+  security-http.conf.j2 declares the per-site geo this guard reads, under the
+  same condition. Path rules are not client rules and stay absolute: see the
+  contract's allow_sources description.
+#}
+{% if firewall.allow_sources | default([], true) %}
+{% set exempt = '$blitzecdn_firewall_exempt_' ~ (site.name | replace('-', '_')) %}
+{% if firewall.denied_countries | default([], true) or firewall.allowed_countries | default([], true) %}
+        set $blitzecdn_firewall_country "{{ exempt }}:$blitzecdn_country";
+{% endif %}
+{% if firewall.denied_countries | default([], true) %}
+        if ($blitzecdn_firewall_country ~ "^0:({{ firewall.denied_countries | join('|') }})$") { return 403; }
+{% endif %}
+{% if firewall.allowed_countries | default([], true) %}
+        if ($blitzecdn_firewall_country !~ "^(1:.*|0:({{ firewall.allowed_countries | join('|') }}))$") { return 403; }
+{% endif %}
+{% if firewall.denied_methods | default([], true) or firewall.allowed_methods | default([], true) %}
+        set $blitzecdn_firewall_method "{{ exempt }}:$request_method";
+{% endif %}
+{% if firewall.denied_methods | default([], true) %}
+        if ($blitzecdn_firewall_method ~ "^0:({{ firewall.denied_methods | join('|') }})$") { return 405; }
+{% endif %}
+{% if firewall.allowed_methods | default([], true) %}
+        if ($blitzecdn_firewall_method !~ "^(1:.*|0:({{ firewall.allowed_methods | join('|') }}))$") { return 405; }
+{% endif %}
+{% else %}
 {% if firewall.denied_countries | default([], true) %}
         if ($blitzecdn_country ~ "^({{ firewall.denied_countries | join('|') }})$") { return 403; }
 {% endif %}
@@ -8,9 +38,39 @@
 {% if firewall.denied_methods | default([], true) %}
         if ($request_method ~ "^({{ firewall.denied_methods | join('|') }})$") { return 405; }
 {% endif %}
+{% if firewall.allowed_methods | default([], true) %}
+        if ($request_method !~ "^({{ firewall.allowed_methods | join('|') }})$") { return 405; }
+{% endif %}
+{% endif %}
+{#
+  $uri, not $request_uri: decoded and slash-merged, so /%61pi/ or //api/ cannot
+  slip past. A path ending in '/' is a prefix, any other one exact; the
+  contract's allowed_paths_pattern spells the same rule. case_insensitive_paths
+  makes it `!~*`, as it makes denied_paths `~*` in security-server.conf.j2.
+#}
+{% if firewall.allowed_paths | default([], true) %}
+{% set patterns = namespace(items=[]) %}
+{% for path in firewall.allowed_paths %}
+{% set patterns.items = patterns.items + [(path | regex_escape) ~ ('' if path.endswith('/') else '$')] %}
+{% endfor %}
+        if ($uri !~{{ '*' if firewall.case_insensitive_paths | default(false) else '' }} "^({{ patterns.items | join('|') }})") { return 403; }
+{% endif %}
 {% for source in firewall.allow_sources | default([], true) %}
         allow {{ source }};
 {% endfor %}
 {% for source in firewall.deny_sources | default([], true) %}
         deny {{ source }};
 {% endfor %}
+{#
+  The rate limit counts per site and client address in the shared zone of its
+  rate. The key comes from the site's map in security-http.conf.j2, which
+  leaves it empty, and so uncounted, for allow_sources and for paths outside
+  the limited ones. A plain `set`, never one inside `if`: an `if` block that
+  matches takes the request out of this location's try_files.
+#}
+{% set rate_limit = site.rate_limit | default({}, true) or {} %}
+{% if rate_limit.rate | default('', true) %}
+        set $blitzecdn_rate_limit_key $blitzecdn_rate_limit_key_{{ site.name | replace('-', '_') }};
+        limit_req zone=blitzecdn_rate_{{ rate_limit.rate | replace('/', '') }}{% if rate_limit.burst | default(0) | int > 0 %} burst={{ rate_limit.burst | int }}{% endif %} nodelay;
+        limit_req_status {{ rate_limit.status | default(429) | int }};
+{% endif %}

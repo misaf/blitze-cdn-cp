@@ -7,18 +7,12 @@
 blitzecdn.toml
 
 .state/
-generated/*.yml
-data/*.yml
-data/*.db
-data/*.db-shm
-data/*.db-wal
 # Runtime locks a deploy takes. `uv.lock` is not one of them: it is the
 # dependency lockfile every install and every CI run builds from, so it has to
 # be tracked. Without this exception the broad pattern above silently drops it,
 # and `uv sync --frozen` then fails on a checkout that looks complete.
 **/*.lock
 !uv.lock
-log/*.log
 *.retry
 
 __pycache__/
@@ -32,7 +26,9 @@ dist/
 .hypothesis/
 
 .coverage
+.coverage.*
 coverage.xml
+reports/
 htmlcov/
 
 .DS_Store

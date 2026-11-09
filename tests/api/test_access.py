@@ -12,7 +12,7 @@ from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
 
 
 @pytest.mark.parametrize(
-    "path", ["/docs", "/redoc", "/openapi.json", "/health", "/v1/hosts"]
+    "path", ["/docs", "/redoc", "/openapi.json", "/health", "/v3/hosts"]
 )
 @pytest.mark.parametrize("peer", ["198.51.100.8", "2001:db8:2::8", "not-an-ip"])
 def test_unlisted_clients_cannot_reach_any_route(settings, path, peer):
@@ -45,9 +45,9 @@ def test_allowed_clients_can_read_schema_but_still_need_auth(settings, peer):
     restricted = settings.model_copy(update={"allowed_ips": ("203.0.113.0/24",)})
     with TestClient(control_plane_app(restricted), client=(peer, 1234)) as client:
         assert client.get("/openapi.json").status_code == 200
-        assert client.get("/v1/hosts").status_code == 401
+        assert client.get("/v3/hosts").status_code == 401
         assert (
-            client.get("/v1/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
+            client.get("/v3/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
 
 
@@ -90,3 +90,27 @@ def test_unlisted_websocket_is_closed_before_application_runs():
     )
     send.assert_awaited_once_with({"type": "websocket.close", "code": 1008})
     app.assert_not_called()
+
+
+@pytest.mark.parametrize("header", ["X-Forwarded-For", "Forwarded"])
+def test_proxied_loopback_request_is_allowed_but_warned_once(settings, caplog, header):
+    restricted = settings.model_copy(update={"allowed_ips": ("203.0.113.0/24",)})
+    with TestClient(
+        control_plane_app(restricted), client=("127.0.0.1", 1234)
+    ) as client:
+        for _ in range(2):
+            response = client.get("/health", headers={header: "198.51.100.8"})
+            assert response.status_code == 200
+    warnings = [r for r in caplog.records if "forwarding header" in r.getMessage()]
+    assert len(warnings) == 1
+
+
+@pytest.mark.parametrize("peer", ["127.0.0.1", "203.0.113.8"])
+def test_direct_requests_log_no_proxy_warning(settings, caplog, peer):
+    restricted = settings.model_copy(update={"allowed_ips": ("203.0.113.0/24",)})
+    with TestClient(control_plane_app(restricted), client=(peer, 1234)) as client:
+        assert client.get("/health").status_code == 200
+        if peer != "127.0.0.1":
+            # A listed non-loopback peer relaying headers is not a local proxy.
+            client.get("/health", headers={"X-Forwarded-For": "198.51.100.8"})
+    assert "forwarding header" not in caplog.text

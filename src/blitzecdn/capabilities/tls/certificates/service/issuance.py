@@ -1,11 +1,13 @@
 """Issuing, uploading, renewing and reporting on TLS certificates.
 
 Certificate state is written to the zone or rule that produced a host, through
-``HostService.activate_managed_certificate``; the host itself is derived.
+``SiteEditing.activate_managed_certificate``; the host itself is derived.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -13,14 +15,15 @@ from pathlib import Path
 from time import monotonic
 from typing import Literal
 
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.deployments import DeploymentRequirementKind
 from blitzecdn.capabilities.tls.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CERTIFICATE_WORKFLOW,
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
+    PreflightAttempt,
+    PreflightBackoff,
     PreflightReport,
     ReconciliationResult,
     RenewalResult,
@@ -34,6 +37,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     Issuer,
     MaterialReferences,
     Preflight,
+    PreflightAttempts,
     RecordReader,
     SiteEditor,
     SiteReader,
@@ -41,15 +45,20 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator,
     WorkflowProgress,
 )
-from blitzecdn.capabilities.tls.contract import CertificateMode, CertificateVersion
+from blitzecdn.capabilities.tls.contract import (
+    CertificateMode,
+    CertificateVersion,
+    TlsPolicy,
+)
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
     BlitzeError,
     ConflictError,
     DeploymentBusyError,
     NotFoundError,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +68,8 @@ class CertificatePolicy:
     """Configuration owned by certificate workflows."""
 
     default_email: str | None
+    #: How long scheduled reconciliation leaves a site with a blocked preflight.
+    preflight_backoff: PreflightBackoff
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,7 @@ class CertificatePersistence:
     certificates: CertificateStore
     uow: UnitOfWork
     requirements: DeploymentRequirements
+    preflight_attempts: PreflightAttempts
 
 
 @dataclass(frozen=True)
@@ -95,7 +107,7 @@ class CertificateService:
         site_editor: SiteEditor,
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.clock = clock
         self.material_references = material_references
@@ -131,7 +143,7 @@ class CertificateService:
             progress.checkpoint("installed", {"site": name})
             with self.persistence.uow.transaction():
                 self.site_editor.activate_managed_certificate(
-                    site, CertificateMode.UPLOADED, info.version
+                    site, CertificateMode.UPLOADED, info.version, operator
                 )
                 self.persistence.requirements.require(
                     DeploymentRequirementKind.CERTIFICATES
@@ -162,6 +174,56 @@ class CertificateService:
             deployed=self.deployments.site_is_deployed(site.name),
             record_ttl=record.ttl,
         )
+
+    def preflight_attempts(self) -> list[PreflightAttempt]:
+        """Sites whose last scheduled preflight blocked, and when each is next due."""
+        return self.persistence.preflight_attempts.list_all()
+
+    def _preflight_due(
+        self, site: CdnSite, *, force: bool
+    ) -> tuple[PreflightReport | None, str]:
+        """Preflight ``site`` unless it is backing off; record a blocked result.
+
+        Returns the report, or ``None`` with the reason the check was not made.
+        """
+        record = self.dns.record_for_hostname(site.server_names[0])
+        # Deployment readiness is part of the answer but not of the site, so a
+        # first deployment must end the backoff as a DNS change does.
+        deployed = self.deployments.site_is_deployed(site.name)
+        fingerprint = _fingerprint(
+            site, record.model_dump(mode="json"), deployed=deployed
+        )
+        attempts = self.persistence.preflight_attempts
+        backoff = self.policy.preflight_backoff
+        previous = attempts.get(site.name)
+        now = self.clock()
+        if (
+            not force
+            and previous is not None
+            and not backoff.due(previous, fingerprint=fingerprint, now=now)
+        ):
+            return None, (
+                f"{previous.summary} (checked {previous.failures} time(s) "
+                f"without change, last at {previous.checked_at:%Y-%m-%d %H:%M} UTC; "
+                f"next check after {previous.next_check_at:%Y-%m-%d %H:%M} UTC, "
+                "sooner if the site, its DNS record or its deployment changes)"
+            )
+        report = self.execution.preflight.check(
+            site, deployed=deployed, record_ttl=record.ttl
+        )
+        if report.ok:
+            attempts.clear(site.name)
+        else:
+            attempts.record(
+                backoff.after(
+                    previous,
+                    site=site.name,
+                    fingerprint=fingerprint,
+                    checked_at=now,
+                    summary=report.summary(),
+                )
+            )
+        return report, report.summary()
 
     def _enforce_preflight(
         self, site: CdnSite, operator: str, *, skip: bool, action: str
@@ -209,6 +271,27 @@ class CertificateService:
 
     # -- Issuing -------------------------------------------------------
 
+    def admit_request(self, name: str, email: str | None = None) -> None:
+        """Refuse a request that could never succeed, without contacting anything.
+
+        Reads only local state, so a caller queueing the request gets the same
+        404 or 409 the request itself would raise before it is accepted.
+        """
+        self.persistence.sites.get_site(name)
+        self._registration_email(email)
+
+    def admit_renewal(self, *, sites: Sequence[str] | None) -> None:
+        """Refuse a renewal naming a site with no managed certificate."""
+        self._renewal_candidates(within_days=0, force=False, sites=sites)
+
+    def _registration_email(self, email: str | None) -> str:
+        registration_email = email or self.policy.default_email
+        if not registration_email:
+            raise ConflictError(
+                "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
+            )
+        return registration_email
+
     def request_certificate(
         self,
         name: str,
@@ -217,11 +300,7 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
-        registration_email = email or self.policy.default_email
-        if not registration_email:
-            raise ConflictError(
-                "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
-            )
+        registration_email = self._registration_email(email)
         with self.execution.runner.lock():
             with self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress:
                 site = self.persistence.sites.get_site(name)
@@ -269,7 +348,7 @@ class CertificateService:
             progress.checkpoint("stored", {"site": site.name})
         with self.persistence.uow.transaction():
             self.site_editor.activate_managed_certificate(
-                site, CertificateMode.REQUESTED, info.version
+                site, CertificateMode.REQUESTED, info.version, operator
             )
             self.persistence.requirements.require(
                 DeploymentRequirementKind.CERTIFICATES
@@ -288,22 +367,34 @@ class CertificateService:
             )
         return info
 
-    def reconcile_certificates(self, operator: str) -> ReconciliationResult:
+    def reconcile_certificates(
+        self, operator: str, *, force: bool = False
+    ) -> ReconciliationResult:
         """Issue ready first certificates and queue one deployment to install them.
 
         Queued through deployment requirements, so a second run queues nothing extra.
         Eligibility is re-checked under the cross-process lock, so only one reconciler
         contacts the CA for a site.
+
+        A site whose preflight keeps blocking, such as one never pointed at the
+        edges, is checked less and less often (see `PreflightBackoff`) until it or
+        its DNS record changes. ``force`` checks every site now, for an operator
+        who has just fixed something outside the controller.
         """
         issued: list[str] = []
         skipped: dict[str, str] = {}
         failed: dict[str, str] = {}
+        waiting: list[str] = []
         for candidate in self.persistence.sites.list_sites():
-            if candidate.policy.tls.certificate_mode is not CertificateMode.DISABLED:
+            if (
+                candidate.policy[TlsPolicy].certificate_mode
+                is not CertificateMode.DISABLED
+            ):
                 continue
-            report = self.certificate_preflight(candidate.name)
-            if not report.ok:
-                skipped[candidate.name] = report.summary()
+            waiting.append(candidate.name)
+            report, reason = self._preflight_due(candidate, force=force)
+            if report is None or not report.ok:
+                skipped[candidate.name] = reason
                 continue
             try:
                 # Journalled like every path to the CA; this one is unattended.
@@ -314,7 +405,10 @@ class CertificateService:
                     ) as progress,
                 ):
                     site = self.persistence.sites.get_site(candidate.name)
-                    if site.policy.tls.certificate_mode is not CertificateMode.DISABLED:
+                    if (
+                        site.policy[TlsPolicy].certificate_mode
+                        is not CertificateMode.DISABLED
+                    ):
                         continue
                     registration_email = self.policy.default_email
                     if not registration_email:
@@ -334,6 +428,8 @@ class CertificateService:
             except BlitzeError as exc:
                 failed[candidate.name] = str(exc)
 
+        # A site that was deleted or got its certificate stops being tracked.
+        self.persistence.preflight_attempts.retain(waiting)
         deployment = (
             self.deployments.converge_requirements(operator) if issued else None
         )
@@ -356,8 +452,8 @@ class CertificateService:
             site.name,
             version=CertificateVersion.from_paths(
                 site.name,
-                site.policy.tls.certificate_path or "",
-                site.policy.tls.certificate_key_path or "",
+                site.policy[TlsPolicy].certificate_path or "",
+                site.policy[TlsPolicy].certificate_key_path or "",
             ),
         )
 
@@ -529,3 +625,17 @@ class CertificateService:
             )
         _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
         return "renewed", status.site
+
+
+def _fingerprint(site: CdnSite, record: object, *, deployed: bool) -> str:
+    """Digest of what a preflight depends on that the controller can see change."""
+    payload = json.dumps(
+        {
+            "site": site.model_dump(mode="json"),
+            "record": record,
+            "deployed": deployed,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()

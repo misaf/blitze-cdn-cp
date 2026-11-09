@@ -30,8 +30,7 @@ from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 
-#: Root-level verbs, like the deployment group: `blitzecdn status`, not
-#: `blitzecdn diagnostics status`.
+#: Root-level controller reports, such as `blitzecdn overview`.
 diagnostics_app = typer.Typer()
 
 #: `blitzecdn ansible ...`: what the installed capabilities contribute to the
@@ -44,7 +43,7 @@ ansible_app = typer.Typer(
 
 @diagnostics_app.command()
 def overview(json_output: common.JsonOutput = False) -> None:
-    """Show queue backlog, worker progress, recovery review and certificate expiry."""
+    """Show queue backlog, worker progress, recovery review and certificate state."""
     common.emit(common.service(DiagnosticsService).status(), json_output=json_output)
 
 
@@ -54,12 +53,18 @@ class ResolverCheck:
     detail: str
 
 
-def check_resolver(settings: Any) -> ResolverCheck:
+def check_resolver(
+    *, servers: tuple[str, ...], source: str, timeout_seconds: int
+) -> ResolverCheck:
     """Detect a resolver that invents answers for reserved names."""
-    servers = settings.preflight_dns_servers
-    where = f" ({', '.join(servers)})" if servers else " (host resolver)"
+    if servers:
+        where = f" ({', '.join(servers)})"
+    elif source == "host":
+        where = " (host resolver)"
+    else:
+        where = " (host resolver, used to find authoritative nameservers)"
     resolver = dns.resolver.Resolver()
-    timeout = float(settings.preflight_dns_timeout_seconds)
+    timeout = float(timeout_seconds)
     resolver.lifetime = timeout
     resolver.timeout = timeout
     if servers:
@@ -67,7 +72,7 @@ def check_resolver(settings: Any) -> ResolverCheck:
     probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
     try:
         answer = resolver.resolve(probe, dns.rdatatype.A)
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer:
         return ResolverCheck(True, f"resolver{where} rejects names that cannot exist")
     except dns.exception.DNSException:
         return ResolverCheck(True, f"resolver{where} did not answer the probe")
@@ -76,6 +81,23 @@ def check_resolver(settings: Any) -> ResolverCheck:
         False,
         f"resolver{where} answered {addresses} for a reserved .invalid name, so "
         "it invents addresses instead of resolving",
+    )
+
+
+def _preflight_resolver_check() -> ResolverCheck:
+    """Probe the resolver certificate preflight is configured to ask."""
+    # Read by name: the settings are the certificates feature's, and diagnostics
+    # sees them as `blitzecdn features` does rather than through its model.
+    configured = (
+        common.service(ResolvedCapabilityEnvironment)
+        .for_feature("certificates")
+        .settings
+    )
+    servers = str(configured["BLITZE_PREFLIGHT_DNS_SERVERS"])
+    return check_resolver(
+        servers=tuple(filter(None, servers.split(","))),
+        source=str(configured["BLITZE_PREFLIGHT_DNS_SOURCE"]),
+        timeout_seconds=int(str(configured["BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS"])),
     )
 
 
@@ -234,7 +256,7 @@ def doctor(
         .publication()
         .model_dump(mode="json"),
     }
-    resolver_report = check_resolver(settings) if resolver_check else None
+    resolver_report = _preflight_resolver_check() if resolver_check else None
     if resolver_report is not None:
         report["resolver"] = {
             "passed": resolver_report.passed,

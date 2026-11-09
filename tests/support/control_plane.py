@@ -21,6 +21,10 @@ from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
+from blitzecdn.capabilities.deployments.settings import (
+    lock_path as deployment_lock_path,
+)
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
@@ -45,11 +49,14 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
+from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import CertificateMode
+from blitzecdn.capabilities.tls.settings import (
+    certificate_dir as tls_certificate_dir,
+)
 from blitzecdn.composition import (
     Adapters,
     ApiNode,
@@ -57,11 +64,12 @@ from blitzecdn.composition import (
     FleetRunner,
     InfrastructureProvider,
     Repository,
-    ServiceProvider,
     Worker,
     WorkerProvider,
     load_registry,
+    service_providers,
 )
+from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
@@ -71,6 +79,7 @@ from blitzecdn.core.domain.runs import (
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.features import (
     FeatureRegistry,
@@ -80,6 +89,7 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.ports.fleet import FleetRoster
 from blitzecdn.core.ports.operations import AuditTrail
 from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common as cli_common
@@ -88,6 +98,7 @@ from support.policy import (
     domain_from_settings,
     site_from_settings,
 )
+from support.stores import Stores
 
 
 @pytest.fixture(autouse=True)
@@ -229,7 +240,7 @@ def seed_site(
             return site
         # The issuer's own write, which derives the paths from this host's name.
         control.site_editor.activate_managed_certificate(
-            site, issuer_mode, TEST_CERTIFICATE_VERSION
+            site, issuer_mode, TEST_CERTIFICATE_VERSION, "tester"
         )
         if deferred_ssl is not None:
             _set_policy(control, domain, rule, {"ssl_mode": deferred_ssl}, operator)
@@ -472,11 +483,11 @@ class FakeRunner:
         variables: Mapping[str, object],
         host_limit: str | None = None,
     ) -> AnsibleRun:
-        self.playbooks.append((name, playbook, dict(variables), host_limit))
-        return self.results.pop(0)
-
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
-        self.decommissions.append(host_limit)
+        # The edges capability's teardown is a named play like any other.
+        if name == "decommission" and host_limit is not None:
+            self.decommissions.append(host_limit)
+        else:
+            self.playbooks.append((name, playbook, dict(variables), host_limit))
         return self.results.pop(0)
 
 
@@ -587,15 +598,43 @@ def settings(tmp_path: Path) -> Settings:
         inventory_path=inventory,
         playbook_path=playbook,
         generated_vars_path=state / "desired-state.yml",
-        deployment_lock_path=state / "deployment.lock",
-        certificate_dir=state / "certificates",
         environment_path=tmp_path / ".env",
-        decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": SecretStr("x" * 32)},
     )
     DatabaseSchema.migrate(configured.database_path)
     return configured
+
+
+def certificate_dir(settings: Settings) -> Path:
+    """Where the tls capability keeps installed material for ``settings``."""
+    return tls_certificate_dir(settings.state_dir)
+
+
+def deployment_lock(settings: Settings) -> Path:
+    """The deployment lock file for ``settings``."""
+    return deployment_lock_path(settings.state_dir)
+
+
+def fleet_runner(
+    settings: Settings,
+    fleet: FleetRoster,
+    contributions: EdgeContributions | None = None,
+    *,
+    timeout_seconds: int | None = None,
+) -> AnsibleRunner:
+    """Core's runner, configured as the composition root configures it."""
+    return AnsibleRunner(
+        settings,
+        fleet,
+        contributions,
+        timeout_seconds=(
+            DeploymentsConfig().timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        ),
+        lock_path=deployment_lock(settings),
+    )
 
 
 def with_capability_settings(settings: Settings, **values: object) -> Settings:
@@ -648,7 +687,13 @@ def record_payload() -> dict[str, object]:
 
 
 @pytest.fixture
-def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
+def record_create_payload(record_payload: dict[str, object]) -> dict[str, object]:
+    """HTTP record creation takes the domain from the URL."""
+    return {name: value for name, value in record_payload.items() if name != "domain"}
+
+
+@pytest.fixture
+def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Stores]]:
     """A control plane holding one site with one hostname routed to it.
 
     Returns ``(control, repository)``.
@@ -656,8 +701,8 @@ def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]
 
     def build(
         runner: FleetRunner | None = None,
-    ) -> tuple[ControlPlane, Repository]:
-        repository = Repository(settings.database_path)
+    ) -> tuple[ControlPlane, Stores]:
+        repository = Stores(settings.database_path)
         control = build_application(
             settings=settings,
             repository=repository,
@@ -753,7 +798,7 @@ def cli_control_plane(
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner_double or FakeRunner(),
         providers=providers,
     )
@@ -784,7 +829,6 @@ class ControlPlane:
         self.container = container
 
     settings = _Resolved(Settings)
-    repository = _Resolved(Repository)
     features = _Resolved(FeatureRegistry)
     edge_contributions = _Resolved(EdgeContributions)
     certificate_store = _Resolved(CertificateStore)
@@ -792,7 +836,7 @@ class ControlPlane:
     job_scheduler = _Resolved(JobScheduler)
     job_runner = _Resolved(JobRunner)
     dns = _Resolved(DnsService)
-    site_editor = _Resolved(HostService)
+    hosts = _Resolved(HostService)
     rules = _Resolved(RuleService)
     rendering = _Resolved(Rendering[CdnSite])
     releases = _Resolved(ReleaseService)
@@ -818,11 +862,20 @@ class ControlPlane:
         return cast(SiteReader, self.container.get(SiteReader))
 
     @property
+    def site_editor(self) -> SiteEditor:
+        return cast(SiteEditor, self.container.get(SiteEditor))
+
+    @property
     def audit(self) -> AuditTrail:
         return cast(AuditTrail, self.container.get(AuditTrail))
 
     @property
-    def transactions(self) -> Repository:
+    def repository(self) -> Stores:
+        """Every store on the container's database, for seeding and reading."""
+        return Stores.sharing(self.container.get(Repository))
+
+    @property
+    def transactions(self) -> Stores:
         return self.repository
 
     @property
@@ -849,7 +902,7 @@ def build_application(
     return ControlPlane(
         make_container(
             InfrastructureProvider(),
-            ServiceProvider(),
+            *service_providers(),
             ApiProvider(),
             WorkerProvider(),
             FastapiProvider(),
@@ -917,13 +970,13 @@ def advance(
     return cast(Deployment, deployments.save(current, after))
 
 
-def repository_on(settings: Settings) -> Repository:
+def repository_on(settings: Settings) -> Stores:
     """A second handle on the test database, for seeding and reading back.
 
     The control plane does not hand out its stores, so a test opens its own handle
     on the same file.
     """
-    return Repository(settings.database_path)
+    return Stores(settings.database_path)
 
 
 def control_plane_app(settings: Settings) -> FastAPI:
@@ -944,17 +997,16 @@ def seed_site_over_http(
     **policy: object,
 ) -> Any:
     """Zone, policy, record: over HTTP, the way a client would."""
-    client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
+    client.post("/v3/domains", json={"name": "example.com"}, headers=headers)
     created = client.patch(
-        "/v1/domains/example.com",
+        "/v3/domains/example.com",
         json={**policy},
         headers=headers,
     )
     assert created.status_code == 200, created.text
     proxied = client.post(
-        "/v1/domains/example.com/records",
+        "/v3/domains/example.com/records",
         json={
-            "domain": "example.com",
             "name": label,
             "value": "198.51.100.10",
             "proxied": True,

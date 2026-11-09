@@ -16,6 +16,13 @@ argument_specs:
     options:
       blitzecdn_docker_repository_url: {type: str, required: true}
       blitzecdn_docker_gpg_url: {type: str, required: true}
+      blitzecdn_docker_gpg_fingerprint:
+        type: str
+        required: true
+        description: >-
+          The fingerprint of Docker's apt signing key. The keyring must hold
+          this primary key and no other, or the role stops before configuring
+          the repository.
       blitzecdn_docker_keyring: {type: path, required: true}
       blitzecdn_docker_list_file: {type: path, required: true}
       blitzecdn_docker_packages:
@@ -33,14 +40,4 @@ argument_specs:
         description: >-
           The community.docker API client's only dependency. Installed from the
           archive rather than pip; this is a system interpreter on a server.
-      blitzecdn_docker_log_driver: {type: str, required: true}
-      blitzecdn_docker_log_max_size: {type: str, required: true}
-      blitzecdn_docker_log_max_file: {type: int, required: true}
       blitzecdn_docker_daemon_config_file: {type: path, required: true}
-      blitzecdn_docker_live_restore:
-        type: bool
-        required: true
-        description: >-
-          Keep running containers alive across a daemon restart, so an engine
-          upgrade does not drop every visitor connection. Incompatible with
-          Swarm mode, which this edge deliberately does not use.

@@ -7,7 +7,7 @@ gate, and the member checks applied before anything is written.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Self
 
@@ -38,6 +38,9 @@ class BackupComponent(StrEnum):
     ACME = "acme"
     #: Configuration, secrets and the SSH key every edge trusts.
     CONFIG = "config"
+    #: GeoIP databases retained releases pin. MaxMind serves only the newest,
+    #: so a rollback to an older release cannot download its file again.
+    GEOIP_DATABASES = "geoip_databases"
 
 
 class BackupManifest(BaseModel):
@@ -123,6 +126,18 @@ def _first_reason(exc: ValueError, document: dict[str, Any]) -> str:
 def backup_filename(moment: datetime) -> str:
     """The archive name for a backup taken at ``moment``, whatever it holds."""
     return moment.strftime(_FILENAME_FORMAT)
+
+
+def backup_moment(name: str) -> datetime | None:
+    """When the archive called ``name`` was taken, or ``None`` if it is not one.
+
+    The inverse of :func:`backup_filename`, so retention can tell the archives
+    this capability wrote from anything else an operator keeps beside them.
+    """
+    try:
+        return datetime.strptime(name, _FILENAME_FORMAT).replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def unsafe_member(

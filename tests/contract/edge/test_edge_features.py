@@ -7,26 +7,29 @@ from typing import Any
 import pytest
 import yaml
 from support.contracts import (
-    _role_defaults,
-    _runtime_defaults,
+    role_defaults,
+    runtime_defaults,
 )
 from support.edge_render import (
     ROLE_DIR,
-    _defaults_of,
-    _render,
-    _role_spec,
+    defaults_of,
+    render_site,
 )
 from support.paths import REPO_ROOT
 from support.policy import site_from_settings
 
 import blitzecdn
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.compression.contract import CompressionMode
+from blitzecdn.capabilities.compression.contract import (
+    CompressionMode,
+    CompressionPolicy,
+)
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
+    ProtocolPolicy,
 )
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
@@ -43,6 +46,14 @@ REQUIRES_CAPABILITIES = {
         "compression",
     ),
     "test_missing_compression_preserves_pre_upgrade_behavior": ("compression",),
+    "test_compression_normalizes_the_origin_encoding_without_the_cache": (
+        "compression",
+    ),
+    "test_the_cache_normalizes_the_origin_encoding_with_compression_off": ("cache",),
+    "test_the_origin_is_asked_for_one_encoding_at_most_once": (
+        "cache",
+        "compression",
+    ),
 }
 
 
@@ -60,7 +71,7 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
             "origin_host": "origin.example.com",
         }
     )
-    rendered = _render(site_to_ansible(site))
+    rendered = render_site(site_to_ansible(site))
     http_template = (ROLE_DIR / "templates/http.conf.j2").read_text(encoding="utf-8")
 
     assert "map $http_upgrade $blitzecdn_connection_upgrade" in http_template
@@ -91,7 +102,7 @@ def test_minimum_tls_version_renders_per_hostname(minimum, protocols):
         }
     )
 
-    assert f"ssl_protocols {protocols};" in _render(site_to_ansible(site))
+    assert f"ssl_protocols {protocols};" in render_site(site_to_ansible(site))
 
 
 @pytest.mark.parametrize(
@@ -111,13 +122,15 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
         }
     )
 
-    rendered = _render(site_to_ansible(site))
+    rendered = render_site(site_to_ansible(site))
 
     assert (
         f'proxy_cache_key "$scheme$server_port$request_method$host{key_uri}' in rendered
     )
     # Ignore affects identity in the cache, not what the origin receives.
-    assert "proxy_pass $blitzecdn_upstream$request_uri;" in rendered
+    # proxy_pass carries no URI, so Nginx sends the request line as the visitor
+    # sent it, query string included.
+    assert "proxy_pass http://blitzecdn_origin_query-mode_http_80;" in rendered
 
 
 def _compressed(mode: CompressionMode) -> dict[str, Any]:
@@ -135,7 +148,7 @@ def _compressed(mode: CompressionMode) -> dict[str, Any]:
 
 def test_brotli_uses_the_managed_filter_and_keeps_gzip_fallback():
     site = _compressed(CompressionMode.BROTLI)
-    rendered = _render(site)
+    rendered = render_site(site)
     assert "brotli on;" in rendered
     assert "brotli_comp_level 5;" in rendered
     assert "gzip on;" in rendered, "Brotli never replaces the gzip fallback"
@@ -145,14 +158,14 @@ def test_compression_off_says_so_rather_than_staying_silent():
     """Debian's nginx.conf carries `gzip on`, so omitting the directive means
     inherited, not off.
     """
-    rendered = _render(_compressed(CompressionMode.OFF))
+    rendered = render_site(_compressed(CompressionMode.OFF))
 
     assert "gzip off;" in rendered
     assert "gzip on;" not in rendered
 
 
 def test_gzip_only_turns_the_managed_brotli_filter_off():
-    rendered = _render(_compressed(CompressionMode.GZIP))
+    rendered = render_site(_compressed(CompressionMode.GZIP))
 
     assert "gzip on;" in rendered
     assert "brotli off;" in rendered
@@ -169,7 +182,7 @@ def test_compression_never_lists_text_html():
         / "src/blitzecdn/capabilities/compression/ansible/roles"
         / "blitzecdn_compression"
     )
-    types = _defaults_of(compression_role)["blitzecdn_compression_types"]
+    types = defaults_of(compression_role)["blitzecdn_compression_types"]
 
     assert "text/html" not in types
     # Nothing already compressed: re-encoding one of these adds bytes and CPU.
@@ -181,7 +194,7 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
 
     Otherwise a cache entry would carry an encoding the key does not distinguish.
     """
-    rendered = _render(_compressed(CompressionMode.BROTLI))
+    rendered = render_site(_compressed(CompressionMode.BROTLI))
 
     assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
     assert (
@@ -194,16 +207,50 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
     assert "gzip_proxied any;" in rendered
 
 
+@pytest.mark.parametrize("mode", [CompressionMode.BROTLI, CompressionMode.GZIP])
+def test_compression_normalizes_the_origin_encoding_without_the_cache(mode):
+    """Uncached, the visitor's `gzip, deflate, br` would reach the origin.
+
+    Most origins answer that with gzip, which the Brotli filter cannot
+    re-encode, so Brotli would only ever reach cached sites.
+    """
+    site = _compressed(mode) | {"cache_enabled": False}
+    rendered = render_site(site)
+
+    assert "proxy_cache " not in rendered
+    assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
+
+
+@pytest.mark.parametrize("cache_enabled", [True, False])
+@pytest.mark.parametrize("mode", list(CompressionMode))
+def test_the_origin_is_asked_for_one_encoding_at_most_once(mode, cache_enabled):
+    """Cache and compression both want the header; only one of them sends it."""
+    site = _compressed(mode) | {"cache_enabled": cache_enabled}
+    rendered = render_site(site)
+    upstreams = rendered.split("location @blitzecdn_upstream")[1:]
+
+    assert upstreams
+    for location in upstreams:
+        assert location.count("proxy_set_header Accept-Encoding") <= 1
+
+
+def test_the_cache_normalizes_the_origin_encoding_with_compression_off():
+    """The key names the encoding, so the origin is asked for exactly that one."""
+    rendered = render_site(_compressed(CompressionMode.OFF))
+
+    assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
+
+
 def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
     """The binary and its dynamic modules ship as one image.
 
     They are resolved, published and pulled together, so nothing on an edge can
     mismatch them; the edge names no packages at all.
     """
-    assert "blitzecdn_nginx_packages" not in _role_defaults()
+    assert "blitzecdn_nginx_packages" not in role_defaults()
     assert (
         "ghcr.io/misaf/blitzecdn-edge"
-        in _runtime_defaults()["blitzecdn_edge_runtime_image_default"]
+        in runtime_defaults()["blitzecdn_edge_runtime_image_default"]
     )
 
 
@@ -216,7 +263,7 @@ def test_the_pinned_edge_image_names_this_release():
     an unpublished image. `just release-version` moves them together.
     """
     version = blitzecdn.__version__
-    assert _runtime_defaults()["blitzecdn_edge_runtime_image_default"].endswith(
+    assert runtime_defaults()["blitzecdn_edge_runtime_image_default"].endswith(
         f":{version}"
     ), "blitzecdn_edge/defaults/main.yml pins an edge image from another release"
 
@@ -233,15 +280,15 @@ def test_the_pinned_edge_image_names_this_release():
 
 
 def test_missing_compression_preserves_pre_upgrade_behavior():
-    """With the setting absent, the role's default matches the domain's: brotli on."""
+    """With the setting absent, the template's default is the contract's: brotli."""
     site = _compressed(CompressionMode.BROTLI)
     del site["compression"]
 
-    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["compression"]
-    assert option["default"] == "brotli"
-    assert option.get("required", False) is False
+    assert CompressionPolicy.model_fields["compression"].default is (
+        CompressionMode.BROTLI
+    )
 
-    assert "gzip on;" in _render(site)
+    assert "gzip on;" in render_site(site)
 
 
 def _uploads(size: MaxUploadSize | None) -> dict[str, Any]:
@@ -272,7 +319,7 @@ def test_the_upload_limit_covers_every_listener_a_site_serves(size):
     Inside `location /` alone, the ACME challenge, reserved `/.blitzecdn` paths
     and feature fragments would keep nginx's 1m default.
     """
-    rendered = _render(_uploads(size))
+    rendered = render_site(_uploads(size))
     blocks = rendered.split("server {")[1:]
 
     # One server block per public proxy port, plain and TLS alike.
@@ -285,9 +332,7 @@ def test_the_upload_limit_covers_every_listener_a_site_serves(size):
 
 
 def test_missing_max_upload_size_preserves_pre_upgrade_behavior():
-    """With the setting absent, the role's default matches the domain's."""
-    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["max_upload_size"]
-    assert option["default"] == MaxUploadSize.SMALL.value
-    assert option.get("required", False) is False
+    """With the setting absent, the template's default is the contract's."""
+    assert ProtocolPolicy.model_fields["max_upload_size"].default is MaxUploadSize.SMALL
 
-    assert "client_max_body_size 100m;" in _render(_uploads(None))
+    assert "client_max_body_size 100m;" in render_site(_uploads(None))

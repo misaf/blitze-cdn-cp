@@ -1,10 +1,26 @@
 ---
+- name: Require connection capacity below the process file limit
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_worker_connections | int > 0
+      - blitzecdn_nginx_worker_connections | int < blitzecdn_edge_runtime.nofile | int
+      - blitzecdn_nginx_listen_backlog | int > 0
+    fail_msg: >-
+      worker_connections must be positive and below the edge nofile limit,
+      leaving file descriptors for logs, cache files and listeners. Backlog must be positive.
+
+- name: Validate visitor-side limits
+  ansible.builtin.import_tasks: visitor-limits.yml
+
 # Host state the release's configuration depends on. The configuration tree
 # itself is rendered on the controller, stored with the release, and staged by
 # blitzecdn_config_release: this role writes nothing into it. Its templates and
 # defaults remain the controller renderer's source.
 - name: Validate the desired state before changing anything
   ansible.builtin.import_tasks: validate.yml
+
+- name: Prepare persistent hostname logs
+  ansible.builtin.import_tasks: logging.yml
 
 - name: Verify pinned controller certificate material
   ansible.builtin.include_tasks: verify-material.yml
@@ -66,6 +82,9 @@
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
 
+# No backups: paths are content addressed, so a copy never replaces different
+# bytes, and a backup would only leave another private key behind. Versions no
+# retained release references are collected when a release commits.
 - name: Install managed certificate chains
   ansible.builtin.copy:
     src: "{{ item.certificate_source_path }}"
@@ -73,12 +92,10 @@
     owner: root
     group: root
     mode: "0644"
-    backup: true
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
-  notify: Validate and reload Nginx
 
 - name: Install managed private keys
   ansible.builtin.copy:
@@ -87,29 +104,21 @@
     owner: root
     group: root
     mode: "0600"
-    backup: true
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
   when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
   no_log: true
-  notify: Validate and reload Nginx
 
 
 - name: Inspect managed-site registry
   ansible.builtin.stat:
-    path: >-
-      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
-         if blitzecdn_config_release_enabled | default(false) | bool
-         else blitzecdn_nginx_managed_sites_file }}
+    path: "{{ blitzecdn_config_release_root }}/current/nginx/blitzecdn-managed-sites"
   register: blitzecdn_nginx_registry
 
 - name: Read managed-site registry
   ansible.builtin.slurp:
-    path: >-
-      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
-         if blitzecdn_config_release_enabled | default(false) | bool
-         else blitzecdn_nginx_managed_sites_file }}
+    path: "{{ blitzecdn_config_release_root }}/current/nginx/blitzecdn-managed-sites"
   register: blitzecdn_nginx_registry_content
   when: blitzecdn_nginx_registry.stat.exists
 

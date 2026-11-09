@@ -1,7 +1,8 @@
 """The concrete adapters one control-plane process runs on.
 
 Services are built from these and never construct an adapter. :class:`Adapters`
-is the one test seam: replace an adapter, keep the production graph.
+is the one test seam: replace an adapter, keep the production graph. Each
+capability's own stores and services come from its `wiring.py` provider.
 """
 
 from __future__ import annotations
@@ -10,8 +11,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
-from dishka import Provider, Scope, from_context, provide
-from sqlalchemy.exc import SQLAlchemyError
+from dishka import Provider, Scope, alias, from_context, provide
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.ports import (
@@ -19,24 +19,24 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     ServingVerifier,
 )
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
+from blitzecdn.capabilities.deployments.settings import (
+    lock_path as deployment_lock_path,
+)
+from blitzecdn.capabilities.edges.adapters.host_keys import KnownHosts
+from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.edges.ports import HostKeyStore as HostKeyStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
-from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
-from blitzecdn.capabilities.jobs.ports import WorkerHistory, WorkerProgress
-from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
-from blitzecdn.capabilities.jobs.wiring import (
-    build_job_queue,
-    build_job_scheduler,
-)
-from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
-from blitzecdn.capabilities.workflows.ports import WorkflowHistory
+from blitzecdn.capabilities.jobs.service import JobQueue
+from blitzecdn.capabilities.origins.settings import OriginsConfig
 from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import load_registry
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.probe import release_probe_token
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureRegistry,
@@ -49,13 +49,21 @@ from blitzecdn.core.features import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.configuration import AnsibleSettingStore
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock, system_clock
-from blitzecdn.core.ports.operations import AuditTrail, FleetSettings, PlaybookRunner
+from blitzecdn.core.ports.operations import (
+    AuditTrail,
+    EventRecorder,
+    FleetSettings,
+    PlaybookRunner,
+)
 
-__all__ = ["Adapters", "FleetRunner", "InfrastructureProvider", "QueueReadiness"]
+__all__ = ["Adapters", "FleetRunner", "InfrastructureProvider"]
 
 
-class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
+class FleetRunner(DeploymentRunner, PlaybookRunner, Protocol):
     """Every runner port the one Ansible adapter satisfies."""
 
 
@@ -71,27 +79,13 @@ class Adapters:
     features: FeatureRegistry | None = None
     runner: FleetRunner | None = None
     origin_probe: OriginProbePort | None = None
+    host_keys: HostKeyStorePort | None = None
     serving_probe: ServingVerifier | None = None
     edges: EdgeStorePort | None = None
     background: QueueBackgroundRunner | None = None
     #: The one clock every service and store in this process reads.
     clock: Clock = system_clock
     pool_connections: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class QueueReadiness:
-    """Whether the job table answers; an unmigrated database has no ``jobs``."""
-
-    queue: JobQueue
-
-    def __call__(self) -> bool:
-        # A `TypeError` is a bug and is not swallowed.
-        try:
-            self.queue.list_jobs(limit=1)
-        except (SQLAlchemyError, OSError):
-            return False
-        return True
 
 
 class InfrastructureProvider(Provider):
@@ -157,8 +151,30 @@ class InfrastructureProvider(Provider):
         )
 
     @provide
-    def edges(self, repository: Repository, adapters: Adapters) -> EdgeStorePort:
-        return adapters.edges or repository.edges
+    def clock(self, adapters: Adapters) -> Clock:
+        """The one clock every service and store in this process reads."""
+        return adapters.clock
+
+    @provide
+    def database(self, repository: Repository) -> Database:
+        return repository.database
+
+    @provide
+    def unit_of_work(self, repository: Repository) -> UnitOfWork:
+        return repository
+
+    @provide
+    def events(self, repository: Repository) -> EventRecorder:
+        return repository.audit_log
+
+    @provide
+    def ansible_settings(self, repository: Repository) -> AnsibleSettingStore:
+        return repository.ansible_settings
+
+    @provide
+    def edges(self, database: Database, adapters: Adapters) -> EdgeStorePort:
+        # Here rather than in the edges provider: a test may replace it.
+        return adapters.edges or EdgeStore(database)
 
     @provide
     def runner(
@@ -167,76 +183,41 @@ class InfrastructureProvider(Provider):
         adapters: Adapters,
         edges: EdgeStorePort,
         edge_contributions: EdgeContributions,
+        deployments_config: DeploymentsConfig,
     ) -> FleetRunner:
         # The fleet as core reads it, so `core.ansible` imports no capability.
         return adapters.runner or AnsibleRunner(
-            settings, EdgeRoster(edges), edge_contributions
+            settings,
+            EdgeRoster(edges),
+            edge_contributions,
+            timeout_seconds=deployments_config.timeout_seconds,
+            lock_path=deployment_lock_path(settings.state_dir),
+        )
+
+    playbooks = alias(source=FleetRunner, provides=PlaybookRunner)
+    deployment_runner = alias(source=FleetRunner, provides=DeploymentRunner)
+
+    @provide
+    def origin_probe(
+        self, adapters: Adapters, origins_config: OriginsConfig
+    ) -> OriginProbePort:
+        return adapters.origin_probe or OriginProbe(
+            timeout_seconds=origins_config.check_timeout_seconds
         )
 
     @provide
-    def playbooks(self, runner: FleetRunner) -> PlaybookRunner:
-        return runner
+    def host_keys(self, settings: Settings, adapters: Adapters) -> HostKeyStorePort:
+        return adapters.host_keys or KnownHosts(settings)
 
     @provide
-    def origin_probe(self, settings: Settings, adapters: Adapters) -> OriginProbePort:
-        return adapters.origin_probe or OriginProbe(settings)
-
-    @provide
-    def serving_probe(self, adapters: Adapters) -> ServingVerifier:
-        return adapters.serving_probe or ServingProbe()
-
-    @provide
-    def certificate_store(
-        self, settings: Settings, adapters: Adapters
-    ) -> CertificateStore:
-        return CertificateStore(settings, clock=adapters.clock)
-
-    @provide
-    def job_queue(
-        self, settings: Settings, adapters: Adapters, repository: Repository
-    ) -> JobQueue:
-        return build_job_queue(
-            jobs=repository.jobs,
-            retention=settings.history_retention,
-            clock=adapters.clock,
-        )
-
-    @provide
-    def worker_monitor(
-        self, settings: Settings, adapters: Adapters
-    ) -> Iterator[WorkerMonitor]:
-        monitor = WorkerMonitor(settings.state_dir / "workers", clock=adapters.clock)
-        try:
-            yield monitor
-        finally:
-            monitor.stop()
-
-    @provide
-    def worker_history(self, monitor: WorkerMonitor) -> WorkerHistory:
-        return monitor
-
-    @provide
-    def worker_progress(self, monitor: WorkerMonitor) -> WorkerProgress:
-        return monitor
-
-    @provide
-    def job_scheduler(
-        self, adapters: Adapters, repository: Repository, queue: JobQueue
-    ) -> JobScheduler:
-        return build_job_scheduler(
-            schedules=repository.schedules,
-            queue=queue,
-            uow=repository,
-            clock=adapters.clock,
+    def serving_probe(self, settings: Settings, adapters: Adapters) -> ServingVerifier:
+        return adapters.serving_probe or ServingProbe(
+            token=release_probe_token(settings.state_dir)
         )
 
     @provide
     def background(self, adapters: Adapters, queue: JobQueue) -> QueueBackgroundRunner:
         return adapters.background or _QueuePublisher(queue)
-
-    @provide
-    def queue_readiness(self, queue: JobQueue) -> QueueReadiness:
-        return QueueReadiness(queue)
 
     # -- stores entry layers read directly -------------------------------
 
@@ -245,13 +226,7 @@ class InfrastructureProvider(Provider):
         """The read side of the audit trail, so no entry layer can record."""
         return repository.audit_log
 
-    @provide
-    def fleet_settings(self, repository: Repository) -> FleetSettings:
-        return repository.ansible_settings
-
-    @provide
-    def workflow_history(self, repository: Repository) -> WorkflowHistory:
-        return repository.workflows
+    fleet_settings = alias(source=AnsibleSettingStore, provides=FleetSettings)
 
 
 class _QueuePublisher:

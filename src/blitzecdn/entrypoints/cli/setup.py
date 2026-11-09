@@ -12,6 +12,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.composition import migrate_database
+from blitzecdn.core.runtime.filesystem import create_private_file
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.root import app
 
@@ -22,39 +23,34 @@ def _environment_file_body() -> str:
 
 
 @app.command()
-def init(
-    output: Annotated[Path, typer.Option(help="Environment file to create.")] = Path(
-        ".env"
-    ),
-) -> None:
-    """Create a restrictive local environment file without overwriting one."""
-    if output.exists():
-        raise typer.BadParameter(f"refusing to overwrite {output}")
-    output.write_text(_environment_file_body(), encoding="utf-8")
-    output.chmod(0o600)
-    typer.echo(f"Created {output} with mode 0600")
-
-
-@app.command()
 def migrate() -> None:
     """Initialize or upgrade the database while controller services are stopped."""
     migrate_database(common.settings())
     typer.echo("Database schema is current.")
 
 
+def _create_environment_file(path: Path) -> bool:
+    """Write the env file with mode 0600; False when one already exists.
+
+    An existing file or symlink is never overwritten or followed.
+    """
+    try:
+        create_private_file(path, _environment_file_body())
+    except FileExistsError:
+        return False
+    return True
+
+
 @app.command()
-def setup() -> None:
+def setup(
+    env_file: Annotated[
+        Path, typer.Option(help="Environment file to create if it is missing.")
+    ] = Path(".env"),
+) -> None:
     """Initialize the database and scaffold local configuration; safe to re-run."""
     migrate_database(common.settings())
-    root = Path.cwd()
-    environment_path = root / ".env"
-    created: list[str] = []
-    if not environment_path.exists():
-        environment_path.write_text(_environment_file_body(), encoding="utf-8")
-        environment_path.chmod(0o600)
-        created.append(str(environment_path.relative_to(root)))
-    if created:
-        typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
+    if _create_environment_file(env_file):
+        typer.echo(f"BlitzeCDN is ready. Created: {env_file} (mode 0600)")
     else:
         typer.echo("BlitzeCDN is already set up; existing files were preserved.")
     typer.echo("Next: blitzecdn edge add NAME --host ADDRESS --ssh-source YOUR_CIDR")

@@ -36,6 +36,64 @@
       retries: 3
       delay: 5
 
+    # get_url trusts whatever the URL served, and apt then trusts every key in
+    # the keyring for every package from Docker's repository. So the keyring
+    # is held to the fingerprint Docker publishes, and to that key alone,
+    # before the repository is configured. Read with a throwaway GnuPG home,
+    # so nothing is imported into root's.
+    - name: Create a scratch GnuPG home
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: .blitzecdn-gnupg
+      register: blitzecdn_docker_gnupg_home
+      when: not ansible_check_mode
+
+    - name: Verify the Docker apt signing key
+      when: not ansible_check_mode
+      block:
+        - name: Read the Docker apt signing key
+          ansible.builtin.command:
+            argv:
+              - gpg
+              - --batch
+              - --show-keys
+              - --with-colons
+              - "{{ blitzecdn_docker_keyring }}"
+          environment:
+            GNUPGHOME: "{{ blitzecdn_docker_gnupg_home.path }}"
+          register: blitzecdn_docker_key_listing
+          changed_when: false
+
+        # In GnuPG's colon listing a primary key's `pub` record is followed by
+        # its own `fpr` record; a subkey's follows a `sub` record instead.
+        - name: Require Docker's own apt signing key and no other
+          ansible.builtin.assert:
+            that:
+              - blitzecdn_docker_key_fingerprints == [blitzecdn_docker_gpg_fingerprint]
+            fail_msg: >-
+              {{ blitzecdn_docker_keyring }} holds the keys
+              {{ blitzecdn_docker_key_fingerprints | join(', ') or 'none' }},
+              not Docker's apt signing key {{ blitzecdn_docker_gpg_fingerprint }}
+              alone. Nothing was trusted. Check where
+              {{ blitzecdn_docker_gpg_url }} resolves from this host, remove
+              the file, and rerun.
+          vars:
+            blitzecdn_docker_key_lines: "{{ blitzecdn_docker_key_listing.stdout_lines }}"
+            blitzecdn_docker_key_fingerprints: >-
+              {{ blitzecdn_docker_key_lines
+                 | zip(blitzecdn_docker_key_lines[1:])
+                 | selectattr('0', 'match', 'pub:')
+                 | map(attribute='1')
+                 | select('match', 'fpr:')
+                 | map('split', ':')
+                 | map(attribute=9)
+                 | list }}
+      always:
+        - name: Remove the scratch GnuPG home
+          ansible.builtin.file:
+            path: "{{ blitzecdn_docker_gnupg_home.path }}"
+            state: absent
+
     # Ubuntu 26.04 is the supported fresh-edge platform and Docker publishes a
     # suite per Ubuntu release, so the suite is the distribution codename. Taken
     # from facts rather than written out: a hard-coded codename silently
@@ -75,13 +133,13 @@
       delay: 5
 
     - name: Configure the Docker daemon
-      ansible.builtin.template:
-        src: daemon.json.j2
+      ansible.builtin.copy:
+        src: daemon.json
         dest: "{{ blitzecdn_docker_daemon_config_file }}"
         owner: root
         group: root
         mode: "0644"
-        # Validate the temporary render before replacing the live file. Docker
+        # Validate the temporary copy before replacing the live file. Docker
         # treats every top-level JSON key as a daemon option, so syntactically
         # valid JSON can still make the service impossible to start.
         validate: /usr/bin/dockerd --validate --config-file %s

@@ -4,7 +4,6 @@ Services are not among them: a route takes each one as ``FromDishka[...]``.
 """
 
 import hmac
-from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, cast
 
 from fastapi import Depends, HTTPException, Request, status
@@ -15,10 +14,6 @@ from blitzecdn.core.config import Settings
 
 def get_settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
-
-
-def get_worker_pool(request: Request) -> ThreadPoolExecutor:
-    return cast(ThreadPoolExecutor, request.app.state.worker_pool)
 
 
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
@@ -46,7 +41,9 @@ def require_operator(
         )
     if x_api_key:
         for operator, expected in settings.api_keys.items():
-            if hmac.compare_digest(x_api_key, expected.get_secret_value()):
+            if hmac.compare_digest(
+                x_api_key.encode("utf-8"), expected.get_secret_value().encode("utf-8")
+            ):
                 return operator
     raise HTTPException(
         status.HTTP_401_UNAUTHORIZED,
@@ -56,4 +53,3 @@ def require_operator(
 
 
 OperatorDependency = Annotated[str, Depends(require_operator)]
-WorkerPoolDependency = Annotated[ThreadPoolExecutor, Depends(get_worker_pool)]

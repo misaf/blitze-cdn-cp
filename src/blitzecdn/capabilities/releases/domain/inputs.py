@@ -14,7 +14,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
+from blitzecdn.capabilities.dns import DnsRecord, Domain, Rule
 
 __all__ = ["INPUTS_SCHEMA_VERSION", "ReleaseInputs"]
 

@@ -8,19 +8,21 @@ from types import TracebackType
 from typing import Any, Protocol
 
 from blitzecdn.capabilities.deployments.domain import (
+    ConvergenceHealth,
+    ConvergenceKind,
     Deployment,
     DeploymentRequirementKind,
     DeploymentTarget,
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.capabilities.dns.domain import Rule
-from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
-from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
-from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
+from blitzecdn.capabilities.dns import Rule, ZoneEditor, ZoneStore
+from blitzecdn.capabilities.releases import Release, ReleaseInputs
+from blitzecdn.capabilities.workflows import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
@@ -46,9 +48,21 @@ class DeploymentRequirements(Protocol):
 
     def require(self, kind: DeploymentRequirementKind) -> None: ...
 
-    def clear(self, kind: DeploymentRequirementKind) -> None: ...
+    def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
+        """Clear ``kind`` only if it was requested at or before ``through``."""
+        ...
 
     def pending(self, kind: DeploymentRequirementKind) -> bool: ...
+
+    def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None: ...
+
+
+class ConvergenceOutcomes(Protocol):
+    """Whether each kind of convergence keeps succeeding, for alerting."""
+
+    def record(self, kind: ConvergenceKind, *, succeeded: bool) -> None: ...
+
+    def health(self) -> tuple[ConvergenceHealth, ...]: ...
 
 
 class DeploymentStore(Protocol):
@@ -71,6 +85,10 @@ class DeploymentStore(Protocol):
 
     def deployment_release(self, deployment_id: str) -> str: ...
 
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]: ...
+
     def list_deployments(self, limit: int = 20) -> list[Deployment]: ...
 
     def latest_successful_applied(self) -> Deployment | None: ...
@@ -79,7 +97,7 @@ class DeploymentStore(Protocol):
 
     def running_deployments(self) -> list[Deployment]: ...
 
-    def prune_history(self, keep: int) -> int: ...
+    def prune_history(self, keep: int, *, keep_applied: int) -> int: ...
 
     def successful_rollback_target(self, current_release: str) -> Deployment: ...
 
@@ -242,6 +260,10 @@ class DeploymentTargets(Protocol):
     def claim_generation(self, deployment_id: str) -> int: ...
 
     def plan(self, deployment_id: str, edges: Sequence[str], *, fence: int) -> None: ...
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]: ...
 
     def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]: ...
 

@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
-from blitzecdn.capabilities.deployments.api.models import Deployment
+from blitzecdn.capabilities.deployments import DeploymentStatus
 from blitzecdn.capabilities.tls.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateSource,
@@ -53,7 +53,14 @@ class PreflightReport(Model):
 
 
 class CertificateRequest(Model):
-    email: str | None = Field(default=None, max_length=254)
+    email: str | None = Field(
+        default=None,
+        max_length=254,
+        description=(
+            "Omit or send null to use BLITZE_ACME_DEFAULT_EMAIL; "
+            "an email must be supplied or configured."
+        ),
+    )
     skip_preflight: bool = False
 
     @field_validator("email")
@@ -65,24 +72,36 @@ class CertificateRequest(Model):
 class RenewRequest(Model):
     within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
     force: bool = False
-    sites: list[str] | None = Field(default=None, min_length=1)
+    sites: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Omit or send null to consider all managed certificates. "
+            "An empty list is invalid."
+        ),
+    )
 
 
-class RenewalResult(Model):
-    renewed: tuple[str, ...] = ()
-    skipped: tuple[str, ...] = ()
-    failed: tuple[str, ...] = ()
+class DeploymentReference(Model):
+    """The deployment an operation started, as TLS reports it.
 
+    TLS owns this representation rather than reusing the deployments API's: a
+    change to how deployments are published must not change TLS's responses.
+    Follow ``GET /v3/deployments/{id}`` for the full record.
+    """
 
-class ReconciliationResult(Model):
-    issued: tuple[str, ...] = ()
-    skipped: dict[str, str] = Field(default_factory=dict)
-    failed: dict[str, str] = Field(default_factory=dict)
-    deployment: Deployment | None = None
+    # Built from the full deployment record; the fields it leaves out are the
+    # deployments API's to publish, not unknown input.
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    status: DeploymentStatus
+    release_id: str
+    error: str | None = None
 
 
 class SslAutomaticReconciliation(Model):
     scanned: tuple[str, ...] = ()
     upgraded: dict[str, SslMode] = Field(default_factory=dict)
     skipped: dict[str, str] = Field(default_factory=dict)
-    deployment: Deployment | None = None
+    deployment: DeploymentReference | None = None

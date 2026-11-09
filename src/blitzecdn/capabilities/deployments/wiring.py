@@ -10,7 +10,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dishka import Provider, Scope, alias, provide
+
+from blitzecdn.capabilities.deployments.adapters.persistence import (
+    DeploymentOutcomeStore,
+    DeploymentRequirementStore,
+    DeploymentTargetStore,
+)
+from blitzecdn.capabilities.deployments.adapters.persistence import (
+    DeploymentStore as DeploymentTable,
+)
 from blitzecdn.capabilities.deployments.ports import (
+    ConvergenceOutcomes,
+    DeploymentGateway,
+    DeploymentLocker,
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
@@ -32,14 +45,20 @@ from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentService,
 )
 from blitzecdn.capabilities.deployments.service.rollout import Rollout
-from blitzecdn.capabilities.dns.ports import ZoneStore
-from blitzecdn.capabilities.edges.ports import EdgeStore
-from blitzecdn.capabilities.releases.domain import Release
+from blitzecdn.capabilities.deployments.settings import (
+    CONFIGURATION,
+    DeploymentsConfig,
+)
+from blitzecdn.capabilities.dns import RuleStore, ZoneStore
+from blitzecdn.capabilities.edges import EdgeStore
+from blitzecdn.capabilities.releases import Release, ReleaseReferences
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
     atomic_write_yaml,
@@ -48,6 +67,7 @@ from blitzecdn.core.runtime.filesystem import (
 
 __all__ = [
     "CONFIGURATION_BUNDLE",
+    "DeploymentsProvider",
     "RegisteredEdgeAddresses",
     "build_deployment_service",
     "deployments_operations",
@@ -120,11 +140,13 @@ class RegisteredEdgeAddresses:
 def build_deployment_service(
     *,
     settings: Settings,
+    config: DeploymentsConfig,
     deployments: DeploymentStore,
     zones: ZoneStore,
     rules: RuleRestore,
     fleet_settings: SettingRestore,
     requirements: DeploymentRequirements,
+    outcomes: ConvergenceOutcomes,
     releases: Releases,
     targets: DeploymentTargets,
     edges: EdgeStore,
@@ -135,7 +157,7 @@ def build_deployment_service(
     workflows: Workflows,
     events: EventRecorder,
     uow: UnitOfWork,
-    clock: Clock = system_clock,
+    clock: Clock,
 ) -> DeploymentService:
     """Assemble the capability from its policy, its state, and its runners.
 
@@ -155,6 +177,7 @@ def build_deployment_service(
             generated_vars_path=settings.generated_vars_path,
             output_limit_bytes=settings.output_limit_bytes,
             history_retention=settings.history_retention,
+            deployment_retention=config.retention,
             runtime_errors=settings.validate_runtime,
         ),
         persistence=DeploymentPersistence(
@@ -165,6 +188,7 @@ def build_deployment_service(
             settings=fleet_settings,
             uow=uow,
             requirements=requirements,
+            outcomes=outcomes,
         ),
         execution=DeploymentExecution(
             runner=runner,
@@ -219,3 +243,84 @@ def deployments_operations(
         ),
         startup=startup,
     )
+
+
+class DeploymentsProvider(Provider):
+    """The deployment tables, the configuration, and the convergence service."""
+
+    scope = Scope.APP
+
+    @provide
+    def config(
+        self, capability_config: ResolvedCapabilityEnvironment
+    ) -> DeploymentsConfig:
+        return capability_config.for_feature(CONFIGURATION.feature).as_model(
+            DeploymentsConfig
+        )
+
+    @provide
+    def deployments(self, database: Database) -> DeploymentStore:
+        return DeploymentTable(database)
+
+    @provide
+    def requirements(self, database: Database) -> DeploymentRequirements:
+        return DeploymentRequirementStore(database)
+
+    @provide
+    def outcomes(self, database: Database) -> ConvergenceOutcomes:
+        return DeploymentOutcomeStore(database)
+
+    @provide
+    def targets(self, database: Database) -> DeploymentTargets:
+        return DeploymentTargetStore(database)
+
+    # Release pruning asks which releases are still rollback targets.
+    referenced = alias(source=DeploymentStore, provides=ReleaseReferences)
+    rules = alias(source=RuleStore, provides=RuleRestore)
+    locker = alias(source=DeploymentRunner, provides=DeploymentLocker)
+    gateway = alias(source=DeploymentService, provides=DeploymentGateway)
+
+    @provide
+    def service(
+        self,
+        settings: Settings,
+        config: DeploymentsConfig,
+        deployments: DeploymentStore,
+        zones: ZoneStore,
+        rules: RuleRestore,
+        fleet_settings: SettingRestore,
+        requirements: DeploymentRequirements,
+        outcomes: ConvergenceOutcomes,
+        releases: Releases,
+        targets: DeploymentTargets,
+        edges: EdgeStore,
+        verifier: ServingVerifier,
+        runner: DeploymentRunner,
+        background: QueueBackgroundRunner,
+        dns: ZoneEditor,
+        workflows: Workflows,
+        events: EventRecorder,
+        uow: UnitOfWork,
+        clock: Clock,
+    ) -> DeploymentService:
+        return build_deployment_service(
+            settings=settings,
+            config=config,
+            deployments=deployments,
+            zones=zones,
+            rules=rules,
+            fleet_settings=fleet_settings,
+            requirements=requirements,
+            outcomes=outcomes,
+            releases=releases,
+            targets=targets,
+            edges=edges,
+            verifier=verifier,
+            runner=runner,
+            background=background,
+            dns=dns,
+            workflows=workflows,
+            events=events,
+            uow=uow,
+            clock=clock,
+        )

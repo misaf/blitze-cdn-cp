@@ -12,10 +12,11 @@ import typer
 import yaml
 from dishka import Container
 
-from blitzecdn.composition import cli_container, load_registry
+from blitzecdn.composition import Adapters, cli_container, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.features import FeatureRegistry
+from blitzecdn.core.ports.clock import Clock
 
 
 class ExitCode(IntEnum):
@@ -76,6 +77,15 @@ def service(kind: Any) -> Any:
     Typed as dishka's ``Container.get``: a Protocol resolves, untyped.
     """
     return container().get(kind)
+
+
+def clock() -> Clock:
+    """The clock the composition root chooses, for commands built without a container.
+
+    Backup opens no repository, so it is wired here rather than resolved; the
+    clock is still the one :class:`Adapters` names, not a second choice.
+    """
+    return Adapters().clock
 
 
 def installed_features() -> FeatureRegistry:

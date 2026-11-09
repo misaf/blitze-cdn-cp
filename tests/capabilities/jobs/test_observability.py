@@ -7,17 +7,18 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.adapters import monitor as monitor_module
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
 from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
 from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner
-from blitzecdn.composition import Repository
+from blitzecdn.core.ports.clock import system_clock
 
 
 def test_queue_aggregates_cover_all_rows_and_exclude_future_jobs(settings):
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    repository = Repository(settings.database_path, clock=lambda: now)
+    repository = Stores(settings.database_path, clock=lambda: now)
     with repository.transaction():
         for index in range(150):
             repository.jobs.enqueue(
@@ -44,7 +45,7 @@ def test_queue_aggregates_cover_all_rows_and_exclude_future_jobs(settings):
 
 
 def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     entered, release, pulsed = threading.Event(), threading.Event(), threading.Event()
     observed = []
     write = monitor_module.atomic_write_bytes
@@ -64,9 +65,12 @@ def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeyp
         assert release.wait(5), "test did not release its disposable handler"
         return DONE
 
-    monitor = WorkerMonitor(tmp_path / "workers", interval=0.01)
+    monitor = WorkerMonitor(tmp_path / "workers", interval=0.01, clock=system_clock)
     queue = JobQueue(
-        jobs=repository.jobs, handlers={"example": handler}, worker_id="host:1"
+        jobs=repository.jobs,
+        handlers={"example": handler},
+        worker_id="host:1",
+        clock=system_clock,
     )
     job = repository.jobs.enqueue(
         kind="example", payload={}, available_at=queue.clock()
@@ -75,6 +79,7 @@ def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeyp
         queue=queue,
         scheduler=SimpleNamespace(tick=lambda **_: []),
         progress=monitor,
+        clock=system_clock,
     )
     runner.start_reporting()
     thread = threading.Thread(target=runner.tick)
@@ -82,7 +87,9 @@ def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeyp
     try:
         assert entered.wait(5)
         assert pulsed.wait(5)
-        (worker,) = WorkerMonitor(tmp_path / "workers").read().workers
+        (worker,) = (
+            WorkerMonitor(tmp_path / "workers", clock=system_clock).read().workers
+        )
         assert worker.worker_id == "host:1"
         assert worker.current_job_id == job.id
         assert worker.current_kind == "example"
@@ -107,7 +114,7 @@ def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeyp
 def test_bad_worker_records_are_reported_without_following_symlinks(tmp_path):
     (tmp_path / "broken.json").write_text("not JSON")
     (tmp_path / "link.json").symlink_to(tmp_path / "broken.json")
-    report = WorkerMonitor(tmp_path).read()
+    report = WorkerMonitor(tmp_path, clock=system_clock).read()
     assert report.workers == ()
     assert report.unreadable == 2
 
@@ -117,7 +124,7 @@ def test_reporting_failure_does_not_stop_the_worker(tmp_path, monkeypatch, caplo
         raise OSError("disk unavailable")
 
     monkeypatch.setattr(monitor_module, "atomic_write_bytes", unavailable)
-    monitor = WorkerMonitor(tmp_path)
+    monitor = WorkerMonitor(tmp_path, clock=system_clock)
     try:
         monitor.start("worker-a")
         assert "could not publish worker heartbeat" in caplog.text
@@ -127,7 +134,7 @@ def test_reporting_failure_does_not_stop_the_worker(tmp_path, monkeypatch, caplo
 
 @pytest.mark.parametrize("status", ["failed", "succeeded"])
 def test_completed_jobs_remain_in_retained_counts(settings, status):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     now = repository.database.now()
     repository.jobs.enqueue(kind="example", payload={}, available_at=now)
     claim = repository.jobs.claim(worker="worker-a", now=now, lease_seconds=5)
@@ -142,11 +149,12 @@ def test_completed_jobs_remain_in_retained_counts(settings, status):
 
 
 def test_job_logs_have_correlation_and_duration_without_payloads(settings, caplog):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = JobQueue(
         jobs=repository.jobs,
         handlers={"example": lambda _: DONE},
         worker_id="worker-a",
+        clock=system_clock,
     )
     job = repository.jobs.enqueue(
         kind="example",

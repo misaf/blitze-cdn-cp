@@ -1,0 +1,10 @@
+{#
+  Ask the origin for the one encoding the visitor should get, whatever the
+  cache setting. Left alone, Nginx forwards the visitor's list (`gzip, deflate,
+  br`), most origins answer it with gzip, and the Brotli filter cannot
+  re-encode a body that is already encoded. Asked for `br`, an origin without
+  Brotli answers uncompressed and the edge compresses it.
+#}
+{% if site.compression | default('brotli') != 'off' %}
+        proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
+{% endif %}

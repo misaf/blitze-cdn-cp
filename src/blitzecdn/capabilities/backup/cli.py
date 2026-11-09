@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.backup.domain import BackupComponent
+from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import (
     build_backup_service,
     build_restore_guard,
@@ -78,9 +79,46 @@ def create(
     service = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     )
     created = service.create(only=only, destination=destination)
     typer.echo(f"Backup created: {created}")
+
+
+@backup_app.command("prune")
+def prune(
+    keep: Annotated[
+        int | None,
+        typer.Option(
+            "--keep",
+            min=0,
+            help=(
+                "Keep this many of the newest archives instead of "
+                "BLITZE_BACKUP_RETAIN_COUNT. 0 keeps every archive."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Delete all but the newest archives in the backup directory.
+
+    Only archives named the way 'create' names them are counted or removed;
+    anything else in the directory, and anything written with '--output'
+    elsewhere, is left alone. The scheduled backup runs this after every
+    'create' that succeeds.
+    """
+    settings = common.settings()
+    retain = BackupConfig.from_settings(settings).retain_count if keep is None else keep
+    removed = build_backup_service(
+        settings,
+        configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
+    ).prune(keep=retain)
+    if not retain:
+        typer.echo("Retention is off (keep 0); no archive was removed.")
+        return
+    for path in removed:
+        typer.echo(f"Removed: {path}")
+    typer.echo(f"Kept the newest {retain}; removed {len(removed)}.")
 
 
 @backup_app.command("inspect")
@@ -91,6 +129,7 @@ def inspect(
     manifest = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     ).inspect(archive)
     typer.echo(f"Created: {manifest.created_at:%Y-%m-%d %H:%M:%S} UTC")
     typer.echo(f"BlitzeCDN version: {manifest.blitzecdn_version}")
@@ -116,6 +155,7 @@ def restore(
     service = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
+        clock=common.clock(),
     )
     manifest = service.inspect(archive)
     listed = ", ".join(component.value for component in manifest.components)
@@ -131,9 +171,12 @@ def restore(
         # still converged to whatever the previous desired state was.
         typer.echo("Run 'blitzecdn deploy' to converge the edges on restored state.")
     if BackupComponent.CONFIG in manifest.components:
-        # The archive's BLITZE_ALLOWED_IPS now governs the API, but the host
-        # firewall still admits the old list until the installer reconciles it.
+        # The archive's controller key and BLITZE_ALLOWED_IPS now govern the
+        # control plane, but the deploy account still trusts the old key and
+        # the host firewall admits the old list until the installer converges
+        # them. `update` would not: it does nothing on the installed release.
         typer.echo(
-            "Run 'sudo /opt/blitzecdn/install.sh update' on an installed host to "
+            "Run 'sudo blitzecdn-install standalone --admin-cidr CIDR --email ADDRESS' "
+            "on an installed host to authorize the restored controller key and "
             "converge its firewall on the restored API access list."
         )

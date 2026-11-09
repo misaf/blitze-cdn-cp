@@ -18,18 +18,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from support.control_plane import ControlPlane, FakeRunner, build_application
+from support.control_plane import (
+    ControlPlane,
+    FakeRunner,
+    build_application,
+    deployment_lock,
+)
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 
 class LoopbackProbe(ServingProbe):
     def __init__(self, port: int) -> None:
-        super().__init__(timeout=5)
+        super().__init__(token="0" * 64, timeout=5)
         self.port = port
 
     def _connection(
@@ -49,7 +54,7 @@ class LocalRunner:
         self.phases: list[str] = []
 
     def lock(self) -> DeploymentLock:
-        return DeploymentLock(self.settings.deployment_lock_path)
+        return DeploymentLock(deployment_lock(self.settings))
 
     def validate(self, variables: Path) -> AnsibleRun:
         return self.delegate.validate(variables)
@@ -87,9 +92,6 @@ class LocalRunner:
         return self.delegate.run_playbook(
             name=name, playbook=playbook, variables=variables, host_limit=host_limit
         )
-
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
-        return self.delegate.run_decommission(host_limit=host_limit)
 
 
 def snapshot(control: ControlPlane, runner: LocalRunner) -> dict[str, Any]:

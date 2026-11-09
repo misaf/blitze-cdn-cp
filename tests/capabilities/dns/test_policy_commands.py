@@ -5,18 +5,18 @@ from contextlib import contextmanager
 import pytest
 from pydantic import ValidationError
 from support.control_plane import FakeRunner, build_application
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
-    EditFirewall,
-    EditVisitorHeaders,
     PatchPolicy,
 )
 from blitzecdn.capabilities.dns.service import DnsService
+from blitzecdn.capabilities.http.domain import EditVisitorHeaders
 from blitzecdn.capabilities.security.contract import SiteFirewall
-from blitzecdn.capabilities.serving.contract import SitePolicy
-from blitzecdn.composition import Repository
+from blitzecdn.capabilities.security.domain import EditFirewall
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 
 def test_selective_firewall_intent_covers_the_contract_lists():
@@ -84,7 +84,7 @@ def test_selective_commands_require_unambiguous_intent(factory):
 def test_selective_edit_observes_another_writer_at_transaction_entry(
     settings, earlier, later, expected
 ):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )

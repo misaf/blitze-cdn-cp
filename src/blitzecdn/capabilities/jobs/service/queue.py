@@ -24,7 +24,7 @@ from blitzecdn.capabilities.jobs.domain import (
     backoff_for,
 )
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 __all__ = ["DEPLOYMENT_JOB", "SCHEDULED_JOB", "JobQueue"]
 
@@ -47,7 +47,7 @@ class JobQueue:
         worker_id: str,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
         retention: int = 200,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.jobs = jobs
         #: Kind to handler; the worker learns nothing else about a job.

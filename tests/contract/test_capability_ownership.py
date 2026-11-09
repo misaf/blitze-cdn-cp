@@ -15,16 +15,16 @@ from support.paths import CORE_ANSIBLE, SOURCE
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import CompressionPolicy
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.http.contract import ProtocolPolicy
-from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
-from blitzecdn.capabilities.serving.contract import (
+from blitzecdn.capabilities.http.contract import (
     HeaderPolicy,
-    OriginPolicy,
-    SitePolicy,
+    ProtocolPolicy,
     SiteVisitorHeaders,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.origins.contract import OriginPolicy
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.tls.contract import TlsPolicy
+from blitzecdn.core.domain.site import CdnSite
+from blitzecdn.core.domain.site_policy import SitePolicy
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")
@@ -49,10 +49,10 @@ _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 _CAPABILITY_POLICIES = {
     "cache": CachePolicy,
     "compression": CompressionPolicy,
-    "http": ProtocolPolicy,
+    "http": (ProtocolPolicy, HeaderPolicy),
     "security": SecurityPolicy,
     "tls": TlsPolicy,
-    "sites": (HeaderPolicy, OriginPolicy),
+    "origins": OriginPolicy,
 }
 
 #: Fields on the site model that belong to no capability policy because they
@@ -95,8 +95,8 @@ def test_the_capability_owning_each_field_is_the_one_it_reads_like():
     assert owners["certificate_mode"] == "tls"
     assert owners["always_use_https"] == "tls"
     assert owners["cache_enabled"] == "cache"
-    assert owners["visitor_headers"] == "sites"
-    assert owners["origin_sni"] == "sites"
+    assert owners["visitor_headers"] == "http"
+    assert owners["origin_sni"] == "origins"
 
 
 def test_the_nginx_template_reads_only_fields_a_capability_owns():
@@ -110,8 +110,9 @@ def test_the_nginx_template_reads_only_fields_a_capability_owns():
 def test_every_edge_visible_setting_reaches_the_nginx_template():
     """A switch the desired state carries and the template never reads is inert.
 
-    `ssl_automatic_mode` is the one deliberate exception: the controller acts on
-    it and the edge sees only the resulting `ssl_mode`.
+    The controller acts on two and the edge sees only the result:
+    `ssl_automatic_mode` becomes an `ssl_mode`, and `allow_private_origin`
+    decides whether a host is served at all.
     """
     site = CdnSite(
         name="alpha",
@@ -123,7 +124,7 @@ def test_every_edge_visible_setting_reaches_the_nginx_template():
         re.findall(r"(?:item|site)\.([a-z_0-9]+)", _NGINX_IMPLEMENTATION_TEXT)
     ) | set(re.findall(r"site\.get\(\"([a-z_0-9]+)\"", _RENDERER_TEXT))
 
-    assert document - referenced == {"ssl_automatic_mode"}
+    assert document - referenced == {"ssl_automatic_mode", "allow_private_origin"}
 
 
 def test_the_nested_blocks_are_read_through_their_owning_capability():

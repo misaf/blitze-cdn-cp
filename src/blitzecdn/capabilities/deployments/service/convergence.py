@@ -16,6 +16,7 @@ from pathlib import Path
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_WORKFLOW,
     ROLLBACK_WORKFLOW,
+    ConvergenceKind,
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -24,6 +25,7 @@ from blitzecdn.capabilities.deployments.domain import (
     aborted_run,
 )
 from blitzecdn.capabilities.deployments.ports import (
+    ConvergenceOutcomes,
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
@@ -42,19 +44,23 @@ from blitzecdn.capabilities.deployments.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.deployments.service import reporting
+from blitzecdn.capabilities.deployments.service import (
+    requirements as requirement_policy,
+)
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutOutcome
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
-from blitzecdn.capabilities.releases.domain import Release
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
+from blitzecdn.capabilities.releases import Release
+from blitzecdn.capabilities.workflows import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +73,7 @@ class DeploymentPolicy:
     generated_vars_path: Path
     output_limit_bytes: int
     history_retention: int
+    deployment_retention: int
     runtime_errors: Callable[[], list[str]]
 
 
@@ -84,6 +91,8 @@ class DeploymentPersistence:
     settings: SettingRestore
     uow: UnitOfWork
     requirements: DeploymentRequirements
+    #: The running outcome per kind of convergence that alerting reads.
+    outcomes: ConvergenceOutcomes
 
 
 @dataclass(frozen=True)
@@ -118,7 +127,7 @@ class DeploymentService:
         dns: ZoneEditor,
         releases: Releases,
         workflows: Workflows,
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.clock = clock
         self.policy = policy
@@ -185,32 +194,24 @@ class DeploymentService:
         """
 
         with self.execution.runner.lock():
-            return self._journalled(
-                DEPLOYMENT_WORKFLOW,
-                operator,
-                None,
-                "converged",
-                lambda: self.converge(
-                    self._queue(
-                        operator,
-                        check=check,
-                        host_limit=host_limit,
-                    ),
-                    operator,
-                ),
-            )
+            deployment = self._queue(operator, check=check, host_limit=host_limit)
+            return self._journalled(deployment, operator)
 
-    def _journalled(
-        self,
-        kind: WorkflowKind,
-        operator: str,
-        resource_id: str | None,
-        checkpoint: str,
-        work: Callable[[], Deployment],
-    ) -> Deployment:
-        """Converge inside a workflow record, so every path leaves a durable trace."""
-        with self.workflows.run(kind, operator, resource_id) as progress:
-            deployment = work()
+    def _journalled(self, deployment: Deployment, operator: str) -> Deployment:
+        """Converge inside a workflow record, so every path leaves a durable trace.
+
+        The record names the deployment from the moment it opens, so a workflow a
+        crash leaves for review is always linked to the run it was journalling.
+        Admission happens before, in its own transaction, and needs no review.
+        """
+        if deployment.rollback_of:
+            kind: WorkflowKind = ROLLBACK_WORKFLOW
+            checkpoint = "converged_and_adopted"
+        else:
+            kind = DEPLOYMENT_WORKFLOW
+            checkpoint = "converged"
+        with self.workflows.run(kind, operator, deployment.id) as progress:
+            deployment = self.converge(deployment, operator)
             progress.checkpoint(checkpoint, {"deployment_id": deployment.id})
             if deployment.status is not DeploymentStatus.SUCCEEDED:
                 progress.fail(deployment.detail or deployment.status.value)
@@ -228,21 +229,26 @@ class DeploymentService:
     def converge_requirements(self, operator: str) -> Deployment | None:
         """Queue one fleet deployment for pending requirements, or ``None`` if none.
 
-        A requirement clears only when a deployment succeeds, so an already queued fleet
-        deployment is returned rather than a second queued.
+        A requirement clears only when a deployment that can satisfy it succeeds, so an
+        already queued one is returned rather than a second queued.
         """
-        if not self.persistence.requirements.pending(
-            DeploymentRequirementKind.CERTIFICATES
-        ):
+        pending = [
+            requested
+            for kind in DeploymentRequirementKind
+            if (requested := self.persistence.requirements.requested_at(kind))
+            is not None
+        ]
+        if not pending:
             return None
+        # A queued run satisfies every requirement only if it was compiled after
+        # the newest of them.
+        requested_at = max(pending)
         with self.execution.runner.lock():
-            for waiting in self.persistence.deployments.queued_deployments():
-                if (
-                    not waiting.check_mode
-                    and waiting.host_limit is None
-                    and waiting.rollback_of is None
-                ):
-                    return waiting
+            waiting = requirement_policy.queued_to_satisfy(
+                self.persistence.deployments.queued_deployments(), requested_at
+            )
+            if waiting is not None:
+                return waiting
             return self._queue(operator, check=False, enqueue=True)
 
     def rollback(
@@ -255,16 +261,8 @@ class DeploymentService:
         """
 
         with self.execution.runner.lock():
-            return self._journalled(
-                ROLLBACK_WORKFLOW,
-                operator,
-                deployment_id,
-                "converged_and_adopted",
-                lambda: self.converge(
-                    self._queue_rollback(operator, deployment_id, check=check),
-                    operator,
-                ),
-            )
+            deployment = self._queue_rollback(operator, deployment_id, check=check)
+            return self._journalled(deployment, operator)
 
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
@@ -298,17 +296,7 @@ class DeploymentService:
                         deployment.id,
                     )
                 )
-            kind = ROLLBACK_WORKFLOW if deployment.rollback_of else DEPLOYMENT_WORKFLOW
-            checkpoint = (
-                "converged_and_adopted" if deployment.rollback_of else "converged"
-            )
-            return self._journalled(
-                kind,
-                deployment.operator,
-                deployment.id,
-                checkpoint,
-                lambda: self.converge(deployment, deployment.operator),
-            )
+            return self._journalled(deployment, deployment.operator)
 
     # -- Drift ---------------------------------------------------------
 
@@ -345,9 +333,24 @@ class DeploymentService:
         """One deployment, for an operator or a client polling a queued run."""
         return self.persistence.deployments.get_deployment(deployment_id)
 
+    def paginate_deployments(
+        self, *, limit: int, offset: int
+    ) -> PageResult[Deployment]:
+        return self.persistence.deployments.paginate_deployments(
+            limit=limit, offset=offset
+        )
+
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         """Recent deployments, newest first."""
         return self.persistence.deployments.list_deployments(limit)
+
+    def paginate_targets(
+        self, deployment_id: str, *, limit: int, offset: int
+    ) -> PageResult[DeploymentTarget]:
+        self.get_deployment(deployment_id)
+        return self.persistence.targets.paginate_targets(
+            deployment_id, limit=limit, offset=offset
+        )
 
     def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]:
         """How far each edge got in this deployment."""
@@ -381,11 +384,18 @@ class DeploymentService:
         """
         # Normalised before storing, so a malformed limit is refused before any row.
         limit = validate_edge_limit(host_limit)
-        release = (
-            self.releases.get(release_id)
-            if release_id is not None
-            else self.releases.prepare(host_limit=limit)
-        )
+        if release_id is not None:
+            release = self.releases.get(release_id)
+        else:
+            try:
+                release = self.releases.prepare(host_limit=limit)
+            except Exception:
+                # Refused before any deployment row exists: without this, a
+                # setting that blocks every compile would leave no trace of the
+                # failures an alert could count.
+                if limit is None:
+                    self._record_outcome(check=check, succeeded=False)
+                raise
         with self.persistence.uow.transaction():
             deployment = self.persistence.deployments.create_deployment(
                 operator,
@@ -403,7 +413,10 @@ class DeploymentService:
             )
             self.persistence.targets.plan(deployment.id, planned_edges, fence=0)
             # Pruned inline by a writer, so retention cannot silently stop.
-            self.persistence.deployments.prune_history(self.policy.history_retention)
+            self.persistence.deployments.prune_history(
+                self.policy.history_retention,
+                keep_applied=self.policy.deployment_retention,
+            )
             self.events.record(
                 domain_event(
                     operator,
@@ -541,10 +554,9 @@ class DeploymentService:
                     target_status, now=self.clock(), result=run, error=outcome.error
                 ),
             )
-            if target_status is DeploymentStatus.SUCCEEDED and not check:
-                self.persistence.requirements.clear(
-                    DeploymentRequirementKind.CERTIFICATES
-                )
+            if target_status is DeploymentStatus.SUCCEEDED:
+                requirement_policy.settle(self.persistence.requirements, deployment)
+            self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
@@ -588,6 +600,7 @@ class DeploymentService:
                     result=aborted_run(exc, interrupted=interrupted, now=now),
                 ),
             )
+            self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
@@ -598,6 +611,23 @@ class DeploymentService:
                 )
             )
         return deployment, interrupted
+
+    def _record_finished(self, deployment: Deployment) -> None:
+        """Count a finished full-fleet run; a canary says nothing about the fleet."""
+        if deployment.host_limit is None:
+            self.persistence.outcomes.record(
+                ConvergenceKind.of(check=deployment.check_mode),
+                succeeded=deployment.status is DeploymentStatus.SUCCEEDED,
+            )
+
+    def _record_outcome(self, *, check: bool, succeeded: bool) -> None:
+        """Record an outcome outside a transaction, never masking the caller's error."""
+        try:
+            self.persistence.outcomes.record(
+                ConvergenceKind.of(check=check), succeeded=succeeded
+            )
+        except Exception:
+            _LOGGER.exception("could not record the convergence outcome")
 
     def publish_artifact(self, release: Release, path: Path) -> None:
         """Put a release's artifact, plus its digest, where Ansible reads it."""

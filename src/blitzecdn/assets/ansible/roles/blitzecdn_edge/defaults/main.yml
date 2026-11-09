@@ -7,7 +7,7 @@
 # A release's configuration is rendered for it, blitzecdn_edge_stack runs a
 # container inside it and
 # blitzecdn_firewall opens the host to it — three roles that need the same
-# answers and previously got them by reaching into each other's defaults.
+# answers and read them here rather than from each other's defaults.
 #
 # The rule for what belongs here is narrow: a value earns a place only if more
 # than one role needs it *and* it describes the shared runtime rather than one
@@ -29,10 +29,12 @@
 # leaving it overridable at every precedence the configuration model promises.
 
 # Derived by the control plane from the enabled sites, written into desired
-# state as this one key. It used to be written twice — once for Nginx and once
-# for the firewall — and the play asserted the two copies agreed. One value
+# state as this one key, which both Nginx and the firewall read. One value
 # cannot disagree with itself.
 blitzecdn_edge_http3_enabled: false
+
+# Shared by the serving container and Nginx workers, including config probes.
+blitzecdn_edge_nofile: 65536
 
 # The fleet value is composed in inventory/group_vars/blitzecdn_edges from
 # blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
@@ -52,6 +54,7 @@ blitzecdn_edge_runtime:
   # any use for it, and a contract member with one reader is a variable that
   # escaped its owner.
   container: blitzecdn-edge
+  nofile: "{{ blitzecdn_edge_nofile }}"
   # Validated against by blitzecdn_nginx and served from by
   # blitzecdn_edge_stack. Validating a configuration against one image and then
   # serving it from another is exactly the drift a single value cannot produce.
@@ -68,8 +71,7 @@ blitzecdn_edge_runtime:
   #
   # Here rather than in blitzecdn_edge_stack because it is a property of the
   # image, which this contract already carries — an image whose workers run as
-  # someone else needs this changed with it, exactly as `modules_include` moves
-  # if the image renames that file.
+  # someone else needs this changed with it.
   worker_uid: 101
 
   # Host directories, every one of them. Containers stay disposable: replacing
@@ -81,16 +83,12 @@ blitzecdn_edge_runtime:
     # The configuration tree blitzecdn_nginx writes and the container mounts
     # read-only.
     nginx: /etc/nginx
-    # The `load_module` list, which is two paths rather than one because it is
-    # the only file in the tree whose name inside the runtime is not its name
-    # on the host. nginx.conf includes `modules_include` on its first line and
-    # that path belongs to the image; `modules_conf` is what blitzecdn_nginx
-    # renders from the installed capabilities and blitzecdn_edge_stack mounts
-    # over it. Here rather than in either role because both need it and it
-    # describes the runtime: the image carries every module the published
-    # capabilities can ask for, and this is how one edge loads its own subset.
+    # The `load_module` list. The controller renders it into each release from
+    # the installed capabilities, blitzecdn_config_release binds it to the
+    # candidate, and nginx.conf includes it on its first line. The image carries
+    # every module the published capabilities can ask for; this is how one edge
+    # loads its own subset.
     modules_conf: /etc/nginx/blitzecdn-modules.conf
-    modules_include: /etc/nginx/modules.conf
     # njs modules an installed capability provisions. Root-owned and 0750
     # rather than world-readable, because a module here is executable code the
     # edge runs on every request it guards.
@@ -119,9 +117,9 @@ blitzecdn_edge_runtime:
     # subject. Core creates this directory, mounts it into the runtime and into
     # the configuration test read-only, and removes it on teardown; *what goes
     # in it* is the contributing capability's business, written by that
-    # capability's own role. There used to be a `geoip` member here naming a
-    # MaxMind database path, which meant the shared contract every edge role
-    # reads carried the name of a capability that may not be installed.
+    # capability's own role. No member here names a capability's files: the
+    # shared contract every edge role reads must not carry the name of a
+    # capability that may not be installed.
     data: /var/lib/blitzecdn/edge-data
 
   # Always served, and read from three places: the Compose healthcheck, the

@@ -21,7 +21,7 @@ TEMPLATES = NGINX_TEMPLATES
 SECRET = "edge-test-secret-" + "x" * 32
 
 
-def _render_module() -> str:
+def _render_module(difficulty_bits: int = 16) -> str:
     environment = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATES),
         undefined=jinja2.StrictUndefined,
@@ -30,6 +30,7 @@ def _render_module() -> str:
     environment.filters["to_json"] = json.dumps
     return environment.get_template("under-attack.js.j2").render(
         blitzecdn_security_under_attack_passage_seconds=1800,
+        blitzecdn_security_under_attack_difficulty_bits=difficulty_bits,
     )
 
 
@@ -192,3 +193,109 @@ console.log(JSON.stringify({
     assert report["pageStatus"] == 200
     assert report["pageContainsHostileTarget"] is False
     assert "default-src 'none'" in report["csp"]
+
+
+def _run_harness(tmp_path: Path, module_source: str, body: str) -> dict:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required to exercise the rendered njs module"
+    (tmp_path / "under-attack.mjs").write_text(module_source, encoding="utf-8")
+    harness = tmp_path / "harness.mjs"
+    harness.write_text(
+        body.replace("__KEY__", base64.b64encode(SECRET.encode()).decode()),
+        encoding="utf-8",
+    )
+    result = subprocess.run(  # noqa: S603 -- node and both paths are resolved locally
+        [node, str(harness)], capture_output=True, text=True, check=False, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_the_difficulty_is_counted_in_bits_by_the_edge_and_the_page(tmp_path: Path):
+    """A 12-bit edge takes a proof a 16-bit check would refuse, and only that.
+
+    Twelve is deliberately not a whole number of bytes, so the half-byte
+    comparison is what decides. The page carries its own copy of the test, which
+    is run here against the edge's verdicts on the same hashes.
+    """
+    report = _run_harness(
+        tmp_path,
+        _render_module(difficulty_bits=12),
+        """
+import crypto from 'crypto';
+import mitigation from './under-attack.mjs';
+
+Date.now = () => 1700000000 * 1000;
+
+function request(options = {}) {
+    return {
+        method: options.method || 'GET',
+        remoteAddress: '2001:db8::10',
+        headersIn: {'User-Agent': 'Test Browser/1'},
+        headersOut: {},
+        variables: {
+            host: 'example.com',
+            scheme: 'https',
+            blitzecdn_under_attack_target: '/',
+            cookie_blitzecdn_clearance: '',
+            request_id: '0123456789abcdef0123456789abcdef',
+            blitzecdn_under_attack_key: '__KEY__',
+        },
+        args: {token: options.token || ''},
+        requestText: options.body,
+        return(status, body) { this.status = status; this.body = body; },
+    };
+}
+
+const guarded = request();
+mitigation.guard(guarded);
+const token = guarded.variables.blitzecdn_under_attack_location.split('token=')[1];
+
+function find(test) {
+    for (let proof = 0; proof <= 0xffffffff; proof += 1) {
+        const hash = crypto.createHash('sha256').update(token + ':' + proof).digest();
+        if (test(hash)) return proof;
+    }
+    throw new Error('proof space exhausted');
+}
+
+function submit(proof) {
+    const r = request({method: 'POST', body: JSON.stringify({token, proof})});
+    mitigation.verify(r);
+    return r.status;
+}
+
+// Twelve zero bits but not sixteen: only a bitwise check accepts it.
+const twelve = find((h) => h[0] === 0 && h[1] !== 0 && (h[1] >> 4) === 0);
+// Eight zero bits, then a set bit inside the next four: short by under a byte.
+const short = find((h) => h[0] === 0 && (h[1] >> 4) !== 0);
+
+const page = request({token});
+mitigation.challenge(page);
+const script = page.body.match(/const meets=(.*?);for\\(let proof=/)[1];
+const meets = new Function('return ' + script)();
+const samples = [
+    [[0x00, 0x0f, 0xff], 12, true],
+    [[0x00, 0x10, 0x00], 12, false],
+    [[0x00, 0x00, 0x01], 16, true],
+    [[0x00, 0x00, 0x80], 17, false],
+    [[0x01, 0x00, 0x00], 8, false],
+    [[0x00, 0x00, 0x00], 24, true],
+];
+const pageAgrees = samples.every(
+    ([bytes, bits, expected]) => meets(Uint8Array.from(bytes), bits) === expected
+);
+
+console.log(JSON.stringify({
+    twelve: submit(twelve),
+    short: submit(short),
+    pageDifficulty: page.body.includes('if(meets(hash,12))'),
+    pageAgrees,
+}));
+""",
+    )
+
+    assert report["twelve"] == 200
+    assert report["short"] == 403
+    assert report["pageDifficulty"] is True
+    assert report["pageAgrees"] is True

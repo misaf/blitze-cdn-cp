@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import pytest
 from support.paths import REPO_ROOT
 
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 pytestmark = pytest.mark.skipif(
     os.name != "posix" or Path("/.dockerenv").exists(),
@@ -41,6 +41,7 @@ def practice(tmp_path):
     class Edge(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             assert self.path == "/.blitzecdn/release"
+            assert self.headers.get("X-BlitzeCDN-Probe") == "0" * 64
             body = served.read_bytes()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))

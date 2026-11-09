@@ -10,7 +10,13 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.validation import OmittedWhenEmpty, unique
@@ -276,6 +282,11 @@ ISO_3166_1_ALPHA_2 = frozenset(
 )
 # fmt: on
 
+#: Nginx refuses a configuration token longer than its 4 KiB read buffer, and
+#: the allowed paths render as one quoted regex. Bytes, not characters: a
+#: non-ASCII path takes up to four bytes per character in that buffer.
+ALLOWED_PATHS_PATTERN_LIMIT = 3500
+
 #: Codes people reach for that ISO does not assign, and what to use instead.
 COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 
@@ -283,15 +294,88 @@ COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 class SiteFirewall(OmittedWhenEmpty):
     """Per-hostname request filtering applied by Nginx; omitted when empty."""
 
-    allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
-    allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_countries: tuple[str, ...] = Field(default=(), max_length=250)
-    denied_methods: tuple[str, ...] = Field(default=(), max_length=20)
-    denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
+    allow_sources: tuple[str, ...] = Field(
+        default=(),
+        max_length=200,
+        description=(
+            "CIDR networks exempted from deny_sources and from the country and "
+            "method rules (allowed_countries, denied_countries, "
+            "allowed_methods, denied_methods). Path rules still apply to them. "
+            "Not an allowlist on its own: without a deny entry covering "
+            "everything else, the site stays open."
+        ),
+    )
+    deny_sources: tuple[str, ...] = Field(
+        default=(), max_length=200, description="CIDR networks answered with 403."
+    )
+    allowed_countries: tuple[str, ...] = Field(
+        default=(),
+        max_length=250,
+        description=(
+            "ISO 3166-1 alpha-2 codes; every other country gets a 403. Needs the "
+            "geoip capability."
+        ),
+    )
+    denied_countries: tuple[str, ...] = Field(
+        default=(),
+        max_length=250,
+        description="ISO 3166-1 alpha-2 codes answered with 403. Needs geoip.",
+    )
+    allowed_methods: tuple[str, ...] = Field(
+        default=(),
+        max_length=20,
+        description=(
+            "HTTP methods served; every other method gets a 405. HEAD is added "
+            "when GET is listed. Allowing only GET also refuses CORS preflight "
+            "(OPTIONS) and form posts. Cannot be combined with denied_methods."
+        ),
+    )
+    denied_methods: tuple[str, ...] = Field(
+        default=(), max_length=20, description="HTTP methods answered with 405."
+    )
+    allowed_paths: tuple[str, ...] = Field(
+        default=(),
+        max_length=100,
+        description=(
+            "Paths served; every other path gets a 403. An entry ending in '/' "
+            "admits everything under it, any other entry only that exact path. "
+            "Matched against the decoded, normalized URI. denied_paths still "
+            "apply inside an allowed prefix."
+        ),
+    )
+    denied_paths: tuple[str, ...] = Field(
+        default=(), max_length=100, description="URI prefixes answered with 403."
+    )
+    case_insensitive_paths: bool = Field(
+        default=False,
+        description=(
+            "Match allowed_paths and denied_paths regardless of ASCII letter "
+            "case, so a denied /admin also refuses /Admin and /ADMIN/login. "
+            "Off by default: paths match exactly as written. Turn it on when "
+            "the origin treats paths case-insensitively (IIS, ASP.NET, many "
+            "CMSs), or a different spelling reaches the denied path there."
+        ),
+    )
 
-    def replacing(self, lists: Mapping[str, Sequence[str]]) -> SiteFirewall:
-        """This firewall with the named lists replaced and the rest kept.
+    @property
+    def empty(self) -> bool:
+        """No rule lists: the matching flag alone filters nothing."""
+        return not any(
+            getattr(self, field)
+            for field in type(self).model_fields
+            if field != "case_insensitive_paths"
+        )
+
+    @property
+    def rule_count(self) -> int:
+        return sum(
+            len(getattr(self, field))
+            for field in type(self).model_fields
+            if field != "case_insensitive_paths"
+        )
+
+    def replacing(self, lists: Mapping[str, object]) -> SiteFirewall:
+        """This firewall with the named lists (or flag) replaced and the rest kept.
 
         Per list, as an operator editing one rule means; ``PATCH`` replaces the whole
         block, deliberately. Revalidated, since every list reaches an nginx directive.
@@ -337,7 +421,7 @@ class SiteFirewall(OmittedWhenEmpty):
             normalized.append(candidate)
         return unique(tuple(normalized), "country")
 
-    @field_validator("denied_methods")
+    @field_validator("allowed_methods", "denied_methods")
     @classmethod
     def validate_methods(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         normalized = []
@@ -348,23 +432,29 @@ class SiteFirewall(OmittedWhenEmpty):
             normalized.append(candidate)
         return unique(tuple(normalized), "method")
 
-    @field_validator("denied_paths")
+    @field_validator("allowed_methods")
     @classmethod
-    def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = []
-        for item in values:
-            candidate = item.strip()
-            if not candidate.startswith("/"):
-                raise ValueError(f"denied path {item!r} must start with '/'")
-            if len(candidate) > 512:
-                raise ValueError("denied paths must be at most 512 characters")
-            if any(character in candidate for character in " \t\r\n;{}\"'\\"):
-                raise ValueError(
-                    f"denied path {item!r} may not contain whitespace, quotes, "
-                    "backslashes, ';', '{' or '}'"
-                )
-            normalized.append(candidate)
-        return unique(tuple(normalized), "path")
+    def head_follows_get(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Nginx answers HEAD from the GET handler; refusing it breaks clients."""
+        if "GET" in values and "HEAD" not in values:
+            return (*values, "HEAD")
+        return values
+
+    @field_validator("allowed_paths", "denied_paths")
+    @classmethod
+    def validate_paths(
+        cls, values: tuple[str, ...], info: ValidationInfo
+    ) -> tuple[str, ...]:
+        kind = "allowed" if info.field_name == "allowed_paths" else "denied"
+        normalized = validated_paths(values, kind)
+        if kind == "denied" and "/" in normalized:
+            # `location ^~ /` duplicates the site's own `location /`, which
+            # fails the edge's configuration test.
+            raise ValueError(
+                "denied path '/' would block the whole site; list the paths "
+                "to serve in allowed_paths instead"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def validate_country_rules(self) -> Self:
@@ -374,6 +464,17 @@ class SiteFirewall(OmittedWhenEmpty):
                 "allowed_countries and denied_countries both list "
                 + ", ".join(sorted(overlap))
             )
+        pattern = allowed_paths_pattern(self.allowed_paths).encode("utf-8")
+        if len(pattern) > ALLOWED_PATHS_PATTERN_LIMIT:
+            raise ValueError(
+                "allowed_paths are too long together for one Nginx rule; list "
+                "shared prefixes ending in '/' instead of individual paths"
+            )
+        if self.allowed_methods and self.denied_methods:
+            raise ValueError(
+                "allowed_methods and denied_methods cannot both be set: an "
+                "allowlist already refuses every method it does not name"
+            )
         return self
 
     @property
@@ -381,14 +482,173 @@ class SiteFirewall(OmittedWhenEmpty):
         return bool(self.allowed_countries or self.denied_countries)
 
 
+def validated_paths(values: Sequence[str], kind: str) -> tuple[str, ...]:
+    """Paths that reach an Nginx regex or ``location`` unquoted, normalised."""
+    normalized = []
+    for item in values:
+        candidate = item.strip()
+        if not candidate.startswith("/"):
+            raise ValueError(f"{kind} path {item!r} must start with '/'")
+        if len(candidate) > 512:
+            raise ValueError(f"{kind} paths must be at most 512 characters")
+        if any(character in candidate for character in " \t\r\n;{}\"'\\"):
+            raise ValueError(
+                f"{kind} path {item!r} may not contain whitespace, quotes, "
+                "backslashes, ';', '{' or '}'"
+            )
+        normalized.append(candidate)
+    return unique(tuple(normalized), "path")
+
+
+def allowed_paths_pattern(paths: Sequence[str]) -> str:
+    """The alternation the edge renders: a prefix for '/'-terminated paths.
+
+    Mirrors ``security-access.conf.j2``, whose ``regex_escape`` is ``re.escape``.
+    """
+    return "|".join(
+        re.escape(path) + ("" if path.endswith("/") else "$") for path in paths
+    )
+
+
+#: The request rates a site may choose, slowest first. A ladder rather than any
+#: number because Nginx fixes the rate per shared-memory zone: every site on a
+#: rung shares that rung's zone, keyed per site and client, so the edge declares
+#: at most one zone per rung however many sites limit their traffic.
+RATE_LIMIT_RATES = (
+    "10r/m",
+    "30r/m",
+    "1r/s",
+    "2r/s",
+    "5r/s",
+    "10r/s",
+    "20r/s",
+    "50r/s",
+    "100r/s",
+    "200r/s",
+    "500r/s",
+    "1000r/s",
+)
+
+#: Statuses `limit_req_status` may answer with that a client reads as "slow down".
+RATE_LIMIT_STATUSES = (429, 503)
+
+
+def rate_limit_zone(rate: str) -> str:
+    """The shared zone one rung renders as; mirrors ``security-http.conf.j2``."""
+    return "blitzecdn_rate_" + rate.replace("/", "")
+
+
+class SiteRateLimit(OmittedWhenEmpty):
+    """A per-client request rate for one site; omitted when no rate is set."""
+
+    rate: str | None = Field(
+        default=None,
+        description=(
+            "Requests each client address may make, as one of "
+            + ", ".join(RATE_LIMIT_RATES)
+            + ". Requests over it are answered with status. Unset serves "
+            "everyone unlimited."
+        ),
+    )
+    burst: int = Field(
+        default=0,
+        ge=0,
+        le=10000,
+        description=(
+            "Requests a client may make above the rate before it is refused. "
+            "They are served at once, not queued."
+        ),
+    )
+    status: int = Field(
+        default=429,
+        description="The status refused requests get: 429 or 503.",
+    )
+    paths: tuple[str, ...] = Field(
+        default=(),
+        max_length=100,
+        description=(
+            "Paths the limit counts; empty counts every request. An entry ending "
+            "in '/' covers everything under it, any other entry only that exact "
+            "path; firewall.case_insensitive_paths applies to them too. "
+            "firewall.allow_sources are never limited."
+        ),
+    )
+
+    @property
+    def empty(self) -> bool:
+        return self.rate is None
+
+    @property
+    def zone(self) -> str | None:
+        return None if self.rate is None else rate_limit_zone(self.rate)
+
+    @field_validator("rate")
+    @classmethod
+    def validate_rate(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = value.strip().replace(" ", "")
+        if candidate not in RATE_LIMIT_RATES:
+            raise ValueError(
+                f"{value!r} is not an available rate; choose one of "
+                + ", ".join(RATE_LIMIT_RATES)
+            )
+        return candidate
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: int) -> int:
+        if value not in RATE_LIMIT_STATUSES:
+            raise ValueError("a rate limit answers with 429 or 503")
+        return value
+
+    @field_validator("paths")
+    @classmethod
+    def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return validated_paths(values, "rate-limited")
+
+    @model_validator(mode="after")
+    def validate_rate_is_set(self) -> Self:
+        if self.rate is None and (self.burst or self.status != 429 or self.paths):
+            raise ValueError("burst, status and paths need a rate to apply to")
+        pattern = allowed_paths_pattern(self.paths).encode("utf-8")
+        if len(pattern) > ALLOWED_PATHS_PATTERN_LIMIT:
+            raise ValueError(
+                "rate-limited paths are too long together for one Nginx rule; "
+                "list shared prefixes ending in '/' instead of individual paths"
+            )
+        return self
+
+
 class SecurityPolicy(CapabilityPolicy):
     """Request filtering requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    under_attack_mode: bool = False
+    under_attack_mode: bool = Field(
+        default=False,
+        description=(
+            "Require a signed BlitzeCDN browser clearance before cache or origin "
+            "processing."
+        ),
+    )
     # The block is replaced wholesale when patched.
-    firewall: SiteFirewall = SiteFirewall()
+    firewall: SiteFirewall = Field(
+        default=SiteFirewall(),
+        description=(
+            "Per-hostname request filtering. Empty serves everyone. Never applied "
+            "to /.well-known/acme-challenge/, so no rule can block renewal."
+        ),
+    )
+
+    # The block is replaced wholesale when patched.
+    rate_limit: SiteRateLimit = Field(
+        default=SiteRateLimit(),
+        description=(
+            "Per-client request rate for the site. Empty serves everyone "
+            "unlimited. Never applied to /.well-known/acme-challenge/."
+        ),
+    )
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
@@ -403,6 +663,7 @@ class SecurityPolicy(CapabilityPolicy):
             for name, asked in (
                 ("under_attack_mode", self.under_attack_mode),
                 ("firewall", not self.firewall.empty),
+                ("rate_limit", not self.rate_limit.empty),
             )
             if asked
         )

@@ -1,17 +1,10 @@
 ---
-- name: Count recent requests by site and cache outcome
-  ansible.builtin.script:
-    cmd: >-
-      collect-cache-stats.sh
-      {{ blitzecdn_cache_stats_access_log_path | quote }}
-      {{ blitzecdn_cache_stats_max_lines | int }}
-  register: blitzecdn_cache_stats_counts
-  changed_when: false
-  check_mode: false
-
+# Cache outcomes are not read here: traffic collection counts them from every
+# access-log record and stores them hourly, so this role reads only live state.
+#
 # stub_status is bound to loopback on the edge, so this reads it from the edge
 # rather than the controller. Failure is captured instead of fatal: nginx may
-# be down, which is exactly when the rest of this report is most worth having.
+# be down, and an edge reporting that is more useful than one that failed.
 - name: Read the nginx connection counters
   ansible.builtin.uri:
     url: >-
@@ -38,9 +31,8 @@
 #
 # `blitzecdn_report` is the channel a role returns a payload to the control
 # plane on: the runner collects this fact from its event stream and delivers it
-# as part of the run's structured result. This role used to render the same document to
-# JSON and copy it into a directory on the controller, which meant the control
-# plane had to supply a controller-side path, had to empty that directory
+# as part of the run's structured result. A file copied to the controller would
+# need a controller-side path from the control plane, a directory emptied
 # between runs, and still could not tell "this edge reported nothing" from "the
 # file has not been written yet". A fact has none of those problems, and
 # set_fact never reports a change, so a read-only collection stays read-only in
@@ -61,10 +53,8 @@
       # timestamp that reads as local time on one machine and UTC on another is
       # worse than none when comparing edges.
       collected_at: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
-      access_log_lines_read: "{{ blitzecdn_cache_stats_max_lines | int }}"
       nginx_reachable: "{{ blitzecdn_cache_stats_status.status | default(0) == 200 }}"
       connections: "{{ _totals if _totals else {} }}"
-      cache: "{{ blitzecdn_cache_stats_counts.stdout | default('[]') | from_json }}"
   vars:
     _content: "{{ blitzecdn_cache_stats_status.content | default('') }}"
     _numbers: "{{ _content | regex_findall('(\\d+)') }}"

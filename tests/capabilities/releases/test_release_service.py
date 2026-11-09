@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 from support.control_plane import FakeRunner, build_application, seed_record, seed_site
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,
@@ -20,18 +21,18 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
 )
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.releases.adapters.persistence import ReleaseStore
 from blitzecdn.capabilities.releases.domain import (
     DESIRED_STATE_ARTIFACT,
     UnservableReleaseError,
 )
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import NotFoundError
 
 
 @pytest.fixture
 def control(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     return build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     ), repository
@@ -72,7 +73,7 @@ def test_rendering_failure_keeps_admission_durable_and_retryable(
         def render(self, document):
             assert repository.database.current_session() is None
             # A separate database session sees admission already committed.
-            other = Repository(settings.database_path)
+            other = Stores(settings.database_path)
             try:
                 seen.extend(other.releases.list_releases())
             finally:
@@ -99,7 +100,7 @@ def test_admission_keeps_resource_resolution_and_retention_in_one_write_boundary
     seed_site(plane)
     observed = []
     contributions = plane.releases.contributors
-    save = repository.releases.save
+    save = ReleaseStore.save
 
     def resolve(site):
         session = repository.database.current_session()
@@ -114,12 +115,13 @@ def test_admission_keeps_resource_resolution_and_retention_in_one_write_boundary
         def fleet_variables(self, sites):
             return contributions.fleet_variables(sites)
 
-    def retain(release, inputs):
+    def retain(store, release, inputs):
         assert repository.database.current_session() is observed[0]
-        return save(release, inputs)
+        return save(store, release, inputs)
 
     monkeypatch.setattr(plane.releases, "contributors", ObservedContributions())
-    monkeypatch.setattr(repository.releases, "save", retain)
+    # Every handle on the release table: the container builds its own.
+    monkeypatch.setattr(ReleaseStore, "save", retain)
     plane.releases.prepare()
     assert observed
 
