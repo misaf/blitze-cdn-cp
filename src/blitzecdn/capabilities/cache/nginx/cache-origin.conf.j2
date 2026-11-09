@@ -1,0 +1,18 @@
+{#
+  Edge TTL overrides and ignored origin headers (cache_ttl_overrides,
+  cache_ignore_origin_headers), applied in the origin hop (site.conf.j2).
+
+  nginx takes an entry's lifetime from X-Accel-Expires before Cache-Control
+  or Expires, whatever order they arrive in (since 1.23.0), and X-Accel-Expires
+  0 keeps the response out. So the hop replaces the origin's X-Accel-Expires
+  with the site's map (cache-http.conf.j2), which is the override where one
+  applies and the origin's own value otherwise, and the cache one hop up reads
+  that. The visitor never sees it: nginx hides X-Accel-* from the client.
+
+  Rendering nothing for a site without either setting is what keeps that site
+  off the hop.
+#}
+{% if site.cache_enabled | default(true) and (site.cache_ttl_overrides | default({}, true) or site.cache_ignore_origin_headers | default([], true)) %}
+        proxy_hide_header X-Accel-Expires;
+        add_header X-Accel-Expires $blitzecdn_cache_expires_{{ site.name | replace('-', '_') }} always;
+{% endif %}

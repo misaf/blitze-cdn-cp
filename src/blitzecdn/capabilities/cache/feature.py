@@ -57,6 +57,7 @@ FEATURES = (
                 templates_path=NGINX_TEMPLATES,
                 http_fragments=("cache-http.conf.j2",),
                 upstream_fragments=("cache-upstream.conf.j2",),
+                origin_fragments=("cache-origin.conf.j2",),
             ),
         ),
         site_policy=(

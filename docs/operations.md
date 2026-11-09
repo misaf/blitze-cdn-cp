@@ -652,6 +652,47 @@ never cached, and nginx still refuses to store a response with `Set-Cookie` or
 `Cache-Control: private`, `no-cache` or `no-store`. Bypassed requests count as
 `BYPASS` in [cache statistics](#cache-statistics).
 
+### Edge TTL overrides
+
+`cache_ttl_overrides` sets the edge TTL by URL extension (`.css`), content type
+(`text/html`) or type family (`image/*`), in place of `cache_valid_success`:
+
+```bash
+blitzecdn domain cache example.com --ttl 'image/*=7d' --ttl text/html=0 --ttl .css=1h
+blitzecdn domain cache example.com --clear-ttls
+```
+
+An override applies to 200, 301, 302 and 304 responses whose origin sent no
+`Cache-Control`, `Expires` or `X-Accel-Expires`; when the origin did, the origin
+decides. `0` stores nothing of that type. An extension wins over the
+`Content-Type` the origin labels the response with, and an exact type over a
+family. A TTL is whole seconds, minutes, hours, days or weeks. Under the
+`standard` level an override also lets a type be stored that otherwise would
+not be, such as `text/html=5m`; the cookie bypass still applies.
+
+`cache_ignore_origin_headers` lists extensions, types or families whose origin
+caching headers the edge disregards, for an origin that marks its assets
+`no-cache` by mistake:
+
+```bash
+blitzecdn domain cache example.com --ignore-origin-headers 'image/*' --ignore-origin-headers .js
+blitzecdn domain cache example.com --respect-origin-headers
+```
+
+A listed type is stored for its override if it has one, else for
+`cache_valid_success` (404: `cache_valid_not_found`), and any other status of it
+is not stored, even with `Cache-Control: private` or `no-store`. Only list types
+that are the same for every visitor. A `Set-Cookie` response is still never
+stored, and visitors receive the origin's headers unchanged.
+
+How it works: nginx's `proxy_cache_valid` and `proxy_ignore_headers` cannot
+vary per response, but nginx takes a cached response's lifetime from
+`X-Accel-Expires` before `Cache-Control` or `Expires`. A site with either setting
+reaches its origin through a loopback hop on `127.0.0.1:8091`
+(`blitzecdn_nginx_origin_hop_port`) that rewrites `X-Accel-Expires` before the
+cache reads it. Sites without either setting reach the origin directly, as
+before.
+
 ## Cache statistics
 
 Cache effectiveness is read from stored hourly rows, never by sampling edges.
