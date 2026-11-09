@@ -684,6 +684,11 @@ is not stored, even with `Cache-Control: private` or `no-store`. Only list types
 that are the same for every visitor. A `Set-Cookie` response is still never
 stored, and visitors receive the origin's headers unchanged.
 
+A site with an entry naming a type (rather than an extension) does not
+revalidate expired entries with a conditional request: a `304` need not carry
+`Content-Type`, so the edge could not tell which rule it renews. Such entries
+are refetched in full instead.
+
 How it works: nginx's `proxy_cache_valid` and `proxy_ignore_headers` cannot
 vary per response, but nginx takes a cached response's lifetime from
 `X-Accel-Expires` before `Cache-Control` or `Expires`. A site with either setting

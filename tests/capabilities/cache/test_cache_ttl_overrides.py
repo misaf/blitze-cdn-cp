@@ -343,3 +343,26 @@ def test_ignoring_headers_without_overrides_needs_no_ttl_map():
         _expires(site, uri="/a", content_type="image/webp", cache_control="no-store")
         == "600"
     )
+
+
+@pytest.mark.parametrize(
+    ("cache", "revalidate"),
+    [
+        ({}, "on"),
+        ({"cache_ttl_overrides": {".css": "1h"}}, "on"),
+        ({"cache_ignore_origin_headers": [".js"]}, "on"),
+        ({"cache_ttl_overrides": {"image/*": "7d"}}, "off"),
+        ({"cache_ttl_overrides": {".css": "1h", "text/html": "0"}}, "off"),
+        ({"cache_ignore_origin_headers": ["image/*"]}, "off"),
+        ({"cache_ignore_origin_headers": ["application/json"]}, "off"),
+    ],
+)
+def test_a_type_rule_is_not_renewed_from_a_304(cache, revalidate):
+    """A 304 may omit Content-Type, so the hop could not match the type again.
+
+    nginx renews a revalidated entry from the 304's own headers: an image kept
+    for a 7d override would fall to the origin's max-age=60 on its first
+    renewal. An extension rule matches the URL, which every response has.
+    """
+    rendered = render_site(_site(**cache))
+    assert set(re.findall(r"proxy_cache_revalidate (\w+);", rendered)) == {revalidate}
