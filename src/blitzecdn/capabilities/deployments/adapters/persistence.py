@@ -45,7 +45,7 @@ class DeploymentStore:
 
     def in_use(self) -> Sequence[str]:
         """Every release some deployment still names; pruning must keep them."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return list(
                 session.scalars(select(DeploymentRow.release_id).distinct()).all()
             )
@@ -61,7 +61,7 @@ class DeploymentStore:
         canonical_digest: str | None = None,
     ) -> Deployment:
         deployment_id = uuid4().hex
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = DeploymentRow(
                 id=deployment_id,
                 status=DeploymentStatus.QUEUED.value,
@@ -86,7 +86,7 @@ class DeploymentStore:
         """
         if after.id != before.id:
             raise ValueError("a transition cannot change which deployment it is")
-        with self._db.session() as session:
+        with self._db.writer() as session:
             # One conditional UPDATE, never a read then a write. The status
             # check and the write cannot be split by another process's commit,
             # and a transaction whose first statement writes waits out a busy
@@ -116,7 +116,7 @@ class DeploymentStore:
             return self._deployment(row)
 
     def get_deployment(self, deployment_id: str) -> Deployment:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DeploymentRow, deployment_id)
             if row is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
@@ -124,7 +124,7 @@ class DeploymentStore:
 
     def deployment_release(self, deployment_id: str) -> str:
         """Which release this deployment converged, or is about to."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DeploymentRow, deployment_id)
             if row is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
@@ -133,7 +133,7 @@ class DeploymentStore:
     def paginate_deployments(
         self, *, limit: int, offset: int
     ) -> PageResult[Deployment]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return read_page(
                 session,
                 select(DeploymentRow).order_by(
@@ -145,7 +145,7 @@ class DeploymentStore:
             )
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(DeploymentRow)
                 .order_by(DeploymentRow.created_at.desc())
@@ -155,7 +155,7 @@ class DeploymentStore:
 
     def latest_successful_applied(self) -> Deployment | None:
         """The newest successful applied run, regardless of newer checks."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.scalars(
                 select(DeploymentRow)
                 .where(
@@ -168,7 +168,7 @@ class DeploymentStore:
             return self._deployment(row) if row is not None else None
 
     def queued_deployments(self) -> list[Deployment]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(DeploymentRow)
                 .where(DeploymentRow.status == DeploymentStatus.QUEUED.value)
@@ -177,7 +177,7 @@ class DeploymentStore:
             return [self._deployment(row) for row in rows]
 
     def running_deployments(self) -> list[Deployment]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(DeploymentRow)
                 .where(DeploymentRow.status == DeploymentStatus.RUNNING.value)
@@ -191,7 +191,7 @@ class DeploymentStore:
         abandoned = abandoned_run(
             "the controller restarted before this deployment completed", now=now
         ).model_dump(mode="json")
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return _rows_affected(
                 session.execute(
                     update(DeploymentRow)
@@ -273,7 +273,7 @@ class DeploymentStore:
         rollbacks = select(DeploymentRow.id, DeploymentRow.rollback_of).where(
             DeploymentRow.rollback_of.is_not(None)
         )
-        with self._db.session() as session:
+        with self._db.writer() as session:
             survivors = {
                 *session.scalars(recent_checks),
                 *session.scalars(recent_applied),
@@ -304,7 +304,7 @@ class DeploymentStore:
     def successful_rollback_target(self, current_release: str) -> Deployment:
         # `host_limit IS NULL` keeps canaries out of the automatic choice: one edge
         # reaching a release does not make it a state the fleet was running.
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.scalars(
                 select(DeploymentRow)
                 .where(
@@ -346,7 +346,7 @@ class DeploymentRequirementStore:
         self._db = database
 
     def require(self, kind: DeploymentRequirementKind) -> None:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 sqlite_insert(DeploymentRequirementRow)
                 .values(kind=kind.value, requested_at=self._db.now())
@@ -358,7 +358,7 @@ class DeploymentRequirementStore:
 
     def clear(self, kind: DeploymentRequirementKind, *, through: datetime) -> None:
         # Conditional, so a requirement raised after ``through`` survives.
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 delete(DeploymentRequirementRow).where(
                     DeploymentRequirementRow.kind == kind.value,
@@ -370,7 +370,7 @@ class DeploymentRequirementStore:
         return self.requested_at(kind) is not None
 
     def requested_at(self, kind: DeploymentRequirementKind) -> datetime | None:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DeploymentRequirementRow, kind.value)
             return None if row is None else row.requested_at
 
@@ -394,7 +394,7 @@ class DeploymentOutcomeStore:
                 "last_failure_at": now,
                 "consecutive_failures": DeploymentOutcomeRow.consecutive_failures + 1,
             }
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(
                 sqlite_insert(DeploymentOutcomeRow)
                 .values(kind=kind.value, **values)
@@ -405,7 +405,7 @@ class DeploymentOutcomeStore:
 
     def health(self) -> tuple[ConvergenceHealth, ...]:
         """Every kind, in declaration order; one never recorded reads as empty."""
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = {
                 row.kind: row for row in session.scalars(select(DeploymentOutcomeRow))
             }
@@ -442,7 +442,7 @@ class DeploymentTargetStore:
 
     def claim_generation(self, deployment_id: str) -> int:
         """Take this deployment over atomically, returning the new fence."""
-        with self._db.session() as session:
+        with self._db.writer() as session:
             generation = session.execute(
                 update(DeploymentRow)
                 .where(DeploymentRow.id == deployment_id)
@@ -461,7 +461,7 @@ class DeploymentTargetStore:
             return int(generation)
 
     def generation(self, deployment_id: str) -> int:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DeploymentRow, deployment_id)
             if row is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
@@ -475,7 +475,7 @@ class DeploymentTargetStore:
         next conditional write match nothing. Written up front so edges never attempted
         are a fact on a row.
         """
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             deployment = session.get(DeploymentRow, deployment_id)
             if deployment is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
@@ -511,7 +511,7 @@ class DeploymentTargetStore:
     def paginate_targets(
         self, deployment_id: str, *, limit: int, offset: int
     ) -> PageResult[DeploymentTarget]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return read_page(
                 session,
                 select(DeploymentTargetRow)
@@ -523,7 +523,7 @@ class DeploymentTargetStore:
             )
 
     def targets(self, deployment_id: str) -> list[DeploymentTarget]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(DeploymentTargetRow)
                 .where(DeploymentTargetRow.deployment_id == deployment_id)
@@ -578,7 +578,7 @@ class DeploymentTargetStore:
         self, deployment_id: str, *, fence: int, now: datetime, reason: str
     ) -> int:
         """Mark edges a stopped rollout never reached SKIPPED: none is known bad."""
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return _rows_affected(
                 session.execute(
                     update(DeploymentTargetRow)
@@ -603,7 +603,7 @@ class DeploymentTargetStore:
         fence: int,
         values: dict[str, Any],
     ) -> bool:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(

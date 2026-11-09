@@ -60,7 +60,7 @@ def test_release_store_detects_modified_documents(tmp_path, damage_inputs):
         inputs = ReleaseInputs()
         release = Release(inputs_digest=inputs.digest)
         repository.releases.save(release, inputs)
-        with repository.database.session() as session:
+        with repository.database.writer() as session:
             if damage_inputs:
                 row = session.scalars(select(ReleaseInputsRow)).one()
                 row.document = ReleaseInputs(

@@ -16,19 +16,19 @@ class ZoneStore:
         self._db = database
 
     def list_domains(self) -> list[Domain]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(select(DomainRow).order_by(DomainRow.name)).all()
             return [self._domain(row) for row in rows]
 
     def get_domain(self, name: str) -> Domain:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DomainRow, name)
             if row is None:
                 raise NotFoundError(f"domain {name!r} does not exist")
             return self._domain(row)
 
     def create_domain(self, domain: Domain) -> Domain:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.add(self._domain_row(domain))
             try:
                 session.flush()
@@ -47,7 +47,7 @@ class ZoneStore:
         """
         if expected is not None:
             self._db.require_transaction("replace_domain(expected=...)")
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(DomainRow, domain.name)
             if row is None:
                 raise NotFoundError(f"domain {domain.name!r} does not exist")
@@ -59,7 +59,7 @@ class ZoneStore:
         return domain
 
     def delete_domain(self, name: str) -> None:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(DomainRow, name)
             if row is None:
                 raise NotFoundError(f"domain {name!r} does not exist")
@@ -72,11 +72,11 @@ class ZoneStore:
         )
         if domain is not None:
             query = query.where(DnsRecordRow.domain == domain)
-        with self._db.session() as session:
+        with self._db.reader() as session:
             return [self._record(row) for row in session.scalars(query).all()]
 
     def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(DnsRecordRow, (domain, name, type_.value))
             if row is None:
                 raise NotFoundError(
@@ -85,7 +85,7 @@ class ZoneStore:
             return self._record(row)
 
     def create_record(self, record: DnsRecord) -> DnsRecord:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             # Check the zone first, so a missing zone and a duplicate record are told
             # apart without parsing the driver's IntegrityError.
             if session.get(DomainRow, record.domain) is None:
@@ -108,7 +108,7 @@ class ZoneStore:
         if expected is not None:
             self._db.require_transaction("replace_record(expected=...)")
         key = (record.domain, record.name, record.type.value)
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(DnsRecordRow, key)
             if row is None:
                 raise NotFoundError(
@@ -124,7 +124,7 @@ class ZoneStore:
         return record
 
     def delete_record(self, domain: str, name: str, type_: RecordType) -> None:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(DnsRecordRow, (domain, name, type_.value))
             if row is None:
                 raise NotFoundError(
@@ -136,7 +136,7 @@ class ZoneStore:
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None:
         """Restore zones wholesale. Used by rollback."""
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.execute(delete(DnsRecordRow))
             session.execute(delete(DomainRow))
             session.flush()
