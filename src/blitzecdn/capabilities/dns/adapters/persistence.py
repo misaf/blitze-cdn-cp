@@ -160,7 +160,11 @@ class ZoneStore:
 
     def _row(self, record: DnsRecord) -> DnsRecordRow:
         row = DnsRecordRow(
-            domain=record.domain, name=record.name, type=record.type.value
+            domain=record.domain,
+            name=record.name,
+            type=record.type.value,
+            value=record.value,
+            ttl=record.ttl,
         )
         self._apply(row, record)
         return row
