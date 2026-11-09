@@ -17,8 +17,11 @@ from support.control_plane import (
     seed_edge,
     seed_site,
 )
+from support.stores import Stores
 
+from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
+from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
@@ -33,7 +36,6 @@ from blitzecdn.capabilities.jobs import (
     SCHEDULED_JOB,
     JobQueue,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import (
     Repository,
@@ -44,6 +46,7 @@ from blitzecdn.composition import (
     worker_container,
 )
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
     ConflictError,
     DeploymentBusyError,
@@ -56,7 +59,7 @@ def _seed_proxied_record(control: ControlPlane) -> CdnSite:
 
 
 def _await_terminal(
-    repository: Repository, deployment_id: str, timeout: float = 5.0
+    repository: Stores, deployment_id: str, timeout: float = 5.0
 ) -> DeploymentStatus:
     deadline = time.monotonic() + timeout
     pending = {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
@@ -69,7 +72,7 @@ def _await_terminal(
 
 
 def _await_workflow(
-    repository: Repository, resource_id: str, timeout: float = 5.0
+    repository: Stores, resource_id: str, timeout: float = 5.0
 ) -> WorkflowStatus:
     deadline = time.monotonic() + timeout
     pending = {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}
@@ -110,7 +113,7 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
     owned.close()
     owned.close()
 
-    injected_repository = Repository(settings.database_path)
+    injected_repository = Stores(settings.database_path)
     injected = build_application(settings=settings, repository=injected_repository)
     injected.close()
 
@@ -138,7 +141,7 @@ def test_only_the_worker_container_installs_the_queue_handlers(settings):
 
 
 def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatch):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -172,7 +175,7 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
 
     So a record written behind the service's back still shows up.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -194,7 +197,7 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
 
 
 def test_external_deployment_run_never_holds_a_database_transaction(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class TransactionAwareRunner(FakeRunner):
         def run(self, *, check: bool, host_limit: str | None = None, tags=()):
@@ -208,7 +211,7 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
 
 
 def test_crud_validate_and_successful_deploy(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control)
@@ -218,7 +221,7 @@ def test_crud_validate_and_successful_deploy(settings):
         PatchPolicy.from_patch(DomainPatch(cache_enabled=False, compression="off")),
         "alice",
     )
-    assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
+    assert control.sites.get_site(site.name).policy[CachePolicy].cache_enabled is False
     assert control.deployments.validate() == []
     result = control.deployments.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -228,7 +231,7 @@ def test_crud_validate_and_successful_deploy(settings):
 
 
 def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -252,7 +255,7 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
         def run(self, *, check: bool, host_limit: str | None = None, tags=()):
             raise KeyboardInterrupt
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=InterruptedRunner()
     )
@@ -273,7 +276,7 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
 
     Unrouting takes the hostname off a site that stays configured.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -301,7 +304,7 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
 
 
 def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
@@ -324,7 +327,7 @@ def test_a_hostname_cannot_reach_two_origins_at_once(settings):
     One virtual host has one upstream and A/AAAA origins can never agree, so
     validation refuses a proxied pair, including one written behind the service.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _plane(settings, repository)
     seed_site(control, name="example-com", record="www")
     repository.zones.create_record(
@@ -351,7 +354,7 @@ def test_a_hostname_cannot_reach_two_origins_at_once(settings):
 
 def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
     """Two policies in one zone, and each hostname resolves to exactly one."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _plane(settings, repository)
     seed_site(control, name="example-com", record="www")
     control.rules.create_rule(
@@ -370,7 +373,7 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
     hosts = {site.name: site for site in control.sites.list_sites()}
     assert hosts["example-com"].server_names == ("www.example.com",)
     assert hosts["example-com--api"].server_names == ("api.example.com",)
-    assert hosts["example-com--api"].policy.cache.cache_enabled is False
+    assert hosts["example-com--api"].policy[CachePolicy].cache_enabled is False
     assert control.dns.validation_errors() == []
 
 
@@ -380,7 +383,7 @@ def test_validate_reports_a_hostname_served_from_two_origins(settings):
     A hostname whose two families point the edge at two origins, written behind
     the service as a damaged restore would.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _plane(settings, repository)
     seed_site(control, name="example-com", record="www")
     connection = sqlite3.connect(settings.database_path)
@@ -409,7 +412,7 @@ def test_validate_reports_a_hostname_served_from_two_origins(settings):
 
 
 def test_a_proxied_record_may_still_be_updated_in_place(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = _plane(settings, repository)
     seed_site(control, name="example-com", record="www")
 
@@ -423,7 +426,7 @@ def test_a_proxied_record_may_still_be_updated_in_place(settings):
 
 
 def test_failed_and_timed_out_deployments_are_recorded(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     runner = FakeRunner(
         [
             ansible_run(
@@ -447,7 +450,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
 
 
 def test_rollback_updates_canonical_state_only_after_success(settings):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -467,12 +470,14 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
     restored = control.sites.get_site(original.name)
     assert restored.origin_host == original.origin_host
     assert restored.server_names == ("cdn.example.com",)
-    assert restored.policy.cache.cache_enabled is True
+    assert restored.policy[CachePolicy].cache_enabled is True
     assert control.dns.validation_errors() == []
 
 
-def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settings):
-    repository = Repository(settings.database_path)
+def test_rollback_restoration_failure_is_atomic_and_never_reports_success(
+    settings, monkeypatch
+):
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -485,10 +490,11 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     )
     current = control.sites.get_site(original.name)
 
-    def fail_restore(_domains, _records):
+    def fail_restore(_store, _domains, _records):
         raise RuntimeError("restore failed")
 
-    repository.zones.replace_all_records = fail_restore
+    # Every handle on the zone table: the container builds its own.
+    monkeypatch.setattr(ZoneStore, "replace_all_records", fail_restore)
     result = control.deployments.rollback("alice", successful.id)
 
     assert result.status is DeploymentStatus.FAILED
@@ -498,13 +504,16 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     assert "rollback.applied" not in actions
     # Only the original deployment may have announced success.
     assert actions.count("deployment.succeeded") == 1
-    assert original.policy.cache.cache_enabled != current.policy.cache.cache_enabled
+    assert (
+        original.policy[CachePolicy].cache_enabled
+        != current.policy[CachePolicy].cache_enabled
+    )
 
 
-def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
+def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings, monkeypatch):
     """Swapping canonical state after the lock released would drop edits."""
     events: list[str] = []
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class LockingRunner(FakeRunner):
         @contextmanager
@@ -524,13 +533,14 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
 
     # Recording starts after the seeding, so nothing but the rollback's own
     # wholesale restore is counted.
-    original_replace = repository.zones.replace_all_records
+    original_replace = ZoneStore.replace_all_records
 
-    def recording_replace(domains, records):
+    def recording_replace(store, domains, records):
         events.append("state-replaced")
-        original_replace(domains, records)
+        original_replace(store, domains, records)
 
-    repository.zones.replace_all_records = recording_replace
+    # Every handle on the zone table: the container builds its own.
+    monkeypatch.setattr(ZoneStore, "replace_all_records", recording_replace)
 
     successful = control.deployments.deploy("alice")
     # A concurrent edit while the fleet converges. The rollback must restore the
@@ -556,7 +566,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
     Each edge's outcome is a status on a row; those after the failure are SKIPPED,
     still serving what they had.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     stopped = ansible_run(
         host_run("edge-b", failed=1, failure="nginx -t refused it"),
         status=RunStatus.FAILED,
@@ -589,7 +599,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
 
 def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     """An edge the check never got to is one we have no answer for."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -616,7 +626,7 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
 
 def test_startup_recovery_requeues_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = build_application(
         settings=settings,
@@ -651,7 +661,7 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     restarts the API while CLI deploys run. Abandoning it would also make the
     run's own final transition fail.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
 
     class BusyRunner(FakeRunner):
         def lock(self):
@@ -682,7 +692,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     so a record created mid-rollback would be silently deleted. The write happens
     inside the runner, while the window is open.
     """
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,
@@ -723,7 +733,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
 
 def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     """The guard must not refuse the ordinary case."""
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,

@@ -7,8 +7,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from support.control_plane import cli_control_plane, control_plane_app
+from support.stores import Stores
 from typer.testing import CliRunner
 
+from blitzecdn.capabilities.backup.domain import BackupComponent, BackupRecord
+from blitzecdn.capabilities.deployments.domain import ConvergenceKind
 from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.jobs.adapters.monitor import WorkerMonitor
@@ -16,23 +19,24 @@ from blitzecdn.capabilities.jobs.domain.observability import WorkerHeartbeat
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateSource,
     CertificateStatus,
+    PreflightAttempt,
 )
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.capabilities.workflows.service.coordinator import WorkflowCoordinator
-from blitzecdn.composition import Repository
+from blitzecdn.core.ports.clock import system_clock
 from blitzecdn.entrypoints.cli.main import app
 
 
 def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp_path):
     now = datetime(2026, 1, 1, tzinfo=UTC)
     moment = [now]
-    repository = Repository(settings.database_path, clock=lambda: moment[0])
+    repository = Stores(settings.database_path, clock=lambda: moment[0])
     repository.workflows.create("finished", "certificate", "operator")
     moment[0] += timedelta(seconds=12)
     repository.workflows.advance("finished", WorkflowStatus.SUCCEEDED)
     repository.workflows.create("interrupted", "deployment", "operator")
     repository.workflows.advance("interrupted", WorkflowStatus.NEEDS_REVIEW)
-    monitor = WorkerMonitor(tmp_path / "workers")
+    monitor = WorkerMonitor(tmp_path / "workers", clock=system_clock)
     monitor.directory.mkdir()
     for index, age in enumerate((0, 31)):
         worker = WorkerHeartbeat(
@@ -66,10 +70,35 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
                 certificate(2, False),
                 certificate(10, True),
                 certificate(90, True),
-            ]
+            ],
+            preflight_attempts=lambda: [
+                PreflightAttempt(
+                    site="private-unpointed",
+                    fingerprint="f" * 64,
+                    failures=3,
+                    checked_at=now - timedelta(minutes=5),
+                    next_check_at=now + timedelta(minutes=35),
+                    summary="dns: private.example.com does not resolve",
+                )
+            ],
         ),
+        backups=SimpleNamespace(
+            latest=lambda: BackupRecord(
+                completed_at=now - timedelta(hours=2),
+                archive="blitzecdn-backup-2025-12-31_22-00-00Z.tar.gz",
+                size_bytes=4096,
+                components=(BackupComponent.DATABASE,),
+            )
+        ),
+        convergence=repository.deployment_outcomes,
         clock=lambda: now,
     )
+    repository.deployment_outcomes.record(ConvergenceKind.APPLIED, succeeded=True)
+    for _ in range(3):
+        moment[0] += timedelta(hours=1)
+        repository.deployment_outcomes.record(
+            ConvergenceKind.DRIFT_CHECK, succeeded=False
+        )
     report = diagnostics.status()
     assert [worker.state for worker in report.workers] == ["idle", "stale"]
     assert report.workers[1].current_job_age_seconds == 60
@@ -79,15 +108,39 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
     assert report.certificates.expiring == 3
     assert report.certificates.expired == 1
     assert report.certificates.renewal_due == 1
+    assert report.certificates.preflight_blocked == 1
+    assert report.certificates.preflight_last_checked_at == now - timedelta(minutes=5)
+    assert report.certificates.preflight_next_check_at == now + timedelta(minutes=35)
+    assert report.backups.last_age_seconds == 7200
+    assert report.backups.last_size_bytes == 4096
     metrics = operational_metrics(report)
     assert 'blitzecdn_workers{state="stale"} 1' in metrics
     assert 'blitzecdn_workflows{status="needs_review"} 1' in metrics
     assert "blitzecdn_certificates_expiring 3" in metrics
+    assert "blitzecdn_certificates_preflight_blocked 1" in metrics
+    completed = (now - timedelta(hours=2)).timestamp()
+    assert f"blitzecdn_backup_last_success_timestamp_seconds {completed}" in metrics
+    assert "blitzecdn_backup_last_success_size_bytes 4096" in metrics
+    applied = (now + timedelta(seconds=12)).timestamp()
+    assert (
+        f'blitzecdn_convergence_last_success_timestamp_seconds{{kind="applied"}} '
+        f"{applied}"
+    ) in metrics
+    assert 'blitzecdn_convergence_consecutive_failures{kind="applied"} 0' in metrics
+    assert (
+        'blitzecdn_convergence_last_success_timestamp_seconds{kind="drift_check"} 0'
+    ) in metrics
+    assert 'blitzecdn_convergence_consecutive_failures{kind="drift_check"} 3' in metrics
+    assert (
+        'blitzecdn_convergence_last_failure_timestamp_seconds{kind="drift_check"} '
+        f"{moment[0].timestamp()}"
+    ) in metrics
     for identifier in (
         "private-host",
         "private-job",
         "private-kind",
         "private.example",
+        "private-unpointed",
     ):
         assert identifier not in metrics
     repository.close()
@@ -95,14 +148,23 @@ def test_status_and_metrics_show_stale_workers_expiry_and_recovery(settings, tmp
 
 def test_status_api_requires_authentication_and_reports_an_empty_controller(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/status").status_code == 401
-        response = client.get("/v1/status", headers={"X-API-Key": "x" * 32})
+        assert client.get("/v3/status").status_code == 401
+        response = client.get("/v3/status", headers={"X-API-Key": "x" * 32})
         assert response.status_code == 200
         document = response.json()
         assert document["queue"]["ready"] == 0
         assert document["workers"] == []
         assert document["certificates"]["managed"] == 0
+        assert document["backups"]["last_completed_at"] is None
+        assert document["backups"]["last_age_seconds"] is None
         assert not (settings.state_dir / "workers").exists()
+        metrics = client.get("/metrics", headers={"X-API-Key": "x" * 32}).text
+        assert "blitzecdn_backup_last_success_timestamp_seconds 0" in metrics
+        assert [item["consecutive_failures"] for item in document["convergence"]] == [
+            0,
+            0,
+        ]
+        assert 'blitzecdn_convergence_consecutive_failures{kind="applied"} 0' in metrics
 
 
 def test_status_cli_uses_the_same_service(settings, monkeypatch):
@@ -117,9 +179,14 @@ def test_status_cli_uses_the_same_service(settings, monkeypatch):
 
 
 def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog):
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "operator", "site-a")
-    coordinator = WorkflowCoordinator(journal=repository.workflows, uow=repository)
+    coordinator = WorkflowCoordinator(
+        journal=repository.workflows,
+        uow=repository,
+        events=repository.audit_log,
+        clock=system_clock,
+    )
     coordinator.reconcile_interrupted()
     (warning,) = [
         record for record in caplog.records if "recovery review" in record.message

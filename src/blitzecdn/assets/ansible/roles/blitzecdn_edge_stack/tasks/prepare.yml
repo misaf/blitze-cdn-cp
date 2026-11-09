@@ -33,7 +33,7 @@
         - {path: "{{ blitzecdn_edge_runtime.paths.tls }}", mode: "0700"}
         - {path: "{{ blitzecdn_edge_stack_runtime_path }}", mode: "0700"}
         # The three configuration directories the container mounts. Created
-        # here rather than by a package, because there is no longer a package:
+        # here because no package creates them:
         # a bind mount of a path that does not exist makes Docker create it as
         # an empty root-owned directory, and an edge would start with no
         # configuration at all and answer 404 for every site.
@@ -44,7 +44,7 @@
         # Nginx opens its logs as the root master process; adm is the group
         # Ubuntu gives log readers, and it is what a Phase 2 log shipper will
         # join rather than being given root.
-        - {path: "{{ blitzecdn_edge_runtime.paths.logs }}", owner: www-data, group: adm, mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.logs }}", owner: root, group: adm, mode: "0755"}
         # A generic writable runtime volume. The cache capability decides
         # whether Nginx uses it; core creates it because Compose mounts it even
         # on a capability-free edge and must never let Docker invent ownership.
@@ -71,23 +71,15 @@
         - {path: "{{ blitzecdn_edge_runtime.paths.empty }}", mode: "0755"}
       loop_control:
         label: "{{ item.path }}"
-      # Except a release's own tree. Once blitzecdn_config_release has bound the
-      # configuration paths to a candidate, that tree belongs to the release
+      # Except a release's own tree. blitzecdn_config_release has bound the
+      # configuration paths to a candidate, and that tree belongs to the release
       # helper: staging replaces whatever is there, and sealing fixes it. This
       # loop ran first and created the candidate's directories with its own
       # modes, then on every later run set them back over the sealed tree's —
       # so a check-mode drift probe of an edge serving its release always
       # reported a change, and a real run rewrote a sealed release.
-      when: >-
-        not (blitzecdn_config_release_enabled | default(false) | bool)
-        or not item.path.startswith(blitzecdn_config_release_candidate ~ '/')
+      when: not item.path.startswith(blitzecdn_config_release_candidate ~ '/')
 
     - name: Resolve the edge runtime image
       ansible.builtin.import_tasks: image.yml
-      when: >-
-        not (blitzecdn_config_release_enabled | default(false) | bool)
-        or not (blitzecdn_config_release_seal.stat.exists | default(false))
-
-    - name: Render the Compose project
-      ansible.builtin.import_tasks: compose.yml
-      when: not (blitzecdn_config_release_enabled | default(false) | bool)
+      when: not (blitzecdn_config_release_seal.stat.exists | default(false))

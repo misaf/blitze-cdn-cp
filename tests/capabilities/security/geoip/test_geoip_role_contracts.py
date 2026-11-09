@@ -14,13 +14,13 @@ from typing import Any
 import yaml
 from support.contracts import (
     STACK_ROLE_DIR,
-    _ansible_jinja,
-    _resolve,
-    _role_defaults,
-    _runtime_defaults,
+    ansible_jinja,
     jinja2,
+    resolve,
     run_role_tasks,
+    runtime_defaults,
 )
+from support.role_contracts import probe_volumes
 
 from blitzecdn.capabilities.security.geoip import ansible
 
@@ -34,18 +34,20 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
 
     Every path is an expression over `blitzecdn_edge_runtime`.
     """
-    context = _runtime_defaults() | yaml.safe_load(
-        (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
-    )
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    # Where the controller keeps its databases: a controller-side `lookup` and
+    # a digest only a release supplies, so Ansible resolves them lazily.
+    defaults.pop("blitzecdn_geoip_controller_directory")
+    context = runtime_defaults() | defaults
     context |= overrides
-    environment = _ansible_jinja()
+    environment = ansible_jinja()
     for _ in range(len(context)):
         plain = {
             name: value
             for name, value in context.items()
             if name != "blitzecdn_edge_runtime"
         }
-        resolved = _resolve(plain, context, environment)
+        resolved = resolve(plain, context, environment)
         if resolved == plain:
             break
         context |= resolved
@@ -79,7 +81,7 @@ def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
 
     Without the mount every country lookup stops and the edge will not start.
     """
-    data = _runtime_defaults()["blitzecdn_edge_runtime"]["paths"]["data"]
+    data = runtime_defaults()["blitzecdn_edge_runtime"]["paths"]["data"]
     compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
     assert "- {{ blitzecdn_edge_runtime.paths.data }}:" in compose
     assert f"{data}:{data}:ro" in _render_data_mounts()
@@ -87,7 +89,7 @@ def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
 
 def _render_data_mounts() -> str:
     """Core's configuration-test mounts, resolved to real paths."""
-    return "\n".join(_role_defaults()["blitzecdn_nginx_config_test_volumes"])
+    return "\n".join(probe_volumes())
 
 
 def test_the_snippet_defines_the_variable_the_site_template_reads():
@@ -101,66 +103,90 @@ def test_the_snippet_defines_the_variable_the_site_template_reads():
     assert "set $blitzecdn_visitor_ip_country $blitzecdn_country;" in site
 
 
-def test_maxmind_credentials_never_reach_an_nginx_config():
-    """The license key belongs in one 0600 file and nowhere else.
-
-    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only the
-    database path.
-    """
-    environment = _ansible_jinja(
-        loader=jinja2.FileSystemLoader([NGINX, ROLE / "templates"]),
+def test_the_snippet_names_only_the_database_path():
+    """/etc/nginx/conf.d is world-readable; the geoip2 directive needs a path."""
+    environment = ansible_jinja(
+        loader=jinja2.FileSystemLoader([NGINX]),
         keep_trailing_newline=True,
     )
-    context = _defaults(
-        blitzecdn_geoip_enabled=True,
-        blitzecdn_geoip_account_id="123456",
-        blitzecdn_geoip_license_key="SENTINELKEY",
-    )
+    context = _defaults(blitzecdn_geoip_enabled=True)
     snippet = environment.get_template("geoip-http.conf.j2").render(**context)
-    assert "SENTINELKEY" not in snippet
-    assert "123456" not in snippet
-    assert context["blitzecdn_geoip_database"] in snippet
-
-    # The updater is a container, so the credential travels as a 0600 env_file,
-    # never through the Compose file, where `docker inspect` would expose it.
-    credentials = environment.get_template("geoipupdate.env.j2").render(**context)
-    assert "GEOIPUPDATE_LICENSE_KEY=SENTINELKEY" in credentials
-
-    compose = (ROLE / "templates/compose.yml.j2").read_text(encoding="utf-8")
-    assert "GEOIPUPDATE_LICENSE_KEY" not in compose
-    assert "blitzecdn_geoip_license_key" not in compose
+    assert f"geoip2 {context['blitzecdn_geoip_database']} {{" in snippet
 
 
-def test_the_credentials_file_is_written_private_and_unlogged():
-    """Mode and no_log are the whole protection; assert them, not the intent."""
+def _walk(items):
+    for task in items:
+        yield task
+        for key in ("block", "rescue", "always"):
+            if key in task:
+                yield from _walk(task[key])
 
-    def walk(items):
-        for task in items:
-            yield task
-            for key in ("block", "rescue", "always"):
-                if key in task:
-                    yield from walk(task[key])
 
-    tasks = yaml.safe_load(TASKS.read_text(encoding="utf-8"))
-    writer = next(
-        task
-        for task in walk(tasks)
-        if task.get("ansible.builtin.template", {}).get("src") == "geoipupdate.env.j2"
-    )
-    assert writer["ansible.builtin.template"]["mode"] == "0600"
-    assert writer["ansible.builtin.template"]["owner"] == "root"
-    assert writer["no_log"] is True
+def _tasks() -> list[dict[str, Any]]:
+    return list(_walk(yaml.safe_load(TASKS.read_text(encoding="utf-8"))))
 
+
+def test_an_edge_holds_no_maxmind_credential_and_no_schedule():
+    """The controller downloads for the fleet; an edge only receives the file.
+
+    A credential on every edge is exposed by compromising any one of them, and a
+    download per edge spends MaxMind's per-account daily limit.
+    """
+    assert not (ROLE / "templates").exists()
     spec = yaml.safe_load(
         (ROLE / "meta/argument_specs.yml").read_text(encoding="utf-8")
     )["argument_specs"]["main"]["options"]
-    assert spec["blitzecdn_geoip_license_key"]["no_log"] is True
+    names = set(spec) | set(_defaults())
+    for forbidden in ("license", "account", "updater", "units", "calendar"):
+        assert not [name for name in names if forbidden in name], forbidden
+    text = TASKS.read_text(encoding="utf-8")
+    assert "lookup('env'" not in text
+    assert "systemd" not in text
+    assert "docker_compose" not in text
+
+
+def test_the_pinned_database_is_verified_before_and_after_the_copy():
+    """The digest the release captured is checked on the controller, then on the
+    edge: a file replaced on the controller after compilation never ships.
+    """
+    tasks = _tasks()
+    index = {id(task): position for position, task in enumerate(tasks)}
+    read = next(
+        task
+        for task in tasks
+        if task.get("ansible.builtin.stat", {}).get("path")
+        == "{{ blitzecdn_geoip_database_source }}"
+    )
+    assert read["delegate_to"] == "localhost"
+    assert read["ansible.builtin.stat"]["checksum_algorithm"] == "sha256"
+
+    refused = next(
+        task
+        for task in tasks
+        if "blitzecdn_geoip_database_sha256"
+        in str(task.get("ansible.builtin.assert", {}).get("that", ""))
+        and "blitzecdn_geoip_source" in str(task["ansible.builtin.assert"]["that"])
+    )
+    copy = next(task for task in tasks if "ansible.builtin.copy" in task)
+    assert copy["ansible.builtin.copy"]["src"] == (
+        "{{ blitzecdn_geoip_database_source }}"
+    )
+    assert copy["ansible.builtin.copy"]["dest"] == "{{ blitzecdn_geoip_database }}"
+    assert copy["ansible.builtin.copy"]["mode"] == "0644"
+
+    installed = next(
+        task
+        for task in tasks
+        if task.get("name") == "Require the installed database to match the release"
+    )
+    assert index[id(read)] < index[id(refused)] < index[id(copy)]
+    assert index[id(copy)] < index[id(installed)]
 
 
 def test_the_capability_is_off_until_an_operator_turns_it_on():
     """The capability is available but not armed by default.
 
-    On by default, every fleet would need a MaxMind credential.
+    On by default, every fleet would need a GeoIP database.
     """
     assert _defaults()["blitzecdn_geoip_enabled"] is False
 
@@ -197,3 +223,47 @@ def test_the_role_accepts_a_site_that_asks_for_no_country_setting(tmp_path):
 
     accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
     assert accepted.returncode == 0, accepted.stdout
+
+
+def test_the_role_finds_the_pinned_file_where_the_controller_stores_it():
+    """Directory and file name agree with the store, so a digest names one file."""
+    from blitzecdn.capabilities.security.geoip.domain import database_filename
+    from blitzecdn.capabilities.security.geoip.wiring import DATABASE_DIRECTORY
+
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    directory = defaults["blitzecdn_geoip_controller_directory"]
+    assert directory == (
+        "{{ lookup('env', 'BLITZE_STATE_DIR') }}/" + DATABASE_DIRECTORY
+    )
+    install = next(
+        task
+        for task in _tasks()
+        if task.get("name") == "Install the database the release pins"
+    )
+    source = install["vars"]["blitzecdn_geoip_database_source"].replace(" ", "")
+    digest = "{{blitzecdn_geoip_database_sha256}}"
+    assert source == (
+        "{{blitzecdn_geoip_controller_directory}}/"
+        + database_filename("0" * 64).replace("0" * 64, digest)
+    )
+
+
+def test_the_role_runs_on_a_fleet_whose_controller_has_no_database(tmp_path):
+    """No digest pinned: validating the role's arguments must not need one.
+
+    Including the role validates its argument spec, which renders every
+    default; a default naming `blitzecdn_geoip_database_sha256` failed every
+    fleet whose controller had not downloaded a database yet.
+    """
+    tasks = tmp_path / "include.yml"
+    tasks.write_text(
+        yaml.safe_dump([{"ansible.builtin.include_role": {"name": str(ROLE)}}]),
+        encoding="utf-8",
+    )
+    variables = {
+        "blitzecdn_edge_runtime": runtime_defaults()["blitzecdn_edge_runtime"],
+        "blitzecdn_nginx_sites": _sites_with(),
+    }
+
+    result = run_role_tasks(tasks, variables, tmp_path)
+    assert result.returncode == 0, result.stdout

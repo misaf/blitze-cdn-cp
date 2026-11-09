@@ -2,6 +2,6 @@
     listen 443 quic reuseport default_server;
     listen [::]:443 quic reuseport default_server;
 {% elif site.http3_enabled | default(false) and listener_port == 443 %}
-    listen 443 quic{% if not blitzecdn_nginx_default_server and site.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
-    listen [::]:443 quic{% if not blitzecdn_nginx_default_server and site.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
+    listen 443 quic{% if not blitzecdn_nginx_default_server and site.name == blitzecdn_nginx_http3_listener_owner and first_hostname | default(true) %} reuseport{% endif %};
+    listen [::]:443 quic{% if not blitzecdn_nginx_default_server and site.name == blitzecdn_nginx_http3_listener_owner and first_hostname | default(true) %} reuseport{% endif %};
 {% endif %}

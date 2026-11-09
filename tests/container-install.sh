@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 # Run the whole installer lifecycle against a throwaway container.
 #
-#   tests/container-install.sh ubuntu:26.04
+#   tests/container-install.sh ubuntu:26.04 [all|lifecycle|rollback]
 #
 # The only test that runs `install.sh standalone` for real: systemd as PID 1,
 # real apt, real accounts. A standalone host is also an edge, so it must meet
 # the narrower edge platform; CI runs Ubuntu only.
 #
-# Requires Docker and about five minutes per image.
+# The suite picks the stages after the install, which both share:
+#
+#   lifecycle  edge convergence, ACME, backup and restore, re-install, the
+#              update refusal, and uninstall
+#   rollback   the documented way back to a backup: full backup, uninstall,
+#              standalone again, restore
+#   all        rollback, then lifecycle on the restored host (the default)
+#
+# CI runs lifecycle and rollback as separate jobs, side by side.
+#
+# Requires Docker and about five minutes per image. With DIAGNOSTICS_DIR set,
+# a failed run leaves the host's journal and container logs there.
 #
 # Both images are built here from the working tree unless an archive of each
 # is given, for a machine that should not build them itself, such as one that
@@ -18,7 +29,12 @@
 #                                built with `blitzecdn edge image spec`
 set -Eeuo pipefail
 
-readonly IMAGE=${1:?usage: container-install.sh IMAGE}
+readonly IMAGE=${1:?usage: container-install.sh IMAGE [all|lifecycle|rollback]}
+readonly SUITE=${2:-all}
+case ${SUITE} in
+  all|lifecycle|rollback) ;;
+  *) printf 'unknown suite: %s (all, lifecycle or rollback)\n' "${SUITE}" >&2; exit 2 ;;
+esac
 readonly ADMIN_CIDR=203.0.113.8/32
 readonly ACME_EMAIL=ops@example.com
 # The API access list, and the one a later run repoints it to. Neither contains
@@ -41,11 +57,16 @@ readonly ACME_DOMAIN=cdn.example.com
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
-archive=$(mktemp -t blitzecdn-source-XXXXXX).tgz
 image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
 
 cleanup() {
+  local status=$?
+  # DIAGNOSTICS_DIR collects the host's journal and container logs from a
+  # failed run before the host goes; CI keeps them as an artifact.
+  if [[ ${status} != 0 && -n ${DIAGNOSTICS_DIR:-} ]]; then
+    bash "${project_dir}/scripts/collect-diagnostics.sh" "${DIAGNOSTICS_DIR}" "${container}"
+  fi
   # KEEP_CONTAINER=1 leaves the host up to inspect a failure; remove it with
   # `docker rm -f -v` afterwards.
   if [[ ${KEEP_CONTAINER:-0} == 1 ]]; then
@@ -55,7 +76,7 @@ cleanup() {
     # container engine's images, and a runner that keeps them keeps gigabytes.
     docker rm -f -v "${container}" >/dev/null 2>&1 || true
   fi
-  rm -f -- "${archive}" "${image_archive}" "${pebble_config}"
+  rm -f -- "${image_archive}" "${pebble_config}"
 }
 trap cleanup EXIT
 
@@ -96,31 +117,17 @@ done
 [[ ${state} == running || ${state} == degraded ]] ||
   fail "systemd never came up in ${IMAGE} (last state: ${state:-unknown})"
 
-say "Copying the working tree to /opt/blitzecdn"
-# The working tree, not a clone, so CI tests the commit under review, without
-# runtime state, caches, local configuration or host metadata. macOS tar would
-# otherwise add AppleDouble `._*.py` files, which Alembic reads as revisions.
-COPYFILE_DISABLE=1 tar \
-  --exclude=.venv --exclude='.venv.invalid.*' \
-  --exclude=.state --exclude=.git --exclude=.ansible --exclude=.cache \
-  --exclude=.env --exclude=blitzecdn.toml --exclude=.codex \
-  --exclude=dist --exclude='*.egg-info' \
-  --exclude=.mypy_cache --exclude=.pytest_cache --exclude=.ruff_cache \
-  --exclude=.hypothesis --exclude=.coverage --exclude=coverage.xml \
-  --exclude=htmlcov --exclude=.DS_Store --exclude='._*' \
-  --exclude='*.pyc' --exclude=__pycache__ \
-  -czf "${archive}" -C "${project_dir}" . 2>/dev/null
-in_container 'mkdir -p /opt/blitzecdn'
-# Not /tmp: newer images mount a tmpfs over it, hiding what docker cp put there.
-docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
-in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
+say "Copying the installer to the host"
+# The one file an operator downloads: a server is given no source tree, and
+# everything else comes from the control-plane image.
+docker cp "${project_dir}/install.sh" "${container}:/root/install.sh" >/dev/null
+in_container 'chmod 0755 /root/install.sh'
 
 say "Building the control-plane image this host will install"
 # From the working tree, under the reference the release pins, and handed to
 # the installer as an archive: the commit under review is what gets installed,
 # and the installer's own pull is the one step this harness does not exercise.
-pinned_image=$(sed -n 's/^blitzecdn_controlplane_image: *//p' \
-  "${project_dir}/src/blitzecdn/assets/ansible/roles/blitzecdn_controlplane/defaults/main.yml")
+pinned_image=$(sed -n 's/^readonly CONTROL_PLANE_IMAGE=//p' "${project_dir}/install.sh")
 [[ -n ${pinned_image} ]] || fail "no control-plane image is pinned"
 if [[ -n ${CONTROL_PLANE_IMAGE_ARCHIVE:-} ]]; then
   docker load --input "${CONTROL_PLANE_IMAGE_ARCHIVE}" >/dev/null ||
@@ -143,21 +150,17 @@ in_container 'printf "0.0.0.0 pypi.org files.pythonhosted.org\n:: pypi.org files
   fail "could not cut this host off from PyPI"
 
 say "Installing"
-if ! in_container "cd /opt/blitzecdn && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
-  # Preserve the evidence before the EXIT trap removes the disposable host.
-  # This catches corrupt source/package copies that otherwise surface only as
-  # an opaque import error several layers inside the installer.
-  # The expansions belong to the container shell.
-  # shellcheck disable=SC2016
-  in_container 'for path in /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
-  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/assets/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.*/site-packages/blitzecdn/assets/migrations/versions/0001_initial_schema.py' || true
+if ! in_container "cd / && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar /root/install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
   fail "install failed on ${IMAGE}"
 fi
 
 say "Checking what the installation produced"
-# Everything came from the image: no virtualenv, no uv, no Galaxy collections.
-in_container 'test ! -e /opt/blitzecdn/.venv && test ! -e /opt/blitzecdn/.state' ||
-  fail "the installer built host tooling in the checkout"
+# Everything came from the image: no source tree, no virtualenv, no uv, no
+# Galaxy collections, and no Git.
+in_container 'test ! -e /opt/blitzecdn' ||
+  fail "the installer left a source tree on the host"
+in_container 'cmp -s /root/install.sh /usr/local/sbin/blitzecdn-install' ||
+  fail "the host's blitzecdn-install is not the installer of the release it runs"
 in_container '! command -v uv >/dev/null' || fail "the installer put uv on this host"
 in_container "docker inspect -f '{{.Config.Image}}' blitzecdn-api | grep -qF '${pinned_image}'" ||
   fail "the API does not run the image the installer was given"
@@ -191,8 +194,7 @@ in_container 'docker exec blitzecdn-api python -c "import sqlite3; p=\"/opt/blit
   fail "SQLite could not create and write WAL state as the application identity"
 in_container 'test -f /var/lib/blitzecdn/permission-test.db && rm -f /var/lib/blitzecdn/permission-test.db*' ||
   fail "SQLite permission test did not write into persistent state"
-# From / rather than the checkout: the wrapper exists to make that work.
-in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
+in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
 say "Checking the API access list the installer was given"
@@ -212,6 +214,192 @@ in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname)
 # working.
 in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
   fail "the API stopped answering on loopback"
+
+# The HTTP status of an authenticated API read with the operator key the host's
+# environment file holds now. The key never leaves the container.
+# shellcheck disable=SC2016
+api_status_with_current_key() {
+  in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env | head -1)
+    curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${key}" http://127.0.0.1:8000/v3/edges'
+}
+
+# Everything a rollback must bring back, as one comparable document. The
+# configuration is what the running API loaded, not the files' bytes: a restore
+# re-renders both files from their parsed values. The environment is digested
+# because it holds the credentials. The database-backed fleet settings, zones
+# and edges are compared in full.
+control_plane_state() {
+  in_container "docker exec blitzecdn-api python -c 'import json, tomllib; print(json.dumps(tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\")), sort_keys=True))'" &&
+    in_container 'docker exec blitzecdn-api env | grep "^BLITZE_" | sort | sha256sum' &&
+    database_state
+}
+database_state() {
+  in_container 'cd / && blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
+}
+
+if [[ ${SUITE} != lifecycle ]]; then
+  say "Recovering from an update that fails health"
+  # The next patch release of the image under test, whose API exits at start.
+  # The role and the migrations are this commit's own, so the update stops the
+  # services, finds nothing to migrate, recreates them, and fails the health
+  # wait with the schema unchanged: the case that must return the host to the
+  # installed release on its own (#175).
+  installed_version=${pinned_image##*:}
+  broken_image="${pinned_image%:*}:${installed_version%.*}.$((${installed_version##*.} + 1))"
+  image_user=$(docker image inspect --format '{{.Config.User}}' "${pinned_image}")
+  broken_archive=$(mktemp -t blitzecdn-broken-control-plane-XXXXXX).tar
+  docker build --quiet --tag "${broken_image}" - >/dev/null <<EOF ||
+FROM ${pinned_image}
+USER 0:0
+RUN printf 'raise SystemExit("broken by the failed-update test")\n' > "\$(python -c 'import importlib.util; print(importlib.util.find_spec("blitzecdn.entrypoints.api").submodule_search_locations[0])')/__main__.py"
+USER ${image_user}
+EOF
+    fail "could not build the broken control-plane image"
+  docker save --output "${broken_archive}" "${broken_image}" ||
+    fail "could not export the broken control-plane image"
+  docker cp "${broken_archive}" "${container}:/root/broken-control-plane.tar" >/dev/null
+  rm -f -- "${broken_archive}"
+  docker image rm "${broken_image}" >/dev/null 2>&1 || true
+
+  state_before_update=$(database_state) || fail "could not read the state before the update"
+  update_output=$(in_container "BLITZECDN_CONTROL_PLANE_IMAGE=${broken_image} \
+    BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/broken-control-plane.tar \
+    blitzecdn-install update --yes" 2>&1) && {
+    printf '%s\n' "${update_output}"
+    fail "an update whose API cannot start succeeded"
+  }
+  grep -q "back on ${pinned_image}" <<<"${update_output}" || {
+    printf '%s\n' "${update_output}"
+    fail "the failed update did not say it returned to the installed release"
+  }
+  for service in blitzecdn-api blitzecdn-worker; do
+    in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
+      fail "${service} is not healthy after the failed update"
+    in_container "docker inspect -f '{{.Config.Image}}' ${service} | grep -qF '${pinned_image}'" ||
+      fail "${service} does not run the installed image after the failed update"
+  done
+  in_container "grep -qF '${pinned_image}' /etc/blitzecdn/control-plane.compose.yml" ||
+    fail "the failed update left the Compose project on the broken image"
+  in_container "grep -qF '${pinned_image}' /usr/local/bin/blitzecdn" ||
+    fail "the failed update left the CLI wrapper on the broken image"
+  [[ $(database_state) == "${state_before_update}" ]] ||
+    fail "the failed update changed the database state"
+  in_container "docker image rm ${broken_image} >/dev/null && rm -f /root/broken-control-plane.tar" ||
+    fail "could not remove the broken image"
+
+  say "Rolling back to a backup through a reinstall"
+  # `update` never moves backwards and `standalone` refuses another release, so
+  # going back is the documented recovery: uninstall, which keeps the backups,
+  # install the release to return to, and restore the full backup taken before.
+  # The release here is the commit under test on both sides; returning across
+  # releases is the same steps with the older installer.
+  rollback_backup=/var/backups/blitzecdn/before-rollback.tar.gz
+
+  # State a fresh install would not have, in each place it lives: a fleet
+  # setting, a zone with a record and a second edge in the database, and a
+  # changed value in the host's configuration file. The lifecycle stages
+  # rewrite that value themselves, so `all` needs no cleanup for it.
+  in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
+    fail "could not seed a fleet setting"
+  in_container 'cd / && blitzecdn domain add rollback.example.org &&
+    blitzecdn record add rollback.example.org www --value 192.0.2.11' ||
+    fail "could not seed a zone"
+  in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 --skip-host-key >/dev/null' ||
+    fail "could not register a second edge"
+  in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"192.0.2.53\"|" \
+    /etc/blitzecdn/blitzecdn.toml' ||
+    fail "could not change the configuration file"
+  in_container 'grep -q "^preflight_dns_servers = \"192.0.2.53\"$" /etc/blitzecdn/blitzecdn.toml' ||
+    fail "the configuration file was not changed"
+  # Configuration is read at start; recreate so the services run what is saved.
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+    up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
+    fail "the control plane did not come back with the changed configuration"
+  saved_state=$(control_plane_state) || fail "could not read the state to roll back to"
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "the API refused its own operator key before the rollback"
+
+  in_container "cd / && blitzecdn backup create -o ${rollback_backup}" ||
+    fail "the backup to roll back to failed"
+
+  in_container 'blitzecdn-install --uninstall --yes' ||
+    fail "the uninstall before reinstalling failed"
+  in_container 'test ! -e /etc/blitzecdn' || fail "the uninstall left /etc/blitzecdn"
+  in_container "test -s ${rollback_backup}" ||
+    fail "the uninstall did not keep the backup a rollback needs"
+
+  # The downloaded installer and image archive, exactly as the first install.
+  in_container "cd / && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar /root/install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}" ||
+    fail "the reinstall failed"
+  # A fresh installation, so the restore below is what brings the state back.
+  [[ $(control_plane_state) != "${saved_state}" ]] ||
+    fail "the reinstall already had the saved state, so the restore proves nothing"
+
+  in_container "cd / && blitzecdn backup restore ${rollback_backup} --yes" ||
+    fail "restoring the backup after the reinstall failed"
+  for service in blitzecdn-api blitzecdn-worker; do
+    in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
+      fail "${service} is not healthy after the rollback"
+  done
+  in_container "docker inspect -f '{{.Config.Image}}' blitzecdn-api | grep -qF '${pinned_image}'" ||
+    fail "the API does not run the installed image after the rollback"
+  restored_state=$(control_plane_state) || fail "could not read the restored state"
+  [[ ${restored_state} == "${saved_state}" ]] || {
+    diff <(printf '%s\n' "${saved_state}") <(printf '%s\n' "${restored_state}") || true
+    fail "the rollback did not restore configuration, credentials, zones and edges"
+  }
+  in_container "grep -qx 'BLITZE_ALLOWED_IPS=${ALLOWED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
+    fail "the rollback lost the API access list"
+  # The restored credential is the one the running API accepts.
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "the API does not accept the restored operator key"
+  in_container 'cd / && blitzecdn doctor --json >/dev/null' ||
+    fail "doctor fails after the rollback"
+
+  # The restore brought back the archived controller key, which the reinstalled
+  # deploy account does not trust yet. Re-running the installer authorizes it,
+  # as the restore says; the role's own SSH check is the first proof, and the
+  # one below is the one a deploy depends on. This run also re-renders
+  # blitzecdn.toml from the role, which is why it was compared above.
+  restored_database=$(database_state) || fail "could not read the database state"
+  in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
+    fail "re-running the installer after the restore failed"
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml run --rm --no-deps \
+    --entrypoint ssh blitzecdn-cli -F /opt/blitzecdn/.state/.ssh/config -o BatchMode=yes \
+    deploy@localhost sudo -n true' ||
+    fail "the restored controller key cannot reach the local edge"
+  repaired_database=$(database_state) || fail "could not read the repaired database state"
+  [[ ${repaired_database} == "${restored_database}" ]] ||
+    fail "re-running the installer after the restore changed the restored database state"
+  [[ $(api_status_with_current_key) == 200 ]] ||
+    fail "re-running the installer after the restore changed the operator key"
+
+  if [[ ${SUITE} == rollback ]]; then
+    printf '\nPASS: %s completed install and rollback\n' "${IMAGE}"
+    exit 0
+  fi
+
+  # The lifecycle stages below expect a host with only the local edge: the
+  # second one has no machine behind it, and a deploy would try to reach it.
+  in_container 'cd / && blitzecdn edge remove edge-rollback --no-decommission --yes >/dev/null &&
+    blitzecdn domain remove rollback.example.org --yes >/dev/null' ||
+    fail "could not remove the rollback fixtures"
+fi
+
+say "Isolating manual certificate operations from scheduled reconciliation"
+# This harness requests and renews certificates explicitly. The worker's first
+# reconciliation is due ten minutes after install, which can coincide with the
+# API request on a slower runner and take the same deployment lock. Disable
+# only that schedule before creating sites; keep the worker running for the
+# runtime and backup/restore checks. Production defaults remain unchanged.
+in_container 'printf "\nBLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS=0\n" >> /etc/blitzecdn/blitzecdn.env &&
+  blitzecdn --version >/dev/null &&
+  docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+    up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
+  fail "could not disable scheduled reconciliation for manual certificate checks"
+# Prove the worker reloaded the override and removed its existing schedule.
+in_container 'blitzecdn job schedules --json | python3 -c "import json, sys; assert all(s[\"name\"] != \"certificate-reconciliation\" for s in json.load(sys.stdin))"' ||
+  fail "the worker still schedules certificate reconciliation"
 
 say "Seeding the edge runtime image this host will run"
 # The edge runs from an image built from the commit under review and loaded into
@@ -298,7 +486,10 @@ in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-lo
 # JSON is the evidence, so it is kept rather than sent to /dev/null.
 deploy_or_fail() {
   local environment=$1 message=$2 output
-  if ! output=$(in_container "cd / && ${environment} blitzecdn deploy --yes --json"); then
+  # --wait: the worker's own background runs (startup recovery, the drift
+  # check, certificate reconciliation) take the deployment lock too, and a
+  # test that has just restarted the services must not race them for it.
+  if ! output=$(in_container "cd / && ${environment} blitzecdn deploy --yes --wait 300 --json"); then
     printf '%s\n' "${output}" | tail -80
     # shellcheck disable=SC2016
     in_container 'latest=$(ls -t /var/lib/blitzecdn/logs/*.log 2>/dev/null | head -1)
@@ -316,13 +507,16 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false
 
 # The zone carries the policy; the proxied record carries the origin. The
 # virtual host is named after the zone (`example-com`), hence `${ACME_SITE}`.
+# The origin is a documentation address nothing ever connects to: this test
+# only handshakes with the edge, and a loopback origin, which would reach the
+# edge itself, is refused.
 in_container 'cd / && blitzecdn domain add example.com' ||
   fail "could not add a zone"
-in_container 'cd / && blitzecdn record add example.com cdn --value 127.0.0.1' ||
+in_container 'cd / && blitzecdn record add example.com cdn --value 192.0.2.10' ||
   fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged.
-in_container 'cd / && blitzecdn plan --json >/dev/null' || {
+in_container 'cd / && blitzecdn plan --wait 300 --json >/dev/null' || {
   # shellcheck disable=SC2016
   dump_ansible_log
   fail "check-mode run failed"
@@ -343,7 +537,7 @@ in_container '! command -v nginx' || fail "nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
 deploy_or_fail "" "second deploy failed"
-in_container 'cd / && blitzecdn drift --json' || {
+in_container 'cd / && blitzecdn drift --wait 300 --json' || {
   # shellcheck disable=SC2016
   dump_ansible_log
   # The two files the stack renders itself from. A check-mode diff says which
@@ -440,10 +634,10 @@ in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebbl
 # Preflight asks public DNS, which knows nothing of this edge, and renewal
 # has no override, so preflight is pointed at the CA's DNS server. Replaced
 # rather than appended: a duplicate TOML key is a parse error.
-in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"127.0.0.1\"]|" \
+in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"127.0.0.1\"|" \
   /etc/blitzecdn/blitzecdn.toml' ||
   fail "could not point preflight at the challenge DNS server"
-in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /etc/blitzecdn/blitzecdn.toml' ||
+in_container 'grep -q "^preflight_dns_servers = \"127.0.0.1\"$" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the preflight resolver was not rewritten"
 # Configuration is read at start, and nothing in the Compose file changed, so
 # `--force-recreate` is needed; plain `up` would leave the old processes on the
@@ -459,14 +653,31 @@ started_after=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn
 [[ ${started_before} != "${started_after}" ]] ||
   fail "the API was not replaced, so it is still running the old configuration"
 
-# Issuance is an API operation. The key is read inside the container and never
-# crosses into this shell.
+# Issuance is a queued API operation: submit it, then poll the Location until
+# the worker records an outcome. The key is read inside the container and never
+# crosses into this shell; the result printed is the operation's `result`.
 # shellcheck disable=SC2016
 issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env)
   [ -n "${key}" ] || { printf "no operator API key in blitzecdn.env\n" >&2; exit 1; }
-  curl -sS --max-time 600 -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
+  location=$(curl -sS --fail-with-body --max-time 30 -o /dev/null -w "%header{location}" \
+    -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
     -d "{\"skip_preflight\": true}" \
-    http://127.0.0.1:8000/v1/hosts/'"${ACME_SITE}"'/certificate/request') || {
+    http://127.0.0.1:8000/v3/hosts/'"${ACME_SITE}"'/certificate/request) || exit 1
+  [ -n "${location}" ] || { printf "the request was not accepted\n" >&2; exit 1; }
+  deadline=$(( $(date +%s) + 600 ))
+  while :; do
+    operation=$(curl -sS --fail-with-body --max-time 30 -H "X-API-Key: ${key}" \
+      "http://127.0.0.1:8000${location}") || exit 1
+    state=$(printf "%s" "${operation}" | python3 -c "import json, sys; print(json.load(sys.stdin)[\"status\"])")
+    case ${state} in
+      succeeded)
+        printf "%s" "${operation}" | python3 -c "import json, sys; print(json.dumps(json.load(sys.stdin)[\"result\"]))"
+        exit 0 ;;
+      failed) printf "%s\n" "${operation}" >&2; exit 1 ;;
+    esac
+    [ "$(date +%s)" -lt "${deadline}" ] || { printf "timed out: %s\n" "${operation}" >&2; exit 1; }
+    sleep 2
+  done') || {
   # certbot's own log first: it names the ACME server it contacted and the
   # problem document it got back, which is the difference between "the CA
   # refused" and "the CA was never the one this stage started".
@@ -497,7 +708,7 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:15000/roots/0 -o /root/pe
   fail "could not fetch the ACME root"
 # The chain, checked as a client would: it verifies to Pebble's root and is
 # valid for this name. A handshake rather than a request, since the origin is
-# this host and a request would loop.
+# a documentation address with nothing behind it.
 in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
   -CAfile /root/pebble/root.pem -verify_return_error -verify_hostname ${ACME_DOMAIN} \
   </dev/null >/dev/null 2>&1" || {
@@ -586,10 +797,10 @@ in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*
   fail "the backup does not declare a database component"
 # /var/backups/blitzecdn is mounted at the same path on host and in the CLI
 # container, unlike the state directory, so both halves name the same file.
-in_container 'cd / && blitzecdn backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
+in_container 'cd / && blitzecdn --verbose backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
   fail "a database-only backup failed"
 in_container 'test -s /var/backups/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
-in_container 'cd / && blitzecdn backup restore /var/backups/blitzecdn/database-only.tar.gz --yes' ||
+in_container 'cd / && blitzecdn --verbose backup restore /var/backups/blitzecdn/database-only.tar.gz --yes' ||
   fail "a database-only restore failed"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "the database restore did not restart the API"
@@ -597,7 +808,13 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | gr
   fail "the database restore did not restart the worker"
 
 say "Restoring configuration and credentials from a full backup"
-in_container 'blitzecdn backup create -o /var/backups/blitzecdn/full-restore.tar.gz' ||
+# Exercise literal dollars and duplicate credentials through Compose, the
+# archive, publication, and persistent container recreation.
+# shellcheck disable=SC2016
+in_container 'sed -i "s/^BLITZE_API_KEYS=operator:/BLITZE_API_KEYS=operator:literal\$HOME-/" /etc/blitzecdn/blitzecdn.env
+  printf "BLITZE_API_KEYS=operator:ignored\n" >> /etc/blitzecdn/blitzecdn.env' ||
+  fail "could not seed the literal credential fixture"
+in_container 'blitzecdn --log-json backup create -o /var/backups/blitzecdn/full-restore.tar.gz' ||
   fail "the full backup failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | grep -q BLITZE_API_KEYS=' ||
   fail "the full backup omitted the API credentials"
@@ -610,6 +827,8 @@ in_container 'blitzecdn backup restore /var/backups/blitzecdn/full-restore.tar.g
   fail "the full restore failed"
 in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | cmp -s - /etc/blitzecdn/blitzecdn.env' ||
   fail "the full restore did not recover the archived credentials"
+in_container 'docker exec blitzecdn-api python -c "import os; assert os.environ[\"BLITZE_API_KEYS\"].startswith(\"operator:literal\" + chr(36) + \"HOME-\")"' ||
+  fail "Compose did not preserve literal dollars and the first credential assignment"
 in_container 'grep -q "allow_empty_sites = false" /etc/blitzecdn/blitzecdn.toml' ||
   fail "the full restore did not replace the host configuration"
 in_container 'docker exec blitzecdn-api python -c "import tomllib; assert not tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\"))[\"blitzecdn\"][\"allow_empty_sites\"]"' ||
@@ -620,14 +839,14 @@ in_container 'test "$(stat -c %a /etc/blitzecdn/blitzecdn.env)" = 600' ||
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "the full restore did not recover the worker"
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-api' ||
-  fail "Compose cannot discover the API recreated through the Docker SDK"
+  fail "Compose cannot discover the API recreated through Docker Compose"
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-worker' ||
-  fail "Compose cannot discover the worker recreated through the Docker SDK"
+  fail "Compose cannot discover the worker recreated through Docker Compose"
 
 say "Repointing the API access list"
 # The environment file is written once, so on an existing host the access list
 # is converged rather than seeded.
-in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
+in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
   fail "the installer could not repoint the API access list"
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "the access list was not repointed"
@@ -638,29 +857,30 @@ in_container 'grep -q "^BLITZE_API_KEYS=operator:" /etc/blitzecdn/blitzecdn.env'
   fail "repointing the access list disturbed the API credential"
 
 say "Re-running the installer"
-in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
+in_container "blitzecdn-install standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"
 # Omitting the flag leaves the access list exactly as the operator left it.
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "a run without --allowed-ips changed the access list"
 
-say "Checking the updater refuses a checkout it cannot verify"
-# The working tree has no .git, so `update` must refuse, and a host serving
-# before the refusal still serves after it. The happy path needs a real clone
-# and fetch.
-in_container 'cd /opt/blitzecdn && ./install.sh update --yes' &&
-  fail "update ran against a checkout with no origin"
+say "Checking the updater refuses a release it may not move to"
+# Named rather than read from the registry, so the refusal does not depend on
+# what is published: 0.0.1 is behind any release line. A host serving before
+# the refusal still serves after it. The happy path needs a published release
+# newer than the one under review.
+in_container "BLITZECDN_CONTROL_PLANE_IMAGE=${pinned_image%:*}:0.0.1 blitzecdn-install update --yes" &&
+  fail "update moved to a release outside its line"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "a refused update stopped the API"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "a refused update stopped the worker"
 
 say "Uninstalling"
-in_container 'cd /opt/blitzecdn && ./install.sh --uninstall --yes' ||
+in_container 'blitzecdn-install --uninstall --yes' ||
   fail "uninstall failed on ${IMAGE}"
 
 say "Checking the host is clean"
-for path in /opt/blitzecdn /etc/blitzecdn /usr/local/bin/blitzecdn \
+for path in /etc/blitzecdn /usr/local/bin/blitzecdn /usr/local/sbin/blitzecdn-install \
   /etc/sudoers.d/blitzecdn-deploy /var/lib/blitzecdn /home/deploy; do
   in_container "test ! -e ${path}" || fail "${path} survived the uninstall"
 done

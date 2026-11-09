@@ -1,28 +1,25 @@
-"""`cache` purge and `stats`, plus the zone cache settings under `domain`."""
+"""`cache` purge, stats and connections; zone cache settings under `domain`."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import typer
 
-from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
-from blitzecdn.capabilities.cache.domain import CacheStatsReport, PurgeEntry
+from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
+from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns.cli.editing import report, update
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.entrypoints.cli.domain_editing import report, update
 
 cache_app = typer.Typer(
-    no_args_is_help=True, help="Purge cached responses from the edges."
+    no_args_is_help=True, help="Purge cached responses and inspect cache effectiveness."
 )
-
-#: `blitzecdn stats` is a root verb, contributed by the capability whose report it
-#: reads.
-stats_app = typer.Typer()
 
 #: Joined to `blitzecdn domain`, which dns founds.
 domain_commands = typer.Typer()
@@ -40,6 +37,33 @@ def cache_purge(
             ),
         ),
     ] = None,
+    prefix: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--prefix",
+            help=(
+                "Purge everything cached under a hostname and path prefix, e.g. "
+                "cdn.example.com/blog/. Both schemes match. Repeatable."
+            ),
+        ),
+    ] = None,
+    hostname: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--hostname",
+            help="Purge everything cached for a hostname. Repeatable.",
+        ),
+    ] = None,
+    tag: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tag",
+            help=(
+                "Purge everything the origin tagged with this Cache-Tag value, "
+                "on any hostname. Case-insensitive. Repeatable."
+            ),
+        ),
+    ] = None,
     everything: Annotated[
         bool,
         typer.Option(
@@ -52,6 +76,14 @@ def cache_purge(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Remove cached responses from the edges.
+
+    Name URLs with --url, whole areas with --prefix and --hostname, or
+    everything an origin tagged with --tag. A prefix is matched as plain text,
+    so /blog also matches /blogroll; end it with / to name a directory. A tag
+    matches one item of the Cache-Tag response header the origin sent, e.g.
+    product-42 in "Cache-Tag: product-42, listing". Prefix, hostname and tag
+    purges scan every cached file on each edge, in one pass, so they take
+    longer than named URLs.
 
     Every variant of a URL goes: nginx keys entries by method and by content
     encoding, so one URL is several entries and leaving any behind would keep
@@ -71,8 +103,16 @@ def cache_purge(
     ):
         raise typer.Abort()
     entries = [_purge_entry(value) for value in url or []]
+    prefixes = [_purge_prefix(value) for value in prefix or []] + [
+        _purge_hostname(value) for value in hostname or []
+    ]
     result = common.service(CacheService).purge_cache(
-        "cli", entries=entries, purge_all=everything, host_limit=limit
+        "cli",
+        entries=entries,
+        prefixes=prefixes,
+        tags=tag or [],
+        purge_all=everything,
+        host_limit=limit,
     )
     common.emit(result, json_output=json_output)
     if not json_output:
@@ -103,70 +143,89 @@ def _purge_entry(value: str) -> PurgeEntry:
     return PurgeEntry(host=parsed.hostname, uri=uri, scheme=HttpScheme(parsed.scheme))
 
 
-@stats_app.command("stats")
+def _purge_prefix(value: str) -> PurgePrefix:
+    """Read ``host/path`` or a URL into a hostname and request-target prefix.
+
+    The scheme is accepted and ignored: a prefix purge covers both.
+    """
+    parsed = urlsplit(value if "//" in value else f"https://{value}")
+    if not parsed.hostname:
+        raise typer.BadParameter(f"{value!r} has no hostname")
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    try:
+        return PurgePrefix(host=parsed.hostname, prefix=target)
+    except ValueError as error:
+        raise typer.BadParameter(f"{value!r}: {error}") from error
+
+
+def _purge_hostname(value: str) -> PurgePrefix:
+    try:
+        return PurgePrefix(host=value)
+    except ValueError as error:
+        raise typer.BadParameter(f"{value!r}: {error}") from error
+
+
+@cache_app.command("stats")
 def stats(
-    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    by_site: Annotated[
-        bool,
-        typer.Option("--by-site", help="Break the numbers down by virtual host."),
-    ] = False,
+    start: Annotated[
+        str, typer.Option("--start", help="Inclusive UTC hour, ISO 8601 with timezone.")
+    ],
+    end: Annotated[
+        str, typer.Option("--end", help="Exclusive UTC hour, ISO 8601 with timezone.")
+    ],
+    hostname: Annotated[
+        str | None, typer.Option("--hostname", help="Exact served hostname.")
+    ] = None,
+    edge: Annotated[str | None, typer.Option("--edge", help="Exact edge name.")] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=500)] = 100,
+    offset: Annotated[int, typer.Option("--offset", min=0, max=2**63 - 1)] = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Report cache effectiveness across the edges.
+    """Stored hourly cache outcomes, ordered by hour, hostname and edge.
 
-    Reads the access log and nginx's own counters on each edge. Changes
-    nothing, so it is safe to run at any time, including during a deploy.
-
+    Counted by traffic collection from every log record; no edge is contacted.
     The hit ratio counts only requests that consulted the cache. Redirects,
     errors nginx served itself, and sites with caching disabled are excluded
     rather than scored as misses.
     """
-    report = common.service(CacheService).cache_stats("cli", host_limit=limit)
-    if json_output:
-        common.emit(_stats_document(report, by_site=by_site), json_output=True)
-        return
-    common.emit(_stats_document(report, by_site=by_site), json_output=False)
-    for edge in report.silent:
-        typer.echo(f"\n{edge.host} reported nothing: {edge.error}", err=True)
-    if report.hit_ratio is None:
-        typer.echo(
-            "\nNo cacheable requests in the window read, so there is no hit "
-            "ratio yet. A fresh edge or a quiet one both look like this."
-        )
+    query = UsageQuery.model_validate(
+        {
+            "start": start,
+            "end": end,
+            "hostname": hostname,
+            "edge": edge,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+    result = common.service(CacheService).stats(query)
+    common.emit(
+        {
+            "items": [item.model_dump(mode="json") for item in result.items],
+            "total": result.total,
+            "limit": query.limit,
+            "offset": query.offset,
+        },
+        json_output=json_output,
+    )
 
 
-def _stats_document(report: CacheStatsReport, *, by_site: bool) -> dict[str, Any]:
-    """One shape for both outputs, so --json is never a different answer."""
-    document: dict[str, Any] = {
-        "collected_at": report.collected_at.isoformat(),
-        "hit_ratio": report.hit_ratio,
-        "hits": report.hits,
-        "cacheable_requests": report.cacheable_requests,
-        "requests": report.requests,
-        "edges": [
-            {
-                "host": edge.host,
-                "hit_ratio": edge.hit_ratio,
-                "requests": edge.requests,
-                "nginx_reachable": edge.nginx_reachable,
-                "connections": edge.connections,
-                "error": edge.error,
-            }
-            for edge in report.edges
-        ],
-    }
-    if by_site:
-        document["sites"] = [
-            {
-                "site": site.site,
-                "hit_ratio": site.hit_ratio,
-                "hits": site.hits,
-                "cacheable_requests": site.cacheable_requests,
-                "requests": site.requests,
-            }
-            for site in report.by_site()
-        ]
-    return document
+@cache_app.command("connections")
+def connections(
+    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Read nginx's live connection counters on each edge.
+
+    Changes nothing, so it is safe to run at any time, including during a deploy.
+    """
+    result = common.service(CacheService).connections("cli", host_limit=limit)
+    common.emit(result.model_dump(mode="json"), json_output=json_output)
+    if not json_output:
+        for silent in result.silent:
+            typer.echo(f"\n{silent.host} reported nothing: {silent.error}", err=True)
 
 
 @domain_commands.command("cache")
@@ -220,9 +279,9 @@ def domain_cache(
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
     state = (
-        f"caching 2xx for {zone.policy.cache.cache_valid_success} and 404 for "
-        f"{zone.policy.cache.cache_valid_not_found}"
-        if zone.policy.cache.cache_enabled
+        f"caching 2xx for {zone.policy[CachePolicy].cache_valid_success} and 404 for "
+        f"{zone.policy[CachePolicy].cache_valid_not_found}"
+        if zone.policy[CachePolicy].cache_enabled
         else "not caching"
     )
     report(zone, f"{zone.name} is now {state}.", json_output=json_output)
@@ -240,10 +299,10 @@ def domain_cache_query_string(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether query strings distinguish cached responses."""
-    zone = update(name, DomainPatch(cache_query_string_mode=mode))
+    zone = update(name, DomainPatch.model_validate({"cache_query_string_mode": mode}))
     report(
         zone,
         f"{zone.name} cache query-string mode is now "
-        f"{zone.policy.cache.cache_query_string_mode.value!r}.",
+        f"{zone.policy[CachePolicy].cache_query_string_mode.value!r}.",
         json_output=json_output,
     )

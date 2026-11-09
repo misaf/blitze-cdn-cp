@@ -4,73 +4,128 @@ from pathlib import Path
 import pytest
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
+from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
+from blitzecdn.capabilities.origins.settings import OriginsConfig
+from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.features.resolution import resolve_capability_environment
 
 
+def _configured[T](settings: Settings, feature: str, model: type[T]) -> T:
+    """One capability's configuration, resolved as composition resolves it."""
+    return (
+        resolve_capability_environment(
+            load_registry().configuration_contributions(),
+            settings.capability_environment,
+            settings.capability_config_file,
+            settings.state_dir,
+        )
+        .for_feature(feature)
+        .as_model(model)  # type: ignore[type-var]
+    )
+
+
 def test_unconfigured_values_use_model_defaults(tmp_path, monkeypatch):
     class CustomSettings(Settings):
-        deployment_timeout_seconds: int = 240
+        history_retention: int = 240
         allow_empty_sites: bool = True
 
-    monkeypatch.setenv("DEPLOYMENT_TIMEOUT_SECONDS", "300")
+    monkeypatch.setenv("HISTORY_RETENTION", "300")
     monkeypatch.setenv("ALLOW_EMPTY_SITES", "false")
-    monkeypatch.setenv("BLITZE_DEPLOYMENT_TIMEOUT_SECONDS", "360")
+    monkeypatch.setenv("BLITZE_HISTORY_RETENTION", "360")
     settings = CustomSettings.from_environment({}, project_dir=tmp_path)
 
-    assert settings.deployment_timeout_seconds == 240
+    assert settings.history_retention == 240
     assert settings.allow_empty_sites is True
 
 
 def test_configured_values_preserve_precedence_and_falsey_values(tmp_path):
     (tmp_path / "blitzecdn.toml").write_text(
-        "[blitzecdn]\ndeployment_timeout_seconds = 120\n"
-        "allow_empty_sites = false\ndrift_check_interval_seconds = 0\n"
+        "[blitzecdn]\nhistory_retention = 120\nallow_empty_sites = false\n"
     )
     configured = Settings.from_environment({}, project_dir=tmp_path)
-    assert configured.deployment_timeout_seconds == 120
+    assert configured.history_retention == 120
     assert configured.allow_empty_sites is False
-    assert configured.drift_check_interval_seconds == 0
 
-    (tmp_path / ".env").write_text("BLITZE_DEPLOYMENT_TIMEOUT_SECONDS=180\n")
-    assert (
-        Settings.from_environment({}, project_dir=tmp_path).deployment_timeout_seconds
-        == 180
-    )
+    (tmp_path / ".env").write_text("BLITZE_HISTORY_RETENTION=180\n")
+    assert Settings.from_environment({}, project_dir=tmp_path).history_retention == 180
     overridden = Settings.from_environment(
-        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "240"}, project_dir=tmp_path
+        {"BLITZE_HISTORY_RETENTION": "240"}, project_dir=tmp_path
     )
-    assert overridden.deployment_timeout_seconds == 240
+    assert overridden.history_retention == 240
 
 
 def test_environment_configuration_and_precedence(tmp_path: Path):
     env = {
-        "BLITZE_API_KEY": "a" * 32,
-        "BLITZE_API_KEYS": f"alice:{'b' * 32}",
-        "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120",
+        "BLITZE_API_KEY": "0123456789abcdef" * 2,
+        "BLITZE_API_KEYS": f"alice:{'fedcba9876543210' * 2}",
+        "BLITZE_HISTORY_RETENTION": "120",
         "BLITZE_ALLOW_EMPTY_SITES": "true",
     }
     settings = Settings.from_environment(env, project_dir=tmp_path)
     assert set(settings.api_keys) == {"alice", "default"}
-    assert settings.deployment_timeout_seconds == 120
+    assert settings.history_retention == 120
     assert settings.state_dir == (tmp_path / ".state").resolve()
     assert settings.allow_empty_sites is True
+
+
+def test_deployment_settings_belong_to_the_deployments_capability(tmp_path):
+    """Core stages them; the capability that owns them resolves them."""
+    (tmp_path / "blitzecdn.toml").write_text(
+        "[blitzecdn]\ndeployment_timeout_seconds = 120\n"
+        "drift_check_interval_seconds = 0\n"
+    )
+    (tmp_path / ".env").write_text("BLITZE_DEPLOYMENT_RETENTION=50\n")
+    settings = Settings.from_environment(
+        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "240"}, project_dir=tmp_path
+    )
+    assert not hasattr(settings, "deployment_timeout_seconds")
+
+    config = _configured(settings, "deployments", DeploymentsConfig)
+    assert config.timeout_seconds == 240
+    assert config.drift_check_interval_seconds == 0
+    assert config.retention == 50
+
+
+def test_an_invalid_capability_setting_fails_closed(tmp_path):
+    settings = Settings.from_environment(
+        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "not-a-number"}, project_dir=tmp_path
+    )
+    with pytest.raises(ConfigurationError, match="deployments"):
+        _configured(settings, "deployments", DeploymentsConfig)
+
+
+def test_the_origin_probe_timeout_belongs_to_origins(tmp_path):
+    settings = Settings.from_environment(
+        {"BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS": "9"}, project_dir=tmp_path
+    )
+    assert _configured(settings, "origins", OriginsConfig).check_timeout_seconds == 9
 
 
 @pytest.mark.parametrize(
     "environment",
     [
         {"BLITZE_API_KEY": "short"},
+        {"BLITZE_API_KEY": "a" * 32},
         {"BLITZE_API_KEYS": "missing-separator"},
-        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "not-a-number"},
+        {"BLITZE_API_KEYS": f"operator:{'ab' * 20}"},
+        {"BLITZE_HISTORY_RETENTION": "not-a-number"},
         {"BLITZE_ALLOW_EMPTY_SITES": "sometimes"},
     ],
 )
 def test_invalid_environment_fails_closed(tmp_path, environment):
     with pytest.raises(ConfigurationError):
         Settings.from_environment(environment, project_dir=tmp_path)
+
+
+def test_a_copied_environment_example_leaves_the_api_unauthenticated(tmp_path):
+    """A hand-copied example must not run the API on a publicly known key."""
+    shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env")
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+    assert settings.api_keys == {}
+    assert "no API keys configured" in settings.validate_runtime(require_auth=True)
 
 
 def test_runtime_validation_reports_missing_files(tmp_path):
@@ -140,7 +195,7 @@ def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):
     """Core's settings stay core's, most importantly its API keys."""
     settings = Settings.from_environment(
         {
-            "BLITZE_API_KEY": "k" * 40,
+            "BLITZE_API_KEY": "0123456789abcdef" * 3,
             "BLITZE_RUN_LOG_RETENTION": "42",
             "BLITZE_WORKER_POLL_SECONDS": "2.5",
         },
@@ -188,19 +243,46 @@ def test_runtime_validation_requires_generated_vars_beneath_state(settings):
     )
 
 
-def test_preflight_dns_servers_default_to_the_host_resolver(tmp_path):
-    assert (
-        Settings.from_environment({}, project_dir=tmp_path).preflight_dns_servers == ()
+def _preflight(tmp_path, environment: dict[str, str]) -> CertificateConfig:
+    settings = Settings.from_environment(environment, project_dir=tmp_path)
+    return _configured(settings, "certificates", CertificateConfig)
+
+
+def test_preflight_dns_defaults_to_authoritative_nameservers(tmp_path):
+    config = _preflight(tmp_path, {})
+    assert config.dns_servers == ()
+    assert config.preflight_dns_source == "authoritative"
+
+
+def test_preflight_dns_source_accepts_the_host_resolver(tmp_path):
+    config = _preflight(tmp_path, {"BLITZE_PREFLIGHT_DNS_SOURCE": "host"})
+    assert config.preflight_dns_source == "host"
+
+
+def test_preflight_dns_servers_are_a_comma_separated_list(tmp_path):
+    (tmp_path / "blitzecdn.toml").write_text(
+        '[blitzecdn]\npreflight_dns_servers = " 1.1.1.1 , 1.0.0.1 "\n'
     )
+    assert _preflight(tmp_path, {}).dns_servers == ("1.1.1.1", "1.0.0.1")
+
+
+def test_preflight_dns_servers_contradict_the_host_resolver(tmp_path):
+    """Servers would silently win; refusing says which one the operator meant."""
+    with pytest.raises(ConfigurationError, match="contradict"):
+        _preflight(
+            tmp_path,
+            {
+                "BLITZE_PREFLIGHT_DNS_SOURCE": "host",
+                "BLITZE_PREFLIGHT_DNS_SERVERS": "1.1.1.1",
+            },
+        )
 
 
 @pytest.mark.parametrize("raw", ["dns.google", "not-an-ip", "1.1.1.1,nope"])
 def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
     """A hostname would have to be resolved by the resolver we do not trust."""
     with pytest.raises(ConfigurationError, match="not an IP address"):
-        Settings.from_environment(
-            {"BLITZE_PREFLIGHT_DNS_SERVERS": raw}, project_dir=tmp_path
-        )
+        _preflight(tmp_path, {"BLITZE_PREFLIGHT_DNS_SERVERS": raw})
 
 
 def test_allowed_ips_sources_and_normalization(tmp_path):
@@ -259,3 +341,27 @@ def test_an_entry_with_host_bits_offers_both_readings(tmp_path):
 
     assert "203.0.113.0/24" in str(failure.value)
     assert "203.0.113.8/32" in str(failure.value)
+
+
+def test_api_body_limit_sources(tmp_path):
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes
+        == 2_097_152
+    )
+    (tmp_path / "blitzecdn.toml").write_text("[blitzecdn]\napi_max_body_bytes = 4096\n")
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).api_max_body_bytes == 4096
+    )
+    configured = Settings.from_environment(
+        {"BLITZE_API_MAX_BODY_BYTES": "8192"}, project_dir=tmp_path
+    )
+    assert configured.api_max_body_bytes == 8192
+    assert "BLITZE_API_MAX_BODY_BYTES" not in configured.capability_environment
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid"])
+def test_invalid_api_body_limit_fails_configuration(tmp_path, value):
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment(
+            {"BLITZE_API_MAX_BODY_BYTES": value}, project_dir=tmp_path
+        )

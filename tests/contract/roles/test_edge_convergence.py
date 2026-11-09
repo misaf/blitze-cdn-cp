@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 import yaml
-from support.contracts import PROJECT_DIR, ROLES_DIR, _role, _runtime_defaults
+from support.contracts import PROJECT_DIR, ROLES_DIR, role_path, runtime_defaults
 from support.role_contracts import (
-    _defaults_of,
+    defaults_of,
 )
 
 
@@ -127,7 +127,7 @@ def test_the_contract_refuses_an_edge_that_could_not_serve(tmp_path, change, mes
 
     The spec checks shape; these are relationships between values.
     """
-    contract = _runtime_defaults()["blitzecdn_edge_runtime"]
+    contract = runtime_defaults()["blitzecdn_edge_runtime"]
     contract = {
         key: (value | change[key] if key in change else value)
         if isinstance(value, dict)
@@ -153,7 +153,7 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
     if not Path(ansible).exists():
         pytest.skip("ansible-playbook is not installed")
 
-    firewall = _role("blitzecdn_firewall")
+    firewall = role_path("blitzecdn_firewall")
     tasks = yaml.safe_load((firewall / "tasks/main.yml").read_text(encoding="utf-8"))
     compose = next(
         task
@@ -162,7 +162,7 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
     )
 
     def rules(http3: bool) -> set[str]:
-        runtime = _runtime_defaults(blitzecdn_edge_http3_enabled=http3)
+        runtime = runtime_defaults(blitzecdn_edge_http3_enabled=http3)
         computed = tmp_path / f"rules-{http3}.json"
         playbook = tmp_path / f"rules-{http3}.yml"
         playbook.write_text(
@@ -172,7 +172,7 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
                         "hosts": "localhost",
                         "connection": "local",
                         "gather_facts": False,
-                        "vars": _defaults_of(firewall)
+                        "vars": defaults_of(firewall)
                         | {
                             "blitzecdn_edge_runtime": runtime["blitzecdn_edge_runtime"],
                             "blitzecdn_firewall_ssh_port": 22,
@@ -212,7 +212,7 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
         assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
         return set(yaml.safe_load(computed.read_text(encoding="utf-8")))
 
-    listeners = _runtime_defaults()["blitzecdn_edge_runtime"]["listeners"]
+    listeners = runtime_defaults()["blitzecdn_edge_runtime"]["listeners"]
     expected = {"tcp|22|198.51.100.0/24"} | {
         f"tcp|{port}|any" for port in listeners["http"] + listeners["https"]
     }

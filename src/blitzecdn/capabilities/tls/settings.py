@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Final
+from ipaddress import ip_address
+from pathlib import Path
+from typing import Final, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from blitzecdn.core.features import ConfigurationModel
 
-__all__ = ["CONFIGURATION", "SETTINGS", "CertificateConfig"]
+__all__ = ["CONFIGURATION", "SETTINGS", "CertificateConfig", "certificate_dir"]
 
 CERTBOT: Final = "BLITZE_CERTBOT"
 ACME_DEFAULT_EMAIL: Final = "BLITZE_ACME_DEFAULT_EMAIL"
@@ -17,6 +19,19 @@ RECONCILE_INTERVAL: Final = "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS"
 RENEWAL_INTERVAL: Final = "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS"
 RENEWAL_BUDGET: Final = "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS"
 SCAN_INTERVAL: Final = "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS"
+PREFLIGHT_DNS_TIMEOUT: Final = "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS"
+PREFLIGHT_DNS_SERVERS: Final = "BLITZE_PREFLIGHT_DNS_SERVERS"
+PREFLIGHT_DNS_SOURCE: Final = "BLITZE_PREFLIGHT_DNS_SOURCE"
+
+#: Installed certificate material, one directory per site, under the
+#: controller's state directory. Not configurable: backup and restore carry it
+#: by this name.
+_CERTIFICATE_DIRECTORY: Final = "certificates"
+
+
+def certificate_dir(state_dir: Path) -> Path:
+    """Where installed certificate material lives under the state directory."""
+    return state_dir / _CERTIFICATE_DIRECTORY
 
 
 class CertificateConfig(ConfigurationModel):
@@ -63,8 +78,9 @@ class CertificateConfig(ConfigurationModel):
         le=7200,
         alias=RENEWAL_BUDGET,
         description=(
-            "Wall-clock budget for one renewal sweep served over HTTP, after "
-            "which it stops between sites and reports the rest as skipped."
+            "Wall-clock budget for one renewal sweep, scheduled or queued "
+            "through the API, after which it stops between sites and reports "
+            "the rest as skipped."
         ),
     )
     scan_interval_seconds: int = Field(
@@ -74,6 +90,64 @@ class CertificateConfig(ConfigurationModel):
         alias=SCAN_INTERVAL,
         description="How often Automatic SSL/TLS rescans origins. 0 disables it.",
     )
+
+    preflight_dns_timeout_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        alias=PREFLIGHT_DNS_TIMEOUT,
+        description=(
+            "Budget for one CAA lookup in certificate preflight; past it, the "
+            "check becomes advisory rather than blocking."
+        ),
+    )
+    preflight_dns_servers: str = Field(
+        default="",
+        alias=PREFLIGHT_DNS_SERVERS,
+        description=(
+            "Comma-separated recursive resolver addresses preflight asks instead "
+            "of each zone's authoritative nameservers. Empty follows "
+            "preflight_dns_source."
+        ),
+    )
+    preflight_dns_source: Literal["authoritative", "host"] = Field(
+        default="authoritative",
+        alias=PREFLIGHT_DNS_SOURCE,
+        description=(
+            "Where preflight looks names up when no servers are configured: "
+            "'authoritative' asks each zone's own nameservers, as the CA does; "
+            "'host' uses the controller's resolver, its caches and /etc/hosts."
+        ),
+    )
+
+    @property
+    def dns_servers(self) -> tuple[str, ...]:
+        """The configured preflight resolvers, in order; empty when none are."""
+        return tuple(filter(None, self.preflight_dns_servers.split(",")))
+
+    @field_validator("preflight_dns_servers")
+    @classmethod
+    def validate_dns_servers(cls, value: str) -> str:
+        """Addresses only: a hostname would need the resolver we distrust."""
+        servers = [part.strip() for part in value.split(",") if part.strip()]
+        for server in servers:
+            try:
+                ip_address(server)
+            except ValueError as exc:
+                raise ValueError(
+                    f"preflight DNS server {server!r} is not an IP address"
+                ) from exc
+        return ",".join(servers)
+
+    @model_validator(mode="after")
+    def check_preflight_dns(self) -> Self:
+        """Servers and the host resolver are two answers to one question."""
+        if self.preflight_dns_servers and self.preflight_dns_source == "host":
+            raise ValueError(
+                "preflight_dns_servers and preflight_dns_source = 'host' "
+                "contradict each other; set one"
+            )
+        return self
 
     @field_validator("default_email", mode="before")
     @classmethod

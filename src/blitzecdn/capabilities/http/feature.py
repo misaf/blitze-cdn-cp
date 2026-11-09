@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from blitzecdn import __version__
 from blitzecdn.capabilities.http import cli
-from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
+from blitzecdn.capabilities.http.contract import HeaderPolicy, ProtocolPolicy
+from blitzecdn.core.features import (
+    CliCommandGroup,
+    Feature,
+    FeatureMetadata,
+    PolicyContribution,
+)
 
 FEATURES = (
     Feature(
@@ -24,6 +30,12 @@ FEATURES = (
                 name="domain",
                 app=cli.domain_commands,
                 extends=True,
+            ),
+        ),
+        site_policy=(
+            PolicyContribution(feature="http", group="headers", contract=HeaderPolicy),
+            PolicyContribution(
+                feature="http", group="protocols", contract=ProtocolPolicy
             ),
         ),
     ),

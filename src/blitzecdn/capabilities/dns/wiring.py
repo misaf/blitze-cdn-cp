@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+from dishka import Provider, Scope, alias, provide
+
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore as ZoneTable
+from blitzecdn.capabilities.dns.adapters.rules import RuleStore as RuleTable
 from blitzecdn.capabilities.dns.ports import (
     RuleOverrides,
     RuleReader,
     RuleStore,
+    SiteReader,
+    ZoneEditor,
     ZoneReader,
     ZoneStore,
 )
 from blitzecdn.capabilities.dns.service import DnsService, HostService, RuleService
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.features import FeatureRendering, SiteStateContribution
+from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
 __all__ = [
     "RENDERING",
+    "DnsProvider",
     "build_dns_service",
     "build_host_service",
     "build_rule_service",
@@ -61,3 +69,40 @@ def site_contract(site: CdnSite) -> SiteStateContribution:
 
 
 RENDERING = FeatureRendering(feature="dns", site_state=site_contract)
+
+
+class DnsProvider(Provider):
+    """The zone and rule tables, and the three services that edit them."""
+
+    scope = Scope.APP
+
+    @provide
+    def zones(self, database: Database) -> ZoneStore:
+        return ZoneTable(database)
+
+    @provide
+    def rules(self, database: Database) -> RuleStore:
+        return RuleTable(database)
+
+    @provide
+    def dns(
+        self, zones: ZoneStore, rules: RuleStore, events: EventRecorder, uow: UnitOfWork
+    ) -> DnsService:
+        return build_dns_service(zones=zones, rules=rules, events=events, uow=uow)
+
+    @provide
+    def hosts(
+        self, zones: ZoneStore, rules: RuleStore, events: EventRecorder, uow: UnitOfWork
+    ) -> HostService:
+        return build_host_service(zones=zones, rules=rules, events=events, uow=uow)
+
+    @provide
+    def rule_editor(
+        self, rules: RuleStore, zones: ZoneStore, events: EventRecorder, uow: UnitOfWork
+    ) -> RuleService:
+        # A rule may consult the zone policy it overrides and may never write one.
+        return build_rule_service(rules=rules, zones=zones, events=events, uow=uow)
+
+    rule_reader = alias(source=RuleStore, provides=RuleReader)
+    sites = alias(source=HostService, provides=SiteReader)
+    zone_editor = alias(source=DnsService, provides=ZoneEditor)

@@ -44,7 +44,7 @@ def test_the_shipped_registry_includes_it() -> None:
 def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None:
     """The command reads `blitzecdn origin check`."""
     routes = {route.path for router in FEATURE.api_routers for route in router.routes}
-    assert routes == {"/v1/origins/check"}
+    assert routes == {"/v3/origins/check"}
 
     groups = FEATURE.cli_commands
     assert [group.name for group in groups] == ["origin"]
@@ -82,5 +82,9 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
 
     So attaching or detaching it leaves every site's desired state identical.
     """
-    # Configuration is its own contribution, and this capability makes none.
-    assert FEATURE.configuration == ()
+    # One controller-side setting, the probe timeout, and no secret.
+    (configuration,) = FEATURE.configuration
+    assert configuration.environment_keys == ()
+    assert [setting.name for setting in configuration.settings] == [
+        "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS"
+    ]

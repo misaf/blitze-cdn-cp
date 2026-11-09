@@ -18,8 +18,7 @@ argument_specs:
         Compose project and container names, the image, every mounted host
         directory including the capability data directory, the status endpoint
         and the public listener sets — comes from the blitzecdn_edge role. It reads no variable
-        belonging to another role; it used to derive fifteen of its defaults
-        from blitzecdn_nginx_*.
+        belonging to another role.
       - >-
         prepare.yml is a separate entry point, run before the installed
         capabilities' roles, before the firewall and before any configuration is

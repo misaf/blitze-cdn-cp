@@ -6,12 +6,12 @@ The raw output is kept as a log under ``state_dir/logs`` for operators, and as
 evidence when a run dies before Ansible reports anything.
 
 ``events`` translates Runner events; ``execution`` runs one invocation;
-``hosts`` expands a ``--limit`` against the recorded fleet; ``lock``
-serialises deployments across processes; ``runner`` decides which playbook,
-variables and edges; ``variables`` writes per-run variable files.
+``hosts`` expands a ``--limit`` against the recorded fleet; ``runner`` decides
+which playbook, variables and edges; ``variables`` writes per-run variable
+files. The lock that serialises deployments across processes is
+:mod:`blitzecdn.core.runtime.lock`.
 """
 
-from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.runner import AnsibleRunner
 
-__all__ = ["AnsibleRunner", "DeploymentLock"]
+__all__ = ["AnsibleRunner"]

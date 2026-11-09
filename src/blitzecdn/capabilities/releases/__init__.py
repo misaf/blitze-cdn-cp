@@ -19,6 +19,7 @@ from blitzecdn.capabilities.releases.domain import (
     SettingOrigin,
     SettingSource,
 )
+from blitzecdn.capabilities.releases.ports import ReleaseReferences
 
 __all__ = [
     "COMPILER_VERSION",
@@ -28,6 +29,7 @@ __all__ = [
     "HostExplanation",
     "Release",
     "ReleaseInputs",
+    "ReleaseReferences",
     "SettingOrigin",
     "SettingSource",
 ]

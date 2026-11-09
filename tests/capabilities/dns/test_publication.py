@@ -10,10 +10,10 @@ from support.control_plane import (
     build_application,
     seed_record,
 )
+from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.dns.domain import PUBLICATION, PublicationMode, RecordType
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
@@ -22,7 +22,7 @@ runner = CliRunner()
 def control_for(settings, monkeypatch) -> ControlPlane:
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     monkeypatch.setattr(cli.common, "container", lambda: control.container)

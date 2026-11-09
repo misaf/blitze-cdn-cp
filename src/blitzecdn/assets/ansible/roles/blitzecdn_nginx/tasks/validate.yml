@@ -5,6 +5,13 @@
 # desired state, which is the only place these conditionals and assertions are
 # ever evaluated rather than merely parsed. `--syntax-check` and ansible-lint
 # both pass a `when:` that fails at run time.
+- name: Validate log retention before changing the host
+  ansible.builtin.assert:
+    that:
+      # logrotate reads `rotate 0` as "keep no archives": every rotation would
+      # delete the records traffic collection has not read yet.
+      - blitzecdn_nginx_log_retention_days | int >= 1
+    fail_msg: blitzecdn_nginx_log_retention_days must be at least 1
 - name: Validate site values before changing the host
   ansible.builtin.assert:
     that:

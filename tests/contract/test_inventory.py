@@ -21,10 +21,10 @@ from pathlib import Path
 
 import pytest
 from support.paths import CORE_ANSIBLE, REPO_ROOT
+from support.stores import Stores
 
 from blitzecdn.capabilities.edges.adapters.ansible import edge_to_inventory
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.validation import RESERVED_ANSIBLE_SETTINGS
 from blitzecdn.core.persistence.schema import DatabaseSchema
 
@@ -108,7 +108,7 @@ def fleet(tmp_path: Path) -> tuple[Path, list[Edge]]:
         ),
     ]
     DatabaseSchema.migrate(database)
-    repository = Repository(database)
+    repository = Stores(database)
     for edge in edges:
         repository.edges.create_edge(edge)
     return database, edges
@@ -146,9 +146,7 @@ def test_an_absent_optional_field_is_absent_rather_than_null(fleet):
 
 def test_database_settings_override_shipped_group_vars(fleet):
     database, _ = fleet
-    Repository(database).ansible_settings.set_setting(
-        "blitzecdn_firewall_enabled", True
-    )
+    Stores(database).ansible_settings.set_setting("blitzecdn_firewall_enabled", True)
 
     hostvars = _ansible_inventory(database)["_meta"]["hostvars"]
 

@@ -1,12 +1,14 @@
 """The baseline schema and guards against a damaged database.
 
-The baseline and SQLModel metadata create the same schema, and a database
+The baseline and SQLAlchemy metadata create the same schema, and a database
 missing a column or table is refused. Alembic runs against a real file.
 """
 
 from __future__ import annotations
 
+import re
 import sqlite3
+import subprocess
 from contextlib import closing
 
 import pytest
@@ -15,14 +17,15 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
-from support.paths import SOURCE
+from support.paths import REPO_ROOT, SOURCE
+from support.stores import Stores
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.persistence.tables import Base
+from blitzecdn.core.ports.clock import system_clock
 
 
 def _config(path) -> Config:
@@ -58,7 +61,7 @@ def test_migrating_an_empty_file_produces_a_usable_database(tmp_path):
     path = tmp_path / "control-plane.db"
     command.upgrade(_config(path), "head")
 
-    repository = Repository(path)
+    repository = Stores(path)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", value="203.0.113.10")
@@ -79,7 +82,7 @@ def test_an_unmigrated_database_is_refused_rather_than_half_used(tmp_path):
     connection.close()
 
     with pytest.raises(ConfigurationError) as error:
-        Database(path)
+        Database(path, clock=system_clock)
 
     assert "incompatible or damaged schema" in str(error.value)
     assert "private_key_file" in str(error.value)
@@ -95,7 +98,7 @@ def test_a_database_missing_a_whole_table_is_refused_too(tmp_path):
     connection.close()
 
     with pytest.raises(ConfigurationError) as error:
-        Database(path)
+        Database(path, clock=system_clock)
 
     assert "incompatible or damaged schema" in str(error.value)
     assert "workflows" in str(error.value)
@@ -157,18 +160,166 @@ def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     } <= tables
 
 
-def test_the_current_schema_has_no_upgrade_chain(tmp_path):
-    """One revision until something ships; until then schema changes edit the
-    baseline.
-    """
+#: The initial revisions in upgrade order, each named after the capability
+#: whose tables it creates.
+INITIAL = (
+    "0001_core",
+    "0002_jobs",
+    "0003_releases",
+    "0004_deployments",
+    "0005_dns",
+    "0006_edges",
+    "0007_workflows",
+    "0008_traffic",
+    "0009_tls",
+)
+
+#: Revisions after the initial chain, in upgrade order, with the tables each
+#: one adds. A table here is not its capability's initial revision's to create.
+LATER = (
+    ("0010_deployment_outcomes", {"deployment_outcomes"}),
+    ("0011_traffic_analytics", {"traffic_path_hours"}),
+)
+LATER_TABLES = {table for _, tables in LATER for table in tables}
+
+
+def _tables(path) -> set[str]:
+    with closing(sqlite3.connect(path)) as connection:
+        return {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        } - {"alembic_version"}
+
+
+def _owner(module: str) -> str:
+    """The capability a table module belongs to; core owns the shared tables."""
+    if module == "blitzecdn.core.persistence.tables":
+        return "core"
+    return module.removeprefix("blitzecdn.capabilities.").removesuffix(
+        ".adapters.tables"
+    )
+
+
+def test_initial_capability_revisions_form_one_chain(tmp_path):
     revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
-    assert [revision.revision for revision in revisions.walk_revisions()] == ["0001"]
+    chain = [revision.revision for revision in revisions.walk_revisions()]
+    assert chain[-len(INITIAL) :] == list(reversed(INITIAL))
+
+
+def test_each_initial_revision_creates_exactly_its_capabilitys_tables(tmp_path):
+    """The capability grouping is enforced, not just a naming convention."""
+    owners = {
+        mapper.local_table.name: _owner(mapper.class_.__module__)
+        for mapper in Base.registry.mappers
+        if mapper.local_table.name not in LATER_TABLES
+    }
+    path = tmp_path / "control.db"
+    config = _config(path)
+    before: set[str] = set()
+    for revision in INITIAL:
+        command.upgrade(config, revision)
+        after = _tables(path)
+        capability = revision.split("_", 1)[1]
+        assert after - before == {
+            table for table, owner in owners.items() if owner == capability
+        }, revision
+        before = after
+
+
+def test_later_revisions_each_add_exactly_their_tables(tmp_path):
+    """An existing database at the initial head gains them by upgrading."""
+    path = tmp_path / "control.db"
+    config = _config(path)
+    command.upgrade(config, INITIAL[-1])
+    before = _tables(path)
+    for revision, tables in LATER:
+        command.upgrade(config, revision)
+        after = _tables(path)
+        assert after - before == tables, revision
+        before = after
+    assert LATER[-1][0] == ScriptDirectory.from_config(config).get_current_head()
+
+
+def test_initial_revision_files_are_named_after_their_revision_ids():
+    """`NNNN_<capability>` lives in `NNNN_initial_<capability>.py`, as documented."""
+    versions = SOURCE / "assets/migrations/versions"
+    for revision in INITIAL:
+        number, capability = revision.split("_", 1)
+        assert (versions / f"{number}_initial_{capability}.py").is_file(), revision
+    for revision, _ in LATER:
+        assert (versions / f"{revision}.py").is_file(), revision
+
+
+#: A backticked revision ID or file stem, such as `0001_core`.
+_DOCUMENTED_REVISION = re.compile(r"`(\d{4}_[a-z_]+?)(?:\.py)?`")
+
+
+def test_revisions_named_in_documents_exist(tmp_path):
+    """A document naming a revision names one that is here."""
+    revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
+    known = {revision.revision for revision in revisions.walk_revisions()} | {
+        path.stem for path in (SOURCE / "assets/migrations/versions").glob("*.py")
+    }
+    tracked = subprocess.run(  # noqa: S603 - fixed argument list
+        ["git", "-C", str(REPO_ROOT), "ls-files", "*.md"],  # noqa: S607 - git from PATH
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    offenders = [
+        f"{document}: {name}"
+        for document in tracked
+        if (REPO_ROOT / document).exists()
+        for name in _DOCUMENTED_REVISION.findall(
+            (REPO_ROOT / document).read_text(encoding="utf-8")
+        )
+        if name not in known
+    ]
+    assert offenders == [], "documents name revisions that are not here:\n" + (
+        "\n".join(offenders)
+    )
+
+
+def test_initial_revisions_upgrade_and_downgrade_individually(tmp_path):
+    path = tmp_path / "control.db"
+    config = _config(path)
+    revisions = (*INITIAL, *(revision for revision, _ in LATER))
+    for revision in revisions:
+        command.upgrade(config, revision)
+        assert _revision(path) == revision
+    DatabaseSchema.validate(path)
+    for revision in reversed(revisions[:-1]):
+        command.downgrade(config, revision)
+        assert _revision(path) == revision
+    command.downgrade(config, "base")
+    assert _revision(path) is None
+    assert _tables(path) == set()
+
+
+def test_a_database_from_the_retired_single_baseline_is_refused(tmp_path):
+    """Before the split, revision "0001" held the whole schema.
+
+    No current revision reuses that id, so such a file or backup is refused as
+    unknown rather than half-upgraded on top of tables that already exist.
+    """
+    assert not DatabaseSchema.known("0001")
+    retired = tmp_path / "retired.db"
+    DatabaseSchema.migrate(retired)
+    with closing(sqlite3.connect(retired)) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = '0001'")
+        connection.commit()
+    before = retired.read_bytes()
+    with pytest.raises(ConfigurationError, match="unknown schema revision '0001'"):
+        DatabaseSchema.migrate(retired)
+    assert retired.read_bytes() == before
 
 
 def test_repository_startup_does_not_create_a_missing_database_or_directory(tmp_path):
     path = tmp_path / "missing" / "controller.db"
     with pytest.raises(ConfigurationError, match="blitzecdn setup"):
-        Repository(path)
+        Stores(path)
     assert not path.parent.exists()
 
 
@@ -186,7 +337,7 @@ def test_repository_refuses_an_unprepared_schema_without_modifying_it(
         connection.commit()
     before = path.read_bytes()
     with pytest.raises(ConfigurationError, match="blitzecdn migrate"):
-        Repository(path)
+        Stores(path)
     assert path.read_bytes() == before
     assert sorted(item.name for item in tmp_path.iterdir()) == [path.name]
 
@@ -201,7 +352,7 @@ def test_validated_startup_is_read_only_and_never_calls_upgrade(tmp_path, monkey
         pytest.fail("repository startup attempted schema migration")
 
     monkeypatch.setattr(command, "upgrade", forbidden)
-    Repository(path).close()
+    Stores(path).close()
     assert path.read_bytes() == before
     assert sorted(item.name for item in tmp_path.iterdir()) == [path.name]
 
@@ -210,8 +361,13 @@ def test_migration_and_inspection_support_uri_and_interpolation_characters(tmp_p
     path = tmp_path / "controller %?# database.db"
     DatabaseSchema.migrate(path)
     DatabaseSchema.migrate(path)
-    assert DatabaseSchema.of(path) == "0001"
-    repository = Repository(path)
+    assert (
+        DatabaseSchema.of(path)
+        == ScriptDirectory.from_config(
+            _config(tmp_path / "unused.db")
+        ).get_current_head()
+    )
+    repository = Stores(path)
     repository.zones.create_domain(Domain(name="example.com"))
     assert repository.zones.get_domain("example.com").name == "example.com"
     repository.close()
@@ -240,7 +396,7 @@ def test_concurrent_migration_processes_initialize_one_database(tmp_path):
     for process in processes:
         _, error = process.communicate(timeout=30)
         assert process.returncode == 0, error.decode()
-    Repository(path).close()
+    Stores(path).close()
 
 
 def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
@@ -250,7 +406,7 @@ def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
     DatabaseSchema.migrate(path)
 
     def open_and_close(_):
-        repository = Repository(path)
+        repository = Stores(path)
         try:
             assert repository.zones.list_domains() == []
         finally:
@@ -263,7 +419,7 @@ def test_parallel_repository_startup_validates_one_prepared_schema(tmp_path):
 def test_runtime_connection_cannot_recreate_a_removed_database(tmp_path):
     path = tmp_path / "controller.db"
     DatabaseSchema.migrate(path)
-    repository = Repository(path)
+    repository = Stores(path)
     path.unlink()
     from sqlalchemy.exc import OperationalError
 

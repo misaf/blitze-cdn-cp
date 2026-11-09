@@ -13,8 +13,9 @@ import yaml
 from support.contracts import (
     PROJECT_DIR,
     ROLES_DIR,
-    _runtime_defaults,
     contributed_roles,
+    role_path,
+    runtime_defaults,
 )
 
 #: The roles that converge an edge and share its runtime.
@@ -92,7 +93,7 @@ def test_the_contract_holds_no_value_only_one_role_uses():
     blitzecdn_edge_stack. A capability's role counts: blitzecdn_edge_stack and the
     cache role both own the cache directory as the image's worker uid.
     """
-    runtime = _runtime_defaults()["blitzecdn_edge_runtime"]
+    runtime = runtime_defaults()["blitzecdn_edge_runtime"]
     sources = {
         role: "\n".join(
             source.read_text(encoding="utf-8")
@@ -109,8 +110,25 @@ def test_the_contract_holds_no_value_only_one_role_uses():
         else:
             yield prefix
 
+    # blitzecdn_config_release binds the edge to a release: it mounts the
+    # runtime's paths into the configuration test and rebinds some onto the
+    # candidate, which it names as `combine` keys rather than dotted paths.
+    release = role_path("blitzecdn_config_release")
+    sources["blitzecdn_config_release"] = "\n".join(
+        source.read_text(encoding="utf-8") for source in sorted(release.rglob("*.yml"))
+    )
+    rebound = {
+        f"blitzecdn_edge_runtime.paths.{key}"
+        for key in re.findall(
+            r"'(\w+)': blitzecdn_config_release_candidate",
+            sources["blitzecdn_config_release"],
+        )
+    }
+
     for member in members("blitzecdn_edge_runtime", runtime):
         readers = [role for role, text in sources.items() if member in text]
+        if member in rebound and "blitzecdn_config_release" not in readers:
+            readers.append("blitzecdn_config_release")
         assert len(readers) >= 2, (
             f"{member} is read only by {readers or 'nothing'}. A value one role "
             "owns belongs in that role's defaults, not in the shared contract."

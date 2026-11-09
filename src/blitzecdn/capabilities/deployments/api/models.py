@@ -1,6 +1,7 @@
 """The HTTP representations this capability publishes, and the bodies it takes.
 
-``Deployment`` is reused by other capabilities that answer with a convergence.
+Other capabilities do not import these: one that answers with a deployment it
+started defines its own representation of it, so a change here stays here.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ class Deployment(Model):
     status: DeploymentStatus
     operator: str
     check_mode: bool
-    #: The converged release; follow ``GET /v1/releases/{id}`` for its artifacts.
+    #: The converged release; follow ``GET /v3/releases/{id}`` for its artifacts.
     release_id: str
     host_limit: str | None = None
     rollback_of: str | None = None
@@ -56,7 +57,10 @@ class DriftReport(Model):
 
 
 class DeployRequest(FleetRequest):
-    check: bool = False
+    check: bool = Field(
+        default=False,
+        description="False applies changes; true uses Ansible check mode.",
+    )
 
 
 class DriftRequest(FleetRequest):

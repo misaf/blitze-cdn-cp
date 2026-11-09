@@ -21,6 +21,24 @@
         # stored earlier.
         proxy_cache_bypass $http_upgrade $http_authorization;
         proxy_no_cache $http_upgrade $http_authorization;
+        # The key names the listener port, and that is load-bearing rather than
+        # an inefficiency. The edge preserves the visitor's destination port
+        # toward the origin (site.conf.j2's proxy macro, SslMode.origin_port_for):
+        # a request on :8080 is fetched from origin:8080, one on :80 from
+        # origin:80. Those are two endpoints, and an origin is free to run two
+        # different services on them. Without $server_port, whichever port
+        # filled the entry first would answer for every other — the object
+        # from the admin app on :8080 served to visitors of the site on :80.
+        #
+        # Keying on the origin port instead would buy nothing. It equals the
+        # listener port everywhere except Flexible on 443, which reaches the
+        # origin on 80; that request already differs from a plain :80 one by
+        # $scheme, and has to — the origin sees X-Forwarded-Proto and may
+        # answer the two differently, an HTTPS redirect being the usual case.
+        #
+        # The cost is that one URL can be cached once per listener, and a
+        # named purge has to delete every port's variant; blitzecdn_cache_purge
+        # walks the same listener sets for that reason.
         proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
         proxy_cache_valid 200 301 302 {{ site.cache_valid_success | default('10m') }};
         proxy_cache_valid 404 {{ site.cache_valid_not_found | default('1m') }};
@@ -28,6 +46,20 @@
         proxy_cache_background_update on;
         proxy_cache_lock on;
         proxy_cache_revalidate on;
+        # The origin names an entry's purge tags in Cache-Tag. They are for the
+        # edge, not visitors, so they are not passed on; nginx still stores the
+        # header with the cached entry, which is where blitzecdn_cache_purge's
+        # scanner reads them back from to purge by tag.
+        proxy_hide_header Cache-Tag;
+{#
+  The key names the encoding, so the origin must be asked for exactly that
+  one. The compression capability sends the same header whenever it is
+  active; sending it here as well would put two Accept-Encoding lines on the
+  request.
+#}
+{% set compression_installed = 'compression' in (blitzecdn_nginx_resources.upstream | default([]) | map(attribute='feature')) %}
+{% if not (compression_installed and site.compression | default('brotli') != 'off') %}
         proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
+{% endif %}
         add_header X-Cache-Status $upstream_cache_status always;
 {% endif %}

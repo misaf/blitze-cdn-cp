@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 from support.control_plane import FakeRunner, ansible_run, build_application, host_run
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
-from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError
 
@@ -106,7 +106,7 @@ def a_release(*, serving: bool = False):
 
 @pytest.fixture
 def repository(settings):
-    return Repository(settings.database_path)
+    return Stores(settings.database_path)
 
 
 def deployment_in(repository, control_plane_release_id: str) -> str:
@@ -428,7 +428,7 @@ def test_a_deployment_records_which_edges_converged_and_which_were_not_attempted
 ):
     from support.control_plane import seed_edge, seed_site
 
-    repository = Repository(settings.database_path)
+    repository = Stores(settings.database_path)
     control = build_application(
         settings=settings,
         repository=repository,

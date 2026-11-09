@@ -7,14 +7,19 @@ is ever handed the composition root.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import MISSING, fields
 from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from dishka import Provider
 from fastapi import APIRouter
 from support.control_plane import FakeRunner, build_application
+from support.paths import SOURCE
 from support.policy import site_from_settings
+from support.stores import Stores
 from typer import Typer
 
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
@@ -22,19 +27,17 @@ from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
 from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
     ROSTER,
-    Repository,
     load_registry,
 )
+from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import (
     AnsibleContribution,
-    CapabilityConfig,
     CliCommandGroup,
     Feature,
     FeatureMetadata,
@@ -72,14 +75,6 @@ _CAPABILITY_FEATURES = tuple(
 def baseline() -> FeatureRegistry:
     """The capability features this application ships, without edge providers."""
     return FeatureRegistry(load_features(_CAPABILITY_FEATURES))
-
-
-def _capability_config(**values: object) -> SimpleNamespace:
-    """A `ResolvedCapabilityEnvironment` double scoped the way the real one is."""
-    resolved = {"BLITZE_" + name.upper(): value for name, value in values.items()}
-    return SimpleNamespace(
-        for_feature=lambda _name: CapabilityConfig("certificates", {}, resolved)
-    )
 
 
 def site(**overrides: object) -> CdnSite:
@@ -188,6 +183,64 @@ def test_the_roster_names_each_feature_module_once():
     }
 
 
+def _slice(module: str) -> Path:
+    """The directory a feature module's capability slice lives in."""
+    return SOURCE.joinpath(*module.removesuffix(".feature").split(".")[1:])
+
+
+def _has_service(root: Path) -> bool:
+    """Whether a slice, not counting a nested slice with its own feature, has
+    a `service` module or package."""
+    for path in root.iterdir():
+        if path.name in {"service", "service.py"}:
+            return True
+        if path.is_dir() and not (path / "feature.py").is_file() and _has_service(path):
+            return True
+    return False
+
+
+def test_every_capability_with_services_brings_its_own_provider():
+    """The composition root assembles providers from the roster.
+
+    A capability with a service builds it in a provider of its own, declared in
+    its own `wiring.py`, so adding one means adding a roster row rather than
+    teaching the composition root its constructors.
+    """
+    missing = [
+        entry.module
+        for entry in ROSTER
+        if _has_service(_slice(entry.module)) and entry.provider is None
+    ]
+    assert missing == []
+    misplaced = [
+        f"{entry.module}: {entry.provider.__module__}"
+        for entry in ROSTER
+        if entry.provider is not None
+        and entry.provider.__module__
+        != entry.module.removesuffix(".feature") + ".wiring"
+    ]
+    assert misplaced == []
+
+
+def test_every_capability_provider_is_on_the_roster():
+    """A provider nobody lists would build nothing: the root only reads the roster."""
+    listed = {entry.provider for entry in ROSTER if entry.provider is not None}
+    declared = {
+        candidate
+        for path in (SOURCE / "capabilities").rglob("wiring.py")
+        for module in [
+            import_module(
+                ".".join(("blitzecdn", *path.relative_to(SOURCE).with_suffix("").parts))
+            )
+        ]
+        for _, candidate in inspect.getmembers(module, inspect.isclass)
+        if issubclass(candidate, Provider)
+        and candidate is not Provider
+        and candidate.__module__ == module.__name__
+    }
+    assert declared == listed
+
+
 def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
     """A row's builders belong to the features its module declares.
 
@@ -195,7 +248,7 @@ def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
     """
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     declared = {
@@ -391,6 +444,7 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     assert "firewall.denied_countries" in geoip
     assert "visitor_headers.ip_country" in geoip
     assert "is not installed" in geoip
+    assert "upgrade to a controller that provides it" in geoip
     # The other token the same site asks for is reported separately rather than
     # folded in, so detaching either capability is legible on its own.
     assert any("'security'" in message for message in messages)
@@ -444,7 +498,7 @@ def test_deployment_recovery_runs_when_the_api_starts_and_not_the_worker(
     """Node startup is the API's; the worker only publishes schedules."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=FakeRunner(),
     )
     calls: list[str] = []
@@ -492,16 +546,10 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(baseline):
 
 
 def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
-    config = CertificateConfig.from_capability_config(
-        _capability_config(
-            certbot="certbot",
-            acme_default_email="",
-            acme_ca_domain="letsencrypt.org",
-            certificate_reconcile_interval_seconds=0,
-            certificate_renewal_interval_seconds=0,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=0,
-        ).for_feature("certificates")
+    config = CertificateConfig(
+        reconcile_interval_seconds=0,
+        renewal_interval_seconds=0,
+        scan_interval_seconds=0,
     )
     operations = baseline.bind_operations(
         (

@@ -1,13 +1,24 @@
 ---
 name: CI
+# The commit under test, in the run list itself. A pull request run tests the
+# merge of its head into the base; the head is what a contributor recognises.
+run-name: >-
+  CI ${{ github.event_name }} ${{ github.head_ref || github.ref_name }}
+  @ ${{ github.event.pull_request.head.sha || github.sha }}
 
 "on":
   pull_request:
+  # Any branch, on demand: `just ci-run`, or "Run workflow" on the Actions tab.
+  # This is how a laptop without Docker gets the infrastructure checks for a
+  # branch that has no pull request yet (docs/testing.md).
+  workflow_dispatch:
   push:
-    # Every release line, and a line missing from here is not obviously
-    # missing: pull requests into it still run, because the trigger above is
-    # unfiltered, so the gap shows only as a direct push that nothing checked.
-    branches: [master, 2.x, 3.x, 4.x, 5.x, 6.x]
+    # Every release line still receiving fixes, and a line missing from here
+    # is not obviously missing: pull requests into it still run, because the
+    # trigger above is unfiltered, so the gap shows only as a direct push that
+    # nothing checked. Add a new major in the change that opens its branch;
+    # retired lines (1.x-5.x) are left out and come back only if revived.
+    branches: [master, 6.x]
     tags: ['v*.*.*']
 
 permissions:
@@ -23,12 +34,18 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
       # The Python uv builds the environment around. Pinned here rather than
-      # left to uv so CI and a server install agree on the interpreter.
+      # left to uv so CI and the control-plane image agree on the interpreter.
+      #
+      # 3.12 is the edge Python floor, not a control-plane interpreter: the
+      # edge-script contract (tests/contract/test_edge_python.py) runs the
+      # standalone scripts Ansible copies to edges under it, and
+      # BLITZE_REQUIRE_EDGE_PYTHON turns a missing interpreter into a failure
+      # instead of a skip.
       - name: Install Python
-        run: uv python install 3.14
+        run: uv python install 3.15.2 3.12
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -64,18 +81,22 @@ jobs:
       - name: Shell lint
         run: just shell-lint
       - name: Tests and coverage
-        run: just test --cov-report=xml
+        env:
+          BLITZE_REQUIRE_EDGE_PYTHON: "1"
+        run: just test --cov-report=xml --junitxml=reports/pytest-junit.xml
       # The test gate includes the isolated single-wheel installation contract.
-      # The report was produced and then thrown away with the runner. Kept as
-      # an artifact so a coverage question about a specific run can be answered
-      # after the fact rather than by re-running the suite locally and hoping
-      # it matches.
-      - name: Keep the coverage report
+      # The reports were produced and then thrown away with the runner. Kept as
+      # an artifact so a coverage or failure question about a specific run can
+      # be answered after the fact rather than by re-running the suite locally
+      # and hoping it matches. `just ci-download` fetches them.
+      - name: Keep the test and coverage reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: coverage-${{ github.run_id }}
-          path: coverage.xml
+          name: quality-reports
+          path: |
+            coverage.xml
+            reports/pytest-junit.xml
           retention-days: 14
           if-no-files-found: error
       - name: YAML and Ansible lint
@@ -87,55 +108,44 @@ jobs:
       - name: Build package
         run: just build
 
-  # The quality job exercises the newest supported interpreter. These smaller
-  # jobs make the rest of the declared Python range executable without
-  # repeating format, lint, audit, and build work for every version.
-  python-compatibility:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.12', '3.13']
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: "0.12.3"
-          enable-cache: true
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
-      - name: Install Python
-        run: uv python install ${{ matrix.python-version }}
-      # Install the same application under each supported interpreter.
-      - name: Install the workspace
-        run: uv sync --frozen --python ${{ matrix.python-version }}
-      - name: Install collection dependencies
-        run: just collections
-      - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} pytest --no-cov
-
   # The only job that runs `install.sh standalone` against a real init on a real
   # distribution. Everything in the job above asserts on the scripts' shape or
   # runs them with the privileged commands stubbed, and neither can catch a
   # platform that cannot host the control plane at all.
   #
   # A standalone host is also an edge, so it uses the release's one supported
-  # fresh-edge platform rather than the control-plane-only compatibility range.
+  # fresh-edge platform rather than the wider range of control-plane hosts.
+  #
+  # The harness's suites run side by side, each on its own host: lifecycle
+  # alone takes most of the timeout, and rollback adds a second install.
   install:
-    name: Install on ${{ matrix.image }}
+    name: Install on ${{ matrix.image }} (${{ matrix.suite }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # A lifecycle run takes 20 to 25 minutes, most of it the edge converge and
+    # the ACME issue and renewal stages, so 25 cut passing runs off near the end.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         image: [ubuntu:26.04]
+        suite: [lifecycle, rollback]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install, re-install, and uninstall
-        run: bash tests/container-install.sh ${{ matrix.image }}
+      # A failed run writes the host's journal, failed units and every
+      # container's logs here before the host is removed.
+      - name: Run the ${{ matrix.suite }} suite
+        env:
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
+        run: bash tests/container-install.sh ${{ matrix.image }} ${{ matrix.suite }}
+      - name: Keep the failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          # The image name holds a colon, which an artifact name may not.
+          name: install-diagnostics-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/diagnostics
+          retention-days: 14
+          if-no-files-found: warn
 
   http3-integration:
     name: Ubuntu 26.04 HTTP/3 edge
@@ -150,7 +160,73 @@ jobs:
       # by hand on any host with Docker; all this job owes it is uv.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.3"
+          version: "0.13.6"
           enable-cache: true
+      # `.python-version` asks for 3.15.2; install it rather than leave the
+      # harness's first `uv sync` to discover there is none.
+      - name: Install Python
+        run: uv python install 3.15.2
       - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
+        env:
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
         run: bash tests/http3-edge-integration.sh
+      - name: Keep the failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: http3-integration-diagnostics
+          path: ${{ runner.temp }}/diagnostics
+          retention-days: 14
+          if-no-files-found: warn
+
+  # One verdict per run, with the commit it is about. A job that was skipped or
+  # cancelled is not a job that passed: this fails unless every job above
+  # succeeded, and the summary names each one's result rather than leaving a
+  # missing row to be read as green. Being last, it is also the one check a
+  # branch protection rule has to require.
+  summary:
+    name: Summary
+    if: always()
+    needs: [quality, install, http3-integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report the tested commit and every job's result
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.head_ref || github.ref_name }}
+          TESTED_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = {
+              job: outcome["result"]
+              for job, outcome in json.loads(os.environ["RESULTS"]).items()
+          }
+          lines = [
+              "## CI result",
+              "",
+              f"- Event: `{os.environ['EVENT']}` on `{os.environ['REF']}`",
+              f"- Head commit: `{os.environ['HEAD_SHA']}`",
+              f"- Tested commit: `{os.environ['TESTED_SHA']}`"
+              + (" (merge of the head into the base)"
+                 if os.environ["EVENT"] == "pull_request" else ""),
+              "",
+              "| Job | Result |",
+              "| --- | --- |",
+              *(f"| {job} | {result} |" for job, result in results.items()),
+              "",
+              "`skipped` and `cancelled` are not passes: they mean the check did"
+              " not run to completion, and fail this run.",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          failed = sorted(job for job, result in results.items() if result != "success")
+          if failed:
+              raise SystemExit(f"not verified: {', '.join(failed)}")
+          PY

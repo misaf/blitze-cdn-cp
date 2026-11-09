@@ -14,6 +14,11 @@
 # is only published there, and the edge stack is a Compose project.
 blitzecdn_docker_repository_url: https://download.docker.com/linux/ubuntu
 blitzecdn_docker_gpg_url: https://download.docker.com/linux/ubuntu/gpg
+# The fingerprint Docker publishes for that key. The URL is only where the key
+# is fetched from; this is what decides whether it is trusted, and the keyring
+# has to hold this key and no other, since apt trusts every key in it for
+# Docker's repository. install.sh carries a copy (`just installer-sync`).
+blitzecdn_docker_gpg_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 blitzecdn_docker_keyring: /etc/apt/keyrings/docker.asc
 blitzecdn_docker_list_file: /etc/apt/sources.list.d/docker.sources
 
@@ -34,18 +39,17 @@ blitzecdn_docker_packages:
 # run under it.
 blitzecdn_docker_python_packages: [python3-requests]
 
-# The engine's own log driver. An edge container that logs forever fills the
-# root filesystem, and the filesystem it fills is the one holding the cache and
-# the TLS material. Nginx's request log is a bind-mounted file and is not
-# affected by this — these are the container's stdout/stderr, which carry
-# startup and error output only.
-blitzecdn_docker_log_driver: json-file
-blitzecdn_docker_log_max_size: 32m
-blitzecdn_docker_log_max_file: 3
+# files/daemon.json, a plain file rather than a template so install.sh can
+# carry it verbatim (`just installer-sync`) and seed the control-plane host
+# with exactly what this role writes. What it sets:
+#
+# - json-file logs capped at 3 x 32m. An edge container that logs forever fills
+#   the root filesystem, and the filesystem it fills is the one holding the
+#   cache and the TLS material. Nginx's request log is a bind-mounted file and
+#   is not affected by this — these are the container's stdout/stderr, which
+#   carry startup and error output only.
+# - `live-restore`, which keeps running containers alive across a daemon
+#   restart, so an engine upgrade or a `systemctl restart docker` does not drop
+#   every visitor's connection. It is incompatible with Swarm mode, which this
+#   edge deliberately does not use.
 blitzecdn_docker_daemon_config_file: /etc/docker/daemon.json
-
-# `live-restore` keeps running containers alive across a daemon restart, so an
-# engine upgrade or a `systemctl restart docker` does not drop every visitor's
-# connection. It is incompatible with Swarm mode, which this edge deliberately
-# does not use.
-blitzecdn_docker_live_restore: true

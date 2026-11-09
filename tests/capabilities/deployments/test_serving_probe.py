@@ -25,17 +25,21 @@ from blitzecdn.capabilities.deployments.adapters.serving import (
     ServingProbe,
     _certificate_covers,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.site import CdnSite
+
+_TOKEN = "0" * 64
 
 
 class _Recorder(http.server.BaseHTTPRequestHandler):
     """Answers 200 and remembers the Host header it was asked for."""
 
     seen: ClassVar[list[str]] = []
+    tokens: ClassVar[list[str | None]] = []
     release: ClassVar[str] = "a" * 64
 
     def do_GET(self) -> None:
         type(self).seen.append(self.headers.get("Host", ""))
+        type(self).tokens.append(self.headers.get("X-BlitzeCDN-Probe"))
         self.send_response(200)
         payload = (type(self).release + "\n").encode("ascii")
         self.send_header("Content-Length", str(len(payload)))
@@ -49,6 +53,7 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def edge_server() -> Iterator[int]:
     _Recorder.seen = []
+    _Recorder.tokens = []
     _Recorder.release = "a" * 64
     server = http.server.HTTPServer(("127.0.0.1", 0), _Recorder)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -79,7 +84,7 @@ def probe_on(port: int) -> ServingProbe:
         def _connection(self, scheme, address, _port, hostname):
             return super()._connection(scheme, address, port, hostname)
 
-    return LoopbackProbe(timeout=5.0)
+    return LoopbackProbe(token=_TOKEN, timeout=5.0)
 
 
 def test_an_edge_that_answers_is_reported_as_serving(edge_server):
@@ -104,6 +109,15 @@ def test_the_request_is_addressed_to_the_hostname_not_to_the_edge(edge_server):
     assert _Recorder.seen == ["cdn.example.com"]
 
 
+def test_the_request_carries_the_release_probe_token(edge_server):
+    """The edge answers the marker only to the controller; anyone else gets 404."""
+    probe_on(edge_server).verify(
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
+    )
+
+    assert _Recorder.tokens == [_TOKEN]
+
+
 def test_an_edge_that_is_not_listening_is_reported_as_not_serving():
     """The failure the phase exists to catch, and it is not an exception.
 
@@ -116,7 +130,7 @@ def test_an_edge_that_is_not_listening_is_reported_as_not_serving():
         def _connection(self, scheme, address, _port, hostname):
             return super()._connection(scheme, address, 9, hostname)
 
-    (result,) = ClosedPortProbe(timeout=2.0).verify(
+    (result,) = ClosedPortProbe(token=_TOKEN, timeout=2.0).verify(
         edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
     )
 
@@ -224,6 +238,7 @@ def tls_edge(tmp_path) -> Iterator[Callable[..., int]]:
         return server.server_address[1]
 
     _Recorder.seen = []
+    _Recorder.tokens = []
     _Recorder.release = "a" * 64
     try:
         yield start

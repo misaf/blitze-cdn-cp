@@ -24,10 +24,10 @@ from blitzecdn.capabilities.deployments.ports import (
     EdgeAddresses,
     ServingVerifier,
 )
-from blitzecdn.capabilities.releases.domain import Release
+from blitzecdn.capabilities.releases import Release
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.clock import Clock
 
 __all__ = ["Rollout", "RolloutOutcome"]
 
@@ -83,7 +83,7 @@ class Rollout:
         addresses: EdgeAddresses,
         verifier: ServingVerifier,
         publish: Callable[[Release], None],
-        clock: Clock = system_clock,
+        clock: Clock,
     ) -> None:
         self.targets = targets
         self.runner = runner

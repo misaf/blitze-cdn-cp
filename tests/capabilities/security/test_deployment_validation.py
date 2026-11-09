@@ -16,12 +16,12 @@ from support.control_plane import (
     host_run,
     seed_site,
 )
+from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.security.settings import SECRET_VARIABLE
-from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
@@ -40,7 +40,7 @@ def _control_serving(settings, runner_stub, **patch):
     """A control plane serving one site, patched with `patch`."""
     control = build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner_stub,
     )
     seed_site(control, name="example-com", record="cdn")

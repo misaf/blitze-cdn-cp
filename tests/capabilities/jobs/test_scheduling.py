@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import DONE, JobStatus
 from blitzecdn.capabilities.jobs.service import (
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.jobs.service import (
     ScheduleSpec,
 )
 from blitzecdn.capabilities.jobs.wiring import schedule_specs
-from blitzecdn.composition import Repository
 from blitzecdn.core.features import ScheduledJob
 
 _START = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -41,7 +41,7 @@ class Clock:
 
 @pytest.fixture
 def repository(settings):
-    return Repository(settings.database_path)
+    return Stores(settings.database_path)
 
 
 def scheduler_for(repository, clock, *, handlers=None) -> tuple[JobScheduler, JobQueue]:
@@ -168,7 +168,7 @@ def test_failed_publication_leaves_the_schedule_due_after_restart(
 
     assert repository.schedules.list_schedules() == before
     assert queue.list_jobs() == []
-    restarted = Repository(settings.database_path)
+    restarted = Stores(settings.database_path)
     try:
         fresh, jobs = scheduler_for(restarted, clock)
         assert fresh.tick() == [HOURLY.name]
@@ -187,7 +187,7 @@ def test_concurrent_schedulers_publish_one_job_from_the_same_due_snapshot(
     first, queue = scheduler_for(repository, clock)
     first.register([HOURLY])
     clock.advance(3600)
-    other = Repository(settings.database_path)
+    other = Stores(settings.database_path)
     second, _ = scheduler_for(other, clock)
     both_due = threading.Barrier(2)
 
@@ -311,6 +311,38 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
     JobRunner(queue=queue, scheduler=scheduler, clock=clock).tick()
 
     assert leases == [clock() + timedelta(seconds=queue.lease_seconds)]
+
+
+@pytest.mark.parametrize(("declared", "held"), [(7200, 7200), (60, None)])
+def test_an_operation_holds_the_lease_its_kind_declares(repository, declared, held):
+    """A long operation must not be taken over while it is still running.
+
+    A declared lease only ever lengthens the queue's default one.
+    """
+    clock = Clock()
+    leases: list[datetime | None] = []
+
+    def observe(_payload):
+        (job,) = repository.jobs.list_jobs()
+        leases.append(job.leased_until)
+        return DONE
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers={"certificates.renew": observe}
+    )
+    repository.jobs.enqueue(
+        kind="certificates.renew", payload={}, available_at=clock(), max_attempts=1
+    )
+
+    JobRunner(
+        queue=queue,
+        scheduler=scheduler,
+        clock=clock,
+        operation_leases={"certificates.renew": declared},
+    ).tick()
+
+    expected = queue.lease_seconds if held is None else held
+    assert leases == [clock() + timedelta(seconds=expected)]
 
 
 @pytest.mark.parametrize("succeeds", [False, True])

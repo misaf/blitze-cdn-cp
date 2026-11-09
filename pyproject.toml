@@ -6,21 +6,23 @@ build-backend = "hatchling.build"
 name = "blitzecdn"
 version = "6.1.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
-requires-python = ">=3.12"
+requires-python = ">=3.15.2"
 license = { file = "LICENSE" }
 dependencies = [
-  "docker>=7.1,<8",
   "cryptography>=45,<51",
   # CAA lookups for certificate preflight. The stdlib resolver only answers
   # A/AAAA, and a CAA record that forbids our CA is otherwise invisible until
   # the CA refuses the order.
   "dnspython>=2.7,<3",
-  "fastapi>=0.116,<1",
+  "fastapi[opentelemetry]>=0.162,<1",
+  "fastapi-pagination>=0.16,<0.17",
   "pydantic>=2.13.4,<3",
   "PyYAML>=6.0.2,<7",
   "python-multipart>=0.0.20,<1",
   # Persistence. The ORM owns storage and schema; pydantic remains the
-  # validation authority, so nothing in domain/ or application/ imports these.
+  # validation authority, so nothing in a capability's domain/ or service/
+  # imports these (enforced by the capability-values and capability-services
+  # contracts in .importlinter).
   "alembic>=1.16,<2",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.52.3,<1",
@@ -28,15 +30,14 @@ dependencies = [
   # remote Linux state. Ansible Runner provides the stable Python execution
   # boundary, while ansible-core supplies the playbook engine and plugins.
   #
-  # It was previously installed as a separate step by install.sh, which worked
-  # only because pip leaves alone whatever it did not install. `uv sync` builds
-  # the environment the lockfile describes and removes anything else, so a
-  # dependency that is really required has to say so here.
-  "ansible-core>=2.21,<2.22",
+  # Declared here rather than installed separately by install.sh: `uv sync`
+  # builds the environment the lockfile describes and removes anything else,
+  # so a dependency that is really required has to say so here.
+  "ansible-core>=2.22,<2.23",
   "pydantic-settings>=2.12,<3",
-  "sqlmodel>=0.0.31,<0.1",
+  "sqlalchemy>=2.0.52,<2.1",
   "ansible-runner>=2.4,<3",
-  "dishka>=1.10.1",
+  "dishka>=1.10.1,<2",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
@@ -44,7 +45,6 @@ dependencies = [
 # `uv sync --no-dev` — what a server runs — leaves them out entirely.
 [dependency-groups]
 dev = [
-  "types-docker>=7.1,<8",
   "ansible-lint>=26.6,<27",
   "bandit[toml]>=1.9.4,<2",
   # Starlette's TestClient uses HTTPX2. Plain httpx is only a deprecated
@@ -82,9 +82,8 @@ dev = [
 [project.scripts]
 blitzecdn = "blitzecdn.entrypoints.cli.main:run"
 # The worker is its own console script as well as `python -m blitzecdn.entrypoints.worker`.
-# It used to be started by the `dramatiq` CLI, which meant the process the
-# control plane ran was one this project did not define and could not give a
-# signal handler to.
+# Defining it here means the process the control plane runs is one this
+# project owns and can give a signal handler to.
 blitzecdn-worker = "blitzecdn.entrypoints.worker:main"
 
 [tool.hatch.build.targets.wheel]
@@ -98,23 +97,46 @@ markers = [
   "packaging: exercises real distribution build, install and uninstall",
 ]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # `ansible_runner.run()` always drives a playbook through pexpect, which
+  # forks a pty. Python 3.15's `pty.fork()` warns when the parent has other
+  # threads, and an xdist worker always does. The child execs ansible-playbook
+  # immediately; raising here instead aborted the run after Runner had opened
+  # its artifact files, which then leaked as ResourceWarnings on unrelated tests.
+  'ignore:This process \(pid=\d+\) is multi-threaded, use of forkpty\(\) may lead to deadlocks in the child\.:DeprecationWarning:pty',
+]
 # All capability and provider tests live in the application suite.
 testpaths = ["tests"]
-# Shared helpers are the `support` package under it.
-pythonpath = ["tests"]
+# Shared helpers are the `support` package under it; `scripts` holds the
+# developer tooling a few tests import (`installer_sync`).
+pythonpath = ["tests", "scripts"]
 
 [tool.coverage.run]
 branch = true
 source = ["src"]
+# Python children of the test run (the recovery journey's worker, installer
+# helpers run with `sys.executable`) record their own data files, which
+# pytest-cov combines; without this, code reached only through a subprocess
+# reads as untested. Interpreters in the packaging suite's throwaway
+# virtualenvs have no coverage installed and stay unmeasured.
+patch = ["subprocess"]
 
 [tool.coverage.report]
 include_namespace_packages = true
 include = ["src/*"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py315"
 line-length = 88
+
+# Ansible copies these standalone standard-library scripts to an edge and runs
+# them with the edge host's own `python3`, not the control-plane image's
+# interpreter. They keep the edge Python floor (src/blitzecdn/assets/ansible/README.md), so
+# pyupgrade rules never rewrite them into syntax an edge cannot run.
+# tests/contract/test_edge_python.py runs them under that interpreter.
+[tool.ruff.per-file-target-version]
+"src/blitzecdn/**/ansible/roles/*/files/*.py" = "py312"
 
 [tool.ruff.lint]
 select = ["A", "ASYNC", "B", "BLE", "C4", "C90", "E", "F", "I", "N", "PERF", "PLR0912", "PLR0915", "RUF", "S", "SIM", "UP"]
@@ -148,10 +170,10 @@ max-statements = 60
 "tests/support/contracts.py" = ["S603"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.15"
 strict = true
-# Check application source and shared test helpers.
-files = ["src", "tests/*.py", "tests/support"]
+# Check application source, developer scripts and shared test helpers.
+files = ["src", "scripts", "tests/*.py", "tests/support"]
 
 # The dynamic inventory plugin is Ansible's code, not the control plane's. It
 # ships inside the package because Ansible loads inventory plugins by directory

@@ -1,7 +1,7 @@
 """Where "now" comes from.
 
-Services are handed a :data:`Clock` so the composition root and tests decide
-the time; domain code takes ``now`` as an argument.
+Services and adapters require a :data:`Clock`, so the composition root and
+tests decide the time; domain code takes ``now`` as an argument.
 """
 
 from __future__ import annotations
@@ -16,5 +16,5 @@ Clock = Callable[[], datetime]
 
 
 def system_clock() -> datetime:
-    """The wall clock, in UTC. The default every service falls back to."""
+    """The wall clock, in UTC. Only the composition root chooses it."""
     return datetime.now(UTC)

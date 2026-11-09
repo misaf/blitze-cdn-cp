@@ -29,6 +29,7 @@ from support.control_plane import (
     seed_edge,
     seed_site,
 )
+from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.domain import (
@@ -38,8 +39,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
-from blitzecdn.capabilities.tls.contract import SslMode
-from blitzecdn.composition import Repository
+from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 from blitzecdn.core.domain.runs import RunStatus
 
 _SERVERS: dict[int, http.server.HTTPServer] = {}
@@ -53,6 +53,12 @@ class _Edge(http.server.BaseHTTPRequestHandler):
     """
 
     def do_GET(self) -> None:
+        # As the edge does: the marker is the controller's alone.
+        if self.headers.get("X-BlitzeCDN-Probe") != "0" * 64:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         payload = (self.server.release_digest + "\n").encode("ascii")
         self.send_response(200)
         self.send_header("Content-Length", str(len(payload)))
@@ -108,7 +114,7 @@ def probe_on(port: int) -> ServingProbe:
         def _connection(self, scheme, address, _port, hostname):
             return super()._connection(scheme, address, port, hostname)
 
-    return LoopbackProbe(timeout=5.0)
+    return LoopbackProbe(token="0" * 64, timeout=5.0)
 
 
 def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
@@ -132,7 +138,7 @@ def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
     runner.run = run
     return build_application(
         settings=settings,
-        repository=Repository(settings.database_path),
+        repository=Stores(settings.database_path),
         runner=runner,
         serving_probe=probe_on(port),
     )
@@ -241,14 +247,19 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
     )
     bad = control.deployments.deploy("alice")
     assert bad.release_id != good.release_id
-    assert control.dns.get_domain("example.com").policy.tls.always_use_https is True
+    assert (
+        control.dns.get_domain("example.com").policy[TlsPolicy].always_use_https is True
+    )
 
     rolled_back = control.deployments.rollback("alice", good.id)
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
     # Canonical state came back with the old release, so compiling now produces
     # the release rolled back to.
-    assert control.dns.get_domain("example.com").policy.tls.always_use_https is False
+    assert (
+        control.dns.get_domain("example.com").policy[TlsPolicy].always_use_https
+        is False
+    )
     assert control.releases.compile().id == good.release_id
 
 

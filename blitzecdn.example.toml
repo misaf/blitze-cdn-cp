@@ -18,34 +18,17 @@ database_path = ".state/control-plane.db"
 environment_path = ".env"
 
 # |--------------------------------------------------------------------------
-# | Operation Timeouts and Scheduled Maintenance
+# | API Workers
 # |--------------------------------------------------------------------------
 #
-# These values are expressed in seconds. Timeouts limit a single operation,
-# while intervals determine how often background jobs run. Set an interval to
-# zero to disable its scheduled job. Environment variables take precedence.
+# Capability timeouts and schedules, such as the deployment timeout and the
+# drift check, are under Capability Configuration below.
 #
 
-# Hard limit for one deployment or ACME request.
-# Default: 900 seconds (15 minutes). Allowed: 30 seconds to 2 hours.
-deployment_timeout_seconds = 900
-
-# Wait limit for each DNS or CAA lookup during certificate preflight.
-# Default: 5 seconds per lookup. Allowed: 1 to 60 seconds.
-preflight_dns_timeout_seconds = 5
-
-# Wait limit for each origin TCP connection or TLS handshake. This applies per
-# check, so checking multiple origins and edges may take longer in total.
-# Default: 5 seconds per check. Allowed: 1 to 60 seconds.
-origin_check_timeout_seconds = 5
-
-# Maximum route handlers occupying the API's offload pool at once. Keep this
-# small: the work it carries serializes on the deployment lock anyway. Default: 2.
-api_worker_threads = 2
-
-# Frequency of checking deployed edges for configuration drift.
-# Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
-drift_check_interval_seconds = 3600
+# Maximum API request body, including multipart framing, checked before parsing.
+# Oversized requests return 413. Also configurable as BLITZE_API_MAX_BODY_BYTES.
+# Default: 2097152 bytes (2 MiB). Minimum: 1 byte.
+api_max_body_bytes = 2097152
 
 # |--------------------------------------------------------------------------
 # | Logs and Retention
@@ -64,7 +47,7 @@ output_limit_bytes = 1048576
 run_log_retention = 500
 
 # Number of finished workflows and check-mode deployment snapshots retained in
-# the database. Real deploy snapshots remain available for rollback. Default: 1000.
+# the database. Default: 1000.
 history_retention = 1000
 
 # |--------------------------------------------------------------------------
@@ -94,8 +77,8 @@ history_retention = 1000
 # converges the ufw rules for the API port from BLITZE_ALLOWED_IPS, and
 # withdraws the rule for an address that leaves the list. There the list is
 # usually given to install.sh as --allowed-ips instead of written here, which
-# seeds BLITZE_ALLOWED_IPS before the API's first boot; standalone, update and
-# upgrade all take that flag, and omitting it leaves the installed list alone.
+# seeds BLITZE_ALLOWED_IPS before the API's first boot; standalone and update
+# both take that flag, and omitting it leaves the installed list alone.
 #
 # Default: [] (loopback only).
 allowed_ips = []
@@ -111,19 +94,6 @@ allowed_ips = []
 # false prevents a deployment from removing every managed site from all edges.
 # Set true only when intentionally deploying an empty CDN configuration.
 allow_empty_sites = false
-
-# |--------------------------------------------------------------------------
-# | Certificate Preflight DNS
-# |--------------------------------------------------------------------------
-#
-# These resolvers are used during certificate preflight checks for edge DNS
-# records and CAA authorization. Leave the list empty to use the host resolver.
-#
-
-# DNS resolver IPs used to verify that hostnames point to CDN edges and that CAA
-# permits issuance. An empty list uses the host resolver. Use public resolver IPs
-# when split-horizon DNS or internal forwarding gives a different view.
-preflight_dns_servers = []
 
 # |--------------------------------------------------------------------------
 # | Capability Configuration
@@ -149,7 +119,52 @@ preflight_dns_servers = []
 # removes; a relative value is resolved under the state directory.
 # backup_dir = "backups"
 
+# --- deployments ------------------------------------------------------------
+
+# Hard limit for one Ansible run, deployment or ACME request.
+# Default: 900 seconds (15 minutes). Allowed: 30 seconds to 2 hours.
+# deployment_timeout_seconds = 900
+
+# Frequency of checking deployed edges for configuration drift.
+# Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
+# drift_check_interval_seconds = 3600
+
+# Number of finished real deployments retained in the database, newest first.
+# The newest successful full-fleet deployment of as many recent releases is also
+# kept, so rollback still has targets. Older deployments are deleted, and their
+# releases and rendered configuration become prunable. Default: 100. Minimum: 10.
+# deployment_retention = 100
+
+# --- origins ----------------------------------------------------------------
+
+# Wait limit for each origin TCP connection or TLS handshake the controller
+# makes itself. This applies per check, so checking multiple origins may take
+# longer in total. Default: 5 seconds per check. Allowed: 1 to 60 seconds.
+# origin_check_timeout_seconds = 5
+
 # --- certificates -----------------------------------------------------------
+
+# Wait limit for each DNS or CAA lookup during certificate preflight.
+# Default: 5 seconds per lookup. Allowed: 1 to 60 seconds.
+# preflight_dns_timeout_seconds = 5
+
+# Certificate preflight checks that hostnames point to CDN edges and that CAA
+# permits issuance. By default it asks each zone's authoritative nameservers,
+# as the certificate authority does, so a cached or split-horizon answer on
+# this host cannot pass or fail a check the CA would decide differently.
+#
+# Where lookups go when preflight_dns_servers is empty:
+#   "authoritative"  each zone's own nameservers (the host resolver only finds
+#                    them). Default.
+#   "host"           this host's getaddrinfo, including /etc/hosts, caches and
+#                    any split-horizon view. Opt in only when the CA sees the
+#                    same view, for example a private ACME server.
+# preflight_dns_source = "authoritative"
+
+# Comma-separated recursive resolver IPs to ask instead, such as public
+# resolvers when outbound DNS to arbitrary nameservers is blocked. Cannot be
+# combined with "host". Default: "" (none).
+# preflight_dns_servers = "1.1.1.1,1.0.0.1"
 
 # Registration and expiry-notification email used when an ACME request does not
 # provide its own email address.

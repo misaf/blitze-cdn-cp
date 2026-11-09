@@ -1,8 +1,8 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
 server {
 {% for port in blitzecdn_edge_runtime.listeners.http %}
-    listen {{ port }} default_server;
-    listen [::]:{{ port }} default_server;
+    listen {{ port }} default_server backlog={{ blitzecdn_nginx_listen_backlog }};
+    listen [::]:{{ port }} default_server backlog={{ blitzecdn_nginx_listen_backlog }};
 {% endfor %}
     server_name _;
     location ^~ /.well-known/acme-challenge/ {
@@ -14,6 +14,8 @@ server {
         access_log off;
         default_type text/plain;
         add_header Cache-Control "no-store" always;
+        # 404 unless the request carries the controller's probe token.
+        include {{ blitzecdn_nginx_release_probe_file }};
         return 200 "{{ blitzecdn_release_digest | default('untracked') }}\n";
     }
     location / { return 444; }
@@ -21,8 +23,8 @@ server {
 
 server {
 {% for port in blitzecdn_edge_runtime.listeners.https %}
-    listen {{ port }} ssl default_server;
-    listen [::]:{{ port }} ssl default_server;
+    listen {{ port }} ssl default_server backlog={{ blitzecdn_nginx_listen_backlog }};
+    listen [::]:{{ port }} ssl default_server backlog={{ blitzecdn_nginx_listen_backlog }};
 {% endfor %}
 {% for resource in blitzecdn_nginx_resources.server | default([]) %}
 {{ lookup('ansible.builtin.template', resource.template, template_vars={'site': {}, 'listener_port': 443, 'visitor_scheme': 'https', 'redirect_https': false, 'default_server': true}) }}

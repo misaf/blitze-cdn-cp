@@ -11,14 +11,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
+import installer_sync
 import jinja2
 import pytest
 import yaml
-from support.install import BASH, SCRIPT, _function, _workspace_version
-from support.paths import CORE_ANSIBLE, REPO_ROOT
+from support.install import BASH, SCRIPT, script_function, workspace_version
+from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
 from blitzecdn.assets.docker import CONTROL_PLANE_DOCKERFILE
 
@@ -107,53 +109,103 @@ def _render_inline(expression: str, facts: dict[str, str]) -> str:
     return environment.from_string(expression.strip()).render(ansible_facts=facts)
 
 
-def test_the_bootstrap_daemon_configuration_is_the_one_the_role_renders():
+def test_the_bootstrap_carries_the_roles_current_docker_setup():
     """Byte for byte, or the converge restarts the engine under its own Ansible.
 
     The play runs in a container on this daemon, and a changed daemon.json
-    notifies a restart.
+    notifies a restart. The block is generated, so this only catches a role
+    edit that was never followed by `just installer-sync`.
     """
-    defaults = yaml.safe_load(
-        (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
-    )
-    expected = _render(DOCKER_ROLE / "templates/daemon.json.j2", **defaults)
+    assert installer_sync.synced(SCRIPT.read_text(encoding="utf-8")) == (
+        SCRIPT.read_text(encoding="utf-8")
+    ), "install.sh is stale; run `just installer-sync`"
     result = _bash("docker_daemon_json")
     assert result.returncode == 0, result.stderr
-    assert result.stdout == expected
     json.loads(result.stdout)
 
 
-def test_the_bootstrap_installs_the_packages_the_role_requires():
+def test_the_bootstrap_restarts_a_reconfigured_daemon_before_using_it():
+    install = script_function("ensure_docker")
+    assert 'apt-get install -y "${DOCKER_PACKAGES[@]}"' in install
+    # Restarted here, before any container of ours runs on the engine.
+    assert install.index(
+        'converge_host_file "${DOCKER_DAEMON_CONFIG_FILE}"'
+    ) < install.index("systemctl restart docker")
+
+
+@pytest.mark.skipif(shutil.which("gpg") is None, reason="needs gpg")
+@pytest.mark.parametrize(
+    ("keys", "trusted"),
+    [
+        (["docker.asc"], True),
+        # apt would trust the second key for Docker's repository too.
+        (["docker.asc", "other.asc"], False),
+        (["other.asc"], False),
+        ([], False),
+    ],
+)
+def test_only_dockers_own_apt_key_is_installed(
+    tmp_path: Path, keys: list[str], trusted: bool
+):
+    key = tmp_path / "gpg"
+    key.write_text(
+        "".join(
+            (FIXTURES / "apt-keys" / name).read_text(encoding="utf-8") for name in keys
+        ),
+        encoding="utf-8",
+    )
+
+    result = _bash(f'docker_key_trusted "{key}"')
+
+    assert (result.returncode == 0) is trusted, result.stderr
+
+
+def test_the_bootstrap_and_the_role_trust_the_same_docker_key():
+    """The fingerprint is the role's, carried by `just installer-sync`."""
     defaults = yaml.safe_load(
         (DOCKER_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
-    install = _function("ensure_docker")
-    line = re.search(r"apt-get install -y ([^\n]*\\\n[^\n]*)", install)
-    assert line is not None
     assert (
-        line.group(1).replace("\\\n", " ").split()
-        == defaults["blitzecdn_docker_packages"]
+        _script_constant("DOCKER_KEY_FINGERPRINT")
+        == (defaults["blitzecdn_docker_gpg_fingerprint"])
     )
-    # Restarted here, before any container of ours runs on the engine.
-    assert install.index("converge_host_file /etc/docker/daemon.json") < install.index(
-        "systemctl restart docker"
+    install = script_function("ensure_docker")
+    # Checked before it is installed where apt reads it.
+    assert install.index('docker_key_trusted "${key}"') < install.index(
+        'install -o root -g root -m 0644 "${key}" "${DOCKER_KEYRING}"'
+    )
+    tasks = (DOCKER_ROLE / "tasks/main.yml").read_text(encoding="utf-8")
+    assert tasks.index("Require Docker's own apt signing key") < tasks.index(
+        "Configure the Docker apt repository"
     )
 
 
 # --- the pin and the workflow that publishes it -------------------------------
 
 
-def test_the_role_pins_the_published_image_of_its_own_release():
-    """`just release-version` moves this with the version, and the tag publishes it."""
+def test_the_installer_and_the_role_pin_the_published_image_of_their_release():
+    """`just release-version` moves both with the version; the tag publishes it.
+
+    A downloaded install.sh has nothing else to read: its pin is the release.
+    """
     defaults = yaml.safe_load(
         (CONTROL_PLANE_ROLE / "defaults/main.yml").read_text(encoding="utf-8")
     )
-    assert defaults["blitzecdn_controlplane_image"] == (
-        f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
-    )
-    result = _bash("pinned_control_plane_image")
+    assert defaults["blitzecdn_controlplane_image"] == _pin()
+    result = _bash('printf "%s" "${CONTROL_PLANE_IMAGE}"')
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == defaults["blitzecdn_controlplane_image"]
+    assert result.stdout == _pin()
+
+
+def test_the_release_recipe_moves_every_pin_it_finds():
+    justfile = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+    recipe = justfile[justfile.index("release-version version:") :]
+    recipe = recipe[: recipe.index("\n# ---")]
+    assert '"install.sh": (' in recipe
+    script = SCRIPT.read_text(encoding="utf-8")
+    pattern = re.search(r'"install\.sh": \(\n\s+r"(.+)",', recipe)
+    assert pattern is not None
+    assert len(re.findall(pattern.group(1), script)) == 1
 
 
 def test_the_workflow_publishes_the_pinned_repository_from_the_shipped_dockerfile():
@@ -172,6 +224,49 @@ def test_the_workflow_publishes_the_pinned_repository_from_the_shipped_dockerfil
     # Release tags publish; a pull request only builds.
     assert workflow["on"]["push"] == {"tags": ["v*.*.*"]}
     assert build["with"]["push"] == "${{ github.event_name != 'pull_request' }}"
+
+
+def test_the_workflow_signs_what_the_installer_checks():
+    """Signed keylessly by this workflow, by digest, with the same cosign line.
+
+    The installer's signer is this workflow file at the release tag; a rename
+    of the file or a move to another repository would leave every install
+    refusing the image.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["image"]
+    assert job["permissions"]["id-token"] == "write"
+    steps = job["steps"]
+    sign = next(
+        step for step in steps if step.get("name") == "Sign the published image"
+    )
+    assert sign["run"] == 'cosign sign --yes "${IMAGE}@${DIGEST}"'
+    assert sign["env"]["DIGEST"] == "${{ steps.build.outputs.digest }}"
+    installer = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("sigstore/cosign-installer@")
+    )
+    workflow_cosign = installer["with"]["cosign-release"]
+    script_cosign = re.search(r":(v\d+)\.", _script_constant("COSIGN_IMAGE"))
+    assert script_cosign is not None
+    assert workflow_cosign.split(".")[0] == script_cosign.group(1)
+    assert _script_constant("CONTROL_PLANE_SIGNER") == (
+        "https://github.com/misaf/blitze-cdn-cp/"
+        f"{WORKFLOW.relative_to(REPO_ROOT)}@refs/tags/v"
+    )
+    attest = next(
+        step for step in steps if step.get("name") == "Attest the release's installer"
+    )
+    assert attest["with"]["subject-path"] == "install.sh"
+    assert attest["if"] == "startsWith(github.ref, 'refs/tags/')"
+
+
+def test_the_checker_is_pinned_by_digest():
+    assert re.fullmatch(
+        r"ghcr\.io/sigstore/cosign/cosign:v[\d.]+@sha256:[0-9a-f]{64}",
+        _script_constant("COSIGN_IMAGE"),
+    )
 
 
 def test_a_source_build_uses_the_dockerfile_the_package_ships():
@@ -201,9 +296,14 @@ def engine(tmp_path: Path) -> Path:
         'image="${*: -1}"\n'
         'case "$1 $2" in\n'
         '  "image inspect")\n'
-        '    grep -qxF "${image}" "${state}/present" || exit 1\n'
+        # Like the engine, a tag@digest reference finds the tagged image.
+        '    grep -qxF -e "${image}" -e "${image%@*}" "${state}/present" || exit 1\n'
         '    if [[ "$*" == *RepoDigests* ]]; then\n'
         '      printf "%s\\n" "${REPO_DIGESTS:-}"\n'
+        "    fi\n"
+        # Every present image has the same ID unless IMAGE_ID says otherwise.
+        '    if [[ "$*" == *.Id* ]]; then\n'
+        '      printf "%s\\n" "sha256:${IMAGE_ID:-0123}"\n'
         "    fi\n"
         "    exit 0 ;;\n"
         "  pull*)\n"
@@ -212,6 +312,10 @@ def engine(tmp_path: Path) -> Path:
         "  load*)\n"
         '    printf "%s\\n" "${LOADED_IMAGE}" >> "${state}/present"; exit 0 ;;\n'
         "  build*)\n"
+        "    exit 0 ;;\n"
+        # cosign, checking a signature: VERIFY_FAILS makes it refuse.
+        '  "run --rm")\n'
+        '    [[ -z "${VERIFY_FAILS:-}" ]] || exit 1\n'
         "    exit 0 ;;\n"
         "esac\n"
         "exit 0\n",
@@ -229,13 +333,34 @@ def _calls(engine: Path) -> list[str]:
 
 
 def _pin() -> str:
-    return f"ghcr.io/misaf/blitzecdn-control-plane:{_workspace_version()}"
+    return f"ghcr.io/misaf/blitzecdn-control-plane:{workspace_version()}"
+
+
+def _script_constant(name: str) -> str:
+    result = _bash(f'printf "%s" "${{{name}}}"')
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _verifications(engine: Path) -> list[str]:
+    return [call for call in _calls(engine) if call.startswith("run --rm")]
+
+
+def _cosign(reference: str) -> str:
+    """The one signature check the installer may run for ``reference``."""
+    return (
+        f"run --rm --network=host {_script_constant('COSIGN_IMAGE')} verify"
+        " --certificate-identity https://github.com/misaf/blitze-cdn-cp/"
+        f".github/workflows/control-plane-image.yml@refs/tags/v{workspace_version()}"
+        " --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+        f" {reference}"
+    )
 
 
 def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path):
     digest = "sha256:" + "a" * 64
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={
             "REPO_DIGESTS": (
@@ -248,43 +373,133 @@ def test_the_pinned_image_is_pulled_and_run_by_its_registry_digest(engine: Path)
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"{_pin()}@{digest}\n"
     assert f"pull {_pin()}" in _calls(engine)
+    # Checked by the digest it is then run by, before anything runs it.
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@{digest}")
+    ]
 
 
-def test_an_image_already_present_is_not_pulled_again(engine: Path):
-    """A re-run, or a host whose operator loaded the image by hand."""
+def test_an_image_already_present_is_not_pulled_again_but_is_checked(engine: Path):
+    """A re-run: the image is on the engine, and still has to be the signed one."""
+    digest = "sha256:" + "e" * 64
     (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
 
-    result = _bash("obtain_control_plane_image", path=engine / "bin")
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}"},
+    )
 
     assert result.returncode == 0, result.stderr
-    # No registry digest for a loaded image: the reference is kept as given.
-    assert result.stdout == f"{_pin()}\n"
+    assert result.stdout == f"{_pin()}@{digest}\n"
     assert not any(call.startswith("pull") for call in _calls(engine))
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@{digest}")
+    ]
 
 
-def test_an_operator_can_name_a_different_image(engine: Path):
-    pinned = f"{_pin()}@sha256:{'c' * 64}"
+def test_a_repair_does_not_recheck_the_image_the_services_run(
+    engine: Path, tmp_path: Path
+):
+    """Installed from an archive, say: a re-run finds what is already running."""
+    digest = "sha256:" + "2" * 64
+    (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
+    compose = tmp_path / "control-plane.compose.yml"
+    compose.write_text(f'  image: "{_pin()}"\n', encoding="utf-8")
+    script = tmp_path / "install.sh"
+    script.write_text(
+        SCRIPT.read_text(encoding="utf-8").replace(
+            "/etc/blitzecdn/control-plane.compose.yml", str(compose)
+        ),
+        encoding="utf-8",
+    )
 
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
-        env={"BLITZECDN_CONTROL_PLANE_IMAGE": pinned},
+        env={"REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}"},
+        script=script,
     )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{_pin()}@{digest}\n"
+    assert _verifications(engine) == []
+
+
+def test_an_image_with_no_registry_digest_is_refused_unchecked(engine: Path):
+    """Loaded or tagged by hand, it has no digest a signature could name."""
+    (engine / "present").write_text(f"{_pin()}\n", encoding="utf-8")
+
+    result = _bash(f'obtain_control_plane_image "{_pin()}"', path=engine / "bin")
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "no registry digest" in result.stderr
+    assert "BLITZECDN_CONTROL_PLANE_ARCHIVE" in result.stderr
+    assert _verifications(engine) == []
+
+
+def test_an_image_the_release_workflow_did_not_sign_is_never_run(engine: Path):
+    digest = "sha256:" + "f" * 64
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={
+            "REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}",
+            "VERIFY_FAILS": "1",
+        },
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"is not signed by the v{workspace_version()} release workflow" in (
+        result.stderr
+    )
+
+
+def test_the_signature_check_can_be_waived_for_a_mirror(engine: Path):
+    """Explicit, loud, and still run by the digest the registry served."""
+    digest = "sha256:" + "1" * 64
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={
+            "REPO_DIGESTS": f"ghcr.io/misaf/blitzecdn-control-plane@{digest}",
+            "BLITZECDN_CONTROL_PLANE_VERIFY": "0",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{_pin()}@{digest}\n"
+    assert "without checking its signature" in result.stderr
+    assert _verifications(engine) == []
+
+
+def test_an_image_named_by_digest_is_pulled_as_named(engine: Path):
+    pinned = f"{_pin()}@sha256:{'c' * 64}"
+
+    result = _bash(f'obtain_control_plane_image "{pinned}"', path=engine / "bin")
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"{pinned}\n"
     assert f"pull {pinned}" in _calls(engine)
+    assert _verifications(engine) == [
+        _cosign(f"ghcr.io/misaf/blitzecdn-control-plane@sha256:{'c' * 64}")
+    ]
 
 
-def test_a_failed_pull_is_retried_and_then_names_both_fallbacks(engine: Path):
+def test_a_failed_pull_is_retried_and_then_names_the_fallback(engine: Path):
     result = _bash(
-        "obtain_control_plane_image", path=engine / "bin", env={"PULL_FAILS": "1"}
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"PULL_FAILS": "1"},
     )
 
     assert result.returncode == 1
     assert sum(call.startswith("pull") for call in _calls(engine)) == 3
     assert "BLITZECDN_CONTROL_PLANE_ARCHIVE" in result.stderr
-    assert "BLITZECDN_CONTROL_PLANE_BUILD=1" in result.stderr
     assert result.stdout == ""
 
 
@@ -293,7 +508,7 @@ def test_an_archive_is_loaded_instead_of_pulled(engine: Path, tmp_path: Path):
     archive.touch()
 
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={"BLITZECDN_CONTROL_PLANE_ARCHIVE": str(archive), "LOADED_IMAGE": _pin()},
     )
@@ -302,6 +517,8 @@ def test_an_archive_is_loaded_instead_of_pulled(engine: Path, tmp_path: Path):
     assert result.stdout == f"{_pin()}\n"
     assert f"load --input {archive}" in _calls(engine)
     assert not any(call.startswith("pull") for call in _calls(engine))
+    # The operator's own bytes, with no registry signature to look up.
+    assert _verifications(engine) == []
 
 
 def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path: Path):
@@ -309,7 +526,7 @@ def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path
     archive.touch()
 
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={
             "BLITZECDN_CONTROL_PLANE_ARCHIVE": str(archive),
@@ -323,7 +540,7 @@ def test_an_archive_without_the_expected_image_is_refused(engine: Path, tmp_path
 
 def test_the_source_fallback_builds_this_checkout_and_pulls_nothing(engine: Path):
     result = _bash(
-        "obtain_control_plane_image",
+        f'obtain_control_plane_image "{_pin()}"',
         path=engine / "bin",
         env={"BLITZECDN_CONTROL_PLANE_BUILD": "1"},
     )
@@ -336,6 +553,27 @@ def test_the_source_fallback_builds_this_checkout_and_pulls_nothing(engine: Path
         f"--tag blitzecdn-control-plane:local {REPO_ROOT}"
     ]
     assert not any(call.startswith("pull") for call in _calls(engine))
+    assert _verifications(engine) == []
+
+
+def test_a_lone_installer_cannot_build_the_image_it_has_no_source_for(
+    engine: Path, tmp_path: Path
+):
+    """A downloaded install.sh sits beside no Dockerfile; say so, build nothing."""
+    lone = tmp_path / "download" / "install.sh"
+    lone.parent.mkdir()
+    lone.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = _bash(
+        f'obtain_control_plane_image "{_pin()}"',
+        path=engine / "bin",
+        env={"BLITZECDN_CONTROL_PLANE_BUILD": "1"},
+        script=lone,
+    )
+
+    assert result.returncode == 2
+    assert "source checkout" in result.stderr
+    assert not any(call.startswith("build") for call in _calls(engine))
 
 
 # --- running Ansible from the image -------------------------------------------
@@ -348,7 +586,7 @@ def test_every_play_runs_in_the_image_against_the_host_through_nsenter():
     plays name the connection themselves so nothing else can run them locally
     inside the container by mistake.
     """
-    body = _function("run_playbook")
+    body = script_function("run_playbook")
     for flag in ("--privileged", "--pid=host", "--network=host", "--user 0:0"):
         assert flag in body
     assert '"${IMAGE_ANSIBLE_DIR}/playbooks/${playbook}"' in body

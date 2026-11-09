@@ -17,7 +17,7 @@ from blitzecdn.capabilities.deployments.ports import (
     SettingRestore,
     ZoneStore,
 )
-from blitzecdn.capabilities.releases.domain import ReleaseInputs
+from blitzecdn.capabilities.releases import ReleaseInputs
 from blitzecdn.core.exceptions import ConflictError
 
 __all__ = ["adopt_inputs", "require_unchanged_canonical", "select_target"]
@@ -46,7 +46,7 @@ def select_target(
 def require_unchanged_canonical(releases: Releases, deployment: Deployment) -> None:
     """Refuse to restore wholesale over a change made while we converged.
 
-    Record writes take no deployment lock, so a ``blitzecdn record create`` during
+    Record writes take no deployment lock, so a ``blitzecdn record add`` during
     the rollback would otherwise be silently deleted. Read inside the
     ``BEGIN IMMEDIATE`` adoption transaction; raising leaves canonical state
     untouched and the deployment FAILED, for a deliberate retry.

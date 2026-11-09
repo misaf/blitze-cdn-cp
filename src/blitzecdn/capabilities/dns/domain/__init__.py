@@ -1,12 +1,11 @@
 """Canonical zones, records, rules, and the virtual hosts derived from them.
 
-Shared serving policy lives in `serving`, so compilation and execution consume
+Shared serving policy lives in `core.domain`, so compilation and execution consume
 it without importing DNS lifecycle concerns.
 """
 
+from blitzecdn.capabilities.dns.domain.changes import SiteChange
 from blitzecdn.capabilities.dns.domain.commands import (
-    EditFirewall,
-    EditVisitorHeaders,
     PatchPolicy,
     PolicyCommand,
 )
@@ -31,6 +30,7 @@ from blitzecdn.capabilities.dns.domain.record import (
 )
 from blitzecdn.capabilities.dns.domain.resolution import (
     ResolvedPolicy,
+    merge_overrides,
     resolve_policy,
 )
 from blitzecdn.capabilities.dns.domain.rule import Rule, RulePatch
@@ -42,8 +42,6 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
-    "EditFirewall",
-    "EditVisitorHeaders",
     "PatchPolicy",
     "PolicyCommand",
     "PublicationMode",
@@ -52,8 +50,10 @@ __all__ = [
     "ResolvedPolicy",
     "Rule",
     "RulePatch",
+    "SiteChange",
     "UnservableHost",
     "derive_hosts",
+    "merge_overrides",
     "reject_issuer_owned_certificate",
     "resolve_policy",
     "unservable_hosts",
