@@ -11,6 +11,8 @@ blitzecdn_nginx_sites:
     cache_enabled: true
     cache_level: standard
     cache_bypass_cookies: []
+    cache_ttl_overrides: {}
+    cache_ignore_origin_headers: []
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
@@ -54,6 +56,8 @@ blitzecdn_nginx_sites:
     cache_enabled: false
     cache_level: standard
     cache_bypass_cookies: []
+    cache_ttl_overrides: {}
+    cache_ignore_origin_headers: []
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m

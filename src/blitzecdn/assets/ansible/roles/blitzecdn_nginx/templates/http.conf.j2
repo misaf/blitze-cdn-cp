@@ -19,6 +19,25 @@ map $http_accept_encoding $blitzecdn_accept_encoding {
     "~*(^|,)\s*br\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"    "br";
     "~*(^|,)\s*gzip\s*(;(?![^,]*\bq\s*=\s*0(\.0{0,3})?\s*(,|$))[^,]*)?(,|$)"  "gzip";
 }
+{#
+  The origin hop (site.conf.j2): a site with origin fragments is proxied to
+  itself on this loopback port, and its own internal server there talks to the
+  origin. One pooled group for every site, since the hop server is chosen by
+  Host; the catch-all answers anything else that reaches the port with 444.
+#}
+upstream blitzecdn_origin_hop {
+    server 127.0.0.1:{{ blitzecdn_nginx_origin_hop_port }};
+{% if blitzecdn_nginx_upstream_keepalive | int > 0 %}
+    keepalive {{ blitzecdn_nginx_upstream_keepalive }};
+    keepalive_timeout {{ blitzecdn_nginx_upstream_keepalive_timeout }};
+{% endif %}
+}
+server {
+    listen 127.0.0.1:{{ blitzecdn_nginx_origin_hop_port }} default_server;
+    server_name _;
+    access_log off;
+    return 444;
+}
 {% if blitzecdn_nginx_resolvers %}
 resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_resolver_valid }};
 resolver_timeout {{ blitzecdn_nginx_resolver_timeout }};

@@ -12,10 +12,28 @@
       - >-
         item.cache_bypass_cookies | default([], true)
         | reject('match', '^[A-Za-z0-9_.*-]{1,128}$') | list | length == 0
-    fail_msg: "Site {{ item.name }} has an invalid cache duration, level or bypass cookie."
+      # Both reach nginx regexes; the contract (CONTENT_PATTERN, EDGE_TTL)
+      # is the authority, restated so a hand-edited inventory cannot inject.
+      - >-
+        item.cache_ttl_overrides | default({}, true) | dict2items
+        | rejectattr('key', 'match', entry_pattern)
+        | list | length == 0
+      - >-
+        item.cache_ttl_overrides | default({}, true) | dict2items
+        | rejectattr('value', 'match', '^(?:0|(?:0|[1-9][0-9]{0,8})[smhdw])$')
+        | list | length == 0
+      - >-
+        item.cache_ignore_origin_headers | default([], true)
+        | reject('match', entry_pattern)
+        | list | length == 0
+    fail_msg: >-
+      Site {{ item.name }} has an invalid cache duration, level, bypass
+      cookie, TTL override or ignored origin header entry.
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name }}"
+  vars:
+    entry_pattern: '^(?:\.[a-z0-9]{1,16}|[a-z0-9][a-z0-9.+-]{0,63}/(?:\*|[a-z0-9][a-z0-9.+-]{0,63}))$'
 
 # Core creates this too, because Compose mounts it on an edge with no cache
 # capability at all. Declared identically here so the two never disagree: this
