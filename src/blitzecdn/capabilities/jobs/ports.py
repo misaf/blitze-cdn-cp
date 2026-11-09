@@ -21,6 +21,7 @@ from blitzecdn.capabilities.jobs.domain.observability import (
 __all__ = [
     "JobHandler",
     "JobStore",
+    "OperationLeases",
     "OperationRun",
     "OperationRuns",
     "ScheduleStore",
@@ -33,6 +34,10 @@ OperationRun = Callable[[Mapping[str, Any]], dict[str, Any]]
 
 #: Every edge operation the API may queue, by kind, and its run in the worker.
 OperationRuns = NewType("OperationRuns", dict[str, OperationRun])
+
+#: How long a claim on an operation of each kind should be good for, in
+#: seconds, for kinds whose run can outlast the queue's default lease.
+OperationLeases = NewType("OperationLeases", dict[str, int])
 
 
 class JobStore(Protocol):

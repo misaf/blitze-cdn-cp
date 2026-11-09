@@ -27,8 +27,11 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.certificates.service.operations import (
+    RECONCILE_OPERATION,
     RENEW_OPERATION,
+    REQUEST_OPERATION,
     operation_handlers,
+    operation_leases,
 )
 
 
@@ -150,6 +153,27 @@ def test_renewal_is_bounded_by_the_configured_budget(monkeypatch):
         "sites": ["a"],
         "budget_seconds": 42,
     }
+
+
+def test_a_queued_sweep_is_leased_for_its_budget_and_one_more_issuance():
+    """The budget is checked only between sites, so one issuance may overrun it."""
+    assert operation_leases(
+        renewal_budget_seconds=7200, issuance_timeout_seconds=1800
+    ) == {
+        REQUEST_OPERATION: 1800,
+        RENEW_OPERATION: 9000,
+        RECONCILE_OPERATION: 9000,
+    }
+
+
+def test_the_worker_holds_certificate_operations_for_their_declared_lease(
+    settings, seeded
+):
+    control, _ = seeded()
+    leases = control.worker.runner.operation_leases
+
+    assert leases[RENEW_OPERATION] > control.worker.runner.queue.lease_seconds
+    assert set(leases) >= {REQUEST_OPERATION, RENEW_OPERATION, RECONCILE_OPERATION}
 
 
 def test_renewal_is_queued_rather_than_run_in_the_request(

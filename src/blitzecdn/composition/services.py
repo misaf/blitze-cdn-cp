@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from dishka import Provider, Scope, provide
 
-from blitzecdn.capabilities.jobs.ports import OperationRuns
+from blitzecdn.capabilities.jobs.ports import OperationLeases, OperationRuns
 from blitzecdn.composition.bindings import PortBindings
 from blitzecdn.composition.roster import (
     OperationInputs,
     RenderingInputs,
+    bind_operation_leases,
     bind_operations,
     bind_queued_operations,
     bind_renderings,
@@ -53,6 +54,10 @@ class ServiceProvider(Provider):
     @provide
     def operation_runs(self, inputs: OperationInputs) -> OperationRuns:
         return OperationRuns(bind_queued_operations(inputs))
+
+    @provide
+    def operation_leases(self, inputs: OperationInputs) -> OperationLeases:
+        return OperationLeases(bind_operation_leases(inputs))
 
 
 def service_providers() -> tuple[Provider, ...]:

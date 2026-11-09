@@ -23,6 +23,7 @@ __all__ = [
     "RENEW_OPERATION",
     "REQUEST_OPERATION",
     "operation_handlers",
+    "operation_leases",
     "reconcile_payload",
     "renew_payload",
     "request_dedupe_key",
@@ -116,4 +117,22 @@ def operation_handlers(
         REQUEST_OPERATION: request,
         RENEW_OPERATION: renew,
         RECONCILE_OPERATION: reconcile,
+    }
+
+
+def operation_leases(
+    *, renewal_budget_seconds: int, issuance_timeout_seconds: int
+) -> dict[str, int]:
+    """How long the worker holds each kind before another may take it over.
+
+    One issuance is bounded by certbot's timeout. A renewal sweep checks its
+    budget only between sites, so it can run one issuance past the budget,
+    as the scheduled renewal's lease allows. Reconciliation is given the same
+    room; it has no budget of its own.
+    """
+    sweep = renewal_budget_seconds + issuance_timeout_seconds
+    return {
+        REQUEST_OPERATION: issuance_timeout_seconds,
+        RENEW_OPERATION: sweep,
+        RECONCILE_OPERATION: sweep,
     }
