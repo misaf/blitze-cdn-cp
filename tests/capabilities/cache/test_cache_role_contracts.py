@@ -275,6 +275,11 @@ def test_nothing_private_is_cached_or_served_from_cache():
     nor served from cache. Both directives are needed: bypass alone still stores,
     and no_cache alone still serves an earlier entry. The cookie bypass the
     cache level adds is covered, per level, in test_cache_levels.
+
+    The one opt-in exception, cache_ignore_origin_headers, does not switch
+    these off either: it replaces X-Accel-Expires for the listed types in the
+    origin hop (test_cache_ttl_overrides), so Set-Cookie still keeps a
+    response out.
     """
     template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
 

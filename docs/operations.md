@@ -332,6 +332,62 @@ host in `known_hosts.loopback` beside it and rewrites only that file. A
 checkout without the controller's SSH configuration uses your own SSH client
 and `~/.ssh/known_hosts` instead, and `edge add` leaves host keys to it.
 
+## The controller's SSH key
+
+The controller deploys with one SSH identity, `/var/lib/blitzecdn/id_ed25519`
+(`/opt/blitzecdn/.state/id_ed25519` inside the containers). An edge registered
+without `--private-key-file` is reached with it. Ansible then becomes root on
+every edge, so **whoever holds this key is root on the whole fleet**, and a
+compromised controller is a compromised fleet. Protect it accordingly:
+
+- **Where it lives.** The state directory is `0700` and the key `0600`, owned
+  by the containers' numeric identity (65534). Root on the controller can read
+  it, and so can anything that can read the state directory: a mounted volume,
+  a container escape, a disk image.
+- **Backups.** Every full backup holds the private key, so an archive is as
+  sensitive as the key itself. Keep copies encrypted and access-controlled, as
+  [Backups](#backups) says.
+- **On a standalone host.** The host is its own edge: the role authorizes the
+  key for the deployment account (`deploy`, with passwordless sudo), and the
+  controller reaches it over loopback. That entry carries
+  `from="127.0.0.1,::1",no-agent-forwarding,no-X11-forwarding,no-port-forwarding`,
+  so a copy of the key does not log in from anywhere else. A converge adds the
+  options to an entry that lacks them.
+- **On other edges.** You put the public key in the edge account's
+  `authorized_keys` yourself. Restrict it the same way to the controller's
+  address, so the key is useless off the controller:
+
+  ```text
+  from="198.51.100.7",no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... blitzecdn-local-controller
+  ```
+
+  The edge firewall already limits SSH to the edge's `--ssh-source` networks;
+  `from=` narrows this one key further, to the one address that uses it.
+
+Narrowing sudo to particular commands is not an option: Ansible's `become`
+runs arbitrary module code as root.
+
+### Rotating the key
+
+There is no rotation command. To replace the key, for example after a backup
+archive leaked:
+
+1. Move the old pair aside on the controller:
+   `sudo mv /var/lib/blitzecdn/id_ed25519{,.old}` and the same for `.pub`.
+2. Run `sudo blitzecdn-install standalone ...` again with the installed
+   options. The role creates a new pair and authorizes it for the loopback
+   deployment account.
+3. On every edge, add the new public key (with its `from=` options) to the
+   deployment account's `authorized_keys`, then run `blitzecdn deploy` to
+   check that each edge accepts it.
+4. Remove the old public key from every edge, and from the standalone host's
+   `~deploy/.ssh/authorized_keys`, which the role only adds to. Then delete
+   the `.old` files.
+
+Backups taken before the rotation still hold the old private key. Once the old
+key is removed everywhere it no longer opens anything, but treat those archives
+as sensitive until they age out.
+
 ## Host commands and Compose
 
 The installed `blitzecdn` command runs disposable CLI containers through Docker
@@ -650,6 +706,52 @@ Whatever the level, a request with `Authorization` or a WebSocket upgrade is
 never cached, and nginx still refuses to store a response with `Set-Cookie` or
 `Cache-Control: private`, `no-cache` or `no-store`. Bypassed requests count as
 `BYPASS` in [cache statistics](#cache-statistics).
+
+### Edge TTL overrides
+
+`cache_ttl_overrides` sets the edge TTL by URL extension (`.css`), content type
+(`text/html`) or type family (`image/*`), in place of `cache_valid_success`:
+
+```bash
+blitzecdn domain cache example.com --ttl 'image/*=7d' --ttl text/html=0 --ttl .css=1h
+blitzecdn domain cache example.com --clear-ttls
+```
+
+An override applies to 200, 301, 302 and 304 responses whose origin sent no
+`Cache-Control`, `Expires` or `X-Accel-Expires`; when the origin did, the origin
+decides. `0` stores nothing of that type. An extension wins over the
+`Content-Type` the origin labels the response with, and an exact type over a
+family. A TTL is whole seconds, minutes, hours, days or weeks. Under the
+`standard` level an override also lets a type be stored that otherwise would
+not be, such as `text/html=5m`; the cookie bypass still applies.
+
+`cache_ignore_origin_headers` lists extensions, types or families whose origin
+caching headers the edge disregards, for an origin that marks its assets
+`no-cache` by mistake:
+
+```bash
+blitzecdn domain cache example.com --ignore-origin-headers 'image/*' --ignore-origin-headers .js
+blitzecdn domain cache example.com --respect-origin-headers
+```
+
+A listed type is stored for its override if it has one, else for
+`cache_valid_success` (404: `cache_valid_not_found`), and any other status of it
+is not stored, even with `Cache-Control: private` or `no-store`. Only list types
+that are the same for every visitor. A `Set-Cookie` response is still never
+stored, and visitors receive the origin's headers unchanged.
+
+A site with an entry naming a type (rather than an extension) does not
+revalidate expired entries with a conditional request: a `304` need not carry
+`Content-Type`, so the edge could not tell which rule it renews. Such entries
+are refetched in full instead.
+
+How it works: nginx's `proxy_cache_valid` and `proxy_ignore_headers` cannot
+vary per response, but nginx takes a cached response's lifetime from
+`X-Accel-Expires` before `Cache-Control` or `Expires`. A site with either setting
+reaches its origin through a loopback hop on `127.0.0.1:8091`
+(`blitzecdn_nginx_origin_hop_port`) that rewrites `X-Accel-Expires` before the
+cache reads it. Sites without either setting reach the origin directly, as
+before.
 
 ## Cache statistics
 

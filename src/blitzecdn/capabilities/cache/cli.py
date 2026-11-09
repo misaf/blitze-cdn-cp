@@ -280,6 +280,39 @@ def domain_cache(
             help="Forget the listed bypass cookies.",
         ),
     ] = False,
+    ttl: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ttl",
+            help=(
+                "Edge TTL for an extension, type or type family, e.g. "
+                "image/*=7d, text/html=0, .css=1h. Repeat for more; replaces "
+                "the current overrides."
+            ),
+        ),
+    ] = None,
+    clear_ttls: Annotated[
+        bool,
+        typer.Option("--clear-ttls", help="Forget every TTL override."),
+    ] = False,
+    ignore_origin_headers: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ignore-origin-headers",
+            help=(
+                "Extension, type or type family whose origin Cache-Control "
+                "and Expires the edge disregards, e.g. image/*. Repeat for "
+                "more; replaces the current list."
+            ),
+        ),
+    ] = None,
+    respect_origin_headers: Annotated[
+        bool,
+        typer.Option(
+            "--respect-origin-headers",
+            help="Stop ignoring origin caching headers for any type.",
+        ),
+    ] = False,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether this zone is cached, what, and for how long.
@@ -301,11 +334,24 @@ def domain_cache(
     narrows that to the named cookies. `--level everything` stores every
     response and skips the cache only for the named cookies.
 
+    `--ttl image/*=7d` stores images for seven days when the origin says
+    nothing about them, and `--ttl text/html=0` never stores HTML. An
+    extension wins over a type, and a type over a family. `--ignore-origin-
+    headers image/*` applies that TTL (or `--success`) to images even when
+    the origin sends Cache-Control: no-cache, for an origin that gets its
+    headers wrong; visitors still receive the origin's headers.
+
     Options you do not name are left as they are.
     """
     if bypass_cookie and clear_bypass_cookies:
         raise typer.BadParameter(
             "give --bypass-cookie or --clear-bypass-cookies, not both"
+        )
+    if ttl and clear_ttls:
+        raise typer.BadParameter("give --ttl or --clear-ttls, not both")
+    if ignore_origin_headers and respect_origin_headers:
+        raise typer.BadParameter(
+            "give --ignore-origin-headers or --respect-origin-headers, not both"
         )
     supplied = {
         "cache_enabled": on,
@@ -313,12 +359,17 @@ def domain_cache(
         "cache_valid_not_found": not_found,
         "cache_level": level,
         "cache_bypass_cookies": [] if clear_bypass_cookies else bypass_cookie,
+        "cache_ttl_overrides": {} if clear_ttls else _ttl_overrides(ttl),
+        "cache_ignore_origin_headers": (
+            [] if respect_origin_headers else ignore_origin_headers
+        ),
     }
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter(
             "give at least one of --on/--off, --success, --not-found, --level, "
-            "--bypass-cookie or --clear-bypass-cookies"
+            "--bypass-cookie, --clear-bypass-cookies, --ttl, --clear-ttls, "
+            "--ignore-origin-headers or --respect-origin-headers"
         )
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
@@ -330,6 +381,21 @@ def domain_cache(
         else "not caching"
     )
     report(zone, f"{zone.name} is now {state}.", json_output=json_output)
+
+
+def _ttl_overrides(values: list[str] | None) -> dict[str, str] | None:
+    """Read repeated ``CONTENT=DURATION`` options; the contract validates both."""
+    if not values:
+        return None
+    overrides: dict[str, str] = {}
+    for value in values:
+        content, separator, duration = value.partition("=")
+        if not separator or not content.strip() or not duration.strip():
+            raise typer.BadParameter(
+                f"{value!r} is not CONTENT=DURATION, e.g. image/*=7d"
+            )
+        overrides[content.strip()] = duration.strip()
+    return overrides
 
 
 @domain_commands.command("cache-query-string")

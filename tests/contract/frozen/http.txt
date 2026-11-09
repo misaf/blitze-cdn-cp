@@ -98,8 +98,10 @@ blitzecdn	schema	CdnSite.allow_private_origin	boolean optional
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
 blitzecdn	schema	CdnSite.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
+blitzecdn	schema	CdnSite.cache_ignore_origin_headers	array[string] optional
 blitzecdn	schema	CdnSite.cache_level	CacheLevel optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional
+blitzecdn	schema	CdnSite.cache_ttl_overrides	object optional
 blitzecdn	schema	CdnSite.cache_valid_not_found	string optional
 blitzecdn	schema	CdnSite.cache_valid_success	string optional
 blitzecdn	schema	CdnSite.certificate_key_path	string|null optional
@@ -204,8 +206,10 @@ blitzecdn	schema	Domain.allow_private_origin	boolean optional
 blitzecdn	schema	Domain.always_use_https	boolean optional
 blitzecdn	schema	Domain.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	Domain.cache_enabled	boolean optional
+blitzecdn	schema	Domain.cache_ignore_origin_headers	array[string] optional
 blitzecdn	schema	Domain.cache_level	CacheLevel optional
 blitzecdn	schema	Domain.cache_query_string_mode	CacheQueryStringMode optional
+blitzecdn	schema	Domain.cache_ttl_overrides	object optional
 blitzecdn	schema	Domain.cache_valid_not_found	string optional
 blitzecdn	schema	Domain.cache_valid_success	string optional
 blitzecdn	schema	Domain.certificate_key_path	string|null optional
@@ -229,8 +233,10 @@ blitzecdn	schema	DomainPatch.allow_private_origin	boolean optional
 blitzecdn	schema	DomainPatch.always_use_https	boolean optional
 blitzecdn	schema	DomainPatch.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	DomainPatch.cache_enabled	boolean optional
+blitzecdn	schema	DomainPatch.cache_ignore_origin_headers	array[string] optional
 blitzecdn	schema	DomainPatch.cache_level	CacheLevel optional
 blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode optional
+blitzecdn	schema	DomainPatch.cache_ttl_overrides	object optional
 blitzecdn	schema	DomainPatch.cache_valid_not_found	string optional
 blitzecdn	schema	DomainPatch.cache_valid_success	string optional
 blitzecdn	schema	DomainPatch.certificate_key_path	string|null optional

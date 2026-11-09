@@ -60,7 +60,20 @@
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         proxy_cache_background_update on;
         proxy_cache_lock on;
-        proxy_cache_revalidate on;
+{#
+  A conditional revalidation renews an entry from the 304's headers, and a 304
+  need not carry Content-Type. The origin hop's maps (cache-http.conf.j2) see
+  only the 304, so an entry kept for its type's TTL override, or stored
+  despite the origin's headers because of its type, would fall back to the
+  origin's lifetime on its first renewal. A site with an entry naming a type
+  therefore refetches in full instead; entries naming an extension match the
+  URL, which every response has.
+#}
+{% set type_rules = namespace(found=false) %}
+{% for entry in (site.cache_ttl_overrides | default({}, true) | list) + (site.cache_ignore_origin_headers | default([], true) | list) %}
+{% if not entry.startswith('.') %}{% set type_rules.found = true %}{% endif %}
+{% endfor %}
+        proxy_cache_revalidate {{ 'off' if type_rules.found else 'on' }};
         # The origin names an entry's purge tags in Cache-Tag. They are for the
         # edge, not visitors, so they are not passed on; nginx still stores the
         # header with the cached entry, which is where blitzecdn_cache_purge's
