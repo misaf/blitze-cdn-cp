@@ -1,9 +1,16 @@
 {#
-  Only the 5xx a site has pages for are intercepted: proxy_intercept_errors
-  replaces exactly the statuses this location has an error_page for, so an
-  origin's 404, 403 or 429 still reaches the visitor as the origin sent it.
-  Repeated from error-pages-server.conf.j2 because a location that sets any
-  error_page of its own (Under Attack Mode does) inherits none.
+  Only the 5xx a site has pages for: an origin's 404, 403 or 429 still
+  reaches the visitor as the origin sent it. Repeated from
+  error-pages-server.conf.j2 because a location that sets any error_page of
+  its own (Under Attack Mode does) inherits none.
+
+  proxy_intercept_errors replaces an origin response for *every* status this
+  location has an error_page for, and Under Attack Mode adds one for 401. With
+  it on, an origin's own 401, such as a Basic Auth challenge, would become the
+  challenge redirect. So with Under Attack Mode the origin's 5xx pass through
+  unchanged, and the pages still answer the 502 and 504 the edge produces
+  itself when the origin cannot be reached or times out: error_page applies
+  to those without interception.
 #}
 {% set pages = site.error_pages | default({}, true) or {} %}
 {% set statuses = namespace(items=[]) %}
@@ -13,7 +20,9 @@
 {% endif %}
 {% endfor %}
 {% if statuses.items and not redirect_https %}
+{% if not site.under_attack_mode | default(false) %}
         proxy_intercept_errors on;
+{% endif %}
 {% for status in statuses.items %}
         error_page {{ status }} /.blitzecdn/internal/error-pages/{{ status }}.html;
 {% endfor %}

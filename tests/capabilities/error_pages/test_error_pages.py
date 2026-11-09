@@ -176,6 +176,8 @@ def test_under_attack_mode_keeps_the_5xx_pages(monkeypatch):
 
     assert "error_page 401 = @blitzecdn_under_attack_redirect;" in upstream
     assert "error_page 502 /.blitzecdn/internal/error-pages/502.html;" in upstream
+    # Interception would also turn an origin's own 401 into the challenge.
+    assert "proxy_intercept_errors" not in upstream
 
 
 def test_maintenance_answers_before_the_cache_or_origin():
