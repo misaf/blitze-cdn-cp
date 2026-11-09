@@ -103,6 +103,12 @@ Each capability contains only the parts it needs:
 - `wiring`: construction and binding of capability behavior.
 - `ansible` and `nginx`: capability-owned automation and configuration fragments.
 
+A part is a single module (`cli.py`, `domain.py`) until it outgrows one file,
+then a package of the same name (`cli/`, `domain/`). Both forms are the same
+part and follow the same rules, so a difference between capabilities only
+reflects size. A capability that holds several slices, such as `tls` with
+`tls/certificates/`, keeps each slice's parts inside that slice.
+
 Core does not import capabilities. Services do not import adapters. Delivery
 code does not access persistence directly. Capabilities receive collaborators
 through dependency injection and do not reach back into composition. Imports

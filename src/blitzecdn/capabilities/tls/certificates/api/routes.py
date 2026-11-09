@@ -5,7 +5,7 @@ from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 
 from blitzecdn.capabilities.jobs import OperationService
-from blitzecdn.capabilities.tls.api.models import (
+from blitzecdn.capabilities.tls.certificates.api.models import (
     CertificateInfo,
     CertificateRequest,
     CertificateStatus,
