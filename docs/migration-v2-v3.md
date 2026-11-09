@@ -148,9 +148,11 @@ Poll `/v3/deployments/{id}`, inspect per-edge progress through
 a completed check-mode deployment. See [queued API work](queued-operations.md)
 for the full submission and polling contract.
 
-Certificate issuance, renewal, and reconciliation remain synchronous at the
-outer request level. Reconciliation may return a nested queued `deployment`;
-poll that deployment separately. A workflow journal is not itself an operation
+Certificate issuance, renewal, and reconciliation are queued: they return
+`202 Accepted` with an `Operation` to poll at `/v3/operations/{id}`, whose
+`result` is the report the endpoint used to return. A reconciliation result may
+name a queued `deployment`; poll that deployment separately. The
+`api_worker_threads` setting is gone; remove it from `blitzecdn.toml`. A workflow journal is not itself an operation
 polling resource or a completion guarantee.
 
 ## Host identities and certificates

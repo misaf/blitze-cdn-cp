@@ -146,9 +146,10 @@ deployments persist admission and are executed by the worker through the same
 deployment service. The worker advances schedules, claims jobs with leases and
 fencing tokens, invokes registered handlers, and persists outcomes. Jobs and
 workflow journals have different roles: jobs track delivery and retries;
-workflows track operation checkpoints and recovery decisions. Some operations,
-including certificate issuance, still execute synchronously; a workflow record
-alone does not make an operation queued.
+workflows track operation checkpoints and recovery decisions. API endpoints
+that call out to the CA, Ansible, DNS or HTTP probes are queued the same way
+(see [queued API work](docs/queued-operations.md)); a workflow record alone
+does not make an operation queued.
 
 Process construction and lifecycle live in
 [composition/processes.py](src/blitzecdn/composition/processes.py). API startup

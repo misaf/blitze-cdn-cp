@@ -78,8 +78,9 @@ class CertificateConfig(ConfigurationModel):
         le=7200,
         alias=RENEWAL_BUDGET,
         description=(
-            "Wall-clock budget for one renewal sweep served over HTTP, after "
-            "which it stops between sites and reports the rest as skipped."
+            "Wall-clock budget for one renewal sweep, scheduled or queued "
+            "through the API, after which it stops between sites and reports "
+            "the rest as skipped."
         ),
     )
     scan_interval_seconds: int = Field(

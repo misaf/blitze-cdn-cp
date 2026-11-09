@@ -271,6 +271,27 @@ class CertificateService:
 
     # -- Issuing -------------------------------------------------------
 
+    def admit_request(self, name: str, email: str | None = None) -> None:
+        """Refuse a request that could never succeed, without contacting anything.
+
+        Reads only local state, so a caller queueing the request gets the same
+        404 or 409 the request itself would raise before it is accepted.
+        """
+        self.persistence.sites.get_site(name)
+        self._registration_email(email)
+
+    def admit_renewal(self, *, sites: Sequence[str] | None) -> None:
+        """Refuse a renewal naming a site with no managed certificate."""
+        self._renewal_candidates(within_days=0, force=False, sites=sites)
+
+    def _registration_email(self, email: str | None) -> str:
+        registration_email = email or self.policy.default_email
+        if not registration_email:
+            raise ConflictError(
+                "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
+            )
+        return registration_email
+
     def request_certificate(
         self,
         name: str,
@@ -279,11 +300,7 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
-        registration_email = email or self.policy.default_email
-        if not registration_email:
-            raise ConflictError(
-                "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
-            )
+        registration_email = self._registration_email(email)
         with self.execution.runner.lock():
             with self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress:
                 site = self.persistence.sites.get_site(name)

@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import FrameType
 
 from blitzecdn.capabilities.jobs.domain import JobClaim
@@ -33,8 +33,10 @@ class JobRunner:
         poll_seconds: float = 1.0,
         clock: Clock,
         progress: WorkerProgress | None = None,
+        operation_leases: Mapping[str, int] | None = None,
     ) -> None:
         self.queue = queue
+        self.operation_leases = dict(operation_leases or {})
         self.scheduler = scheduler
         self.poll_seconds = poll_seconds
         self.clock = clock
@@ -82,14 +84,18 @@ class JobRunner:
         return True
 
     def _hold_for_declared_lease(self, claim: JobClaim) -> None:
-        """Extend a scheduled job's claim to the lease its schedule declares.
+        """Extend a claim to the lease its schedule or operation kind declares.
 
         Claims start with the default lease; renewed under the fence right after.
         """
         job = claim.job
-        if job.kind != SCHEDULED_JOB:
-            return
-        declared = self.scheduler.leases().get(str(job.payload.get("job", "")))
+        if job.kind == SCHEDULED_JOB:
+            declared = self.scheduler.leases().get(str(job.payload.get("job", "")))
+        else:
+            # An operation's lease only ever lengthens the default one.
+            declared = max(
+                self.operation_leases.get(job.kind, 0), self.queue.lease_seconds
+            )
         if declared:
             self.queue.renew(claim, seconds=declared)
 

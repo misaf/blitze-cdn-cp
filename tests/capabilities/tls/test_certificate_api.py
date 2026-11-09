@@ -6,14 +6,13 @@ come from ``support.control_plane``.
 
 from __future__ import annotations
 
-import threading
-
 from fastapi.testclient import TestClient
 from support.control_plane import (
     API_HEADERS,
     control_plane_app,
+    run_queued_operations,
     seed_site_over_http,
-    with_capability_settings,
+    serve,
 )
 
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
@@ -23,8 +22,17 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
+    ReconciliationResult,
+    RenewalResult,
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
+from blitzecdn.capabilities.tls.certificates.service.operations import (
+    RECONCILE_OPERATION,
+    RENEW_OPERATION,
+    REQUEST_OPERATION,
+    operation_handlers,
+    operation_leases,
+)
 
 
 def _seed_proxied_record(client) -> None:
@@ -82,12 +90,6 @@ def test_certificates_are_readable(settings):
             ]
             == []
         )
-        assert (
-            client.post("/v3/certificates/renew", json={}, headers=API_HEADERS).json()[
-                "renewed"
-            ]
-            == []
-        )
 
 
 def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
@@ -127,47 +129,114 @@ def test_an_empty_renewal_selector_is_a_422(settings):
         assert response.status_code == 422
 
 
-def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
-    """A sweep served over HTTP must not run until the CA gets bored."""
+def test_renewal_is_bounded_by_the_configured_budget(monkeypatch):
+    """A queued sweep must stop between sites before the worker's lease runs out."""
     seen: dict[str, object] = {}
 
     def renew(_self, operator, **kwargs):
-        seen.update(kwargs)
-        seen["operator"] = operator
-        return {"renewed": [], "skipped": [], "failed": []}
+        seen.update(kwargs, operator=operator)
+        return RenewalResult()
 
-    configured = with_capability_settings(
-        settings, certificate_renewal_budget_seconds=42
-    )
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    with TestClient(control_plane_app(configured)) as client:
-        response = client.post("/v3/certificates/renew", json={}, headers=API_HEADERS)
+    run = operation_handlers(
+        CertificateService.__new__(CertificateService), renewal_budget_seconds=42
+    )[RENEW_OPERATION]
+    result = run(
+        {"operator": "tester", "within_days": 30, "force": True, "sites": ["a"]}
+    )
 
-    assert response.status_code == 200
-    assert seen["budget_seconds"] == 42
+    assert result == {"renewed": [], "skipped": [], "failed": []}
+    assert seen == {
+        "operator": "tester",
+        "within_days": 30,
+        "force": True,
+        "sites": ["a"],
+        "budget_seconds": 42,
+    }
 
 
-def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkeypatch):
-    """It runs on the renewal pool, so /health keeps answering during a sweep.
+def test_a_queued_sweep_is_leased_for_its_budget_and_one_more_issuance():
+    """The budget is checked only between sites, so one issuance may overrun it."""
+    assert operation_leases(
+        renewal_budget_seconds=7200, issuance_timeout_seconds=1800
+    ) == {
+        REQUEST_OPERATION: 1800,
+        RENEW_OPERATION: 9000,
+        RECONCILE_OPERATION: 9000,
+    }
 
-    Asserted by thread name rather than timing.
-    """
-    names: list[str] = []
 
-    def renew(_self, _operator, **_kwargs):
-        names.append(threading.current_thread().name)
-        return {"renewed": [], "skipped": [], "failed": []}
+def test_the_worker_holds_certificate_operations_for_their_declared_lease(
+    settings, seeded
+):
+    control, _ = seeded()
+    leases = control.worker.runner.operation_leases
 
+    assert leases[RENEW_OPERATION] > control.worker.runner.queue.lease_seconds
+    assert set(leases) >= {REQUEST_OPERATION, RENEW_OPERATION, RECONCILE_OPERATION}
+
+
+def test_renewal_is_queued_rather_than_run_in_the_request(
+    settings, seeded, monkeypatch
+):
+    """The CA is contacted by the worker, so no API thread waits on it."""
+    calls: list[str] = []
+
+    def renew(_self, operator, **_kwargs):
+        calls.append(operator)
+        return RenewalResult(skipped=("example-com: not due",))
+
+    control, _ = seeded()
+    serve(monkeypatch, control)
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
     with TestClient(control_plane_app(settings)) as client:
-        assert (
-            client.post(
-                "/v3/certificates/renew", json={}, headers=API_HEADERS
-            ).status_code
-            == 200
-        )
+        accepted = client.post("/v3/certificates/renew", json={}, headers=API_HEADERS)
+        assert accepted.status_code == 202, accepted.text
+        assert accepted.json()["kind"] == "certificates.renew"
+        assert calls == []
 
-    assert names and names[0].startswith("blitzecdn-worker")
+        # One sweep at a time: a second would only wait on the first.
+        again = client.post("/v3/certificates/renew", json={}, headers=API_HEADERS)
+        assert again.status_code == 409
+
+        run_queued_operations(control)
+        polled = client.get(accepted.headers["Location"], headers=API_HEADERS)
+
+    assert len(calls) == 1
+    assert polled.json()["status"] == "succeeded"
+    assert polled.json()["result"] == {
+        "renewed": [],
+        "skipped": ["example-com: not due"],
+        "failed": [],
+    }
+
+
+def test_reconciliation_is_queued_and_checks_every_waiting_site(
+    settings, seeded, monkeypatch
+):
+    seen: dict[str, object] = {}
+
+    def reconcile(_self, operator, *, force=False):
+        seen["force"] = force
+        return ReconciliationResult()
+
+    control, _ = seeded()
+    serve(monkeypatch, control)
+    monkeypatch.setattr(CertificateService, "reconcile_certificates", reconcile)
+    with TestClient(control_plane_app(settings)) as client:
+        accepted = client.post("/v3/certificates/reconcile", headers=API_HEADERS)
+        assert accepted.status_code == 202, accepted.text
+        run_queued_operations(control)
+        polled = client.get(accepted.headers["Location"], headers=API_HEADERS)
+
+    assert seen == {"force": True}
+    assert polled.json()["status"] == "succeeded"
+    assert polled.json()["result"] == {
+        "issued": [],
+        "skipped": {},
+        "failed": {},
+        "deployment": None,
+    }
 
 
 def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
@@ -191,19 +260,58 @@ def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
         )
 
 
-def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
+def test_a_blocked_preflight_fails_the_queued_request(settings, seeded, monkeypatch):
+    """Preflight probes DNS and the origin, so it runs in the job, not the request."""
     _stub_preflight(monkeypatch, "dns")
+    control, _ = seeded()
+    serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
-        _seed_proxied_record(client)
-
-        response = client.post(
+        accepted = client.post(
             "/v3/hosts/example-com/certificate/request",
             json={"email": "ops@example.com"},
             headers=API_HEADERS,
         )
+        assert accepted.status_code == 202, accepted.text
+        assert accepted.headers["Location"] == f"/v3/operations/{accepted.json()['id']}"
 
-        assert response.status_code == 409
-        assert "preflight failed" in response.json()["detail"]
+        # One request per site: a second would ask the CA again.
+        again = client.post(
+            "/v3/hosts/example-com/certificate/request",
+            json={"email": "ops@example.com"},
+            headers=API_HEADERS,
+        )
+        assert again.status_code == 409
+
+        run_queued_operations(control)
+        polled = client.get(accepted.headers["Location"], headers=API_HEADERS)
+
+    assert polled.json()["status"] == "failed"
+    assert "preflight failed" in polled.json()["error"]
+    assert "Retry-After" not in polled.headers
+
+
+def test_a_request_that_cannot_succeed_is_refused_before_it_is_queued(
+    settings, seeded, monkeypatch
+):
+    control, _ = seeded()
+    serve(monkeypatch, control)
+    with TestClient(control_plane_app(settings)) as client:
+        missing = client.post(
+            "/v3/hosts/absent-example-com/certificate/request",
+            json={"email": "ops@example.com"},
+            headers=API_HEADERS,
+        )
+        no_email = client.post(
+            "/v3/hosts/example-com/certificate/request",
+            json={},
+            headers=API_HEADERS,
+        )
+
+    assert missing.status_code == 404
+    assert no_email.status_code == 409
+    assert "BLITZE_ACME_DEFAULT_EMAIL" in no_email.json()["detail"]
+    for refused in (missing, no_email):
+        assert "Location" not in refused.headers
 
 
 def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):

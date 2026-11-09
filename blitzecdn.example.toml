@@ -25,10 +25,6 @@ environment_path = ".env"
 # drift check, are under Capability Configuration below.
 #
 
-# Maximum route handlers occupying the API's offload pool at once. Keep this
-# small: the work it carries serializes on the deployment lock anyway. Default: 2.
-api_worker_threads = 2
-
 # Maximum API request body, including multipart framing, checked before parsing.
 # Oversized requests return 413. Also configurable as BLITZE_API_MAX_BODY_BYTES.
 # Default: 2097152 bytes (2 MiB). Minimum: 1 byte.
