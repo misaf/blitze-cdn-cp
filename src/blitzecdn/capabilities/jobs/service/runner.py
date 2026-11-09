@@ -1,6 +1,9 @@
 """The loop a worker process runs: sleep when idle, stop when asked.
 
 Polling, not push: an idle poll is one indexed SELECT, cheaper than a broker.
+While a job runs, a heartbeat renews its lease, so a run that outlasts one lease
+is not taken over by another worker; a dead worker stops renewing and its job
+becomes claimable when the last renewal lapses.
 """
 
 from __future__ import annotations
@@ -36,8 +39,12 @@ class JobRunner:
         clock: Clock,
         progress: WorkerProgress | None = None,
         operation_leases: Mapping[str, int] | None = None,
+        heartbeat_seconds: float | None = None,
     ) -> None:
         self.queue = queue
+        #: How often a running job's lease is renewed; a third of the lease held
+        #: when ``None``, so two renewals can be missed before it lapses.
+        self.heartbeat_seconds = heartbeat_seconds
         self.operation_leases = dict(operation_leases or {})
         self.scheduler = scheduler
         self.poll_seconds = poll_seconds
@@ -73,11 +80,17 @@ class JobRunner:
         claim = self.queue.claim()
         if claim is None:
             return bool(fired)
-        self._hold_for_declared_lease(claim)
+        held = self._hold_for_declared_lease(claim)
         if self.progress is not None:
             self.progress.busy(claim)
         try:
-            self.queue.run(claim)
+            with _LeaseHeartbeat(
+                self.queue,
+                claim,
+                lease_seconds=held,
+                interval=self.heartbeat_seconds or held / 3,
+            ):
+                self.queue.run(claim)
         finally:
             if self.progress is not None:
                 self.progress.idle()
@@ -85,10 +98,11 @@ class JobRunner:
         self.queue.prune()
         return True
 
-    def _hold_for_declared_lease(self, claim: JobClaim) -> None:
+    def _hold_for_declared_lease(self, claim: JobClaim) -> int:
         """Extend a claim to the lease its schedule or operation kind declares.
 
         Claims start with the default lease; renewed under the fence right after.
+        Returns the lease now held, which the heartbeat keeps renewing.
         """
         job = claim.job
         if job.kind == ScheduledFiring.kind:
@@ -96,7 +110,7 @@ class JobRunner:
                 firing = ScheduledFiring.model_validate(job.payload)
             except ValidationError:
                 # Running it fails the job and says why; no lease to declare.
-                return
+                return self.queue.lease_seconds
             declared = self.scheduler.leases().get(firing.job)
         else:
             # An operation's lease only ever lengthens the default one.
@@ -105,6 +119,8 @@ class JobRunner:
             )
         if declared:
             self.queue.renew(claim, seconds=declared)
+            return declared
+        return self.queue.lease_seconds
 
     def run_forever(self) -> None:
         """Tick until asked to stop, sleeping on the stop event when idle."""
@@ -124,3 +140,50 @@ class JobRunner:
         while not predicate() and not self._stop.is_set():
             if not self.tick():
                 self._stop.wait(self.poll_seconds)
+
+
+class _LeaseHeartbeat:
+    """Renew a claim's lease on a timer for as long as its job runs.
+
+    Stops for good once a renewal is refused: the fence moved, so another worker
+    owns the job and this one's outcome will be discarded anyway. A renewal that
+    raises is logged and retried on the next beat; the lease covers the gap.
+    """
+
+    def __init__(
+        self, queue: JobQueue, claim: JobClaim, *, lease_seconds: int, interval: float
+    ) -> None:
+        self._queue = queue
+        self._claim = claim
+        self._lease_seconds = lease_seconds
+        self._interval = max(interval, 0.001)
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._beat,
+            name=f"lease-heartbeat-{claim.job.id}",
+            daemon=True,
+        )
+
+    def __enter__(self) -> _LeaseHeartbeat:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._done.set()
+        self._thread.join()
+
+    def _beat(self) -> None:
+        job = self._claim.job
+        while not self._done.wait(self._interval):
+            try:
+                renewed = self._queue.renew(self._claim, seconds=self._lease_seconds)
+            except Exception:
+                _LOGGER.exception("renewing the lease on job %s failed", job.id)
+                continue
+            if not renewed:
+                _LOGGER.warning(
+                    "job %s lost its lease while running; another worker may "
+                    "own it now, so its lease is no longer renewed",
+                    job.id,
+                )
+                return
