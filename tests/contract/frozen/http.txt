@@ -96,7 +96,9 @@ blitzecdn	schema	CacheHour.outcomes	object required
 blitzecdn	schema	CacheHour.requests	integer required
 blitzecdn	schema	CdnSite.allow_private_origin	boolean optional
 blitzecdn	schema	CdnSite.always_use_https	boolean optional
+blitzecdn	schema	CdnSite.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	CdnSite.cache_enabled	boolean optional
+blitzecdn	schema	CdnSite.cache_level	CacheLevel optional
 blitzecdn	schema	CdnSite.cache_query_string_mode	CacheQueryStringMode optional
 blitzecdn	schema	CdnSite.cache_valid_not_found	string optional
 blitzecdn	schema	CdnSite.cache_valid_success	string optional
@@ -199,7 +201,9 @@ blitzecdn	schema	DnsRecord.type	enum[A,AAAA] optional
 blitzecdn	schema	DnsRecord.value	string required
 blitzecdn	schema	Domain.allow_private_origin	boolean optional
 blitzecdn	schema	Domain.always_use_https	boolean optional
+blitzecdn	schema	Domain.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	Domain.cache_enabled	boolean optional
+blitzecdn	schema	Domain.cache_level	CacheLevel optional
 blitzecdn	schema	Domain.cache_query_string_mode	CacheQueryStringMode optional
 blitzecdn	schema	Domain.cache_valid_not_found	string optional
 blitzecdn	schema	Domain.cache_valid_success	string optional
@@ -222,7 +226,9 @@ blitzecdn	schema	Domain.under_attack_mode	boolean optional
 blitzecdn	schema	Domain.visitor_headers	SiteVisitorHeaders optional
 blitzecdn	schema	DomainPatch.allow_private_origin	boolean optional
 blitzecdn	schema	DomainPatch.always_use_https	boolean optional
+blitzecdn	schema	DomainPatch.cache_bypass_cookies	array[string] optional
 blitzecdn	schema	DomainPatch.cache_enabled	boolean optional
+blitzecdn	schema	DomainPatch.cache_level	CacheLevel optional
 blitzecdn	schema	DomainPatch.cache_query_string_mode	CacheQueryStringMode optional
 blitzecdn	schema	DomainPatch.cache_valid_not_found	string optional
 blitzecdn	schema	DomainPatch.cache_valid_success	string optional

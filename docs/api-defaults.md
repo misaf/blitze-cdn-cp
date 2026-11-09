@@ -63,6 +63,8 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `http3_enabled`, `always_use_https`, `under_attack_mode`, `allow_private_origin` | `false` |
 | `max_upload_size` | `100m` |
 | `enabled`, `cache_enabled` | `true` |
+| `cache_level` | `standard`: static file types only, unless the origin sends `Cache-Control`, `Expires` or `X-Accel-Expires`; a request with a cookie skips the cache except for static file URLs |
+| `cache_bypass_cookies` | Empty: any cookie under `standard`, none under `everything` |
 | `cache_query_string_mode` | `include` |
 | `cache_valid_success`, `cache_valid_not_found` | `10m`, `1m` |
 | `compression` | `brotli` |

@@ -7,7 +7,11 @@ from urllib.parse import urlsplit
 
 import typer
 
-from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
+from blitzecdn.capabilities.cache.contract import (
+    CacheLevel,
+    CachePolicy,
+    CacheQueryStringMode,
+)
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.dns import DomainPatch
@@ -249,9 +253,36 @@ def domain_cache(
             help="How long a cached 404 stays valid, e.g. 1m.",
         ),
     ] = None,
+    level: Annotated[
+        CacheLevel | None,
+        typer.Option(
+            "--level",
+            help=(
+                "standard: only static file types unless the origin sends "
+                "caching headers. everything: every 2xx/3xx/404."
+            ),
+        ),
+    ] = None,
+    bypass_cookie: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--bypass-cookie",
+            help=(
+                "Cookie name that skips the cache, '*' as a wildcard. Repeat "
+                "for more; replaces the current list."
+            ),
+        ),
+    ] = None,
+    clear_bypass_cookies: Annotated[
+        bool,
+        typer.Option(
+            "--clear-bypass-cookies",
+            help="Forget the listed bypass cookies.",
+        ),
+    ] = False,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Choose whether this zone is cached, and for how long.
+    """Choose whether this zone is cached, what, and for how long.
 
     A zone is cached by default, so `--off` is the opt-out; turning caching off
     also withdraws the zone's claim on the 'cache' capability, which is what
@@ -264,24 +295,38 @@ def domain_cache(
     amounts: a short `--not-found` keeps a newly published URL from staying
     missing, while a long `--success` is what the cache is for.
 
+    `--level standard`, the default, stores only static file types unless the
+    origin sends Cache-Control, Expires or X-Accel-Expires, and sends any
+    other request carrying a cookie straight to the origin; `--bypass-cookie`
+    narrows that to the named cookies. `--level everything` stores every
+    response and skips the cache only for the named cookies.
+
     Options you do not name are left as they are.
     """
+    if bypass_cookie and clear_bypass_cookies:
+        raise typer.BadParameter(
+            "give --bypass-cookie or --clear-bypass-cookies, not both"
+        )
     supplied = {
         "cache_enabled": on,
         "cache_valid_success": success,
         "cache_valid_not_found": not_found,
+        "cache_level": level,
+        "cache_bypass_cookies": [] if clear_bypass_cookies else bypass_cookie,
     }
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter(
-            "give at least one of --on/--off, --success or --not-found"
+            "give at least one of --on/--off, --success, --not-found, --level, "
+            "--bypass-cookie or --clear-bypass-cookies"
         )
     # Built from the dict so an unnamed option stays unset rather than cleared.
     zone = update(name, DomainPatch.model_validate(named))
+    policy = zone.policy[CachePolicy]
     state = (
-        f"caching 2xx for {zone.policy[CachePolicy].cache_valid_success} and 404 for "
-        f"{zone.policy[CachePolicy].cache_valid_not_found}"
-        if zone.policy[CachePolicy].cache_enabled
+        f"caching {policy.cache_level.value}: 2xx for {policy.cache_valid_success} "
+        f"and 404 for {policy.cache_valid_not_found}"
+        if policy.cache_enabled
         else "not caching"
     )
     report(zone, f"{zone.name} is now {state}.", json_output=json_output)
