@@ -176,7 +176,7 @@ def test_damaged_retained_inputs_abort_collection_before_any_deletion(
     orphan = certificate_dir(settings) / "orphan" / f"fullchain-{'a' * 64}.pem"
     orphan.parent.mkdir()
     orphan.write_bytes(b"orphan")
-    with control.transactions.database.session() as session:
+    with control.transactions.database.writer() as session:
         row = session.scalars(select(ReleaseInputsRow)).one()
         row.document = (
             control.releases.inputs().model_copy(update={"domains": ()}).encode()

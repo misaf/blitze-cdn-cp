@@ -121,14 +121,14 @@ def test_simultaneous_first_connections_preserve_all_writes(settings, pooled):
 
             def increment(database, start=barrier):
                 start.wait(timeout=10)
-                with database.transaction(), database.session() as session:
+                with database.writer() as session:
                     session.connection().exec_driver_sql(
                         "UPDATE startup_test SET value = value + 1"
                     )
 
             with ThreadPoolExecutor(max_workers=len(databases)) as executor:
                 list(executor.map(increment, databases))
-        with databases[0].session() as session:
+        with databases[0].reader() as session:
             assert (
                 session.connection()
                 .exec_driver_sql("SELECT value FROM startup_test")

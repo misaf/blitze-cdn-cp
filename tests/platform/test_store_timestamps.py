@@ -108,7 +108,7 @@ def test_every_store_stamps_rows_from_the_injected_clock(repository):
     _write_through_every_store(repository)
 
     observed: dict[str, list[datetime]] = {}
-    with repository.database.session() as session:
+    with repository.database.reader() as session:
         for table, column in _record_timestamp_columns():
             observed[f"{table.name}.{column.name}"] = list(
                 session.scalars(select(column))
@@ -125,6 +125,6 @@ def test_every_store_stamps_rows_from_the_injected_clock(repository):
 
 def test_a_row_written_without_its_timestamp_is_refused(repository):
     """The ``NOT NULL`` constraint is what replaces the old wall-clock default."""
-    with pytest.raises(IntegrityError), repository.database.session() as session:
+    with pytest.raises(IntegrityError), repository.database.writer() as session:
         session.add(AnsibleSettingRow(name="forgotten", value=1))
         session.flush()

@@ -26,11 +26,24 @@ happens at the service boundary, before reads or writes. A successful outer scop
 commits; an exception escaping it rolls back. SQLite admits only one writer, so
 keep these scopes short.
 
-Stores call `Database.session()`. Inside a transaction they join its session;
-outside one they open and commit/roll back their own scope using deferred
-`BEGIN`. This makes an individual store call durable, but does not group separate
-calls or guarantee an atomic read/compare/write. Stores require an explicit
-transaction for supported `expected=` comparisons.
+Stores read through `Database.reader()` and write through `Database.writer()`.
+Inside a transaction both join its session. Outside one:
+
+- `writer()` opens its own transaction exactly as `transaction()` does: it takes
+  the lock and issues `BEGIN IMMEDIATE`, then commits or rolls back that one
+  store call. Because the writer is reserved before the store's first read, a
+  store method that reads and then writes cannot hit SQLite's snapshot-upgrade
+  error.
+- `reader()` takes no lock. It opens a deferred `BEGIN` under
+  `PRAGMA query_only`, so WAL lets it read its snapshot while another thread or
+  process holds the writer. A long transaction therefore never blocks `/health`,
+  `/metrics`, or a listing. SQLite rejects any write made through a reader. A
+  store that writes from the wrong path fails on its first statement, so the
+  mistake cannot cause an occasional race.
+
+A store call outside a transaction is durable on its own. It does not group
+separate calls or make a read/compare/write atomic, so stores require an
+explicit transaction for supported `expected=` comparisons.
 
 Nested service transactions join the outer scope. They are **not savepoints**
 and do not commit independently. Catch a nested failure only after leaving the

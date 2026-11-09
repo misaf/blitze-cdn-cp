@@ -16,19 +16,19 @@ class EdgeStore:
         self._db = database
 
     def list_edges(self) -> list[Edge]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(select(EdgeRow).order_by(EdgeRow.name)).all()
             return [self._edge(row) for row in rows]
 
     def get_edge(self, name: str) -> Edge:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(EdgeRow, name)
             if row is None:
                 raise NotFoundError(f"edge {name!r} does not exist")
             return self._edge(row)
 
     def create_edge(self, edge: Edge) -> Edge:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             session.add(self._row(edge))
             try:
                 session.flush()
@@ -39,7 +39,7 @@ class EdgeStore:
     def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
         if expected is not None:
             self._db.require_transaction("replace_edge(expected=...)")
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(EdgeRow, edge.name)
             if row is None:
                 raise NotFoundError(f"edge {edge.name!r} does not exist")
@@ -51,7 +51,7 @@ class EdgeStore:
         return edge
 
     def delete_edge(self, name: str) -> None:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(EdgeRow, name)
             if row is None:
                 raise NotFoundError(f"edge {name!r} does not exist")

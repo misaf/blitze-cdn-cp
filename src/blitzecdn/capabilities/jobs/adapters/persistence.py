@@ -36,7 +36,7 @@ class JobStore:
         ready = (JobRow.status == JobStatus.PENDING.value) & (
             JobRow.available_at <= now
         )
-        with self._db.session() as session:
+        with self._db.reader() as session:
             counts = {
                 JobStatus(status): count
                 for status, count in session.execute(
@@ -84,7 +84,7 @@ class JobStore:
             fence=0,
             created_at=self._db.now(),
         )
-        with self._db.session() as session:
+        with self._db.writer() as session:
             try:
                 # A savepoint, so a refused insert undoes only itself inside a caller's
                 # transaction.
@@ -102,7 +102,7 @@ class JobStore:
     ) -> JobClaim | None:
         # BEGIN IMMEDIATE, so an enqueue committing between the claim's read and
         # write waits instead of raising snapshot-busy.
-        with self._db.transaction(), self._db.session() as session:
+        with self._db.writer() as session:
             while True:
                 row = session.scalars(
                     select(JobRow)
@@ -196,7 +196,7 @@ class JobStore:
         now: datetime,
         result: Mapping[str, Any] | None = None,
     ) -> bool:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(
@@ -240,7 +240,7 @@ class JobStore:
         else:
             values["finished_at"] = now
             values["dedupe_key"] = None
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(
@@ -258,7 +258,7 @@ class JobStore:
     def defer(
         self, job_id: str, fence: int, *, retry_at: datetime, reason: str
     ) -> bool:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(
@@ -284,7 +284,7 @@ class JobStore:
             )
 
     def renew(self, job_id: str, fence: int, *, until: datetime) -> bool:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(
@@ -300,7 +300,7 @@ class JobStore:
             )
 
     def get(self, job_id: str) -> Job:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             row = session.get(JobRow, job_id)
             if row is None:
                 raise NotFoundError(f"job {job_id!r} does not exist")
@@ -309,7 +309,7 @@ class JobStore:
     def list_jobs(
         self, *, status: JobStatus | None = None, limit: int = 50
     ) -> list[Job]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             statement = select(JobRow).order_by(JobRow.created_at.desc())
             if status is not None:
                 statement = statement.where(JobRow.status == status.value)
@@ -318,7 +318,7 @@ class JobStore:
     def prune(self, keep: int) -> int:
         """Drop finished jobs beyond the newest ``keep``; never unfinished ones."""
         finished = (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value)
-        with self._db.session() as session:
+        with self._db.writer() as session:
             survivors = (
                 select(JobRow.id)
                 .where(JobRow.status.in_(finished))
@@ -346,7 +346,7 @@ class ScheduleStore:
         Runs on every start; resetting ``next_run_at`` would let a crash loop
         postpone every schedule forever.
         """
-        with self._db.session() as session:
+        with self._db.writer() as session:
             row = session.get(ScheduleRow, schedule.name)
             if row is None:
                 session.add(
@@ -367,7 +367,7 @@ class ScheduleStore:
 
     def forget(self, names: Sequence[str]) -> int:
         """Remove every schedule not in ``names``, so removed features stop firing."""
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return _rows_affected(
                 session.execute(
                     delete(ScheduleRow).where(ScheduleRow.name.not_in(names))
@@ -375,7 +375,7 @@ class ScheduleStore:
             )
 
     def due(self, now: datetime) -> list[Schedule]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(
                 select(ScheduleRow)
                 .where(ScheduleRow.next_run_at <= now)
@@ -391,7 +391,7 @@ class ScheduleStore:
         next_run_at: datetime,
         ran_at: datetime,
     ) -> bool:
-        with self._db.session() as session:
+        with self._db.writer() as session:
             return bool(
                 _rows_affected(
                     session.execute(
@@ -408,7 +408,7 @@ class ScheduleStore:
             )
 
     def list_schedules(self) -> list[Schedule]:
-        with self._db.session() as session:
+        with self._db.reader() as session:
             rows = session.scalars(select(ScheduleRow).order_by(ScheduleRow.name)).all()
             return [_schedule(row) for row in rows]
 
