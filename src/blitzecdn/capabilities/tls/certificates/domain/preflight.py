@@ -159,3 +159,20 @@ class PreflightBackoff(BaseModel):
             return True
         slack = timedelta(seconds=self.interval_seconds / 2)
         return now + slack >= attempt.next_check_at
+
+
+class ChallengeEdges(BaseModel):
+    """Which edges an HTTP-01 token for one hostname has to be on.
+
+    The CA fetches the token from an address the hostname resolves to, so an edge
+    it does not resolve to can be down without failing validation. ``skipped``
+    names those edges, so an issuance can say which ones it did not wait for.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    hostname: str
+    #: Edges the token is placed on. Empty means the whole fleet: the hostname
+    #: points at no edge we can see, and only the CA knows which one it will ask.
+    targets: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()

@@ -1,1 +1,1 @@
-"""Certificate API routes."""
+"""Certificate API routes and models."""
