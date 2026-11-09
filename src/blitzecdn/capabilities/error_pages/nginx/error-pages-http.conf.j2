@@ -1,0 +1,18 @@
+{#
+  One geo per site in maintenance mode that has firewall.allow_sources: 1 for
+  a visitor who meets the maintenance page, 0 for an allowed network, which
+  reaches the origin. Site names are [a-z0-9-], so swapping '-' for '_' keeps
+  every variable name distinct. error-pages-access.conf.j2 reads it under the
+  same condition.
+#}
+{% for maintained in blitzecdn_nginx_sites | default([], true) %}
+{% set firewall = maintained.firewall | default({}, true) or {} %}
+{% if maintained.maintenance_mode | default(false) and firewall.allow_sources | default([], true) %}
+geo $blitzecdn_maintenance_{{ maintained.name | replace('-', '_') }} {
+    default 1;
+{% for source in firewall.allow_sources %}
+    {{ source }} 0;
+{% endfor %}
+}
+{% endif %}
+{% endfor %}

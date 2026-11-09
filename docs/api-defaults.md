@@ -70,6 +70,8 @@ Creating a domain requires `name`. Omitted policy fields use these values:
 | `cache_query_string_mode` | `include` |
 | `cache_valid_success`, `cache_valid_not_found` | `10m`, `1m` |
 | `compression` | `brotli` |
+| `error_pages` | Empty: visitors see Nginx's or the origin's own error responses |
+| `maintenance_mode`, `maintenance_page`, `maintenance_retry_after` | `false`, `null` (the `503` error page, else a built-in one), `300` |
 | `origin_request_host`, `origin_sni` | `null` (no explicit override) |
 | Every `firewall` list | Empty |
 | `firewall.case_insensitive_paths` | `false` (paths match case-sensitively, as written) |

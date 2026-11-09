@@ -95,9 +95,17 @@ class EdgeRenderer:
 
         sites: list[Mapping[str, Any]] = list(context.value("blitzecdn_nginx_sites"))
         enabled = paths["nginx"] + "/sites-enabled/"
+        pages = context.value("blitzecdn_nginx_pages_dir")
         for site in sites:
             available = paths["nginx"] + f"/sites-available/{site['name']}.conf"
             write(available, context.render(nginx / "site.conf.j2", item=site))
+            for resource in resources.get("page", ()):
+                page = context.render(Path(resource["template"]), site=site)
+                if page.strip():
+                    write(
+                        f"{pages}/{site['name']}/{_plain(resource['name'])}",
+                        page,
+                    )
             if site.get("enabled", True):
                 links[_relative(enabled + f"{site['name']}.conf", candidate)] = (
                     available

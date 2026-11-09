@@ -365,6 +365,18 @@ allowed_importers =
     blitzecdn.composition
     blitzecdn.entrypoints
 
+[importlinter:contract:error_pages-public-surface]
+name = Other capabilities reach error_pages only through its package or contract
+type = protected
+protected_modules =
+    blitzecdn.capabilities.error_pages.cli
+    blitzecdn.capabilities.error_pages.feature
+allowed_importers =
+    blitzecdn.capabilities.error_pages
+    blitzecdn.assets
+    blitzecdn.composition
+    blitzecdn.entrypoints
+
 [importlinter:contract:deployments-public-surface]
 name = Other capabilities reach deployments only through its package or contract
 type = protected

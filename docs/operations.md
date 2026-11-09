@@ -753,6 +753,46 @@ reaches its origin through a loopback hop on `127.0.0.1:8091`
 cache reads it. Sites without either setting reach the origin directly, as
 before.
 
+## Error pages and maintenance mode
+
+`error_pages` replaces what visitors see when a site fails, by status: `500`,
+`502`, `503` and `504` from the origin, or from the edge when the origin cannot
+be reached or times out, and `403` and `429` from the edge's own firewall and
+rate limit. The status is kept.
+
+```bash
+blitzecdn domain error-pages example.com --page 502=./502.html --page 504=./504.html
+blitzecdn domain error-pages example.com --clear
+```
+
+Only the statuses a site has a page for are replaced. An origin's own `403`,
+`404` or `429` reaches visitors as the origin sent it; a `5xx` page replaces
+the origin's `5xx` body too, except with Under Attack Mode, where the origin's
+`5xx` pass through (replacing them would also replace an origin's `401`) and only
+the edge's own `502` and `504` get the page. Pages ship in every configuration release, under
+`pages/<site>/` in the release's Nginx tree (`blitzecdn_nginx_pages_dir`), and
+are served from the edge's disk with `Cache-Control: no-store`. Each is at most
+64 KiB; keep them self-contained, with inline styles and images, since the
+origin may be what is down.
+
+Maintenance mode answers every request with the maintenance page, `503` and
+`Retry-After`, without contacting the cache or the origin:
+
+```bash
+blitzecdn domain maintenance example.com --page ./maintenance.html --retry-after 600
+blitzecdn domain maintenance example.com --on
+blitzecdn domain maintenance example.com --off
+```
+
+Networks in `firewall.allow_sources` are exempt and reach the origin as usual,
+so the owner can check the site before turning maintenance off. Without a
+`--page`, maintenance serves the site's `503` error page, else a plain built-in
+one. An HTTP listener that redirects to HTTPS keeps redirecting, and ACME
+challenges are still answered.
+
+Both change only what visitors see. They do not check the origin's health or
+fail over, and a deploy applies them like any other setting.
+
 ## Cache statistics
 
 Cache effectiveness is read from stored hourly rows, never by sampling edges.

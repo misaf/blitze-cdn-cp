@@ -278,6 +278,7 @@ ROSTER: tuple[RosterEntry, ...] = (
         operations=_traffic_operations,
     ),
     RosterEntry("blitzecdn.capabilities.compression.feature"),
+    RosterEntry("blitzecdn.capabilities.error_pages.feature"),
     RosterEntry(
         "blitzecdn.capabilities.security.feature",
         rendering=_security_rendering,
