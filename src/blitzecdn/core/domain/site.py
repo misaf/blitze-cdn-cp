@@ -6,6 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from blitzecdn.core.domain.paths import PathLocation
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.domain.validation import (
     HOST_NAME,
@@ -29,6 +30,10 @@ class CdnSite(BaseModel):
     #: block.
     server_names: tuple[str, ...] = Field(default=(), max_length=100)
     origin_host: str
+    #: The path rules this host serves, in the order they are matched: the
+    #: first whose path covers a request answers it, and a request no location
+    #: covers is served by the host's own policy.
+    locations: tuple[PathLocation, ...] = ()
 
     @field_validator("name")
     @classmethod
@@ -57,6 +62,28 @@ class CdnSite(BaseModel):
         normalized = hostname(value)
         refuse_internal_origin(normalized)
         return normalized
+
+    @model_validator(mode="after")
+    def validate_locations(self) -> Self:
+        """Each location names this host's hostnames, and each rule appears once."""
+        rules = [location.rule for location in self.locations]
+        if len(set(rules)) != len(rules):
+            raise ValueError("a path rule may appear once among a host's locations")
+        scoped = SitePolicy.path_setting_names()
+        for location in self.locations:
+            stray = sorted(set(location.server_names) - set(self.server_names))
+            if stray:
+                raise ValueError(
+                    f"location {location.rule!r} names hostnames this host does "
+                    "not serve: " + ", ".join(stray)
+                )
+            hostname_only = sorted(set(location.settings) - scoped)
+            if hostname_only:
+                raise ValueError(
+                    f"location {location.rule!r} sets settings decided per "
+                    "hostname: " + ", ".join(hostname_only)
+                )
+        return self
 
     @model_validator(mode="after")
     def validate_contributed_site_checks(self) -> Self:
