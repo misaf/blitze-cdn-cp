@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from support.jobs import handling
 from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.adapters import monitor as monitor_module
@@ -68,7 +69,7 @@ def test_heartbeat_advances_while_handler_is_blocked(settings, tmp_path, monkeyp
     monitor = WorkerMonitor(tmp_path / "workers", interval=0.01, clock=system_clock)
     queue = JobQueue(
         jobs=repository.jobs,
-        handlers={"example": handler},
+        handlers=handling({"example": handler}),
         worker_id="host:1",
         clock=system_clock,
     )
@@ -152,7 +153,7 @@ def test_job_logs_have_correlation_and_duration_without_payloads(settings, caplo
     repository = Stores(settings.database_path)
     queue = JobQueue(
         jobs=repository.jobs,
-        handlers={"example": lambda _: DONE},
+        handlers=handling({"example": lambda _: DONE}),
         worker_id="worker-a",
         clock=system_clock,
     )

@@ -1,80 +1,62 @@
-"""Purges and connection readings as queued operations: their kinds, payloads and runs.
+"""Purges and connection readings as queued operations: their payloads and runs.
 
 The HTTP API queues these for the worker; the CLI calls the service directly.
-A payload is JSON naming the operator and the request; a run returns the same
-report the synchronous call does, as JSON.
+A payload names the operator and the request; a run returns the same report
+the synchronous call does, as JSON.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service.cache import CacheService
+from blitzecdn.capabilities.jobs import JobPayload, QueuedOperation
 
-__all__ = [
-    "CONNECTIONS_OPERATION",
-    "OPERATION_KINDS",
-    "PURGE_OPERATION",
-    "connections_payload",
-    "operation_handlers",
-    "purge_payload",
-]
-
-PURGE_OPERATION = "cache.purge"
-CONNECTIONS_OPERATION = "cache.connections"
-OPERATION_KINDS = (PURGE_OPERATION, CONNECTIONS_OPERATION)
+__all__ = ["CacheConnectionsJob", "CachePurgeJob", "queued_operations"]
 
 
-def purge_payload(
-    operator: str,
-    *,
-    entries: Sequence[PurgeEntry],
-    prefixes: Sequence[PurgePrefix] = (),
-    tags: Sequence[str] = (),
-    purge_all: bool,
-    host_limit: str | None,
-) -> dict[str, Any]:
-    return {
-        "operator": operator,
-        "entries": [entry.model_dump(mode="json") for entry in entries],
-        "prefixes": [prefix.model_dump(mode="json") for prefix in prefixes],
-        "tags": list(tags),
-        "purge_all": purge_all,
-        "host_limit": host_limit,
-    }
+class CachePurgeJob(JobPayload):
+    """Purge what an operator asked for, already checked against the sites."""
+
+    kind: ClassVar[str] = "cache.purge"
+
+    operator: str
+    entries: tuple[PurgeEntry, ...] = ()
+    prefixes: tuple[PurgePrefix, ...] = ()
+    tags: tuple[str, ...] = ()
+    purge_all: bool = False
+    host_limit: str | None = None
 
 
-def connections_payload(operator: str, *, host_limit: str | None) -> dict[str, Any]:
-    return {"operator": operator, "host_limit": host_limit}
+class CacheConnectionsJob(JobPayload):
+    """Read nginx's live connection counters from the edges."""
+
+    kind: ClassVar[str] = "cache.connections"
+
+    operator: str
+    host_limit: str | None = None
 
 
-def operation_handlers(
-    cache: CacheService,
-) -> dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]]:
+def queued_operations(cache: CacheService) -> tuple[QueuedOperation[Any], ...]:
     """Each kind's run, from its payload to its JSON report."""
 
-    def purge(payload: Mapping[str, Any]) -> dict[str, Any]:
+    def purge(job: CachePurgeJob) -> dict[str, Any]:
         result = cache.purge_cache(
-            str(payload["operator"]),
-            entries=[PurgeEntry.model_validate(entry) for entry in payload["entries"]],
-            # Purges queued before prefixes existed carry no such field.
-            prefixes=[
-                PurgePrefix.model_validate(prefix)
-                for prefix in payload.get("prefixes", ())
-            ],
-            # Likewise for purges queued before tags existed.
-            tags=[str(tag) for tag in payload.get("tags", ())],
-            purge_all=bool(payload["purge_all"]),
-            host_limit=payload.get("host_limit"),
+            job.operator,
+            entries=job.entries,
+            prefixes=job.prefixes,
+            tags=job.tags,
+            purge_all=job.purge_all,
+            host_limit=job.host_limit,
         )
         return result.model_dump(mode="json")
 
-    def connections(payload: Mapping[str, Any]) -> dict[str, Any]:
-        report = cache.connections(
-            str(payload["operator"]), host_limit=payload.get("host_limit")
-        )
+    def connections(job: CacheConnectionsJob) -> dict[str, Any]:
+        report = cache.connections(job.operator, host_limit=job.host_limit)
         return report.model_dump(mode="json")
 
-    return {PURGE_OPERATION: purge, CONNECTIONS_OPERATION: connections}
+    return (
+        QueuedOperation(CachePurgeJob, purge),
+        QueuedOperation(CacheConnectionsJob, connections),
+    )
