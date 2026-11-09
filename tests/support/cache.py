@@ -40,3 +40,15 @@ def purged_prefixes(fake: FakeRunner) -> list[tuple[PurgePrefix, ...]]:
         assert isinstance(prefixes, list)
         purged.append(tuple(PurgePrefix.model_validate(prefix) for prefix in prefixes))
     return purged
+
+
+def purged_tags(fake: FakeRunner) -> list[tuple[str, ...]]:
+    """The tags of every cache purge the fleet ran."""
+    purged = []
+    for name, _playbook, variables, _limit in fake.playbooks:
+        if name != "cache-purge":
+            continue
+        tags = variables["blitzecdn_cache_purge_tags"]
+        assert isinstance(tags, list)
+        purged.append(tuple(str(tag) for tag in tags))
+    return purged

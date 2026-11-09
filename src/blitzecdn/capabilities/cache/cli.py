@@ -54,6 +54,16 @@ def cache_purge(
             help="Purge everything cached for a hostname. Repeatable.",
         ),
     ] = None,
+    tag: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tag",
+            help=(
+                "Purge everything the origin tagged with this Cache-Tag value, "
+                "on any hostname. Case-insensitive. Repeatable."
+            ),
+        ),
+    ] = None,
     everything: Annotated[
         bool,
         typer.Option(
@@ -67,10 +77,13 @@ def cache_purge(
 ) -> None:
     """Remove cached responses from the edges.
 
-    Name URLs with --url, or whole areas with --prefix and --hostname. A prefix
-    is matched as plain text, so /blog also matches /blogroll; end it with /
-    to name a directory. Prefix and hostname purges scan every cached file on
-    each edge, so they take longer than named URLs.
+    Name URLs with --url, whole areas with --prefix and --hostname, or
+    everything an origin tagged with --tag. A prefix is matched as plain text,
+    so /blog also matches /blogroll; end it with / to name a directory. A tag
+    matches one item of the Cache-Tag response header the origin sent, e.g.
+    product-42 in "Cache-Tag: product-42, listing". Prefix, hostname and tag
+    purges scan every cached file on each edge, in one pass, so they take
+    longer than named URLs.
 
     Every variant of a URL goes: nginx keys entries by method and by content
     encoding, so one URL is several entries and leaving any behind would keep
@@ -97,6 +110,7 @@ def cache_purge(
         "cli",
         entries=entries,
         prefixes=prefixes,
+        tags=tag or [],
         purge_all=everything,
         host_limit=limit,
     )

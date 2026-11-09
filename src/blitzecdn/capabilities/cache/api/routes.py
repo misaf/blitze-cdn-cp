@@ -59,6 +59,7 @@ def purge_cache(
     targets = cache.check_purge(
         entries=[entry.to_domain() for entry in request.entries],
         prefixes=[prefix.to_domain() for prefix in request.prefixes],
+        tags=request.tags,
         purge_all=request.purge_all,
     )
     queued = as_queued(
@@ -68,6 +69,7 @@ def purge_cache(
                 operator,
                 entries=targets.entries,
                 prefixes=targets.prefixes,
+                tags=targets.tags,
                 purge_all=request.purge_all,
                 host_limit=request.host_limit,
             ),

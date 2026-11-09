@@ -47,6 +47,7 @@ blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_path	type=path re
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_prefixes	type=list elements=dict required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_prefixes.host	type=str required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_prefixes.prefix	type=str default='/'
+blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_tags	type=list elements=str required
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_address	type=str required
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_path	type=str required
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_port	type=int required
