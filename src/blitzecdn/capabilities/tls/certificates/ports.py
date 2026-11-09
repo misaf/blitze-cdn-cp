@@ -15,6 +15,7 @@ from blitzecdn.capabilities.releases import Release, ReleaseInputs
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
+    ChallengeEdges,
     PreflightAttempt,
     PreflightReport,
 )
@@ -93,6 +94,8 @@ class Preflight(Protocol):
     def check(
         self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
     ) -> PreflightReport: ...
+
+    def challenge_edges(self, hostname: str) -> ChallengeEdges: ...
 
 
 class PreflightAttempts(Protocol):
