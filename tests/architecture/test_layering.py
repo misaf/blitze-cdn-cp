@@ -408,11 +408,12 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "resolver": set(),
     "security": {"dns"},
     # `releases` because certificate collection keeps every version a retained
-    # release still names.
+    # release still names; `jobs` because the API queues issuance and renewal.
     "tls": {
         "deployments",
         "dns",
         "edges",
+        "jobs",
         "origins",
         "releases",
         "workflows",

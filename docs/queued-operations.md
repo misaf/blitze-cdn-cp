@@ -57,6 +57,9 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/cache/connections` | `/v3/operations/{id}` | `Operation`; result is `ConnectionsReport` |
 | `POST /v3/origins/check` | `/v3/operations/{id}` | `Operation`; result is `OriginReport` |
 | `DELETE /v3/edges/{name}` | `/v3/operations/{id}` | `Operation`; result describes removal and decommissioning |
+| `POST /v3/hosts/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
+| `POST /v3/certificates/renew` | `/v3/operations/{id}` | `Operation`; result is a renewal report |
+| `POST /v3/certificates/reconcile` | `/v3/operations/{id}` | `Operation`; result is a reconciliation report |
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |
 | `POST /v3/drift` | `/v3/deployments/{id}` | Check-mode `Deployment` |
 | `POST /v3/rollbacks` | `/v3/deployments/{id}` | Rollback `Deployment` |
@@ -79,7 +82,23 @@ a busy deployment may separately include `Retry-After: 30`; that is an admission
 retry hint, not a link to newly accepted work. Do not automatically repeat a
 mutating request after a network timeout: it may already have been accepted.
 
-Certificate endpoints that return a reconciliation report with an optional
-`deployment` remain synchronous at the outer request level. If that report
-contains a queued deployment, poll `/v3/deployments/{deployment.id}` using the
-same deployment status rules.
+## Certificates
+
+Issuing, renewing and reconciling certificates wait on the CA, DNS and HTTP
+preflight probes, so they run on the worker. Admission checks only local state:
+an unknown site is `404`, a request with no email when none is configured is
+`409`, and a renewal naming a site with no managed certificate is `404`.
+Preflight itself runs in the job, so a blocked check fails the operation and
+its reason is in `error`.
+
+One request per site, one renewal sweep and one reconciliation may be queued or
+running at a time; another submission while one is in flight is `409`. A
+renewal sweep stops between sites once `certificate_renewal_budget_seconds` has
+passed and reports the rest as `skipped`.
+
+A succeeded reconciliation whose result names a `deployment` has queued it;
+poll `/v3/deployments/{deployment.id}` using the deployment status rules above.
+Issuing and renewing never deploy.
+
+The CLI (`blitzecdn cert request`, `cert renew`, `cert reconcile`) runs the same
+work in-process and waits for it.

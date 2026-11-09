@@ -1,7 +1,6 @@
 """FastAPI application composition for the BlitzeCDN control plane."""
 
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, asynccontextmanager
 
 from dishka.integrations.starlette import SyncContainerMiddleware
@@ -40,16 +39,9 @@ def create_app(
             )
             resources.callback(container.close)
             node = container.get(ApiNode)
-            worker_pool = ThreadPoolExecutor(
-                max_workers=resolved.api_worker_threads,
-                thread_name_prefix="blitzecdn-worker",
-            )
-            # Drain in-flight work first; every resource is released even if a step
-            # raises.
+            # Every resource is released even if a step raises.
             resources.callback(node.stop)
-            resources.callback(worker_pool.shutdown, wait=True)
             application.state.dishka_container = container
-            application.state.worker_pool = worker_pool
             node.start()
             yield
 

@@ -22,7 +22,21 @@ SUBMISSIONS = [
     ("POST", "/v3/deployments", {}, "deployments"),
     ("POST", "/v3/drift", {}, "deployments"),
     ("POST", "/v3/rollbacks", {}, "deployments"),
+    ("POST", "/v3/certificates/renew", {}, "operations"),
+    ("POST", "/v3/certificates/reconcile", None, "operations"),
+    (
+        "POST",
+        "/v3/hosts/{name}/certificate/request",
+        {"email": "ops@example.com"},
+        "operations",
+    ),
 ]
+
+#: The resource each submission path names, where it names one.
+PATH_NAMES = {
+    "/v3/edges/{name}": "edge-a",
+    "/v3/hosts/{name}/certificate/request": "example-com",
+}
 
 
 @pytest.mark.parametrize(("method", "path", "body", "resource"), SUBMISSIONS)
@@ -38,7 +52,10 @@ def test_accepted_work_points_to_an_authenticated_polling_resource(
 
     with TestClient(control_plane_app(settings)) as client:
         accepted = client.request(
-            method, path.format(name="edge-a"), json=body, headers=API_HEADERS
+            method,
+            path.format(name=PATH_NAMES.get(path, "")),
+            json=body,
+            headers=API_HEADERS,
         )
         assert accepted.status_code == 202, accepted.text
         assert accepted.headers["Location"] == (

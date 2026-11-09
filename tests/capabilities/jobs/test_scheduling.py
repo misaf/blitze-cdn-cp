@@ -313,6 +313,38 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
     assert leases == [clock() + timedelta(seconds=queue.lease_seconds)]
 
 
+@pytest.mark.parametrize(("declared", "held"), [(7200, 7200), (60, None)])
+def test_an_operation_holds_the_lease_its_kind_declares(repository, declared, held):
+    """A long operation must not be taken over while it is still running.
+
+    A declared lease only ever lengthens the queue's default one.
+    """
+    clock = Clock()
+    leases: list[datetime | None] = []
+
+    def observe(_payload):
+        (job,) = repository.jobs.list_jobs()
+        leases.append(job.leased_until)
+        return DONE
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers={"certificates.renew": observe}
+    )
+    repository.jobs.enqueue(
+        kind="certificates.renew", payload={}, available_at=clock(), max_attempts=1
+    )
+
+    JobRunner(
+        queue=queue,
+        scheduler=scheduler,
+        clock=clock,
+        operation_leases={"certificates.renew": declared},
+    ).tick()
+
+    expected = queue.lease_seconds if held is None else held
+    assert leases == [clock() + timedelta(seconds=expected)]
+
+
 @pytest.mark.parametrize("succeeds", [False, True])
 def test_worker_bounds_finished_job_history_and_preserves_live_work(
     repository, succeeds

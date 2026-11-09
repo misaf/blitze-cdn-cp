@@ -375,10 +375,6 @@ blitzecdn	schema	QueueStatistics.counts	object optional
 blitzecdn	schema	QueueStatistics.expired_leases	integer optional
 blitzecdn	schema	QueueStatistics.oldest_ready_age_seconds	number optional
 blitzecdn	schema	QueueStatistics.ready	integer optional
-blitzecdn	schema	ReconciliationResult.deployment	Deployment|null optional
-blitzecdn	schema	ReconciliationResult.failed	object optional
-blitzecdn	schema	ReconciliationResult.issued	array[string] optional
-blitzecdn	schema	ReconciliationResult.skipped	object optional
 blitzecdn	schema	RecordCreate.name	string required
 blitzecdn	schema	RecordCreate.proxied	boolean optional
 blitzecdn	schema	RecordCreate.ttl	integer optional
@@ -410,9 +406,6 @@ blitzecdn	schema	ReleaseFinding.source	string required
 blitzecdn	schema	RenewRequest.force	boolean optional
 blitzecdn	schema	RenewRequest.sites	array[string]|null optional
 blitzecdn	schema	RenewRequest.within_days	integer optional
-blitzecdn	schema	RenewalResult.failed	array[string] optional
-blitzecdn	schema	RenewalResult.renewed	array[string] optional
-blitzecdn	schema	RenewalResult.skipped	array[string] optional
 blitzecdn	schema	ResolvedPolicy.fqdn	string required
 blitzecdn	schema	ResolvedPolicy.policy	Domain required
 blitzecdn	schema	ResolvedPolicy.rule	string|null optional
