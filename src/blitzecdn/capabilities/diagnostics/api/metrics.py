@@ -3,10 +3,10 @@
 from collections.abc import Callable
 from datetime import datetime
 
-from blitzecdn.capabilities.deployments.domain import ConvergenceHealth
+from blitzecdn.capabilities.deployments import ConvergenceHealth
 from blitzecdn.capabilities.diagnostics.domain.status import OperationalStatus
-from blitzecdn.capabilities.jobs.domain import JobStatus
-from blitzecdn.capabilities.workflows.domain import WorkflowStatus
+from blitzecdn.capabilities.jobs import JobStatus
+from blitzecdn.capabilities.workflows import WorkflowStatus
 
 
 def _timestamp(moment: datetime | None) -> float:

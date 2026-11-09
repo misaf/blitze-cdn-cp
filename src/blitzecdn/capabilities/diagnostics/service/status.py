@@ -12,9 +12,9 @@ from blitzecdn.capabilities.diagnostics.ports import (
     ConvergenceHistory,
     QueueHistory,
 )
-from blitzecdn.capabilities.jobs.ports import WorkerHistory
-from blitzecdn.capabilities.tls.ports import CertificateHistory
-from blitzecdn.capabilities.workflows.ports import WorkflowHistory
+from blitzecdn.capabilities.jobs import WorkerHistory
+from blitzecdn.capabilities.tls import CertificateHistory
+from blitzecdn.capabilities.workflows import WorkflowHistory
 from blitzecdn.core.ports.clock import Clock
 
 

@@ -24,7 +24,7 @@ from blitzecdn.capabilities.deployments.ports import (
     EdgeAddresses,
     ServingVerifier,
 )
-from blitzecdn.capabilities.releases.domain import Release
+from blitzecdn.capabilities.releases import Release
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.core.ports.clock import Clock
