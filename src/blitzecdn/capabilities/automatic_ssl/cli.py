@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import typer
 
+from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
 

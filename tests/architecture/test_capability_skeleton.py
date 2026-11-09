@@ -39,7 +39,6 @@ NESTED_SLICES = frozenset(
     {
         "capabilities/http/http3",
         "capabilities/security/geoip",
-        "capabilities/tls/automatic_ssl",
         "capabilities/tls/certificates",
     }
 )

@@ -58,7 +58,6 @@ _PUBLIC_CROSS_CAPABILITY_MODULES = {
 #: the owner so the failure says where the code belongs.
 _STRATEGIES_OWNED_BY_A_CAPABILITY = {
     "acme": "tls",
-    "automatic_ssl": "tls",
     "brotli": "compression",
     "certbot": "tls",
     "certificates": "tls",
@@ -380,6 +379,11 @@ def test_domain_models_do_not_render_adapter_documents():
 #: and policy belong to core. A capability whose contract a zone carries depends
 #: on dns for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
+    # A workflow over sites (dns), origin probes (edges, origins) and the deploy
+    # that applies an upgrade. TLS is reached only through its contract (the
+    # contract graph below); the upgrade write is a port the composition root
+    # binds to TLS's site editor.
+    "automatic_ssl": {"deployments", "dns", "edges", "origins"},
     "traffic": set(),
     "backup": set(),
     "origins": {"jobs"},
@@ -409,21 +413,14 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "security": {"dns"},
     # `releases` because certificate collection keeps every version a retained
     # release still names; `jobs` because the API queues issuance and renewal.
-    "tls": {
-        "deployments",
-        "dns",
-        "edges",
-        "jobs",
-        "origins",
-        "releases",
-        "workflows",
-    },
+    "tls": {"deployments", "dns", "edges", "jobs", "releases", "workflows"},
     "workflows": set(),
 }
 
 # Policy composition is independent of implementation dependencies: core
 # composes contributed contracts without naming their capabilities.
 ALLOWED_CONTRACT_DEPENDENCIES = {
+    "automatic_ssl": {"tls"},
     "traffic": set(),
     "backup": set(),
     "origins": {"http", "tls"},
@@ -464,8 +461,9 @@ def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
 
     A top-level package under `capabilities/` is a product capability. gzip and
     Brotli are strategies of compression, HTTP/1-3 versions of one protocol, Under
-    Attack Mode a mode of security, certificate issuance and the Automatic SSL/TLS
-    scan parts of TLS.
+    Attack Mode a mode of security, certificate issuance part of TLS. The
+    Automatic SSL/TLS scan is not on this list: it is a workflow that builds on
+    TLS, DNS, edges, origins and deployments, so it is a capability of its own.
     """
     packages = {
         path.name

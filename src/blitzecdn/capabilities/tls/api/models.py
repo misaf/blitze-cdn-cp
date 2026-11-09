@@ -13,7 +13,6 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateRequest as DomainCertificateRequest,
 )
-from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.entrypoints.api.models import Model
 
 
@@ -80,10 +79,3 @@ class RenewRequest(Model):
             "An empty list is invalid."
         ),
     )
-
-
-class SslAutomaticReconciliation(Model):
-    scanned: tuple[str, ...] = ()
-    upgraded: dict[str, SslMode] = Field(default_factory=dict)
-    skipped: dict[str, str] = Field(default_factory=dict)
-    deployment: Deployment | None = None
