@@ -58,7 +58,7 @@ class EdgeStore:
             session.delete(row)
 
     def _row(self, edge: Edge) -> EdgeRow:
-        row = EdgeRow(name=edge.name)
+        row = EdgeRow(name=edge.name, host=edge.host, user=edge.user, port=edge.port)
         self._apply(row, edge)
         return row
 

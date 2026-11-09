@@ -57,7 +57,9 @@ class DeploymentRow(Base, table=True):
     #: delete records written meanwhile. ``NULL`` for an ordinary deployment.
     canonical_digest: str | None = None
     #: Incremented on each takeover; target writes name it, fencing stale workers.
-    generation: int = Field(sa_column=Column(Integer, nullable=False, default=0))
+    generation: int = Field(
+        default=0, sa_column=Column(Integer, nullable=False, default=0)
+    )
 
 
 class DeploymentTargetRow(Base, table=True):

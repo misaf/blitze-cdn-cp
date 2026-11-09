@@ -81,7 +81,12 @@ class RuleStore:
             session.add_all([self._row(rule) for rule in rules])
 
     def _row(self, rule: Rule) -> RuleRow:
-        row = RuleRow(domain=rule.domain, name=rule.name)
+        row = RuleRow(
+            domain=rule.domain,
+            name=rule.name,
+            priority=rule.priority,
+            match=rule.match,
+        )
         self._apply(row, rule)
         return row
 
