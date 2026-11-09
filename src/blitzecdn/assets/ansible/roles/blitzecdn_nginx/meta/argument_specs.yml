@@ -107,6 +107,13 @@ argument_specs:
           next cache miss to reuse. 0 disables pooling.
       blitzecdn_nginx_upstream_keepalive_timeout: {type: str, required: true}
       blitzecdn_nginx_upstream_zone: {type: str, required: true}
+      blitzecdn_nginx_origin_hop_port:
+        type: int
+        required: true
+        description: >-
+          Loopback port of the origin hop, the internal servers through which
+          a site with origin fragments reaches its origin so those fragments
+          can rewrite the response before the cache reads it.
       blitzecdn_nginx_upstream_zone_size:
         type: str
         required: true

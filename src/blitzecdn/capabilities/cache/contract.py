@@ -15,6 +15,28 @@ from blitzecdn.core.domain.validation import DURATION
 #: session cookies stay within letters, digits, ``_``, ``.`` and ``-``.
 COOKIE_PATTERN = re.compile(r"^[A-Za-z0-9_.*-]{1,128}$")
 
+#: What a TTL override or an ignore-origin entry names: a URL extension
+#: (``.css``), a media type (``text/html``) or every subtype of one
+#: (``image/*``). Lower case once normalized; like the cookie names, these reach
+#: an nginx regex, so the alphabet is narrower than RFC 6838's.
+CONTENT_PATTERN = re.compile(
+    r"^(?:\.[a-z0-9]{1,16}|[a-z0-9][a-z0-9.+-]{0,63}/(?:\*|[a-z0-9][a-z0-9.+-]{0,63}))$"
+)
+
+#: An edge TTL: whole seconds, since it reaches nginx as ``X-Accel-Expires``.
+#: ``0`` stores nothing of that type.
+EDGE_TTL = re.compile(r"^(?:0|(?:0|[1-9]\d{0,8})[smhdw])$")
+
+
+def _content_key(value: str) -> str:
+    candidate = value.strip().lower()
+    if not CONTENT_PATTERN.fullmatch(candidate):
+        raise ValueError(
+            f"{value!r} is neither a URL extension such as '.css' nor a "
+            "content type such as 'text/html' or 'image/*'"
+        )
+    return candidate
+
 
 class CacheQueryStringMode(StrEnum):
     """Whether request query strings distinguish cached responses."""
@@ -74,6 +96,33 @@ class CachePolicy(CapabilityPolicy):
             "'standard' static file URLs are cached whatever the cookies."
         ),
     )
+    cache_ttl_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        max_length=50,
+        description=(
+            "Edge TTL by URL extension ('.css'), content type ('text/html') "
+            "or type family ('image/*'), e.g. {'image/*': '7d', "
+            "'text/html': '0'}. Applies to 200, 301, 302 and 304 responses "
+            "whose origin sent no Cache-Control, Expires or X-Accel-Expires, "
+            "or to any of a type listed in cache_ignore_origin_headers. '0' "
+            "stores nothing of that type. An extension wins over a type, and "
+            "an exact type over a family. Units: s, m, h, d, w."
+        ),
+    )
+    cache_ignore_origin_headers: tuple[str, ...] = Field(
+        default=(),
+        max_length=50,
+        description=(
+            "URL extensions, content types or type families whose origin "
+            "Cache-Control, Expires and X-Accel-Expires the edge disregards "
+            "when deciding how long to store them, for an origin that marks "
+            "static assets no-cache by mistake. They are stored for their "
+            "cache_ttl_overrides entry, else cache_valid_success (404: "
+            "cache_valid_not_found; other statuses: not at all). Set-Cookie "
+            "still keeps a response out. Visitors receive the origin's "
+            "headers unchanged. Empty, the default, respects the origin."
+        ),
+    )
     cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
@@ -99,6 +148,32 @@ class CachePolicy(CapabilityPolicy):
                     f"{value!r} is not a cookie name: use letters, digits, "
                     "'_', '.', '-' and '*' as a wildcard"
                 )
+            if candidate not in normalized:
+                normalized.append(candidate)
+        return tuple(normalized)
+
+    @field_validator("cache_ttl_overrides")
+    @classmethod
+    def validate_ttl_overrides(cls, values: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for key, ttl in values.items():
+            candidate = _content_key(key)
+            if candidate in normalized:
+                raise ValueError(f"{key!r} is listed twice")
+            if not EDGE_TTL.fullmatch(ttl):
+                raise ValueError(
+                    f"{ttl!r} for {key!r} is not an edge TTL: use 0, or a "
+                    "whole number followed by s, m, h, d or w"
+                )
+            normalized[candidate] = ttl
+        return normalized
+
+    @field_validator("cache_ignore_origin_headers")
+    @classmethod
+    def validate_ignore_origin_headers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for value in values:
+            candidate = _content_key(value)
             if candidate not in normalized:
                 normalized.append(candidate)
         return tuple(normalized)

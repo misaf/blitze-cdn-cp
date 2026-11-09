@@ -80,3 +80,103 @@ map "$blitzecdn_cache_static_uri:$http_cookie" $blitzecdn_cache_cookie_{{ scope 
 {% endif %}
 {% endfor %}
 {% endfor %}
+{#
+  Edge TTL overrides and ignored origin headers, read in the origin hop by
+  cache-origin.conf.j2. Every map here reads the origin's response, so all are
+  volatile and only read from add_header, once the response is in.
+
+  1 when the origin gave the response a lifetime of its own. The same three
+  headers `standard` asks about: an override is the TTL for what the origin
+  said nothing about, and a type whose headers are ignored is the exception.
+#}
+map "$upstream_http_cache_control$upstream_http_expires$upstream_http_x_accel_expires" $blitzecdn_cache_origin_lifetime {
+    volatile;
+    default 1;
+    "" 0;
+}
+{% macro seconds(duration) -%}
+{%- set duration = duration | string -%}
+{%- if duration.endswith('ms') -%}
+{{ (duration[:-2] | int) // 1000 }}
+{%- elif duration[-1:] in ['s', 'm', 'h', 'd', 'w'] -%}
+{{ (duration[:-1] | int) * {'s': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800}[duration[-1:]] }}
+{%- else -%}
+{{ duration | int }}
+{%- endif -%}
+{%- endmacro %}
+{#
+  An entry names a URL extension, a content type or a type family, matched
+  against "<Content-Type>|<path>": the extension against the end of the path,
+  a type against the start, before any parameters. Rendered extensions first,
+  then exact types, then families, and nginx takes the first regex that
+  matches, so the more specific entry wins.
+#}
+{% macro content_patterns(entries) -%}
+{%- set ranked = namespace(extensions=[], types=[], families=[]) -%}
+{%- for entry in entries -%}
+{%- if entry.startswith('.') -%}{%- set ranked.extensions = ranked.extensions + [entry] -%}
+{%- elif entry.endswith('/*') -%}{%- set ranked.families = ranked.families + [entry] -%}
+{%- else -%}{%- set ranked.types = ranked.types + [entry] -%}
+{%- endif -%}
+{%- endfor -%}
+{%- for entry in ranked.extensions + ranked.types + ranked.families -%}
+{%- if entry.startswith('.') -%}
+{{ entry }}	\.{{ entry[1:] | regex_escape }}$
+{% elif entry.endswith('/*') -%}
+{{ entry }}	^{{ entry[:-1] | regex_escape }}
+{% else -%}
+{{ entry }}	^{{ entry | regex_escape }}\s*(?:;[^|]*)?\|
+{% endif -%}
+{%- endfor -%}
+{%- endmacro %}
+{% for cached in blitzecdn_nginx_sites | default([], true) %}
+{% set overrides = cached.cache_ttl_overrides | default({}, true) %}
+{% set ignored = cached.cache_ignore_origin_headers | default([], true) %}
+{% if cached.cache_enabled | default(true) and (overrides or ignored) %}
+{% set suffix = cached.name | replace('-', '_') %}
+{% if overrides %}
+map "$upstream_http_content_type|$uri" $blitzecdn_cache_ttl_{{ suffix }} {
+    volatile;
+    default "";
+{% for line in content_patterns(overrides | list).splitlines() if line %}
+{% set entry, pattern = line.split('\t') %}
+    "~*{{ pattern }}" {{ seconds(overrides[entry]) }};
+{% endfor %}
+}
+{% endif %}
+{% if ignored %}
+map "$upstream_http_content_type|$uri" $blitzecdn_cache_ignore_{{ suffix }} {
+    volatile;
+    default 0;
+{% for line in content_patterns(ignored | list).splitlines() if line %}
+    "~*{{ line.split('\t')[1] }}" 1;
+{% endfor %}
+}
+{% endif %}
+{#
+  What the hop sends as X-Accel-Expires, from "<status>:<ignored>:<origin
+  set a lifetime>:<override>". An override counts for the statuses
+  proxy_cache_valid gives cache_valid_success, and 304 so a revalidation
+  renews the entry for as long as a fresh fetch would; 404 keeps
+  cache_valid_not_found. An ignored type is stored for its override, else for
+  the site's durations, and any other status of it not at all, since the
+  origin's word on that is what is being ignored. Anything else passes the
+  origin's own X-Accel-Expires through.
+#}
+map "$status:{{ ('$blitzecdn_cache_ignore_' ~ suffix) if ignored else '0' }}:$blitzecdn_cache_origin_lifetime:{{ ('$blitzecdn_cache_ttl_' ~ suffix) if overrides else '' }}" $blitzecdn_cache_expires_{{ suffix }} {
+    volatile;
+    default $upstream_http_x_accel_expires;
+{% if overrides %}
+    "~^(?:200|301|302|304):0:0:(\d+)$" $1;
+{% endif %}
+{% if ignored %}
+{% if overrides %}
+    "~^(?:200|301|302|304):1:[01]:(\d+)$" $1;
+{% endif %}
+    "~^(?:200|301|302|304):1:" {{ seconds(cached.cache_valid_success | default('10m')) }};
+    "~^404:1:" {{ seconds(cached.cache_valid_not_found | default('1m')) }};
+    "~^\d+:1:" 0;
+{% endif %}
+}
+{% endif %}
+{% endfor %}
