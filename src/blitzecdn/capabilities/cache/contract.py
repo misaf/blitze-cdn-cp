@@ -3,6 +3,7 @@
 import re
 from collections.abc import Mapping
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -37,6 +38,19 @@ class CachePolicy(CapabilityPolicy):
     """Cache behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # Every cache setting is rendered inside the location that proxies, and its
+    # cookie map is declared per path scope, so each one can differ by path.
+    path_settings: ClassVar[frozenset[str]] = frozenset(
+        {
+            "cache_enabled",
+            "cache_level",
+            "cache_bypass_cookies",
+            "cache_query_string_mode",
+            "cache_valid_success",
+            "cache_valid_not_found",
+        }
+    )
 
     cache_enabled: bool = True
     cache_level: CacheLevel = Field(

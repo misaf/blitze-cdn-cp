@@ -121,6 +121,10 @@ class HostService:
         """
         before = zone.policy.settings()
         for rule in self.rules.list_rules(zone.name):
+            # A path rule overrides only path-scoped settings, and is checked
+            # against each host it lands on when hosts are derived.
+            if rule.is_path_rule:
+                continue
             try:
                 merge_overrides(updated, rule.overrides)
                 continue

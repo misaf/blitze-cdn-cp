@@ -14,6 +14,7 @@ import typer
 from blitzecdn.capabilities.dns.cli.app import rule_app
 from blitzecdn.capabilities.dns.domain import Rule, RulePatch
 from blitzecdn.capabilities.dns.service import RuleService
+from blitzecdn.core.domain.paths import PathRedirect
 from blitzecdn.entrypoints.cli import common
 
 _SET_HELP = (
@@ -37,11 +38,43 @@ def _parse_overrides(pairs: list[str]) -> dict[str, Any]:
     return overrides
 
 
+_PATH_HELP = (
+    "Make this a path rule: a prefix ending in '/' (/static/) or an exact "
+    "path (/robots.txt). It may then --set only path-scoped settings, or "
+    "--redirect."
+)
+_REDIRECT_HELP = (
+    "Redirect what a path rule matches to this URL or path. On a prefix path, "
+    "$1 is what followed the prefix: --redirect 'https://new.example.com/$1'."
+)
+_STATUS_HELP = "The redirect's status: 301, 302, 307 or 308."
+_QUERY_HELP = "Whether a redirect appends the visitor's query string."
+
+
+def _redirect(
+    target: str | None, status: int | None, keep_query: bool | None
+) -> PathRedirect | None:
+    """The redirect the options describe, or ``None`` without a target."""
+    if target is None:
+        if status is not None or keep_query is not None:
+            raise typer.BadParameter(
+                "--redirect-status and --keep-query need --redirect"
+            )
+        return None
+    return PathRedirect.model_validate(
+        {
+            "target": target,
+            **({} if status is None else {"status": status}),
+            **({} if keep_query is None else {"preserve_query_string": keep_query}),
+        }
+    )
+
+
 @rule_app.command("add")
 def rule_add(
     domain: Annotated[str, typer.Argument(help="Zone the rule belongs to.")],
     name: Annotated[str, typer.Argument(help="Name for the rule within the zone.")],
-    set_: Annotated[list[str], typer.Option("--set", help=_SET_HELP)],
+    set_: Annotated[list[str] | None, typer.Option("--set", help=_SET_HELP)] = None,
     match: Annotated[
         str,
         typer.Option(
@@ -49,21 +82,33 @@ def rule_add(
             help="Hostname this covers: '*', an exact name, or '*.suffix'.",
         ),
     ] = "*",
+    path: Annotated[str | None, typer.Option("--path", help=_PATH_HELP)] = None,
+    redirect: Annotated[
+        str | None, typer.Option("--redirect", help=_REDIRECT_HELP)
+    ] = None,
+    redirect_status: Annotated[
+        int | None, typer.Option("--redirect-status", help=_STATUS_HELP)
+    ] = None,
+    keep_query: Annotated[
+        bool | None, typer.Option("--keep-query/--drop-query", help=_QUERY_HELP)
+    ] = None,
     priority: Annotated[
         int,
         typer.Option("--priority", help="Lower runs first. The first match wins."),
     ] = 100,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Override some of a zone's policy for the hostnames a rule matches."""
+    """Override some of a zone's policy for the hostnames, or paths, a rule matches."""
     common.emit(
         common.service(RuleService).create_rule(
             Rule(
                 domain=domain,
                 name=name,
                 match=match,
+                path=path,
                 priority=priority,
-                overrides=_parse_overrides(set_),
+                overrides=_parse_overrides(set_ or []),
+                redirect=_redirect(redirect, redirect_status, keep_query),
             ),
             "cli",
         ),
@@ -98,6 +143,22 @@ def rule_set(
     name: str,
     set_: Annotated[list[str] | None, typer.Option("--set", help=_SET_HELP)] = None,
     match: Annotated[str | None, typer.Option("--match")] = None,
+    path: Annotated[str | None, typer.Option("--path", help=_PATH_HELP)] = None,
+    no_path: Annotated[
+        bool, typer.Option("--no-path", help="Make this a hostname rule again.")
+    ] = False,
+    redirect: Annotated[
+        str | None, typer.Option("--redirect", help=_REDIRECT_HELP)
+    ] = None,
+    redirect_status: Annotated[
+        int | None, typer.Option("--redirect-status", help=_STATUS_HELP)
+    ] = None,
+    keep_query: Annotated[
+        bool | None, typer.Option("--keep-query/--drop-query", help=_QUERY_HELP)
+    ] = None,
+    no_redirect: Annotated[
+        bool, typer.Option("--no-redirect", help="Remove the rule's redirect.")
+    ] = False,
     priority: Annotated[int | None, typer.Option("--priority")] = None,
     enabled: Annotated[bool | None, typer.Option("--enabled/--disabled")] = None,
     json_output: common.JsonOutput = False,
@@ -105,20 +166,31 @@ def rule_set(
     """Change a rule. Any --set replaces every override the rule had.
 
     Replaced rather than merged so that a setting can be taken back off a rule:
-    if --set were additive there would be no way to stop overriding one.
+    if --set were additive there would be no way to stop overriding one. A
+    --redirect likewise replaces the whole redirect.
     """
+    if path is not None and no_path:
+        raise typer.BadParameter("pass --path or --no-path, not both")
+    if redirect is not None and no_redirect:
+        raise typer.BadParameter("pass --redirect or --no-redirect, not both")
     changes: dict[str, Any] = {}
     if set_ is not None:
         changes["overrides"] = _parse_overrides(set_)
     if match is not None:
         changes["match"] = match
+    if path is not None or no_path:
+        changes["path"] = path
+    parsed = _redirect(redirect, redirect_status, keep_query)
+    if parsed is not None or no_redirect:
+        changes["redirect"] = parsed
     if priority is not None:
         changes["priority"] = priority
     if enabled is not None:
         changes["enabled"] = enabled
     if not changes:
         raise typer.BadParameter(
-            "nothing to change; pass --set, --match, or --priority"
+            "nothing to change; pass --set, --match, --path, --redirect, "
+            "--priority, or --enabled/--disabled"
         )
     common.emit(
         common.service(RuleService).update_rule(

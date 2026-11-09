@@ -8,6 +8,7 @@ limit uses a core nginx directive and requests nothing.
 
 from collections.abc import Mapping
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -93,6 +94,9 @@ class HeaderPolicy(CapabilityPolicy):
     """Visitor header behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # Written to the origin request inside the location that proxies.
+    path_settings: ClassVar[frozenset[str]] = frozenset({"visitor_headers"})
 
     # Replaced wholesale when patched so disabling the last switch is explicit.
     visitor_headers: SiteVisitorHeaders = Field(
