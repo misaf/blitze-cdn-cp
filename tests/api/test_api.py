@@ -140,7 +140,7 @@ def test_domain_and_record_crud_and_errors(
         assert mismatched.status_code == 422
 
         # A proxied record is what puts a hostname on a virtual host.
-        sites = client.get("/v3/hosts", headers=headers).json()["items"]
+        sites = client.get("/v3/sites", headers=headers).json()["items"]
         assert len(sites) == 1
         assert sites[0]["server_names"] == ["cdn.example.com"]
         assert sites[0]["always_use_https"] is False
@@ -155,7 +155,7 @@ def test_domain_and_record_crud_and_errors(
         assert redirect.status_code == 200
         assert redirect.json()["always_use_https"] is True
         assert (
-            client.get("/v3/hosts", headers=headers).json()["items"][0][
+            client.get("/v3/sites", headers=headers).json()["items"][0][
                 "always_use_https"
             ]
             is True
@@ -175,17 +175,17 @@ def test_domain_and_record_crud_and_errors(
 
         # Unproxying takes the hostname off the edge and leaves the zone.
         unproxied = client.patch(
-            "/v3/domains/example.com/records/cdn",
+            "/v3/domains/example.com/records/A/cdn",
             json={"proxied": False, "value": "203.0.113.7"},
             headers=headers,
         )
         assert unproxied.json()["proxied"] is False
         assert unproxied.json()["value"] == "203.0.113.7"
         # With nothing proxied the zone derives no virtual host at all.
-        assert client.get("/v3/hosts", headers=headers).json()["items"] == []
+        assert client.get("/v3/sites", headers=headers).json()["items"] == []
         assert (
             client.delete(
-                "/v3/domains/example.com/records/cdn", headers=headers
+                "/v3/domains/example.com/records/A/cdn", headers=headers
             ).status_code
             == 204
         )
@@ -204,24 +204,24 @@ def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
-        assert client.get("/v3/hosts", headers=headers).json()["items"][0][
+        assert client.get("/v3/sites", headers=headers).json()["items"][0][
             "server_names"
         ] == ["cdn.example.com"]
         for method in (client.post, client.put):
             assert (
                 method(
-                    "/v3/hosts",
+                    "/v3/sites",
                     json={"name": "example-com", "origin_host": "198.51.100.10"},
                     headers=headers,
                 ).status_code
                 == 405
             )
         assert (
-            client.delete("/v3/hosts/example-com", headers=headers).status_code == 405
+            client.delete("/v3/sites/example-com", headers=headers).status_code == 405
         )
         schema = client.get("/openapi.json").json()
-        assert set(schema["paths"]["/v3/hosts"]) == {"get"}
-        assert set(schema["paths"]["/v3/hosts/{name}"]) == {"get"}
+        assert set(schema["paths"]["/v3/sites"]) == {"get"}
+        assert set(schema["paths"]["/v3/sites/{name}"]) == {"get"}
 
 
 def test_dns_export_omits_addresses_for_proxied_records(
@@ -294,7 +294,9 @@ def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
 
 def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
     with TestClient(control_plane_app(settings)) as client:
-        queued = client.post("/v3/drift", json={}, headers=API_HEADERS)
+        queued = client.post(
+            "/v3/deployments", json={"check": True}, headers=API_HEADERS
+        )
         assert queued.status_code == 202
         assert queued.json()["check_mode"] is True
 
@@ -325,9 +327,9 @@ def test_an_applied_deployment_is_not_readable_as_drift(settings):
 def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, API_HEADERS)
-        name = client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0]["name"]
+        name = client.get("/v3/sites", headers=API_HEADERS).json()["items"][0]["name"]
 
-        response = client.get(f"/v3/hosts/{name}", headers=API_HEADERS)
+        response = client.get(f"/v3/sites/{name}", headers=API_HEADERS)
 
         assert response.status_code == 200
         assert response.json()["name"] == name
@@ -361,8 +363,7 @@ def test_removed_origin_scheme_is_rejected_on_patch(
             headers=API_HEADERS,
         )
         response = client.patch(
-            "/v3/domains/example.com/records/cdn",
-            params={"type": "A"},
+            "/v3/domains/example.com/records/A/cdn",
             json={"origin_scheme": "http"},
             headers=API_HEADERS,
         )
@@ -382,6 +383,46 @@ def test_removed_origin_port_is_rejected_on_create(
         assert response.status_code == 422
 
 
+def test_one_record_is_addressed_by_type_and_name(
+    settings, domain_payload, record_create_payload
+):
+    with TestClient(control_plane_app(settings)) as client:
+        client.post("/v3/domains", json=domain_payload, headers=API_HEADERS)
+        created = client.post(
+            "/v3/domains/example.com/records",
+            json=record_create_payload,
+            headers=API_HEADERS,
+        ).json()
+        name = created["name"]
+
+        found = client.get(
+            f"/v3/domains/example.com/records/A/{name}", headers=API_HEADERS
+        )
+        assert found.status_code == 200
+        assert found.json() == created
+        # Another type under the same name is another record, not a fallback.
+        assert (
+            client.get(
+                f"/v3/domains/example.com/records/AAAA/{name}", headers=API_HEADERS
+            ).status_code
+            == 404
+        )
+        unknown = client.patch(
+            f"/v3/domains/example.com/records/MX/{name}",
+            json={"proxied": False},
+            headers=API_HEADERS,
+        )
+        assert unknown.status_code == 422
+        assert unknown.json()["detail"][0]["loc"] == ["path", "type"]
+        # Without a type there is no record route to reach.
+        assert (
+            client.delete(
+                f"/v3/domains/example.com/records/{name}", headers=API_HEADERS
+            ).status_code
+            == 404
+        )
+
+
 def test_removed_origin_port_is_rejected_on_patch(
     settings, domain_payload, record_create_payload
 ):
@@ -393,8 +434,7 @@ def test_removed_origin_port_is_rejected_on_patch(
             headers=API_HEADERS,
         )
         response = client.patch(
-            "/v3/domains/example.com/records/cdn",
-            params={"type": "A"},
+            "/v3/domains/example.com/records/A/cdn",
             json={"origin_port": 8080},
             headers=API_HEADERS,
         )
@@ -403,7 +443,7 @@ def test_removed_origin_port_is_rejected_on_patch(
 
 def test_an_unknown_site_is_a_404(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v3/hosts/absent", headers=API_HEADERS).status_code == 404
+        assert client.get("/v3/sites/absent", headers=API_HEADERS).status_code == 404
 
 
 # ----------------------------------------------------------------------
@@ -674,7 +714,7 @@ def test_http3_create_read_patch_and_validation(settings):
         assert created.status_code == 201
         assert created.json()["http3_enabled"] is True
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+            client.get("/v3/sites", headers=API_HEADERS).json()["items"][0][
                 "http3_enabled"
             ]
             is True
@@ -729,7 +769,7 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         assert patched.status_code == 200
         assert patched.json()["under_attack_mode"] is True
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+            client.get("/v3/sites", headers=API_HEADERS).json()["items"][0][
                 "under_attack_mode"
             ]
             is True
@@ -772,7 +812,7 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+            client.get("/v3/sites", headers=API_HEADERS).json()["items"][0][
                 "max_upload_size"
             ]
             == "200m"
@@ -807,7 +847,7 @@ def test_compression_is_reported_patchable_and_validated(settings):
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v3/hosts", headers=API_HEADERS).json()["items"][0][
+            client.get("/v3/sites", headers=API_HEADERS).json()["items"][0][
                 "compression"
             ]
             == "off"

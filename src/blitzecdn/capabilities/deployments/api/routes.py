@@ -7,7 +7,6 @@ from blitzecdn.capabilities.deployments.api.models import (
     DeploymentTarget,
     DeployRequest,
     DriftReport,
-    DriftRequest,
     RollbackRequest,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
@@ -40,7 +39,11 @@ def deploy(
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
 ) -> Deployment:
-    """Queue a convergence; poll GET /v3/deployments/{id} for the outcome."""
+    """Queue a convergence; poll GET /v3/deployments/{id} for the outcome.
+
+    With ``check`` it is a drift check: nothing changes, and
+    ``GET /v3/deployments/{id}/drift`` reports what would have.
+    """
     queued = as_operation(
         deployments.submit_deployment(
             operator, check=request.check, host_limit=request.host_limit
@@ -99,28 +102,6 @@ def deployment_targets(
     )
 
 
-@router.post(
-    "/v3/drift",
-    response_model=Deployment,
-    status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
-)
-def check_drift(
-    response: Response,
-    request: DriftRequest,
-    operator: OperatorDependency,
-    deployments: FromDishka[DeploymentService],
-) -> Deployment:
-    queued = as_operation(
-        deployments.submit_deployment(
-            operator, check=True, host_limit=request.host_limit
-        ),
-        Deployment,
-    )
-    polling_headers(response, active=True, location=f"/v3/deployments/{queued.id}")
-    return queued
-
-
 @router.get("/v3/deployments/{deployment_id}/drift", response_model=DriftReport)
 def drift_report(
     deployment_id: str,
@@ -130,7 +111,7 @@ def drift_report(
 
 
 @router.post(
-    "/v3/rollbacks",
+    "/v3/deployments/rollback",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE},
@@ -141,6 +122,7 @@ def rollback(
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
 ) -> Deployment:
+    """Queue reapplying an earlier deployment's release; it is a deployment too."""
     queued = as_operation(
         deployments.submit_rollback(
             operator, request.deployment_id, check=request.check

@@ -71,7 +71,7 @@ def test_openapi_documents_core_control_workflows(settings):
         schema = client.get("/openapi.json").json()
         assert schema["info"]["version"] == __version__
         paths = schema["paths"]
-        assert "/v3/hosts" in paths
+        assert "/v3/sites" in paths
         assert "/v3/deployments" in paths
         assert "/v3/workflows" in paths
         assert all(
