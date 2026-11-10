@@ -39,6 +39,11 @@ class DiagnosticsService:
         self.clock = clock
 
     def status(self) -> OperationalStatus:
+        """The control plane's operational state, read now and changing nothing.
+
+        Workers whose heartbeat is older than the stale threshold are reported stale
+        however they last described themselves.
+        """
         now = self.clock()
         observations = self.workers.read()
         workers = []

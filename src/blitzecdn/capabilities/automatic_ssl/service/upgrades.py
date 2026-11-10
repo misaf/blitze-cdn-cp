@@ -48,6 +48,14 @@ class AutomaticSslService:
         self.deployments = deployments
 
     def reconcile(self, operator: str) -> SslAutomaticReconciliation:
+        """Raise each enrolled host's SSL mode as far as its origin now allows.
+
+        Probes every enabled host in Automatic SSL short of Full (strict) from the
+        edges, once as served and once as Full (strict), and records the stronger
+        mode the results support. A fleet-wide probe failure upgrades nothing. One
+        deployment ships every upgrade; the deploy takes the deployment lock, so it
+        raises ``DeploymentBusyError`` while another runs.
+        """
         candidates = [
             site
             for site in self.sites.list_sites()

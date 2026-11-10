@@ -57,6 +57,7 @@ class WorkflowProgress:
         self.error: str | None = None
 
     def fail(self, error: str) -> None:
+        """Mark the workflow failed with ``error`` once it closes, without raising."""
         self.error = error
 
 
@@ -83,6 +84,12 @@ class WorkflowCoordinator:
     def run(
         self, kind: WorkflowKind, operator: str, resource_id: str | None = None
     ) -> Iterator[WorkflowProgress]:
+        """Journal the work in the ``with`` block as one workflow of ``kind``.
+
+        Leaving normally records success, or failure if ``fail`` was called; an
+        exception records failure and propagates. Only a ``BlitzeError``'s message
+        is journalled; anything else is reduced to its type.
+        """
         workflow_id = uuid4().hex
         with self.uow.transaction():
             self.journal.create(workflow_id, kind, operator, resource_id)

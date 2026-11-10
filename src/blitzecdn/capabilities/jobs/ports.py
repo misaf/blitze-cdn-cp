@@ -103,11 +103,15 @@ class JobStore(Protocol):
     ) -> bool:
         """Return unstarted work to pending and refund only this claim's attempt."""
 
-    def get(self, job_id: str) -> Job: ...
+    def get(self, job_id: str) -> Job:
+        """One job; raises ``NotFoundError`` if there is none by that id."""
+        ...
 
     def list_jobs(
         self, *, status: JobStatus | None = None, limit: int = 50
-    ) -> Sequence[Job]: ...
+    ) -> Sequence[Job]:
+        """The ``limit`` most recent jobs, newest first, optionally of one status."""
+        ...
 
     def prune(self, keep: int) -> int:
         """Drop finished jobs beyond the newest ``keep``."""
@@ -117,14 +121,31 @@ class JobStore(Protocol):
 
 
 class WorkerHistory(Protocol):
-    def read(self) -> WorkerObservations: ...
+    def read(self) -> WorkerObservations:
+        """Every worker's last heartbeat, and how many records could not be read.
+
+        An unreadable record is counted rather than raised, so one damaged file
+        cannot take status reporting down.
+        """
+        ...
 
 
 class WorkerProgress(Protocol):
-    def start(self, worker_id: str) -> None: ...
-    def busy(self, claim: JobClaim) -> None: ...
-    def idle(self) -> None: ...
-    def stop(self) -> None: ...
+    def start(self, worker_id: str) -> None:
+        """Start publishing a heartbeat for ``worker_id``; repeat calls do nothing."""
+        ...
+
+    def busy(self, claim: JobClaim) -> None:
+        """Report that this worker has taken ``claim``'s job."""
+        ...
+
+    def idle(self) -> None:
+        """Report that the job in hand finished, and how long it took."""
+        ...
+
+    def stop(self) -> None:
+        """Stop the heartbeat and withdraw this worker's record."""
+        ...
 
 
 class ScheduleStore(Protocol):
@@ -136,14 +157,18 @@ class ScheduleStore(Protocol):
     def forget(self, names: Sequence[str]) -> int:
         """Remove schedules for jobs no installed feature contributes."""
 
-    def due(self, now: datetime) -> Sequence[Schedule]: ...
+    def due(self, now: datetime) -> Sequence[Schedule]:
+        """Schedules whose next firing is at or before ``now``, soonest first."""
+        ...
 
     def reschedule(
         self, name: str, *, expected: datetime, next_run_at: datetime, ran_at: datetime
     ) -> bool:
         """Move a schedule forward, refusing if another process moved it first."""
 
-    def list_schedules(self) -> Sequence[Schedule]: ...
+    def list_schedules(self) -> Sequence[Schedule]:
+        """Every registered schedule, ordered by name."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

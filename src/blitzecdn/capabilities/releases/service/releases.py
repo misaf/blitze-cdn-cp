@@ -125,6 +125,7 @@ class ReleaseService:
             return self.renderer.render(release.execution_document())
 
     def get(self, release_id: str) -> Release:
+        """One stored release; raises ``NotFoundError`` if there is none by that id."""
         return self.releases.get(release_id)
 
     def inputs_for(self, release_id: str) -> ReleaseInputs:
@@ -132,9 +133,11 @@ class ReleaseService:
         return self.releases.inputs_for(release_id)
 
     def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
+        """One page of stored releases, newest first."""
         return self.releases.paginate_releases(limit=limit, offset=offset)
 
     def list_releases(self, limit: int | None = 20) -> Sequence[Release]:
+        """The ``limit`` most recent releases, newest first; ``None`` for all."""
         return self.releases.list_releases(limit)
 
     def findings(self, *, host_limit: str | None = None) -> tuple[ReleaseFinding, ...]:

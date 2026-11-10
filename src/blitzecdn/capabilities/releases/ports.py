@@ -33,15 +33,21 @@ __all__ = [
 class ConfigurationRenderer(Protocol):
     """The edge configuration tree a release's execution document renders to."""
 
-    def render(self, document: Mapping[str, Any]) -> ConfigurationBundle: ...
+    def render(self, document: Mapping[str, Any]) -> ConfigurationBundle:
+        """Render an execution document to the configuration tree edges receive."""
+        ...
 
 
 class StateContributors(Protocol):
     """Every capability's per-site and fleet variables, already merged."""
 
-    def site_variables(self, site: CdnSite) -> Mapping[str, object]: ...
+    def site_variables(self, site: CdnSite) -> Mapping[str, object]:
+        """Every capability's variables for one site, merged into one mapping."""
+        ...
 
-    def fleet_variables(self, sites: tuple[CdnSite, ...]) -> Mapping[str, object]: ...
+    def fleet_variables(self, sites: tuple[CdnSite, ...]) -> Mapping[str, object]:
+        """Every capability's fleet-wide variables for ``sites``, merged."""
+        ...
 
 
 class SiteChecks(Protocol):
@@ -53,29 +59,64 @@ class SiteChecks(Protocol):
 class ReleaseStore(Protocol):
     """Where compiled releases and their inputs are kept; ``save`` is idempotent."""
 
-    def save(self, release: Release, inputs: ReleaseInputs) -> Release: ...
+    def save(self, release: Release, inputs: ReleaseInputs) -> Release:
+        """Put a release and the inputs it was compiled from on record.
 
-    def save_configuration(
-        self, release: Release, bundle: ConfigurationBundle
-    ) -> None: ...
+        Saving one already stored leaves it as it is, since concurrent compiles of
+        unchanged state are ordinary. Raises ``ConfigurationError`` if ``inputs`` is
+        not what ``release`` was compiled from.
+        """
+        ...
 
-    def configuration(self, release_id: str) -> ConfigurationBundle: ...
+    def save_configuration(self, release: Release, bundle: ConfigurationBundle) -> None:
+        """Record what ``release`` rendered to, once; a later call changes nothing.
 
-    def get(self, release_id: str) -> Release: ...
+        Rollbacks ship that first render.
+        """
+        ...
 
-    def inputs_for(self, release_id: str) -> ReleaseInputs: ...
+    def configuration(self, release_id: str) -> ConfigurationBundle:
+        """The configuration a stored release rendered to, verified.
 
-    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]: ...
+        Raises ``NotFoundError`` if none is on record and ``ConfigurationError`` if
+        it fails its integrity check.
+        """
+        ...
 
-    def list_releases(self, limit: int | None = 20) -> Sequence[Release]: ...
+    def get(self, release_id: str) -> Release:
+        """One stored release; raises ``NotFoundError`` if there is none by that id."""
+        ...
 
-    def prune(self, keep: int) -> int: ...
+    def inputs_for(self, release_id: str) -> ReleaseInputs:
+        """The canonical state a stored release was compiled from, verified.
+
+        Raises ``NotFoundError`` for an unknown release and ``ConfigurationError``
+        for inputs that fail their integrity check.
+        """
+        ...
+
+    def paginate_releases(self, *, limit: int, offset: int) -> PageResult[Release]:
+        """One page of stored releases, newest first."""
+        ...
+
+    def list_releases(self, limit: int | None = 20) -> Sequence[Release]:
+        """The ``limit`` most recent releases, newest first; ``None`` for all."""
+        ...
+
+    def prune(self, keep: int) -> int:
+        """Drop releases beyond the newest ``keep`` that no deployment names.
+
+        Returns how many were removed.
+        """
+        ...
 
 
 class ReleaseReferences(Protocol):
     """Which releases something outside this capability still needs."""
 
-    def in_use(self) -> Sequence[str]: ...
+    def in_use(self) -> Sequence[str]:
+        """Every release id still named elsewhere; pruning must keep them."""
+        ...
 
 
 class CanonicalState(Protocol):
@@ -85,7 +126,9 @@ class CanonicalState(Protocol):
     existed.
     """
 
-    def release_inputs(self) -> ReleaseInputs: ...
+    def release_inputs(self) -> ReleaseInputs:
+        """Zones, rules, records and settings, read together in one snapshot."""
+        ...
 
 
 class TargetReader(Protocol):
@@ -94,6 +137,6 @@ class TargetReader(Protocol):
     ``host_limit`` narrows validation to the edges a canary touches.
     """
 
-    def targets(
-        self, *, host_limit: str | None = None
-    ) -> Sequence[EdgeCapabilities]: ...
+    def targets(self, *, host_limit: str | None = None) -> Sequence[EdgeCapabilities]:
+        """The edges ``host_limit`` selects, or all, with what each declares."""
+        ...

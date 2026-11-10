@@ -20,27 +20,53 @@ class FleetPlaybooks(Protocol):
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
-    ) -> AnsibleRun: ...
+    ) -> AnsibleRun:
+        """Run ``playbook`` across the edges ``host_limit`` selects, or all of them.
+
+        ``variables`` are staged for this run alone and ``name`` labels its log. No
+        deployment lock is taken: these plays write no desired state.
+        """
+        ...
 
 
 class EdgeRunner(Protocol):
     """What edge operations run against the fleet; ``host_limit`` is always required."""
 
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
+    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
+        """Remove BlitzeCDN from the edges ``host_limit`` selects.
+
+        Required: no limit means every edge, which for a teardown empties the fleet.
+        """
+        ...
 
 
 class EdgeStore(Protocol):
     """The fleet; writing an edge here is publishing it to the Ansible inventory."""
 
-    def list_edges(self) -> list[Edge]: ...
+    def list_edges(self) -> list[Edge]:
+        """Every edge, ordered by name."""
+        ...
 
-    def get_edge(self, name: str) -> Edge: ...
+    def get_edge(self, name: str) -> Edge:
+        """One edge; raises ``NotFoundError`` if there is none by that name."""
+        ...
 
-    def create_edge(self, edge: Edge) -> Edge: ...
+    def create_edge(self, edge: Edge) -> Edge:
+        """Add an edge; raises ``ConflictError`` if the name is taken."""
+        ...
 
-    def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge: ...
+    def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
+        """Write an edge in place; its name is its identity and never moves.
 
-    def delete_edge(self, name: str) -> None: ...
+        Pass ``expected``, the edge the change was merged onto, to make it a
+        compare-and-swap that raises ``ConflictError`` if the row moved since.
+        Raises ``NotFoundError`` if the edge is absent.
+        """
+        ...
+
+    def delete_edge(self, name: str) -> None:
+        """Remove an edge; raises ``NotFoundError`` if there is none by that name."""
+        ...
 
 
 class HostKeyStore(Protocol):
@@ -53,11 +79,17 @@ class HostKeyStore(Protocol):
     @property
     def managed(self) -> bool: ...
 
-    def scan(self, host: str, port: int) -> tuple[HostKey, ...]: ...
+    def scan(self, host: str, port: int) -> tuple[HostKey, ...]:
+        """Every key the host offers. Unverified: what it says, not what it is."""
+        ...
 
-    def trusted(self, host: str, port: int) -> tuple[HostKey, ...]: ...
+    def trusted(self, host: str, port: int) -> tuple[HostKey, ...]:
+        """The keys trusted for ``host`` on ``port``; empty when none are."""
+        ...
 
-    def trust(self, host: str, port: int, keys: tuple[HostKey, ...]) -> None: ...
+    def trust(self, host: str, port: int, keys: tuple[HostKey, ...]) -> None:
+        """Trust exactly ``keys`` for ``host`` on ``port``, replacing any before."""
+        ...
 
 
 # ----------------------------------------------------------------------
@@ -72,9 +104,16 @@ class OriginProbe(Protocol):
     preflight's advisory check.
     """
 
-    def to_probe(self, site: CdnSite) -> dict[str, object]: ...
+    def to_probe(self, site: CdnSite) -> dict[str, object]:
+        """Render ``site``'s canonical origin as the edge-side check reads it."""
+        ...
 
-    def check(self, site: CdnSite) -> OriginCheck: ...
+    def check(self, site: CdnSite) -> OriginCheck:
+        """Connect to ``site``'s origin from the controller, as an edge would.
+
+        Advisory only: certificate preflight reports it; nothing branches on it.
+        """
+        ...
 
 
 __all__ = [

@@ -16,4 +16,10 @@ type JobTable = Mapping[str, ScheduledJob]
 
 
 class Deployments(Protocol):
-    def converge_requirements(self, operator: str) -> Deployment | None: ...
+    def converge_requirements(self, operator: str) -> Deployment | None:
+        """Queue one fleet deployment for what is owed, or ``None`` if nothing is.
+
+        A queued deployment that already satisfies every requirement is returned
+        instead of queueing a second.
+        """
+        ...
