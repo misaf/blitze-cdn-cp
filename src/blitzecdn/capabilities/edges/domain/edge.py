@@ -23,6 +23,11 @@ EDGE_GROUP = "blitzecdn_edges"
 #: and could widen a canary into the fleet.
 EDGE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
 
+#: A login name for ``ansible_user``: the portable POSIX set, 32 bytes at most.
+#: It reaches the SSH command line, so it may not start with ``-``, and ``@``
+#: or ``:`` could redirect the connection.
+EDGE_USER = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,31}$")
+
 
 class Edge(BaseModel):
     """One edge server: how to reach it, and what it answers on publicly.
@@ -64,12 +69,28 @@ class Edge(BaseModel):
             )
         return normalized
 
-    @field_validator("host", "user")
+    @field_validator("host")
     @classmethod
-    def validate_connection_field(cls, value: str) -> str:
+    def validate_host(cls, value: str) -> str:
+        """A DNS hostname or IP literal, nothing else.
+
+        It becomes ``ansible_host``, which Ansible puts on the ``ssh`` command
+        line without ``--``, and the host pattern recorded in ``known_hosts``:
+        ``-oProxyCommand=…`` would be an option there, and ``*`` or ``a,*``
+        would trust one edge's key for every host.
+        """
+        return hostname(value)
+
+    @field_validator("user")
+    @classmethod
+    def validate_user(cls, value: str) -> str:
         normalized = value.strip()
-        if not normalized or any(character.isspace() for character in normalized):
-            raise ValueError("cannot be empty or contain whitespace")
+        if not EDGE_USER.fullmatch(normalized):
+            raise ValueError(
+                "user must be at most 32 characters, start with a letter, digit "
+                "or underscore, and contain only letters, digits, dots, hyphens "
+                "and underscores"
+            )
         return normalized
 
     @field_validator("private_key_file")
@@ -173,6 +194,7 @@ def _source_order(source: str) -> tuple[int, Any]:
 __all__ = [
     "EDGE_GROUP",
     "EDGE_NAME",
+    "EDGE_USER",
     "Edge",
     "EdgePatch",
     "firewall_sources",
