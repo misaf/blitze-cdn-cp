@@ -313,8 +313,8 @@ def client(settings, monkeypatch):
 @pytest.mark.parametrize(
     ("route", "command", "extra"),
     [
-        (f"/v3/analytics/sites/{SITE}", "site", {"granularity": "day"}),
-        (f"/v3/analytics/sites/{SITE}/paths", "paths", {"edge": "edge-b"}),
+        (f"/v3/traffic/sites/{SITE}", "site", {"granularity": "day"}),
+        (f"/v3/traffic/sites/{SITE}/paths", "paths", {"edge": "edge-b"}),
     ],
 )
 def test_api_and_cli_answer_alike(client, route, command, extra):
@@ -340,7 +340,7 @@ def test_api_and_cli_answer_alike(client, route, command, extra):
 
 def test_api_rows_carry_ratios_and_status(client):
     response = client.get(
-        f"/v3/analytics/sites/{SITE}",
+        f"/v3/traffic/sites/{SITE}",
         params={"start": "2026-10-27T00:00:00Z", "end": "2026-10-27T01:00:00Z"},
         headers=API_HEADERS,
     )
@@ -370,7 +370,7 @@ def test_api_rows_carry_ratios_and_status(client):
 )
 def test_invalid_analytics_queries_are_422(client, site, changes, where):
     response = client.get(
-        f"/v3/analytics/sites/{site}",
+        f"/v3/traffic/sites/{site}",
         params={
             "start": "2026-10-27T00:00:00Z",
             "end": "2026-10-28T00:00:00Z",

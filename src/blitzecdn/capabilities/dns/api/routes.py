@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.api.models import (
@@ -68,18 +68,18 @@ def delete_domain(
     dns.delete_domain(domain, operator)
 
 
-@router.get("/v3/hosts", response_model=Page[CdnSite])
-def list_hosts(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
-    """The virtual hosts the zones and their rules resolve to; read-only.
+@router.get("/v3/sites", response_model=Page[CdnSite])
+def list_sites(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
+    """The sites the zones and their rules resolve to; read-only.
 
-    Its own collection, because a host belongs to a zone and to whichever rule
+    Its own collection, because a site belongs to a zone and to whichever rule
     claimed its hostnames. Change it through those.
     """
     return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
-@router.get("/v3/hosts/{name}", response_model=CdnSite)
-def get_host(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
+@router.get("/v3/sites/{name}", response_model=CdnSite)
+def get_site(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
     return CdnSite.from_domain(sites.get_site(name))
 
 
@@ -102,29 +102,40 @@ def create_record(
     return DnsRecord.from_domain(dns.create_record(record.to_domain(domain), operator))
 
 
-@router.patch("/v3/domains/{domain}/records/{name}", response_model=DnsRecord)
+#: One record is addressed by its type as well as its name: an A and an AAAA
+#: record share a name, and no type is assumed.
+RECORD_PATH = "/v3/domains/{domain}/records/{type}/{name}"
+RecordTypePath = Annotated[RecordType, Path(alias="type")]
+
+
+@router.get(RECORD_PATH, response_model=DnsRecord)
+def get_record(
+    domain: str, type_: RecordTypePath, name: str, dns: FromDishka[DnsService]
+) -> DnsRecord:
+    return DnsRecord.from_domain(dns.get_record(domain, name, type_.to_domain()))
+
+
+@router.patch(RECORD_PATH, response_model=DnsRecord)
 def update_record(
     domain: str,
+    type_: RecordTypePath,
     name: str,
     patch: RecordPatch,
     operator: OperatorDependency,
     dns: FromDishka[DnsService],
-    type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> DnsRecord:
     return DnsRecord.from_domain(
         dns.update_record(domain, name, type_.to_domain(), patch.to_domain(), operator)
     )
 
 
-@router.delete(
-    "/v3/domains/{domain}/records/{name}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete(RECORD_PATH, status_code=status.HTTP_204_NO_CONTENT)
 def delete_record(
     domain: str,
+    type_: RecordTypePath,
     name: str,
     operator: OperatorDependency,
     dns: FromDishka[DnsService],
-    type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> None:
     dns.delete_record(domain, name, type_.to_domain(), operator)
 

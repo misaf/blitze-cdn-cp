@@ -662,7 +662,7 @@ issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitz
   location=$(curl -sS --fail-with-body --max-time 30 -o /dev/null -w "%header{location}" \
     -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
     -d "{\"skip_preflight\": true}" \
-    http://127.0.0.1:8000/v3/hosts/'"${ACME_SITE}"'/certificate/request) || exit 1
+    http://127.0.0.1:8000/v3/sites/'"${ACME_SITE}"'/certificate/request) || exit 1
   [ -n "${location}" ] || { printf "the request was not accepted\n" >&2; exit 1; }
   deadline=$(( $(date +%s) + 600 ))
   while :; do

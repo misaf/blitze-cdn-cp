@@ -64,8 +64,8 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
     certificate, key = certificate_pair()
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, headers)
-        uploaded = client.post(
-            "/v3/hosts/example-com/certificate/upload",
+        uploaded = client.put(
+            "/v3/sites/example-com/certificate",
             files={
                 "certificate": ("fullchain.pem", certificate, "application/x-pem-file"),
                 "private_key": ("privkey.pem", key, "application/x-pem-file"),
@@ -76,7 +76,7 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
         body = uploaded.json()
         assert body["source"] == "uploaded"
         assert "private_key" not in body
-        metadata = client.get("/v3/hosts/example-com/certificate", headers=headers)
+        metadata = client.get("/v3/sites/example-com/certificate", headers=headers)
         assert metadata.json() == body
 
 
@@ -241,7 +241,7 @@ def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
         _seed_proxied_record(client)
 
         response = client.get(
-            "/v3/hosts/example-com/certificate/preflight", headers=API_HEADERS
+            "/v3/sites/example-com/certificate/preflight", headers=API_HEADERS
         )
 
         assert response.status_code == 200
@@ -252,7 +252,7 @@ def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
     _stub_preflight(monkeypatch)
     with TestClient(control_plane_app(settings)) as client:
         assert (
-            client.get("/v3/hosts/example-com/certificate/preflight").status_code == 401
+            client.get("/v3/sites/example-com/certificate/preflight").status_code == 401
         )
 
 
@@ -263,7 +263,7 @@ def test_a_blocked_preflight_fails_the_queued_request(settings, seeded, monkeypa
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
         accepted = client.post(
-            "/v3/hosts/example-com/certificate/request",
+            "/v3/sites/example-com/certificate/request",
             json={"email": "ops@example.com"},
             headers=API_HEADERS,
         )
@@ -272,7 +272,7 @@ def test_a_blocked_preflight_fails_the_queued_request(settings, seeded, monkeypa
 
         # One request per site: a second would ask the CA again.
         again = client.post(
-            "/v3/hosts/example-com/certificate/request",
+            "/v3/sites/example-com/certificate/request",
             json={"email": "ops@example.com"},
             headers=API_HEADERS,
         )
@@ -293,12 +293,12 @@ def test_a_request_that_cannot_succeed_is_refused_before_it_is_queued(
     serve(monkeypatch, control)
     with TestClient(control_plane_app(settings)) as client:
         missing = client.post(
-            "/v3/hosts/absent-example-com/certificate/request",
+            "/v3/sites/absent-example-com/certificate/request",
             json={"email": "ops@example.com"},
             headers=API_HEADERS,
         )
         no_email = client.post(
-            "/v3/hosts/example-com/certificate/request",
+            "/v3/sites/example-com/certificate/request",
             json={},
             headers=API_HEADERS,
         )
@@ -318,7 +318,7 @@ def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
 
         assert (
             client.post(
-                "/v3/hosts/example-com/certificate/request",
+                "/v3/sites/example-com/certificate/request",
                 json={"email": "ops@example.com", "skip_preflght": True},
                 headers=API_HEADERS,
             ).status_code

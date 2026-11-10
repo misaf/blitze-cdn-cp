@@ -327,7 +327,7 @@ def test_path_rules_are_written_resolved_and_served_as_locations(settings):
         assert redirected["path_rule"] == "moved"
         assert redirected["redirect"]["status"] == 308
 
-        host = client.get("/v3/hosts/example-com", headers=API_HEADERS).json()
+        host = client.get("/v3/sites/example-com", headers=API_HEADERS).json()
         assert [location["rule"] for location in host["locations"]] == [
             "assets",
             "moved",

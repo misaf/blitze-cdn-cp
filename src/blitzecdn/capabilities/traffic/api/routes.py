@@ -70,7 +70,7 @@ Edge = Annotated[
 ]
 
 
-@router.get("/v3/analytics/sites/{site}", response_model=Page[SiteBucket])
+@router.get("/v3/traffic/sites/{site}", response_model=Page[SiteBucket])
 def site_analytics(
     site: str,
     traffic: FromDishka[TrafficService],
@@ -107,7 +107,7 @@ def site_analytics(
     )
 
 
-@router.get("/v3/analytics/sites/{site}/paths", response_model=Page[SitePath])
+@router.get("/v3/traffic/sites/{site}/paths", response_model=Page[SitePath])
 def site_paths(
     site: str,
     traffic: FromDishka[TrafficService],

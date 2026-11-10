@@ -19,6 +19,7 @@ def _request(
     length=None,
     peer="203.0.113.8",
     path="/v3/domains",
+    method="POST",
 ):
     app = control_plane_app(settings)
     messages = []
@@ -44,7 +45,7 @@ def _request(
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "POST",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
@@ -115,7 +116,8 @@ def test_default_budget_fits_certificate_and_key_limits(settings):
         settings,
         chunks,
         content_type="multipart/form-data; boundary=audit",
-        path="/v3/hosts/example-com/certificate/upload",
+        method="PUT",
+        path="/v3/sites/example-com/certificate",
         length=sum(map(len, chunks)),
     )
     assert status == 401
@@ -144,7 +146,8 @@ def test_multipart_overflow_closes_spooled_files_and_stops_reading(
         settings,
         chunks,
         content_type="multipart/form-data; boundary=audit",
-        path="/v3/hosts/example-com/certificate/upload",
+        method="PUT",
+        path="/v3/sites/example-com/certificate",
     )
     assert status == 413
     assert len(consumed) == 3
