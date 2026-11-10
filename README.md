@@ -61,6 +61,8 @@ Control endpoints require the `X-API-Key` header; use the secret portion of the
 `local:secret` entry generated in `.env`. Inspect controller state with
 `uv run blitzecdn overview`. See [operations](docs/operations.md) for status,
 metrics, worker heartbeats, and logs.
+See [edge design notes](docs/design/README.md) for why the edge templates and
+playbooks are shaped as they are.
 
 Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
 deployment ID for its per-edge progress. Read stored hourly cache effectiveness with

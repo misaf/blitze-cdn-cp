@@ -1,90 +1,31 @@
 {% if site.cache_enabled | default(true) %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if site.cache_query_string_mode | default('include') == 'ignore' else '$request_uri' %}
         proxy_cache {{ blitzecdn_cache_config_zone }};
-        # What is never cached and never served from cache.
-        #
-        # `$http_upgrade` keeps WebSocket handshakes out of it. `$http_authorization`
-        # is the one worth spelling out: a shared cache must not store a
-        # response to an authorized request and hand it to the next visitor,
-        # and nginx does not apply that rule for you — it honours `Set-Cookie`
-        # and `Cache-Control: private|no-cache|no-store` on the *response* by
-        # default, and has nothing to say about the request's credentials. So
-        # an origin that authorizes a request and answers without a
-        # `Cache-Control` of its own would have that answer cached under a key
-        # no credential is part of, and served to everyone.
-        #
-        # Both directives, because they answer different questions:
-        # `proxy_cache_bypass` says do not serve this from cache, and
-        # `proxy_no_cache` says do not store what comes back. Either alone
-        # leaks: bypass alone still stores the private answer for the next
-        # anonymous visitor, and no_cache alone still serves them an entry
-        # stored earlier.
-        #
-        # A cookie is a credential too, and the common case: a framework that
-        # sets its session cookie at login and renders /account without a
-        # Cache-Control of its own. The site's cookie map (cache-http.conf.j2)
-        # is 1 for such a request, under the same condition as here. Under
-        # `standard` the edge also stores nothing the origin gave no lifetime
-        # to unless it is a static file type ($blitzecdn_cache_standard_skip);
-        # that one reads the response, so only proxy_no_cache names it.
+{# Bypass and no_cache name the same conditions; either alone leaks. See
+   docs/design/cache.md#what-is-never-cached. #}
 {% set level = site.cache_level | default('standard') %}
 {% set cookie_bypass = level == 'standard' or (site.cache_bypass_cookies | default([], true)) %}
-{#
-  A path rule's location reads its own map, named by its variable_scope, since
-  its cookies and level can differ from the host's.
-#}
+{# A path rule reads its own scope's map. #}
 {% set cookie_variable = (' $blitzecdn_cache_cookie_' ~ ((site.variable_scope | default(site.name)) | replace('-', '_'))) if cookie_bypass else '' %}
         proxy_cache_bypass $http_upgrade $http_authorization{{ cookie_variable }};
         proxy_no_cache $http_upgrade $http_authorization{{ cookie_variable }}{{ ' $blitzecdn_cache_standard_skip' if level == 'standard' else '' }};
-        # The key names the listener port, and that is load-bearing rather than
-        # an inefficiency. The edge preserves the visitor's destination port
-        # toward the origin (site.conf.j2's proxy macro, SslMode.origin_port_for):
-        # a request on :8080 is fetched from origin:8080, one on :80 from
-        # origin:80. Those are two endpoints, and an origin is free to run two
-        # different services on them. Without $server_port, whichever port
-        # filled the entry first would answer for every other — the object
-        # from the admin app on :8080 served to visitors of the site on :80.
-        #
-        # Keying on the origin port instead would buy nothing. It equals the
-        # listener port everywhere except Flexible on 443, which reaches the
-        # origin on 80; that request already differs from a plain :80 one by
-        # $scheme, and has to — the origin sees X-Forwarded-Proto and may
-        # answer the two differently, an HTTPS redirect being the usual case.
-        #
-        # The cost is that one URL can be cached once per listener, and a
-        # named purge has to delete every port's variant; blitzecdn_cache_purge
-        # walks the same listener sets for that reason.
+{# $server_port is load-bearing. See docs/design/cache.md#cache-key. #}
         proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
         proxy_cache_valid 200 301 302 {{ site.cache_valid_success | default('10m') }};
         proxy_cache_valid 404 {{ site.cache_valid_not_found | default('1m') }};
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         proxy_cache_background_update on;
         proxy_cache_lock on;
-{#
-  A conditional revalidation renews an entry from the 304's headers, and a 304
-  need not carry Content-Type. The origin hop's maps (cache-http.conf.j2) see
-  only the 304, so an entry kept for its type's TTL override, or stored
-  despite the origin's headers because of its type, would fall back to the
-  origin's lifetime on its first renewal. A site with an entry naming a type
-  therefore refetches in full instead; entries naming an extension match the
-  URL, which every response has.
-#}
+{# A 304 need not carry Content-Type, so type entries disable revalidation.
+   See docs/design/cache.md#revalidation. #}
 {% set type_rules = namespace(found=false) %}
 {% for entry in (site.cache_ttl_overrides | default({}, true) | list) + (site.cache_ignore_origin_headers | default([], true) | list) %}
 {% if not entry.startswith('.') %}{% set type_rules.found = true %}{% endif %}
 {% endfor %}
         proxy_cache_revalidate {{ 'off' if type_rules.found else 'on' }};
-        # The origin names an entry's purge tags in Cache-Tag. They are for the
-        # edge, not visitors, so they are not passed on; nginx still stores the
-        # header with the cached entry, which is where blitzecdn_cache_purge's
-        # scanner reads them back from to purge by tag.
+{# Hidden from visitors, still stored for blitzecdn_cache_purge. #}
         proxy_hide_header Cache-Tag;
-{#
-  The key names the encoding, so the origin must be asked for exactly that
-  one. The compression capability sends the same header whenever it is
-  active; sending it here as well would put two Accept-Encoding lines on the
-  request.
-#}
+{# The key names the encoding; skip when compression already sends the header. #}
 {% set compression_installed = 'compression' in (blitzecdn_nginx_resources.upstream | default([]) | map(attribute='feature')) %}
 {% if not (compression_installed and site.compression | default('brotli') != 'off') %}
         proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
