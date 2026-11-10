@@ -4,23 +4,14 @@
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
 {% set max_upload_size = item.max_upload_size | default('100m') %}
-{#
-  `scope` is what a fragment sees as `site`: the host itself, or for a path
-  rule's location the host with that rule's path-scoped settings merged in. A
-  scope carries `variable_scope`, which names the http-level variables a
-  path-scoped setting is read through, so a path never reads its host's.
-#}
+{# `scope`: the host, or a path rule's merged scope. See docs/design/path-rules.md. #}
 {% macro fragments(context, listener_port, visitor_scheme, redirect_https=false, first_hostname=true, scope=none) %}
 {% for resource in blitzecdn_nginx_resources[context] | default([]) %}
 {{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item if scope is none else scope, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false, 'first_hostname': first_hostname}) }}
 {% endfor %}
 {% endmacro %}
-{#
-  Which origin connection a listener proxies to, as "<scheme>:<port>". The one
-  place the SSL-mode matrix is spelled: the upstream groups below and the
-  proxy_pass that names them both read it, so they cannot disagree about which
-  group a listener uses.
-#}
+{# "<scheme>:<port>" a listener proxies to; the only place the SSL-mode matrix
+   is spelled. See docs/design/origin-connections.md. #}
 {% macro origin_of(listener_port, visitor_scheme) -%}
 {%- set secure = visitor_scheme == 'https' -%}
 {%- set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) -%}
@@ -28,24 +19,11 @@
 {%- set origin_port = 80 if secure and ssl_mode == 'flexible' and listener_port == 443 else listener_port -%}
 {{ 'https' if origin_tls else 'http' }}:{{ origin_port }}
 {%- endmacro %}
-{#
-  Site names are [a-z0-9-] and the suffix is always "_<scheme>_<port>", so the
-  underscores make every group name unique across the whole edge.
-#}
 {% macro upstream_name(origin) -%}
 blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {%- endmacro %}
-{#
-  The origin hop. nginx's cache reads its lifetime and its exclusions from the
-  response with directives that take no variables (proxy_cache_valid,
-  proxy_ignore_headers), so the only per-site, per-response lever is the
-  response itself. A capability that needs one contributes an `origin`
-  fragment; when any renders for an origin, the site's listeners for it
-  proxy to a loopback server of their own (the hop servers below) whose location
-  carries the fragments, so they rewrite the origin's headers before the
-  cache, one hop up, reads them. A site with no such fragment is proxied
-  straight to its origin as before and pays nothing.
-#}
+{# Origin fragments route a site through the origin hop. See
+   docs/design/origin-connections.md#the-origin-hop. #}
 {% macro origin_fragments(origin) -%}
 {{ fragments('origin', origin.split(':')[1] | int, origin.split(':')[0]) }}
 {%- endmacro %}
@@ -71,8 +49,6 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% set secure = visitor_scheme == 'https' %}
 {% set hop = origin_fragments(origin) | trim %}
 {% if hop %}
-        # Through the origin hop, which talks to the origin itself and is
-        # told which Host to send it.
         proxy_pass http://blitzecdn_origin_hop;
         proxy_http_version 1.1;
         proxy_set_header Host {{ hop_name(origin) }};
@@ -116,19 +92,7 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
         return 404;
     }
 {% endmacro %}
-{#
-  A host's path rules, as regex locations in the order they are matched.
-  Regex, never prefix: Nginx takes the first matching regex location in the
-  order written, which is what makes "first path rule wins" hold however the
-  paths nest, and a plain prefix would instead be chosen by length. Matched
-  against the normalized $uri, as the firewall's paths are. The `^~` prefixes
-  above — the ACME challenge, /.blitzecdn/ and the firewall's case-sensitive
-  denied paths — stop the regex search, and its case-insensitive denied paths
-  are written earlier, so neither is ever shadowed by a path rule.
-
-  An HTTP listener that redirects to HTTPS renders none: `location /` sends
-  every request there first, and the HTTPS listener applies the path rules.
-#}
+{# Regex, never prefix: first path rule wins. See docs/design/path-rules.md. #}
 {% macro path_locations(listener_port, visitor_scheme, hostname) %}
 {% for location in item.locations | default([], true) %}
 {% if hostname in location.server_names %}
@@ -138,13 +102,7 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% set redirect = location.redirect %}
 {% set query = '$is_args$args' if redirect.preserve_query_string | default(true) else '' %}
 {% if '$1' in redirect.target %}
-        {#
-          The suffix is taken from $request_uri, still percent-encoded as the
-          visitor sent it: a capture of the decoded $uri could carry a CR or LF
-          into the Location header. A request whose raw form spells the path
-          differently (`/%6Fld/`) is still matched by the location above, and
-          is redirected without its suffix.
-        #}
+        {# $request_uri, not $uri: a decoded capture could inject CR/LF. #}
         if ($request_uri ~ "^{{ location.path | regex_escape }}([^?]*)") {
             return {{ redirect.status }} "{{ redirect.target }}{{ query }}";
         }
@@ -194,32 +152,7 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% endif %}
 {% endfor %}
 {% endif %}
-{#
-  One upstream group per origin connection this site actually proxies to, so
-  idle connections to the origin are pooled and reused instead of every cache
-  miss paying a TCP handshake, and for an HTTPS origin a TLS handshake as well.
-  A literal proxy_pass to host:port, or a variable one, has no pool to return a
-  connection to: Nginx closes it when the response ends.
-
-  The group is keyed by origin scheme and port, not by listener, because
-  Flexible's 443 and the plain 80 listener reach the same http:80 and must not
-  declare it twice. A redirecting HTTP listener proxies nothing and contributes
-  no group, and a site with no hostnames renders no servers and so no groups —
-  without resolvers a group's name is resolved at load, and a site that serves
-  nothing must not be able to fail the edge's configuration test.
-
-  With resolvers the server carries `resolve`, so the origin's address still
-  follows DNS as a variable proxy_pass would: it is re-resolved at the resolver's
-  `valid` interval rather than being pinned at load, and an origin whose name
-  does not resolve yet fails its own requests rather than the reload. `resolve`
-  needs its group in shared memory; every group on the edge shares the one zone
-  so its size is one fleet-wide setting rather than one per site.
-
-  Keepalive needs the request to the origin to be HTTP/1.1 with an empty
-  Connection header. proxy() sets the version, and the
-  $blitzecdn_connection_upgrade map in http.conf.j2 sends "" whenever the
-  visitor is not upgrading.
-#}
+{# Pooled origin connections. See docs/design/origin-connections.md. #}
 {% set origins = namespace(wanted=[]) %}
 {% if item.server_names %}
 {% if not (tls and (item.always_use_https | default(false))) %}
@@ -249,25 +182,7 @@ upstream {{ upstream_name(origin) }} {
 {% endif %}
 }
 {% endfor %}
-{#
-  One hop server per origin that has origin fragments, on the shared loopback
-  port and told apart by Host. It does what proxy() does for a site without a
-  hop, less what the visitor-facing hop already did: the X-Forwarded-* and
-  BZ-* headers arrive set and pass through, the body was already limited and
-  read, and the visit was already logged and counted. Neither direction is
-  buffered here: the cache-side hop buffers both, and a second copy of a large
-  object on disk would buy nothing.
-
-  The X-Accel-* controls are the origin's instructions to the edge, so this
-  hop passes them up for the cache-side hop to act on, as it would without
-  the hop, rather than obeying them itself. X-Accel-Expires is the origin
-  fragments' to pass or replace.
-
-  limit_conn is set for the whole edge in nginx.conf, and here every request
-  comes from 127.0.0.1: counted against one address, the hop would cap the
-  whole edge's misses at one visitor's limit. Dry-run keeps the count and
-  drops the cap; visitors stay limited where they connect.
-#}
+{# Hop servers. See docs/design/origin-connections.md#the-origin-hop. #}
 {% for origin in origins.wanted %}
 {% set hop = origin_fragments(origin) | trim %}
 {% if hop %}

@@ -3,35 +3,17 @@
   hosts: blitzecdn_edges
   become: true
   gather_facts: true
-  # One failed edge stops the play. `max_fail_percentage` is deliberately not
-  # set alongside this: it expresses the same policy in a second dialect, and
-  # the two invite a later reader to change one and believe they have changed
-  # the rule. `any_errors_fatal` is the stricter of the pair and wins anyway.
-  #
-  # It matters more now than it did, not less. A runtime upgrade rolls out one
-  # batch at a time, and an image that fails to serve on the first batch must
-  # stop the rollout rather than reaching the whole fleet — each failing edge
-  # returns to its previous image on its own, but only the play can stop the
-  # next batch from being handed the same broken build.
+  # Stop on the first failed edge. See docs/design/edge-playbook.md#failure-policy.
   any_errors_fatal: true
-  # A canary, then widening batches. `any_errors_fatal` above is what makes the
-  # first entry worth having: a runtime upgrade that fails to serve stops after
-  # one edge instead of a quarter of the fleet, and each failing edge returns to
-  # its previous image on its own while the play stops the next batch from being
-  # handed the same broken build.
-  #
-  # The percentages are of the whole fleet, not of what is left, and Ansible
-  # stops consuming the list once the hosts run out — so a two-edge fleet is
-  # simply 1 then 1, and a single-edge fleet is one batch. Nothing here needs a
-  # minimum fleet size.
+  # Only shapes a hand run: the controller limits every run to one edge.
+  # See docs/design/edge-playbook.md#how-a-rollout-is-paced.
   serial:
     - 1
     - "10%"
     - "25%"
     - "100%"
-  # Stage writes only a candidate tree. Activation, rollback and commit are
-  # explicit selections; the controller verifies the public listener between
-  # activation and commit. Untagged execution stages then activates as well.
+  # Phases are tag selections; untagged runs stage then activate. See
+  # docs/design/edge-playbook.md.
   pre_tasks:
     - name: Validate supported operating system
       ansible.builtin.assert:
@@ -40,17 +22,8 @@
           - ansible_facts.distribution_version == '26.04'
         fail_msg: BlitzeCDN edges for this release require Ubuntu 26.04 LTS.
       tags: [always, stage]
-    # Establishes and validates the shared edge runtime contract: the host
-    # paths, the public listener sets, the status endpoint, the runtime image
-    # and the capability data directory that blitzecdn_nginx,
-    # blitzecdn_edge_stack and blitzecdn_firewall all converge against. First, and before anything on
-    # the host changes, so a contract no edge could serve fails a play that has
-    # not yet touched the machine.
-    #
-    # This replaced a pairwise assertion here that blitzecdn_firewall's and
-    # blitzecdn_nginx's HTTP/3 desired state agreed. There is one value now, so
-    # they cannot disagree — and the contract asserts the part that assertion
-    # could not: that 443 is actually an HTTPS listener for QUIC to attach to.
+    # The shared runtime contract, first so an unservable one fails before the
+    # host changes.
     - name: Establish the shared edge runtime contract
       ansible.builtin.import_role:
         name: blitzecdn_edge
@@ -60,14 +33,8 @@
         name: blitzecdn_config_release
         tasks_from: select.yml
       tags: [always]
-    # The container engine, and then everything the edge runtime needs to exist
-    # before a configuration is rendered: the persistent directories, the
-    # runtime image and the Compose project.
-    #
-    # Both run before the firewall: opening the public ports on a host that
-    # cannot serve them advertises an edge that is not there. The container
-    # itself is not started here — that waits until the configuration exists and
-    # has passed `nginx -t`, at the end of the roles below.
+    # Engine, directories and image before the firewall opens ports; the
+    # container starts only after `nginx -t` passes.
     - name: Install and verify the host container engine
       ansible.builtin.import_role:
         name: blitzecdn_docker
@@ -84,17 +51,13 @@
         name: blitzecdn_nginx
         tasks_from: verify-runtime.yml
       vars:
-        # The digest prepare.yml just pinned, not the tag it was asked for. The
-        # image that is probed has to be the image that will serve.
+        # The pinned digest, so the image probed is the image that serves.
         blitzecdn_nginx_config_test_image: >-
           {{ blitzecdn_edge_stack_resolved_image
              | default(blitzecdn_edge_runtime.image) }}
       when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
       tags: [always, stage, nginx]
-    # The token that guards /.blitzecdn/release, reconciled on staging and
-    # activation alike and whether or not the release is already sealed, so
-    # redeploying an unchanged release repairs an edge holding an old token.
-    # Activation reloads Nginx, which is what puts a rewritten file in effect.
+    # Reconciled on every stage and activation, so a stale token is repaired.
     - name: Install the controller's release probe token
       ansible.builtin.import_role:
         name: blitzecdn_nginx
@@ -104,24 +67,10 @@
   roles:
     - role: blitzecdn_base
       tags: [base, activate]
-    # Host DNS resolution is not named here. It is the resolver capability's,
-    # in the capability slot below, which is still before the staged
-    # configuration's origin hostnames are looked up by the runtime, and is off
-    # unless the fleet turns it on.
     - role: blitzecdn_kernel
       tags: [kernel, activate]
-    # Every capability's own edge role, in one slot.
-    #
-    # The control plane composes the list from its features —
-    # `blitzecdn_capability_roles` arrives as an extra-var on every run — so
-    # this play names no capability and needs no edit when one is added.
-    #
-    # The position is the contract. After the pre-tasks above, because a
-    # capability role may need the container engine, the runtime image or the
-    # persistent directories they establish; and before blitzecdn_firewall and
-    # the staged configuration, because what a capability puts on an edge is
-    # something that configuration then depends on, and the configuration test
-    # proves the whole tree loads before the edge serves from it.
+    # Edge capability slot. Its position is a contract; see
+    # docs/design/edge-playbook.md#order.
     - role: blitzecdn_capabilities
       vars:
         blitzecdn_capabilities_roles: "{{ blitzecdn_capability_roles | default([]) }}"
@@ -131,36 +80,14 @@
       tags: [capabilities, nginx, stage]
     - role: blitzecdn_firewall
       tags: [firewall, activate]
-    # The host state the configuration depends on: certificate material, the
-    # ACME webroot. The configuration itself was rendered on the controller
-    # and is staged, validated under the very image the container will run,
-    # sealed and activated by blitzecdn_config_release below.
+    # Host state the controller-rendered configuration depends on.
     - role: blitzecdn_nginx
       when: not blitzecdn_config_release_seal.stat.exists
       tags: [nginx, stage]
-    # Stages the controller-rendered configuration and checks it against the
-    # release's manifest, then starts the edge, leaves a running one alone, or
-    # replaces it for a runtime upgrade — and proves it is serving. Strictly after the
-    # configuration exists: a container started against an incomplete tree is
-    # an edge answering 444 for every customer.
+    # Stage, validate, start or replace the container, prove it serves.
     - role: blitzecdn_config_release
-    # The second capability slot: what an installed capability does to the
-    # *host* rather than to the runtime, once the edge is already serving.
-    #
-    # This is where SSH policy and Fail2Ban run, and they are not named here —
-    # the hardening capability owns both and asks for this slot, so a fleet
-    # whose host access belongs to a golden image or a bastion turns them off
-    # in fleet configuration instead of forking this play.
-    #
-    # The position is as much a contract as the edge slot's, and for a reason
-    # that is nearly the opposite. A role here must come after the firewall,
-    # because a host that fails firewall validation must never be left key-only
-    # but unreachable from the management network; and after
-    # blitzecdn_edge_stack, because an edge whose containers are all broken
-    # must still be reachable for Ansible to repair it, so nothing that could
-    # close the management path may run before the runtime has proved it
-    # serves. Ordering *within* the slot is the contributing package's, which
-    # is how Fail2Ban follows SSH without this play knowing either exists.
+    # Host capability slot, after the edge serves. Its position is a
+    # contract; see docs/design/edge-playbook.md#order.
     - role: blitzecdn_capabilities
       vars:
         blitzecdn_capabilities_roles: >-

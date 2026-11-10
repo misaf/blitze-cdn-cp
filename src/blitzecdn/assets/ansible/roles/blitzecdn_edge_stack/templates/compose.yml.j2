@@ -1,9 +1,5 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
-#
-# The whole BlitzeCDN runtime for this edge. Everything above the operating
-# system is here; everything the operating system owns — SSH, the firewall,
-# sysctl, Docker itself — deliberately is not, so a broken stack still leaves a
-# host Ansible can reach and repair.
+# Design notes: docs/design/edge-container.md
 name: {{ blitzecdn_edge_stack_project }}
 
 services:
@@ -11,16 +7,7 @@ services:
     container_name: {{ blitzecdn_edge_runtime.container }}
     image: {{ blitzecdn_edge_stack_resolved_image }}
     command: [nginx, -g, "daemon off;", -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
-    # Host networking, deliberately.
-    #
-    # A CDN edge listens on thirteen public TCP ports plus UDP/443, and every
-    # one of them has to see the visitor's real address: $remote_addr is the
-    # source of BZ-Connecting-IP, of any country lookup a capability installs,
-    # and of every
-    # per-site source rule. Behind Docker's bridge and its userland proxy it
-    # would be a gateway address instead, and the edge would happily apply a
-    # country rule to itself. Host networking also means no NAT hop per packet
-    # and no publish list to keep in step with the contract's listener sets.
+    # Host networking so $remote_addr is the visitor's address.
     network_mode: host
     ulimits:
       nofile:
@@ -29,74 +16,33 @@ services:
     restart: unless-stopped
     # Reaps the zombies an Nginx master would otherwise leave behind as PID 1.
     init: true
-    # A process inside this container can never gain privileges it was not
-    # started with — no setuid binary, no file capability. It costs nothing
-    # here: the master starts as root to bind the privileged listeners and read
-    # the private keys, and then drops to the image's own unprivileged user by
-    # its own configuration, which is a privilege *reduction* and unaffected.
-    # That user is Alpine Nginx's `nginx`, not Debian's `www-data`, and the
-    # contract carries its uid: see `blitzecdn_edge_runtime.worker_uid`, which
-    # host directories the worker reads are chowned to.
-    #
-    # The controller's own Compose project already carries this. The edge, the
-    # host-networked container that terminates every visitor connection, is the
-    # one where it matters most.
+    # The master still drops to the image's `nginx` user (worker_uid).
     security_opt:
       - no-new-privileges:true
     stop_grace_period: {{ blitzecdn_edge_stack_stop_grace_period }}
-    # Nginx's own signal for "finish what you are doing, then exit". SIGTERM is
-    # an immediate shutdown, which turns every container replacement into a
-    # burst of visitor errors.
+    # Graceful shutdown; SIGTERM drops in-flight requests.
     stop_signal: SIGQUIT
     environment:
       TZ: "{{ blitzecdn_base_timezone | default('UTC') }}"
     volumes:
-      # Configuration and TLS material are read-only mounts. The edge has no
-      # business rewriting what the control plane rendered, and a container that
-      # cannot write its own configuration cannot be talked into persisting a
-      # change that the next converge would silently revert.
-      # Every configuration release, as one stable parent mount: activation
-      # swaps the `current` link inside it, and Docker sees that only because
-      # the mount is the parent rather than the release itself. Each release
-      # carries its nginx.conf, sites, snippets, the module list and the njs
-      # modules this edge loads.
+      # Read-only except cache and logs. Releases mount as one parent so the
+      # `current` link swap is visible.
       - {{ blitzecdn_config_release_root }}:{{ blitzecdn_config_release_root }}:ro
-      # Chains and private keys. Read-only, and the host keeps the directory
-      # 0700 root with each key 0600 — the container's Nginx master reads them
-      # as root at start and at every reload, and nothing else ever needs to.
       - {{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro
-      # HTTP-01 challenges, written by the acme-challenge playbook on the host
-      # and served from here. Read-only for the same reason as the rest.
       - {{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro
-      # The empty document root Under Attack Mode dispatches through.
       - {{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro
-      # Whatever an installed capability provisioned for the edge to read.
-      # Always mounted and always read-only: unconditional so the Compose file
-      # has one shape in every installation, and read-only because the process
-      # that maintains such a file is the capability's, on the host, never the
-      # edge. Empty when nothing contributed anything.
       - {{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro
-      # Capability credentials, outside every configuration release. Read-only:
-      # the host's role writes them, the edge only reads them.
       - {{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro
-      # The two writable mounts, and the only two. Both hold data that must
-      # outlive the container: the cache because refilling it from origins after
-      # every upgrade is an outage in slow motion, the logs because they are the
-      # record of what the edge did — and what Phase 2 monitoring will read.
+      # The only writable mounts; both outlive the container.
       - {{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw
       - {{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw
-    # Container stdout/stderr only — Nginx's request log is the bind-mounted
-    # file above and is not affected. Bounded here as well as in daemon.json so
-    # the stack carries its own limit onto a host whose engine was configured by
-    # someone else.
+    # Container stdout/stderr only, bounded independently of daemon.json.
     logging:
       driver: json-file
       options:
         max-size: "32m"
         max-file: "3"
-    # Probe the loopback-only Nginx status endpoint: can this Nginx serve a
-    # request right now? Deep deployment checks remain in health.yml. A failing
-    # probe marks the container unhealthy; it does not restart it.
+    # Marks the container unhealthy; it does not restart it.
     healthcheck:
       test:
         - CMD

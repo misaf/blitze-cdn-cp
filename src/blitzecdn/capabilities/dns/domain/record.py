@@ -2,8 +2,9 @@
 
 A record holds no policy — the zone and its rules do. ``value`` does double
 duty: unproxied it is the DNS answer, proxied it is the origin and DNS answers
-with an edge address. Proxied A and AAAA records for one hostname must agree on
-the origin.
+with an edge address. Every proxied record for one hostname must carry the same
+``value`` (one origin per host), so a hostname cannot have both a proxied A and
+a proxied AAAA record; see issue 254.
 """
 
 from __future__ import annotations
