@@ -90,7 +90,7 @@ ARG BLITZECDN_EDGE_REVISION=unknown
 LABEL org.opencontainers.image.title="BlitzeCDN edge" \
       org.opencontainers.image.description="Nginx edge runtime with HTTP/2, HTTP/3 and the dynamic modules the installed capabilities declare." \
       org.opencontainers.image.source="https://github.com/misaf/blitze-cdn-cp" \
-      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${BLITZECDN_EDGE_VERSION}" \
       org.opencontainers.image.revision="${BLITZECDN_EDGE_REVISION}"
 

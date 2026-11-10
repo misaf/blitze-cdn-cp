@@ -250,3 +250,32 @@ Public CLI, HTTP, database, and Ansible surfaces are frozen under
 parity coverage where applicable, run `just refreeze`, and review the generated
 diff. For edge configuration changes, update the Python policy and Ansible/Nginx
 implementation together and run the relevant contract tests.
+
+## Licence
+
+BlitzeCDN is released under the MIT licence in [LICENSE](LICENSE). That one
+licence covers every artefact built from this repository: the Python package
+(`license = "MIT"` in `pyproject.toml`), the control-plane and edge images
+(`org.opencontainers.image.licenses="MIT"`), and the Ansible content under
+`src/blitzecdn/assets/ansible/`, including the inventory plugin.
+
+The label on each image names BlitzeCDN's own code. Each image also contains
+third-party software under its own terms: Debian packages in both, Nginx and
+its dynamic modules in the edge image, and ansible-core and the Python
+dependencies in the control-plane image.
+
+ansible-core is GPL-3.0-or-later, and the control plane uses it in-process:
+`core/ansible/templating.py` imports `ansible.template` and `ansible.parsing`,
+and the inventory plugin subclasses `BaseInventoryPlugin`. The project's reading
+is that this does not change the licence of BlitzeCDN's source:
+
+- MIT is compatible with GPL-3.0, so MIT code may be combined with ansible-core.
+- The Python package declares ansible-core as a dependency and does not include
+  it. Its files stay MIT.
+- The control-plane image does include ansible-core. Anyone redistributing that
+  image as a combined work must meet GPL-3.0-or-later for it as a whole,
+  including offering the corresponding source, which is this repository plus
+  the published ansible-core release. BlitzeCDN's files inside it remain
+  available under MIT on their own.
+
+This is the maintainer's understanding, not legal advice.

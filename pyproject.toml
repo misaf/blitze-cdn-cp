@@ -7,7 +7,8 @@ name = "blitzecdn"
 version = "6.1.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
 requires-python = ">=3.15.2"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
   "cryptography>=45,<51",
   # CAA lookups for certificate preflight. The stdlib resolver only answers
