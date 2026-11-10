@@ -19,7 +19,7 @@ from blitzecdn.capabilities.workflows.adapters.tables import WorkflowRow
 
 COLLECTIONS = [
     "/v3/domains",
-    "/v3/hosts",
+    "/v3/sites",
     "/v3/domains/{domain}/records",
     "/v3/domains/{domain}/rules",
     "/v3/edges",
@@ -236,8 +236,8 @@ def test_certificate_filter_is_applied_before_pagination(settings, certificate_p
                 == 201
             )
             certificate, key = certificate_pair(domains=(f"cdn.{domain}",), days=days)
-            uploaded = client.post(
-                f"/v3/hosts/cert{number}-example/certificate/upload",
+            uploaded = client.put(
+                f"/v3/sites/cert{number}-example/certificate",
                 files={
                     "certificate": ("cert.pem", certificate),
                     "private_key": ("key.pem", key),

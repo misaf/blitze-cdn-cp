@@ -1,6 +1,28 @@
 # API request defaults
 
-These rules describe `/v3`. The API models publish defaults in `/openapi.json`
+These rules describe `/v3`.
+
+## Paths
+
+Each area has one prefix, and a resource one name:
+
+| Area | Paths |
+| --- | --- |
+| Zones, records, rules | `/v3/domains/...` |
+| Sites (what zones and rules resolve to; read-only) | `/v3/sites`, `/v3/sites/{name}` |
+| A site's certificate | `/v3/sites/{name}/certificate/...`; the fleet's under `/v3/certificates/...` |
+| Traffic and analytics | `/v3/traffic/...`, a site's under `/v3/traffic/sites/{site}` |
+| Deployments, drift checks, rollbacks | `/v3/deployments/...` |
+
+A drift check is a deployment in check mode, `POST /v3/deployments` with
+`"check": true`; its report is `GET /v3/deployments/{id}/drift`. A rollback,
+`POST /v3/deployments/rollback`, is a deployment too.
+
+A request that only writes controller state answers synchronously: resource
+creation, `PATCH`, `DELETE` of controller records, and installing an uploaded
+certificate with `PUT /v3/sites/{name}/certificate`. A request that contacts
+ACME, an origin or an edge is queued and answers `202`; see
+[queued operations](queued-operations.md). The API models publish defaults in `/openapi.json`
 and `/docs`; the owning policy and domain models define their meaning. Tests
 compare the HTTP creation defaults with those contracts. Changing a default
 can change client behavior even when the field stays optional.
@@ -141,9 +163,12 @@ domain; including `domain` in the body is rejected with `422`. Responses retain
 ```
 
 `proxied: true` treats `value` as the origin; `false` publishes it as the DNS
-answer. Record PATCH fields do
-not accept explicit `null`. Record update/delete queries default `type` to `A`;
-specify `AAAA` when addressing an IPv6 record.
+answer. Record PATCH fields do not accept explicit `null`.
+
+One record is addressed by type and name,
+`/v3/domains/{domain}/records/{type}/{name}`, for `GET`, `PATCH` and `DELETE`.
+An A and an AAAA record can share a name, so the type is part of the path and
+never assumed; an unknown type is a `422`.
 
 An edge with no `public_addresses` falls back to its management `host`.
 `capabilities: null` uses the controller's installed capability set; an explicit

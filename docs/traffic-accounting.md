@@ -173,9 +173,9 @@ origin offload; see [operations](operations.md#cache-statistics).
 ## Site analytics
 
 A site is one served hostname, the key traffic is stored under. Authenticated
-`GET /v3/analytics/sites/{site}` and `blitzecdn analytics site SITE` answer
+`GET /v3/traffic/sites/{site}` and `blitzecdn analytics site SITE` answer
 requests, bandwidth, cache hit ratio and error rate per UTC hour or day, summed
-across edges in SQL from the hourly rows. `GET /v3/analytics/sites/{site}/paths`
+across edges in SQL from the hourly rows. `GET /v3/traffic/sites/{site}/paths`
 and `blitzecdn analytics paths SITE` list the site's busiest paths. Neither
 contacts an edge or reads raw logs.
 

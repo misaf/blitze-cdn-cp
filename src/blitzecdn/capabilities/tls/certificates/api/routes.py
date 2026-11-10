@@ -37,7 +37,7 @@ router = APIRouter(
 )
 
 
-@router.get("/v3/hosts/{name}/certificate", response_model=CertificateInfo)
+@router.get("/v3/sites/{name}/certificate", response_model=CertificateInfo)
 def certificate(
     name: str, certificates: FromDishka[CertificateService]
 ) -> CertificateInfo:
@@ -116,7 +116,7 @@ def reconcile_certificates(
     )
 
 
-@router.post("/v3/hosts/{name}/certificate/upload", response_model=CertificateInfo)
+@router.put("/v3/sites/{name}/certificate", response_model=CertificateInfo)
 def upload_certificate(
     name: str,
     operator: OperatorDependency,
@@ -124,6 +124,12 @@ def upload_certificate(
     certificate: Annotated[UploadFile, File()],
     private_key: Annotated[UploadFile, File()],
 ) -> CertificateInfo:
+    """Install an operator's certificate for this site and activate it.
+
+    Synchronous, unlike the certificate actions: it writes controller state
+    only, contacting neither ACME nor an edge. Edges pick it up on the next
+    deployment.
+    """
     return as_operation(
         certificates.upload_certificate(
             name,
@@ -136,7 +142,7 @@ def upload_certificate(
 
 
 @router.post(
-    "/v3/hosts/{name}/certificate/request",
+    "/v3/sites/{name}/certificate/request",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE},
@@ -169,7 +175,7 @@ def request_certificate(
     )
 
 
-@router.get("/v3/hosts/{name}/certificate/preflight", response_model=PreflightReport)
+@router.get("/v3/sites/{name}/certificate/preflight", response_model=PreflightReport)
 def certificate_preflight(
     name: str, certificates: FromDishka[CertificateService]
 ) -> PreflightReport:

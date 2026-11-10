@@ -168,7 +168,7 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
         assert rule.status_code == 422, rule.text
 
         seed_site_over_http(client, request_quota=30)
-        hosts = client.get("/v3/hosts", headers=API_HEADERS).json()["items"]
+        hosts = client.get("/v3/sites", headers=API_HEADERS).json()["items"]
         assert {host["request_quota"] for host in hosts} == {30}
 
         schemas = client.get("/openapi.json").json()["components"]["schemas"]

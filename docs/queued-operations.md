@@ -57,12 +57,11 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/cache/connections` | `/v3/operations/{id}` | `Operation`; result is `ConnectionsReport` |
 | `POST /v3/origins/check` | `/v3/operations/{id}` | `Operation`; result is `OriginReport` |
 | `DELETE /v3/edges/{name}` | `/v3/operations/{id}` | `Operation`; result describes removal and decommissioning |
-| `POST /v3/hosts/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
+| `POST /v3/sites/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
 | `POST /v3/certificates/renew` | `/v3/operations/{id}` | `Operation`; result is a renewal report |
 | `POST /v3/certificates/reconcile` | `/v3/operations/{id}` | `Operation`; result is a reconciliation report |
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |
-| `POST /v3/drift` | `/v3/deployments/{id}` | Check-mode `Deployment` |
-| `POST /v3/rollbacks` | `/v3/deployments/{id}` | Rollback `Deployment` |
+| `POST /v3/deployments/rollback` | `/v3/deployments/{id}` | Rollback `Deployment` |
 
 Operations use `pending`, `running`, `succeeded`, and `failed`. On success,
 inspect the operation-specific `result`: a completed purge can still report

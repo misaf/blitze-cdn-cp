@@ -20,13 +20,13 @@ SUBMISSIONS = [
     ("POST", "/v3/origins/check", {}, "operations"),
     ("DELETE", "/v3/edges/{name}", None, "operations"),
     ("POST", "/v3/deployments", {}, "deployments"),
-    ("POST", "/v3/drift", {}, "deployments"),
-    ("POST", "/v3/rollbacks", {}, "deployments"),
+    ("POST", "/v3/deployments", {"check": True}, "deployments"),
+    ("POST", "/v3/deployments/rollback", {}, "deployments"),
     ("POST", "/v3/certificates/renew", {}, "operations"),
     ("POST", "/v3/certificates/reconcile", None, "operations"),
     (
         "POST",
-        "/v3/hosts/{name}/certificate/request",
+        "/v3/sites/{name}/certificate/request",
         {"email": "ops@example.com"},
         "operations",
     ),
@@ -35,7 +35,7 @@ SUBMISSIONS = [
 #: The resource each submission path names, where it names one.
 PATH_NAMES = {
     "/v3/edges/{name}": "edge-a",
-    "/v3/hosts/{name}/certificate/request": "example-com",
+    "/v3/sites/{name}/certificate/request": "example-com",
 }
 
 
@@ -45,7 +45,7 @@ def test_accepted_work_points_to_an_authenticated_polling_resource(
 ):
     control, _ = seeded()
     seed_edge(control)
-    if path == "/v3/rollbacks":
+    if path == "/v3/deployments/rollback":
         target = control.deployments.deploy("tester")
         body = {"deployment_id": target.id}
     serve(monkeypatch, control)

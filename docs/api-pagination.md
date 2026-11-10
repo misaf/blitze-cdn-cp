@@ -31,7 +31,7 @@ GET /v3/certificates?expiring_in=30&limit=100&offset=100
 | Endpoint | Ordering |
 | --- | --- |
 | `/v3/domains` | Zone name |
-| `/v3/hosts` | Derived hostname order |
+| `/v3/sites` | Derived hostname order |
 | `/v3/domains/{domain}/records` | Record name, then type |
 | `/v3/domains/{domain}/rules` | Priority, then rule name |
 | `/v3/edges` | Edge name |
