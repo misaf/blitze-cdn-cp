@@ -13,8 +13,8 @@ from support.control_plane import (
 )
 from support.stores import Stores
 
-from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
 from blitzecdn.entrypoints.cli import main as cli
+from blitzecdn.entrypoints.cli import server as server_commands
 from blitzecdn.entrypoints.cli import setup as setup_commands
 
 
@@ -122,7 +122,7 @@ def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
     monkeypatch.setattr(cli.common, "settings", lambda: unauthenticated)
     started = []
     monkeypatch.setattr(
-        diagnostics_cli.uvicorn, "run", lambda *a, **k: started.append(a)
+        server_commands.uvicorn, "run", lambda *a, **k: started.append(a)
     )
 
     result = runner.invoke(cli.app, ["serve"])
