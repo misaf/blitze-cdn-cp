@@ -21,7 +21,9 @@ class CacheUsage(Protocol):
     same pass means every record is counted exactly once, for both.
     """
 
-    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]: ...
+    def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
+        """One page of stored usage, cache outcomes included, matching ``query``."""
+        ...
 
 
 class FleetPlaybooks(Protocol):
@@ -38,7 +40,13 @@ class FleetPlaybooks(Protocol):
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
-    ) -> AnsibleRun: ...
+    ) -> AnsibleRun:
+        """Run ``playbook`` across the edges ``host_limit`` selects, or all of them.
+
+        ``variables`` are staged for this run alone and ``name`` labels its log. No
+        deployment lock is taken: these plays write no desired state.
+        """
+        ...
 
 
 class CacheRunner(Protocol):
@@ -52,6 +60,14 @@ class CacheRunner(Protocol):
         tags: Sequence[str],
         purge_all: bool,
         host_limit: str | None = None,
-    ) -> AnsibleRun: ...
+    ) -> AnsibleRun:
+        """Purge cached responses on the edges ``host_limit`` selects, or all.
 
-    def run_connections(self, *, host_limit: str | None = None) -> AnsibleRun: ...
+        By exact ``entries``, by URL ``prefixes`` and by ``tags``, or everything when
+        ``purge_all`` is set. Takes no deployment lock.
+        """
+        ...
+
+    def run_connections(self, *, host_limit: str | None = None) -> AnsibleRun:
+        """Read each selected edge's connection counters. Takes no deployment lock."""
+        ...

@@ -336,6 +336,7 @@ class DeploymentService:
     def paginate_deployments(
         self, *, limit: int, offset: int
     ) -> PageResult[Deployment]:
+        """One page of deployment history, newest first."""
         return self.persistence.deployments.paginate_deployments(
             limit=limit, offset=offset
         )
@@ -347,6 +348,10 @@ class DeploymentService:
     def paginate_targets(
         self, deployment_id: str, *, limit: int, offset: int
     ) -> PageResult[DeploymentTarget]:
+        """One page of a deployment's per-edge progress, ordered by edge.
+
+        Raises ``NotFoundError`` for an unknown deployment rather than an empty page.
+        """
         self.get_deployment(deployment_id)
         return self.persistence.targets.paginate_targets(
             deployment_id, limit=limit, offset=offset

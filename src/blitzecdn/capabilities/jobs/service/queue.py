@@ -229,14 +229,17 @@ class JobQueue:
     # -- Reading -------------------------------------------------------
 
     def get(self, job_id: str) -> Job:
+        """One job; raises ``NotFoundError`` if there is none by that id."""
         return self.jobs.get(job_id)
 
     def list_jobs(
         self, *, status: JobStatus | None = None, limit: int = 50
     ) -> Sequence[Job]:
+        """The ``limit`` most recent jobs, newest first, optionally of one status."""
         return self.jobs.list_jobs(status=status, limit=limit)
 
     def prune(self) -> int:
+        """Drop finished jobs beyond the retention count; returns how many went."""
         return self.jobs.prune(self.retention)
 
     # -- Internals -----------------------------------------------------

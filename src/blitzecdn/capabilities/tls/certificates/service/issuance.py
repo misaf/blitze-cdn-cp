@@ -130,6 +130,13 @@ class CertificateService:
         private_key_pem: bytes,
         operator: str,
     ) -> CertificateInfo:
+        """Install an operator's certificate for site ``name`` and switch to it.
+
+        Takes the deployment lock, so it raises ``DeploymentBusyError`` while a
+        deployment runs. The certificate reaches the edges with the next convergence,
+        which this records as owed. Raises ``ConfigurationError`` for material that
+        does not validate and ``NotFoundError`` for an unknown site.
+        """
         with (
             self.execution.runner.lock(),
             self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress,
@@ -305,6 +312,13 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
+        """Issue a certificate for site ``name`` over HTTP-01 and switch to it.
+
+        Takes the deployment lock for the whole issuance, so it raises
+        ``DeploymentBusyError`` while a deployment runs. Refuses with
+        ``ConflictError`` when preflight shows the CA could not validate, unless
+        ``skip_preflight`` overrides it; the override is audited.
+        """
         registration_email = self._registration_email(email)
         with self.execution.runner.lock():
             with self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress:
@@ -448,6 +462,10 @@ class CertificateService:
     # -- Reporting -----------------------------------------------------
 
     def certificate(self, name: str) -> CertificateInfo:
+        """The current certificate of site ``name``.
+
+        Raises ``NotFoundError`` for an unknown site or one without a certificate.
+        """
         self.persistence.sites.get_site(name)
         return self.persistence.certificates.get(name)
 

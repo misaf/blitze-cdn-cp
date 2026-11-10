@@ -46,6 +46,7 @@ class DnsService:
     # -- Domains -------------------------------------------------------
 
     def list_domains(self) -> list[Domain]:
+        """Every zone, ordered by name."""
         return self.zones.list_domains()
 
     def get_domain(self, name: str) -> Domain:
@@ -53,6 +54,10 @@ class DnsService:
         return self.zones.get_domain(name)
 
     def create_domain(self, domain: Domain, operator: str) -> Domain:
+        """Serve a new zone and record who added it.
+
+        Raises ``ConflictError`` if the zone is already served.
+        """
         with self.uow.transaction():
             created = self.zones.create_domain(domain)
             self.events.record(
@@ -118,6 +123,7 @@ class DnsService:
     # -- Records -------------------------------------------------------
 
     def list_records(self, domain: str | None = None) -> list[DnsRecord]:
+        """Every record, or one zone's; ``NotFoundError`` if that zone is not served."""
         if domain is not None:
             self.zones.get_domain(domain)
         return self.zones.list_records(domain)
@@ -127,6 +133,11 @@ class DnsService:
         return self.zones.get_record(domain, name, type_)
 
     def create_record(self, record: DnsRecord, operator: str) -> DnsRecord:
+        """Add a record to its zone and record who did.
+
+        Raises ``NotFoundError`` if the zone is not served and ``ConflictError`` if
+        the name already has a record of that type.
+        """
         with self.uow.transaction():
             created = self.zones.create_record(record)
             self.events.record(
@@ -148,6 +159,11 @@ class DnsService:
         patch: RecordPatch,
         operator: str,
     ) -> DnsRecord:
+        """Merge a partial change into a record and record who made it.
+
+        Read and written in one transaction against what was read, so a concurrent
+        edit raises ``ConflictError`` instead of being overwritten.
+        """
         changes = patch.model_dump(exclude_unset=True)
         with self.uow.transaction():
             current = self.zones.get_record(domain, name, type_)
@@ -190,6 +206,7 @@ class DnsService:
     def delete_record(
         self, domain: str, name: str, type_: RecordType, operator: str
     ) -> None:
+        """Remove a record and record who did; ``NotFoundError`` if absent."""
         with self.uow.transaction():
             record = self.zones.get_record(domain, name, type_)
             self.zones.delete_record(domain, name, type_)

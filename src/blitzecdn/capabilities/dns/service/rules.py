@@ -39,11 +39,13 @@ class RuleService:
         self.uow = uow
 
     def list_rules(self, domain: str | None = None) -> list[Rule]:
+        """Every rule, or one zone's; ``NotFoundError`` if that zone is not served."""
         if domain is not None:
             self.zones.get_domain(domain)
         return self.rules.list_rules(domain)
 
     def get_rule(self, domain: str, name: str) -> Rule:
+        """One rule; raises ``NotFoundError`` if there is none."""
         return self.rules.get_rule(domain, name)
 
     def resolve(
@@ -127,6 +129,10 @@ class RuleService:
         merge_overrides(self.zones.get_domain(rule.domain), rule.overrides)
 
     def delete_rule(self, domain: str, name: str, operator: str) -> None:
+        """Remove a rule and record who did; its hostnames fall back to the zone.
+
+        Raises ``NotFoundError`` if there is no such rule.
+        """
         with self.uow.transaction():
             self.rules.delete_rule(domain, name)
             self.events.record(

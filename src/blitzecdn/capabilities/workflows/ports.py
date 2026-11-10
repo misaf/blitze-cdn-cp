@@ -23,7 +23,9 @@ class WorkflowJournal(Protocol):
         kind: WorkflowKind,
         operator: str,
         resource_id: str | None = None,
-    ) -> Workflow: ...
+    ) -> Workflow:
+        """Record a new workflow of ``kind`` that ``operator`` started."""
+        ...
 
     def advance(
         self,
@@ -32,24 +34,45 @@ class WorkflowJournal(Protocol):
         *,
         step: WorkflowStep | None = None,
         error: str | None = None,
-    ) -> Workflow: ...
+    ) -> Workflow:
+        """Move a workflow to ``status``, appending ``step`` and recording ``error``.
 
-    def get(self, workflow_id: str) -> Workflow: ...
+        Raises ``NotFoundError`` for an unknown workflow.
+        """
+        ...
 
-    def unfinished(self) -> list[Workflow]: ...
+    def get(self, workflow_id: str) -> Workflow:
+        """One workflow; raises ``NotFoundError`` if there is none by that id."""
+        ...
 
-    def prune_finished(self, keep: int) -> int: ...
+    def unfinished(self) -> list[Workflow]:
+        """Every workflow not yet finished, oldest first."""
+        ...
+
+    def prune_finished(self, keep: int) -> int:
+        """Drop finished workflows beyond the newest ``keep``; returns how many.
+
+        Unfinished and NEEDS_REVIEW workflows always stay: the latter is the only
+        record of interrupted external work until an operator acknowledges it.
+        """
+        ...
 
 
 class WorkflowHistory(Protocol):
     """The journal, read-only: the service writes through `WorkflowJournal`."""
 
-    def get(self, workflow_id: str) -> Workflow: ...
+    def get(self, workflow_id: str) -> Workflow:
+        """One workflow; raises ``NotFoundError`` if there is none by that id."""
+        ...
 
-    def paginate_workflows(
-        self, *, limit: int, offset: int
-    ) -> PageResult[Workflow]: ...
+    def paginate_workflows(self, *, limit: int, offset: int) -> PageResult[Workflow]:
+        """One page of the journal, newest first."""
+        ...
 
-    def list_workflows(self, limit: int = 100) -> list[Workflow]: ...
+    def list_workflows(self, limit: int = 100) -> list[Workflow]:
+        """The ``limit`` most recent workflows, newest first."""
+        ...
 
-    def statistics(self) -> WorkflowStatistics: ...
+    def statistics(self) -> WorkflowStatistics:
+        """Counts across the whole retained journal, for monitoring."""
+        ...
