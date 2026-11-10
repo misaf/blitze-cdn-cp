@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import Field
 
 from blitzecdn.capabilities.workflows.domain import WorkflowKind, WorkflowStatus
-from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.delivery.api.models import Model
 
 __all__ = ["Workflow", "WorkflowStep"]
 

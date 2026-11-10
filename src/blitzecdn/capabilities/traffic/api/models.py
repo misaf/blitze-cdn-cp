@@ -7,7 +7,7 @@ from blitzecdn.capabilities.traffic.domain import (
     FreshnessState,
     StatusClass,
 )
-from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.delivery.api.models import Model
 
 
 class CacheCounters(Model):

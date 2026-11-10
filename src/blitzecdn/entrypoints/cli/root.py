@@ -12,7 +12,7 @@ import typer
 
 from blitzecdn import __version__
 from blitzecdn.core.runtime.logging import configure_logging
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 app = typer.Typer(
     no_args_is_help=True,

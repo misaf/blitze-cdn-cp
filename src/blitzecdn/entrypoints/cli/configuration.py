@@ -7,7 +7,7 @@ import yaml
 
 from blitzecdn.core.domain.validation import validate_setting_name
 from blitzecdn.core.ports.operations import FleetSettings
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 config_app = typer.Typer(no_args_is_help=True, help="Manage global edge policy.")
 

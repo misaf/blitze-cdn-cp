@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends
 from blitzecdn.capabilities.workflows.api.models import Workflow
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import as_operation
-from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
+from blitzecdn.delivery.api.models import as_operation
+from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

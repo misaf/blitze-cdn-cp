@@ -78,7 +78,8 @@ is handled by `install.sh` and the bundled control-plane Ansible roles.
 | `src/blitzecdn/capabilities/` | Business capabilities: DNS, edges, TLS, releases, deployments, jobs, backups, and related policy |
 | `src/blitzecdn/core/` | Shared domain values and ports, configuration, feature machinery, persistence infrastructure, runtime utilities, and Ansible integration |
 | `src/blitzecdn/composition/` | Dependency construction, feature roster, concrete adapter bindings, and API/worker lifecycle |
-| `src/blitzecdn/entrypoints/` | API and CLI assembly, worker process, and installer handoff |
+| `src/blitzecdn/delivery/` | Shared API and CLI toolkit every capability's routes and commands use: models, dependencies, pagination, output and options |
+| `src/blitzecdn/entrypoints/` | API and CLI assembly, worker process, and installer handoff; nothing imports it |
 | `src/blitzecdn/host/` | Host-side runtime integration |
 | `src/blitzecdn/assets/` | Packaged migrations, shared Ansible automation, and Docker build assets |
 | `tests/` | Capability, delivery, architecture, contract, journey, and platform checks |

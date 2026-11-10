@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends
 
 from blitzecdn.capabilities.automatic_ssl.api.models import SslAutomaticReconciliation
 from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import as_operation
+from blitzecdn.delivery.api.models import as_operation
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

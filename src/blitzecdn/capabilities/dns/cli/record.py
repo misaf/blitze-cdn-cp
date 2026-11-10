@@ -12,7 +12,7 @@ import typer
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.cli.app import dns_app, record_app
 from blitzecdn.capabilities.dns.domain import DnsRecord, RecordType
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 
 @record_app.command("add")

@@ -3,9 +3,9 @@ from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Response
 
 from blitzecdn.capabilities.jobs.service import OperationService
-from blitzecdn.entrypoints.api.dependencies import require_operator
-from blitzecdn.entrypoints.api.models import Operation, as_queued
-from blitzecdn.entrypoints.api.responses import POLL_RESPONSE, polling_headers
+from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.models import Operation, as_queued
+from blitzecdn.delivery.api.responses import POLL_RESPONSE, polling_headers
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

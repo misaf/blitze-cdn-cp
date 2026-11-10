@@ -12,7 +12,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateRequest as DomainCertificateRequest,
 )
-from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.delivery.api.models import Model
 
 
 class CertificateInfo(Model):

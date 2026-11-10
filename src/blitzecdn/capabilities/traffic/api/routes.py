@@ -18,8 +18,8 @@ from blitzecdn.capabilities.traffic.api.models import (
 from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.capabilities.traffic.domain.analytics import Granularity, SiteQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
-from blitzecdn.entrypoints.api.dependencies import require_operator
-from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
+from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

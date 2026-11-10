@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.delivery.api.models import Model
 
 
 class ValidationIssue(Model):

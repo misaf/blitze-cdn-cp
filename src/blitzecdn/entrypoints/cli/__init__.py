@@ -1,7 +1,7 @@
-"""Command-line adapter package; imports nothing at package import time.
+"""The command line's assembly; imports nothing at package import time.
 
-Every command module imports ``common`` from here, so an eager import of the
-assembled app would re-enter command loading. ``app`` is resolved lazily via
+Importing a submodule runs this first, so an eager import of the assembled app
+would re-enter command loading. ``app`` is resolved lazily via
 PEP 562 for the documentation site; the root Typer lives in ``root``, never a
 submodule named ``app``, which would shadow it.
 """
