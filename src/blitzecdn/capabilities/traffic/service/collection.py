@@ -54,6 +54,11 @@ class TrafficService:
         self.clock = clock
 
     def status(self, edge: str) -> CollectionStatus:
+        """How fresh ``edge``'s collected traffic is, judged now.
+
+        Raises ``NotFoundError`` for an edge that is neither registered nor has any
+        collection history.
+        """
         record = self.store.collection_status(edge)
         registered = edge in self.edge_names()
         if not registered and record is None:
@@ -103,6 +108,11 @@ class TrafficService:
         )
 
     def prune(self, operator: str, *, retention_days: int) -> None:
+        """Delete traffic older than ``retention_days`` and audit the pass.
+
+        Zero keeps everything. Bounded per call: what remains expired goes on the
+        next pass, with a warning logged.
+        """
         if retention_days == 0:
             return
         with self.uow.transaction():
@@ -123,6 +133,7 @@ class TrafficService:
             _LOGGER.warning("expired traffic remains until the next retention pass")
 
     def usage(self, query: UsageQuery) -> PageResult[TrafficUsage]:
+        """One page of stored usage, cache outcomes included, matching ``query``."""
         return self.store.usage(query)
 
     def site_buckets(self, query: SiteQuery) -> PageResult[SiteBucket]:
@@ -136,6 +147,11 @@ class TrafficService:
     def collect(
         self, operator: str, *, host_limit: str | None = None
     ) -> tuple[EdgeCollection, ...]:
+        """Run one collection pass over the edges ``host_limit`` selects, or all.
+
+        Returns one result per edge, including edges that failed or did not report.
+        Raises ``ExecutionError`` when the run reports no edge at all.
+        """
         host_limit = validate_edge_limit(host_limit)
         targets = tuple(
             name

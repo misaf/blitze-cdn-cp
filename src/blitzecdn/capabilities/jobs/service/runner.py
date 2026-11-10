@@ -53,10 +53,12 @@ class JobRunner:
         self._stop = threading.Event()
 
     def start_reporting(self) -> None:
+        """Start this worker's heartbeat, if it was given somewhere to publish it."""
         if self.progress is not None:
             self.progress.start(self.queue.worker_id)
 
     def stop_reporting(self) -> None:
+        """Stop the heartbeat and withdraw this worker's record, if it has one."""
         if self.progress is not None:
             self.progress.stop()
 
