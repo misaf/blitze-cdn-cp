@@ -12,8 +12,8 @@ from blitzecdn.capabilities.error_pages.contract import (
     ERROR_PAGE_STATUSES,
     ErrorPagesPolicy,
 )
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.domain_editing import report, update
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.domain_editing import report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: error presentation, so they ship with the capability that owns them.

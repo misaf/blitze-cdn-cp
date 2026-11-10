@@ -8,8 +8,8 @@ from typer.testing import CliRunner
 from blitzecdn.capabilities.tls.certificates.domain import ChallengeEdges
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.delivery.cli.common import ExitCode
 from blitzecdn.entrypoints.cli import main as cli
-from blitzecdn.entrypoints.cli.common import ExitCode
 
 runner = CliRunner()
 

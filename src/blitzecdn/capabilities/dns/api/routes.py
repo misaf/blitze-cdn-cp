@@ -21,11 +21,11 @@ from blitzecdn.capabilities.dns.api.models import (
 from blitzecdn.capabilities.dns.domain import PatchPolicy
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.pagination import Page, paginate
+from blitzecdn.delivery.api.pagination import Page, paginate
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

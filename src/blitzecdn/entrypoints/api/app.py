@@ -15,13 +15,13 @@ from blitzecdn.composition import Adapters, ApiNode, api_container, load_registr
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
-from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
-from blitzecdn.entrypoints.api.body_limit import RequestBodyLimitMiddleware
-from blitzecdn.entrypoints.api.validation import (
+from blitzecdn.delivery.api.validation import (
     VALIDATION_RESPONSE,
     ValidationErrorResponse,
     validation_response,
 )
+from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
+from blitzecdn.entrypoints.api.body_limit import RequestBodyLimitMiddleware
 
 
 def create_app(

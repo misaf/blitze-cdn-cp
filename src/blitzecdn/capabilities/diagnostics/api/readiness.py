@@ -11,8 +11,8 @@ from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.core.features import Operations
-from blitzecdn.entrypoints.api.dependencies import require_operator
-from blitzecdn.entrypoints.api.validation import VALIDATION_RESPONSE
+from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.validation import VALIDATION_RESPONSE
 
 router = APIRouter(route_class=DishkaSyncRoute)
 _LOGGER = logging.getLogger(__name__)

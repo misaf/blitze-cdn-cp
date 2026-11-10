@@ -15,7 +15,7 @@ from blitzecdn.capabilities.dns.cli.app import rule_app
 from blitzecdn.capabilities.dns.domain import Rule, RulePatch
 from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.core.domain.paths import PathRedirect
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 _SET_HELP = (
     "A zone setting to override, as name=value. Repeatable. Values are read "

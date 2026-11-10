@@ -6,7 +6,7 @@ import typer
 
 from blitzecdn.capabilities.security.geoip.service import GeoIpService
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 geoip_app = typer.Typer(
     no_args_is_help=True,

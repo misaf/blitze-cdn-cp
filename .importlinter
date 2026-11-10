@@ -39,8 +39,8 @@ forbidden_modules =
     yaml
     sqlalchemy
     sqlmodel
-    blitzecdn.entrypoints.api
-    blitzecdn.entrypoints.cli
+    blitzecdn.delivery
+    blitzecdn.entrypoints
     blitzecdn.composition
     # Whole packages, not module names: `core.runtime` is everything of core's
     # that touches the machine and `core.persistence` everything that touches
@@ -73,8 +73,8 @@ forbidden_modules =
     yaml
     sqlalchemy
     sqlmodel
-    blitzecdn.entrypoints.api
-    blitzecdn.entrypoints.cli
+    blitzecdn.delivery
+    blitzecdn.entrypoints
     blitzecdn.composition
     blitzecdn.core.ansible
     blitzecdn.core.persistence
@@ -82,15 +82,14 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:capability-adapters]
-name = A capability's adapters never reach an entry layer or the composition root
+name = A capability's adapters never reach a delivery layer, an entry point or the composition root
 type = forbidden
 source_modules =
     blitzecdn.capabilities.**.adapters
 forbidden_modules =
-    blitzecdn.entrypoints.api
-    blitzecdn.entrypoints.cli
+    blitzecdn.delivery
+    blitzecdn.entrypoints
     blitzecdn.composition
-    blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
 [importlinter:contract:entry-persistence]
@@ -100,6 +99,7 @@ type = forbidden
 # entry points, rather than private the way an adapter is. No other capability
 # imports either (see the public-surface contracts at the end).
 source_modules =
+    blitzecdn.delivery
     blitzecdn.entrypoints.api
     blitzecdn.entrypoints.cli
     blitzecdn.capabilities.**.api
@@ -112,6 +112,7 @@ allow_indirect_imports = True
 name = CLI code uses public contracts, never private adapters
 type = forbidden
 source_modules =
+    blitzecdn.delivery.cli
     blitzecdn.entrypoints.cli
     blitzecdn.capabilities.**.cli
 forbidden_modules =
@@ -160,14 +161,12 @@ forbidden_modules =
     sqlalchemy
     sqlmodel
     blitzecdn.assets.ansible
-    blitzecdn.entrypoints.api
+    blitzecdn.delivery
+    blitzecdn.entrypoints
     blitzecdn.capabilities
-    blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.assets.docker
     blitzecdn.host.compose_files
-    blitzecdn.entrypoints.install_handoff
-    blitzecdn.entrypoints.worker
 allow_indirect_imports = True
 
 [importlinter:contract:core-layers]
@@ -179,6 +178,23 @@ layers =
     ansible : config : features : persistence : runtime
     domain : ports : exceptions
 exhaustive = True
+
+[importlinter:contract:entrypoints-are-outermost]
+name = Nothing imports the entry points
+type = forbidden
+# `entrypoints` assembles the application and starts the processes; the
+# toolkit routes and commands are written with is `delivery`. Anything that
+# needs the assembled app is itself an entry point and lives there.
+source_modules =
+    blitzecdn.assets
+    blitzecdn.capabilities
+    blitzecdn.composition
+    blitzecdn.core
+    blitzecdn.delivery
+    blitzecdn.host
+forbidden_modules =
+    blitzecdn.entrypoints
+allow_indirect_imports = True
 
 [importlinter:contract:worker-is-a-consumer]
 name = Nothing imports the worker
@@ -192,6 +208,7 @@ source_modules =
     blitzecdn.entrypoints.cli
     blitzecdn.composition
     blitzecdn.core
+    blitzecdn.delivery
     blitzecdn.assets.docker
     blitzecdn.host.compose_files
     blitzecdn.entrypoints.install_handoff
@@ -224,8 +241,8 @@ forbidden_modules =
     fastapi
     fastapi_pagination
     typer
-    blitzecdn.entrypoints.api
-    blitzecdn.entrypoints.cli
+    blitzecdn.delivery
+    blitzecdn.entrypoints
     blitzecdn.**.api
     blitzecdn.**.cli
     blitzecdn.**.feature
@@ -235,7 +252,7 @@ allow_indirect_imports = True
 name = The application and CLI assemblies name no capability
 type = forbidden
 # They ask the feature registry, so a capability missing from both forgot to
-# contribute rather than somebody forgetting to wire it. `api/models.py`
+# contribute rather than somebody forgetting to wire it. `delivery/api/models.py`
 # translates domain values and has to name them; it is outside the rule.
 source_modules =
     blitzecdn.entrypoints.api.app

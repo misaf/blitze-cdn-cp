@@ -92,8 +92,8 @@ from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.fleet import FleetRoster
 from blitzecdn.core.ports.operations import AuditTrail
+from blitzecdn.delivery.cli import common as cli_common
 from blitzecdn.entrypoints.api import create_app
-from blitzecdn.entrypoints.cli import common as cli_common
 from support.policy import (
     TEST_CERTIFICATE_VERSION,
     domain_from_settings,

@@ -1,4 +1,4 @@
-"""Read-only controller reporting: doctor, audit, features and the API server."""
+"""Read-only controller reporting: doctor, audit and features."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 import typer
-import uvicorn
 
 from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
@@ -26,9 +25,8 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.core.ports.operations import AuditTrail
-from blitzecdn.entrypoints.api import create_app
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode
 
 #: Root-level controller reports, such as `blitzecdn overview`.
 diagnostics_app = typer.Typer()
@@ -267,17 +265,3 @@ def doctor(
         typer.echo(f"\n{resolver_report.detail}.", err=True)
     if report["configuration_errors"]:
         raise typer.Exit(ExitCode.CONFIGURATION)
-
-
-@diagnostics_app.command()
-def serve(
-    host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(min=1, max=65535)] = 8000,
-) -> None:
-    """Run the authenticated HTTP control plane."""
-    settings = common.settings()
-    if not settings.api_keys:
-        raise typer.BadParameter("configure BLITZE_API_KEYS before starting the API")
-    uvicorn.run(
-        create_app(settings), host=host, port=port, access_log=True, proxy_headers=False
-    )

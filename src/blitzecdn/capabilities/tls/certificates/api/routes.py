@@ -21,13 +21,13 @@ from blitzecdn.capabilities.tls.certificates.service.operations import (
     CertificateRequestJob,
     request_dedupe_key,
 )
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import Operation, as_operation, as_queued
-from blitzecdn.entrypoints.api.pagination import Page, paginate
-from blitzecdn.entrypoints.api.responses import (
+from blitzecdn.delivery.api.models import Operation, as_operation, as_queued
+from blitzecdn.delivery.api.pagination import Page, paginate
+from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
 )

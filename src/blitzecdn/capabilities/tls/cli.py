@@ -13,8 +13,8 @@ from blitzecdn.capabilities.tls.contract import (
     SslMode,
     TlsPolicy,
 )
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.domain_editing import report, update
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.domain_editing import report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: tls settings, so they ship with the capability that owns them.

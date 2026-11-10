@@ -11,8 +11,8 @@ from blitzecdn.capabilities.cache.domain import PurgeEntry as DomainPurgeEntry
 from blitzecdn.capabilities.cache.domain import PurgePrefix as DomainPurgePrefix
 from blitzecdn.capabilities.cache.domain import PurgeTag
 from blitzecdn.capabilities.http.contract import HttpScheme
-from blitzecdn.entrypoints.api.models import Model
-from blitzecdn.entrypoints.api.requests import FleetRequest
+from blitzecdn.delivery.api.models import Model
+from blitzecdn.delivery.api.requests import FleetRequest
 
 
 class PurgeEntry(Model):

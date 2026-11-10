@@ -152,6 +152,8 @@ def _is_entry(path: Path) -> bool:
 def _entry_files() -> list[Path]:
     return [
         *(path for path in _capability_files() if _is_entry(path)),
+        *(_SOURCE / "delivery").rglob("*.py"),
+        *(_SOURCE / "delivery").rglob("*.py"),
         *(_SOURCE / "entrypoints/api").rglob("*.py"),
         *(_SOURCE / "entrypoints/cli").rglob("*.py"),
     ]
@@ -738,9 +740,11 @@ def test_the_compiler_accepts_only_captured_values():
 
 
 #: The modules that start a process, and the one container each may build.
+#: The CLI's sits in `delivery` because every command resolves its services
+#: through `common.service`, so the per-invocation container is shared toolkit.
 _PROCESS_ENTRY_POINTS = {
     "entrypoints/api/app.py": "api_container",
-    "entrypoints/cli/common.py": "cli_container",
+    "delivery/cli/common.py": "cli_container",
     "entrypoints/worker.py": "worker_container",
     "entrypoints/install_handoff.py": "handoff_container",
 }

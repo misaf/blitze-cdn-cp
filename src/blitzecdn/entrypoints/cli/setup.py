@@ -13,7 +13,7 @@ import typer
 
 from blitzecdn.composition import migrate_database
 from blitzecdn.core.runtime.filesystem import create_private_file
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 from blitzecdn.entrypoints.cli.root import app
 
 

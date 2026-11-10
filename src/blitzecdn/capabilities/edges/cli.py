@@ -16,7 +16,7 @@ from blitzecdn.capabilities.edges.domain import (
 )
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_edge_modules
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 
