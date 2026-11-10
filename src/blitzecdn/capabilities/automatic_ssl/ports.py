@@ -25,4 +25,10 @@ class SslModeUpgrades(Protocol):
 
     def apply_automatic_ssl_upgrade(
         self, site_name: str, target: SslMode, operator: str
-    ) -> CdnSite | None: ...
+    ) -> CdnSite | None:
+        """Move a host still enrolled in Automatic SSL up to ``target``.
+
+        ``None`` when nothing was written, because the host left Automatic SSL or
+        already serves a stronger mode.
+        """
+        ...

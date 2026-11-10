@@ -20,7 +20,13 @@ class FleetPlaybooks(Protocol):
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
-    ) -> AnsibleRun: ...
+    ) -> AnsibleRun:
+        """Run ``playbook`` across the edges ``host_limit`` selects, or all of them.
+
+        ``variables`` are staged for this run alone and ``name`` labels its log. No
+        deployment lock is taken: these plays write no desired state.
+        """
+        ...
 
 
 class OriginCheckRunner(Protocol):
@@ -31,19 +37,29 @@ class OriginCheckRunner(Protocol):
         *,
         sites: Sequence[Mapping[str, object]],
         host_limit: str | None = None,
-    ) -> AnsibleRun: ...
+    ) -> AnsibleRun:
+        """Ask each edge in scope to connect to the origins in ``sites``.
+
+        Sites travel as run variables: no lock is taken, so the desired-state file
+        may belong to a deploy in flight.
+        """
+        ...
 
 
 class SiteReader(Protocol):
     """The read side of the site model, as the control plane publishes it."""
 
-    def list_sites(self) -> list[CdnSite]: ...
+    def list_sites(self) -> list[CdnSite]:
+        """Every virtual host, derived from one snapshot of zones, rules and records."""
+        ...
 
 
 class OriginProbe(Protocol):
     """Describing a site's origin to the edges; only ``to_probe`` is used here."""
 
-    def to_probe(self, site: CdnSite) -> dict[str, object]: ...
+    def to_probe(self, site: CdnSite) -> dict[str, object]:
+        """Render ``site``'s canonical origin as the edge-side check reads it."""
+        ...
 
 
 __all__ = ["FleetPlaybooks", "OriginCheckRunner", "OriginProbe", "SiteReader"]

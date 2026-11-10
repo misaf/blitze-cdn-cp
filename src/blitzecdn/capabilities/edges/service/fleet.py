@@ -45,6 +45,7 @@ class EdgeOperationsService:
         return self.edges.list_edges()
 
     def get_edge(self, name: str) -> Edge:
+        """One edge; raises ``NotFoundError`` if there is none by that name."""
         return self.edges.get_edge(name)
 
     def add_edge(self, edge: Edge, operator: str) -> Edge:
@@ -111,6 +112,7 @@ class EdgeOperationsService:
         return self.host_keys.scan(edge.host, edge.port)
 
     def trusted_host_keys(self, edge: Edge) -> tuple[HostKey, ...]:
+        """The keys the controller trusts for ``edge``'s address; empty if none."""
         return self.host_keys.trusted(edge.host, edge.port)
 
     def trust_host_keys(

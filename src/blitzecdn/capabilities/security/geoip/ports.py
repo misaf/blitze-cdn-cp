@@ -28,7 +28,12 @@ class DatabaseSource(Protocol):
 class DatabaseStore(Protocol):
     """Immutable, fingerprinted databases, and which one is current."""
 
-    def current(self) -> GeoIpDatabase | None: ...
+    def current(self) -> GeoIpDatabase | None:
+        """The database releases ship from now on, or ``None`` before the first.
+
+        Raises ``ConfigurationError`` when the recorded database file is missing.
+        """
+        ...
 
     def current_digest(self) -> str | None:
         """The digest ``current`` records, whether or not its file still exists."""
@@ -46,7 +51,13 @@ class DatabaseStore(Protocol):
 class DeploymentLock(Protocol):
     """The fleet-wide deployment lock: no release compiles while it is held."""
 
-    def lock(self) -> AbstractContextManager[Any]: ...
+    def lock(self) -> AbstractContextManager[Any]:
+        """The exclusive, fleet-wide deployment lock, as a context manager.
+
+        Entering does not wait: it raises ``DeploymentBusyError`` while another
+        process holds the lock.
+        """
+        ...
 
 
 class DeploymentRequirement(Protocol):
@@ -68,4 +79,6 @@ class ReleasedState(Protocol):
 class ReleaseHistory(Protocol):
     """Every retained release, whose pinned database a rollback still needs."""
 
-    def list_releases(self, limit: int | None = 20) -> Sequence[ReleasedState]: ...
+    def list_releases(self, limit: int | None = 20) -> Sequence[ReleasedState]:
+        """The ``limit`` most recent releases, newest first; ``None`` for all."""
+        ...
