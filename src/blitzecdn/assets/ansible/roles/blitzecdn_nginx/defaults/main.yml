@@ -57,35 +57,17 @@ blitzecdn_nginx_limit_conn_per_ip: 256
 blitzecdn_nginx_limit_conn_zone_size: 20m
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
-# Idle connections to an origin each worker keeps open per upstream group, for
-# the next cache miss to reuse. Every proxied site renders one group per origin
-# scheme and port it reaches; see site.conf.j2. It is a cap on idle sockets,
-# not on concurrency: a burst opens as many connections as it needs and only
-# this many are kept afterwards. 0 turns pooling off and every miss opens a
-# fresh connection, as an edge did before upstream groups existed.
+# Idle origin connections kept per worker per upstream group (not a
+# concurrency cap). 0 turns pooling off. See docs/design/origin-connections.md.
 blitzecdn_nginx_upstream_keepalive: 32
-# How long an idle origin connection is kept. Below an Nginx origin's own 75s,
-# so against the most common origin the edge closes first rather than writing a
-# request into a socket the origin is closing. An origin with a shorter idle
-# timeout — Apache's default is 5s — closes first instead; Nginx retries a
-# request whose reused connection turns out to be closed, except a
-# non-idempotent one it had already sent.
+# Below an nginx origin's own 75s so the edge closes first.
 blitzecdn_nginx_upstream_keepalive_timeout: 60s
-# The shared-memory zone every upstream group on the edge is placed in. Only
-# used with resolvers: `server ... resolve` re-resolves the origin at runtime
-# and needs its group in shared memory. One zone for the whole edge, so its
-# size is one setting rather than one per site. Measured against the edge
-# image, a megabyte holds about seven hundred groups and a site needs at most
-# one per listener port, so 32m is well over a thousand fully-proxied sites.
-# Too small fails `nginx -t` with "no memory in upstream zone" before the
-# release is activated, never at runtime.
+# One edge-wide zone for every upstream group, used only with resolvers.
+# ~700 groups per megabyte; too small fails `nginx -t`, never runtime.
 blitzecdn_nginx_upstream_zone: blitzecdn_origins
 blitzecdn_nginx_upstream_zone_size: 32m
-# The loopback port of the origin hop: a site whose capabilities rewrite the
-# origin's response before the cache reads it (an `origin` fragment) is proxied
-# to itself here first, one server per site and origin told apart by Host.
-# Loopback only, beside the status endpoint; nothing else on the edge host may
-# bind it.
+# Loopback port of the origin hop; nothing else on the edge may bind it.
+# See docs/design/origin-connections.md#the-origin-hop.
 blitzecdn_nginx_origin_hop_port: 8091
 blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
 # Documents a site serves itself, such as its error pages: the `page`
@@ -98,16 +80,8 @@ blitzecdn_nginx_pages_dir: "{{ blitzecdn_edge_runtime.paths.nginx }}/pages"
 # — the capability itself is blitzecdn_edge_runtime.listeners.http3, which the
 # firewall reads too. Derived by the control plane from enabled sites.
 blitzecdn_nginx_http3_listener_owner: ''
-# Which image a configuration test runs under. Normally the image this edge
-# runs — blitzecdn_edge_runtime.image, the same one blitzecdn_edge_stack serves
-# from, because validating against one image and serving from another is the
-# drift the shared contract exists to prevent. blitzecdn_edge_stack overrides
-# this to validate the current configuration against a *new* image before
-# replacing the container serving traffic.
-#
-# Nginx does not run on the host: it runs in the container
-# blitzecdn_edge_stack starts, so `nginx -t` and `nginx -s reload` in this role
-# mean "in that container".
+# The image `nginx -t` runs under: the serving image, overridden by
+# blitzecdn_edge_stack to test a new one before replacing the container.
 blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
