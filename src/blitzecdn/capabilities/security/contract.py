@@ -5,7 +5,6 @@ The country and method tables have one consumer, so they live here.
 
 from __future__ import annotations
 
-import ipaddress
 import re
 from collections.abc import Mapping, Sequence
 from typing import Self
@@ -19,7 +18,7 @@ from pydantic import (
 )
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import OmittedWhenEmpty, unique
+from blitzecdn.core.domain.validation import OmittedWhenEmpty, ip_network, unique
 
 COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
@@ -392,7 +391,7 @@ class SiteFirewall(OmittedWhenEmpty):
         for item in values:
             candidate = item.strip()
             try:
-                normalized.append(str(ipaddress.ip_network(candidate, strict=True)))
+                normalized.append(str(ip_network(candidate, strict=True)))
             except ValueError as error:
                 raise ValueError(
                     f"{item!r} is not an IP address or CIDR network: {error}"
