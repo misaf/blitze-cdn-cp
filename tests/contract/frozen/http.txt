@@ -1,11 +1,9 @@
 blitzecdn	route	DELETE /v3/domains/{domain}
-blitzecdn	route	DELETE /v3/domains/{domain}/records/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}/records/{type}/{name}
 blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
 blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
-blitzecdn	route	GET /v3/analytics/sites/{site}
-blitzecdn	route	GET /v3/analytics/sites/{site}/paths
 blitzecdn	route	GET /v3/audit-events
 blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
@@ -17,27 +15,30 @@ blitzecdn	route	GET /v3/dns/export
 blitzecdn	route	GET /v3/domains
 blitzecdn	route	GET /v3/domains/{domain}
 blitzecdn	route	GET /v3/domains/{domain}/records
+blitzecdn	route	GET /v3/domains/{domain}/records/{type}/{name}
 blitzecdn	route	GET /v3/domains/{domain}/resolve
 blitzecdn	route	GET /v3/domains/{domain}/rules
 blitzecdn	route	GET /v3/domains/{domain}/rules/{name}
 blitzecdn	route	GET /v3/edges
 blitzecdn	route	GET /v3/edges/{name}
-blitzecdn	route	GET /v3/hosts
-blitzecdn	route	GET /v3/hosts/{name}
-blitzecdn	route	GET /v3/hosts/{name}/certificate
-blitzecdn	route	GET /v3/hosts/{name}/certificate/preflight
 blitzecdn	route	GET /v3/operations/{operation_id}
 blitzecdn	route	GET /v3/releases
 blitzecdn	route	GET /v3/releases/current
 blitzecdn	route	GET /v3/releases/{release_id}
 blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
+blitzecdn	route	GET /v3/sites
+blitzecdn	route	GET /v3/sites/{name}
+blitzecdn	route	GET /v3/sites/{name}/certificate
+blitzecdn	route	GET /v3/sites/{name}/certificate/preflight
 blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/traffic/sites/{site}
+blitzecdn	route	GET /v3/traffic/sites/{site}/paths
 blitzecdn	route	GET /v3/traffic/status/{edge}
 blitzecdn	route	GET /v3/traffic/usage
 blitzecdn	route	GET /v3/workflows
 blitzecdn	route	GET /v3/workflows/{workflow_id}
 blitzecdn	route	PATCH /v3/domains/{domain}
-blitzecdn	route	PATCH /v3/domains/{domain}/records/{name}
+blitzecdn	route	PATCH /v3/domains/{domain}/records/{type}/{name}
 blitzecdn	route	PATCH /v3/domains/{domain}/rules/{name}
 blitzecdn	route	PATCH /v3/edges/{name}
 blitzecdn	route	POST /v3/cache/connections
@@ -45,17 +46,16 @@ blitzecdn	route	POST /v3/cache/purge
 blitzecdn	route	POST /v3/certificates/reconcile
 blitzecdn	route	POST /v3/certificates/renew
 blitzecdn	route	POST /v3/deployments
+blitzecdn	route	POST /v3/deployments/rollback
 blitzecdn	route	POST /v3/domains
 blitzecdn	route	POST /v3/domains/{domain}/records
 blitzecdn	route	POST /v3/domains/{domain}/rules
-blitzecdn	route	POST /v3/drift
 blitzecdn	route	POST /v3/edges
-blitzecdn	route	POST /v3/hosts/{name}/certificate/request
-blitzecdn	route	POST /v3/hosts/{name}/certificate/upload
 blitzecdn	route	POST /v3/origins/check
-blitzecdn	route	POST /v3/rollbacks
+blitzecdn	route	POST /v3/sites/{name}/certificate/request
 blitzecdn	route	POST /v3/ssl/automatic/reconcile
 blitzecdn	route	POST /v3/workflows/{workflow_id}/acknowledge
+blitzecdn	route	PUT /v3/sites/{name}/certificate
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
@@ -79,8 +79,8 @@ blitzecdn	schema	BackupStatistics.last_age_seconds	number|null required
 blitzecdn	schema	BackupStatistics.last_archive	string|null required
 blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
 blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
-blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.certificate	string required
-blitzecdn	schema	Body_upload_certificate_v3_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.certificate	string required
+blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.private_key	string required
 blitzecdn	schema	CacheCounters.bytes_sent	integer required
 blitzecdn	schema	CacheCounters.requests	integer required
 blitzecdn	schema	CacheHour.byte_hit_ratio	number|null required
@@ -272,7 +272,6 @@ blitzecdn	schema	DriftReport.deployment_id	string required
 blitzecdn	schema	DriftReport.host_limit	string|null optional
 blitzecdn	schema	DriftReport.hosts	array[HostRun] optional
 blitzecdn	schema	DriftReport.unattempted	array[string] optional
-blitzecdn	schema	DriftRequest.host_limit	string|null optional
 blitzecdn	schema	Edge.capabilities	array[string]|null optional
 blitzecdn	schema	Edge.host	string required
 blitzecdn	schema	Edge.name	string required

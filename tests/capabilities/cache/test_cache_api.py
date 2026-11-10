@@ -32,7 +32,7 @@ def _proxied_site(client, domain_payload, record_create_payload):
         json={**record_create_payload, "proxied": True},
         headers=_HEADERS,
     )
-    return client.get("/v3/hosts", headers=_HEADERS).json()["items"][0]["server_names"][
+    return client.get("/v3/sites", headers=_HEADERS).json()["items"][0]["server_names"][
         0
     ]
 

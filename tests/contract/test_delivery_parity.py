@@ -42,14 +42,14 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "domain under-attack", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain rate-limit", "PATCH /v3/domains/{domain}", ""),
     ("blitzecdn", "domain visitor-headers", "PATCH /v3/domains/{domain}", ""),
-    # -- Derived hosts: read-only on both sides ----------------------------
-    ("blitzecdn", "domain hosts", "GET /v3/hosts", ""),
+    # -- Derived sites: read-only on both sides ----------------------------
+    ("blitzecdn", "domain hosts", "GET /v3/sites", ""),
     (
         "blitzecdn",
         None,
-        "GET /v3/hosts/{name}",
-        "one derived host by name. `domain hosts` prints the whole set and an "
-        "operator greps it; a client fetching one host by name would rather "
+        "GET /v3/sites/{name}",
+        "one derived site by name. `domain hosts` prints the whole set and an "
+        "operator greps it; a client fetching one site by name would rather "
         "not receive the fleet.",
     ),
     (
@@ -63,9 +63,32 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- Records -----------------------------------------------------------
     ("blitzecdn", "record add", "POST /v3/domains/{domain}/records", ""),
     ("blitzecdn", "record list", "GET /v3/domains/{domain}/records", ""),
-    ("blitzecdn", "record proxy", "PATCH /v3/domains/{domain}/records/{name}", ""),
-    ("blitzecdn", "record unproxy", "PATCH /v3/domains/{domain}/records/{name}", ""),
-    ("blitzecdn", "record remove", "DELETE /v3/domains/{domain}/records/{name}", ""),
+    (
+        "blitzecdn",
+        "record proxy",
+        "PATCH /v3/domains/{domain}/records/{type}/{name}",
+        "",
+    ),
+    (
+        "blitzecdn",
+        "record unproxy",
+        "PATCH /v3/domains/{domain}/records/{type}/{name}",
+        "",
+    ),
+    (
+        "blitzecdn",
+        "record remove",
+        "DELETE /v3/domains/{domain}/records/{type}/{name}",
+        "",
+    ),
+    (
+        "blitzecdn",
+        None,
+        "GET /v3/domains/{domain}/records/{type}/{name}",
+        "one record by type and name, for a client that reads before it "
+        "writes. `record list` prints the zone's few records, which is what "
+        "an operator reads.",
+    ),
     ("blitzecdn", "dns export", "GET /v3/dns/export", ""),
     # -- Rules -------------------------------------------------------------
     ("blitzecdn", "rule add", "POST /v3/domains/{domain}/rules", ""),
@@ -91,7 +114,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "blitzecdn",
         None,
         "GET /v3/edges/{name}",
-        "one edge by name; see GET /v3/hosts/{name}.",
+        "one edge by name; see GET /v3/sites/{name}.",
     ),
     (
         "blitzecdn",
@@ -104,8 +127,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- Traffic -----------------------------------------------------------
     ("blitzecdn", "traffic usage", "GET /v3/traffic/usage", ""),
     ("blitzecdn", "traffic status", "GET /v3/traffic/status/{edge}", ""),
-    ("blitzecdn", "analytics site", "GET /v3/analytics/sites/{site}", ""),
-    ("blitzecdn", "analytics paths", "GET /v3/analytics/sites/{site}/paths", ""),
+    ("blitzecdn", "analytics site", "GET /v3/traffic/sites/{site}", ""),
+    ("blitzecdn", "analytics paths", "GET /v3/traffic/sites/{site}/paths", ""),
     # -- Durable work ------------------------------------------------------
     (
         "blitzecdn",
@@ -171,8 +194,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "wants to fetch just the progress without re-reading the deployment "
         "each time.",
     ),
-    ("blitzecdn", "rollback", "POST /v3/rollbacks", ""),
-    ("blitzecdn", "drift", "POST /v3/drift", ""),
+    ("blitzecdn", "rollback", "POST /v3/deployments/rollback", ""),
+    ("blitzecdn", "drift", "POST /v3/deployments", ""),
     (
         "blitzecdn",
         None,
@@ -296,7 +319,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "cert preflight",
-        "GET /v3/hosts/{name}/certificate/preflight",
+        "GET /v3/sites/{name}/certificate/preflight",
         "",
     ),
     ("blitzecdn", "cert renew", "POST /v3/certificates/renew", ""),
@@ -304,22 +327,22 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "cert upload",
-        "POST /v3/hosts/{name}/certificate/upload",
+        "PUT /v3/sites/{name}/certificate",
         "",
     ),
     (
         "blitzecdn",
         "cert request",
-        "POST /v3/hosts/{name}/certificate/request",
+        "POST /v3/sites/{name}/certificate/request",
         "",
     ),
     ("blitzecdn", "ssl reconcile", "POST /v3/ssl/automatic/reconcile", ""),
     (
         "blitzecdn",
         None,
-        "GET /v3/hosts/{name}/certificate",
-        "one host's certificate. `cert list` prints the fleet's, sorted by "
-        "expiry, which is the form a human wants; see GET /v3/hosts/{name}.",
+        "GET /v3/sites/{name}/certificate",
+        "one site's certificate. `cert list` prints the fleet's, sorted by "
+        "expiry, which is the form a human wants; see GET /v3/sites/{name}.",
     ),
     (
         "blitzecdn",

@@ -228,7 +228,7 @@ service.
 A per-site setting belongs to a capability's contract: a `CapabilityPolicy`
 model in its `contract.py`, contributed as a `PolicyContribution` in
 `Feature.site_policy`. The site policy, the zone and rule patches, and the
-`/v3/domains` and `/v3/hosts` schemas are composed from those contributions
+`/v3/domains` and `/v3/sites` schemas are composed from those contributions
 when the registry loads, so the setting needs no edit in `dns` or core.
 A rule that reads another contract is a contributed check with that contract in
 `depends_on`; contracts are read as `policy[TlsPolicy]`.

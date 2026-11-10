@@ -37,8 +37,8 @@ from support.control_plane import API_HEADERS, control_plane_app
             [("int_parsing", ["query", "offset"])],
         ),
         (
-            "POST",
-            "/v3/hosts/example-com/certificate/upload",
+            "PUT",
+            "/v3/sites/example-com/certificate",
             {},
             [
                 ("missing", ["body", "certificate"]),

@@ -63,10 +63,6 @@ class DeployRequest(FleetRequest):
     )
 
 
-class DriftRequest(FleetRequest):
-    pass
-
-
 class RollbackRequest(RequestModel):
     deployment_id: str | None = Field(default=None, min_length=32, max_length=32)
     check: bool = False
@@ -77,6 +73,5 @@ __all__ = [
     "Deployment",
     "DeploymentTarget",
     "DriftReport",
-    "DriftRequest",
     "RollbackRequest",
 ]
