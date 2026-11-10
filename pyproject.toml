@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "blitzecdn"
 version = "6.1.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
+# Deliberate floor: the control plane runs from its image, and uv fetches the
+# interpreter for development. See "Local development" in README.md.
 requires-python = ">=3.15.2"
 license = "MIT"
 license-files = ["LICENSE"]

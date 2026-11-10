@@ -19,6 +19,15 @@ interpreter CI and the control-plane image run. Scripts that run on edges keep
 a lower floor; see the [Ansible quick start](src/blitzecdn/assets/ansible/README.md).
 Run commands from the repository root.
 
+The 3.15 floor is deliberate. The supported way to run the control plane is
+the control-plane image, which ships its own interpreter, so no deployment
+depends on a distribution's default Python. For development, uv downloads
+3.15.2 itself, so a contributor's system Python does not need to be 3.15. The code
+uses syntax older interpreters reject (for example PEP 758 `except A, B:`
+clauses), and CI tests only 3.15. Python versions below 3.15 are not
+supported, including for installs outside the image. If you package the
+control plane yourself, provide a 3.15 interpreter.
+
 Docker and a global Ansible are not required: Ansible comes from the project
 environment, and the checks that need Docker run in GitHub Actions. See
 [testing without local infrastructure](docs/testing.md).
