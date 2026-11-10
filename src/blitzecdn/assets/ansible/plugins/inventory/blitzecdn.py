@@ -1,5 +1,5 @@
 # Copyright (c) BlitzeCDN
-# GNU General Public License v3.0+
+# SPDX-License-Identifier: MIT
 """Publish the BlitzeCDN fleet to Ansible, straight from the control plane.
 
 The `edges` table is the one place a host exists; this reads it each run, so

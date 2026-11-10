@@ -28,6 +28,13 @@ RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python
 # Runtime stage.
 FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
+# The licence label names BlitzeCDN's own code. The image also carries
+# ansible-core and Debian packages under their own licences; README "Licence"
+# says how they combine.
+LABEL org.opencontainers.image.title="BlitzeCDN control plane" \
+      org.opencontainers.image.source="https://github.com/misaf/blitze-cdn-cp" \
+      org.opencontainers.image.licenses="MIT"
+
 COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /usr/local/bin/uv
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
