@@ -52,6 +52,8 @@ def test_every_rule_kind_is_validated_and_normalised_by_the_contract():
         ({"allow_sources": ("198.51.100.1/24",)}, "not an IP address or CIDR network"),
         ({"deny_sources": ("not-an-address",)}, "not an IP address or CIDR network"),
         ({"allow_sources": ("10.0.0.0/8", "10.0.0.0/8")}, "duplicate source"),
+        ({"allow_sources": ("fe80::1%x; return 200 x",)}, "zone indexes"),
+        ({"deny_sources": ("fe80::%eth0/64",)}, "zone indexes"),
         ({"denied_countries": ("ZZ",)}, "ISO 3166-1 alpha-2"),
         ({"denied_countries": ("UK",)}, "use 'GB'"),
         ({"denied_methods": ("GET IT",)}, "not an HTTP method"),

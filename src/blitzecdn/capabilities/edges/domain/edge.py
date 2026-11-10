@@ -12,7 +12,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import hostname, unique
+from blitzecdn.core.domain.validation import hostname, ip_literal, ip_network, unique
 
 #: The Ansible group every managed edge belongs to. The playbooks target it by
 #: name, so it is part of the contract with the roles rather than a label.
@@ -95,7 +95,7 @@ class Edge(BaseModel):
                     "public addresses cannot be empty or contain whitespace"
                 )
             try:
-                ipaddress.ip_address(candidate)
+                ip_literal(candidate)
             except ValueError:
                 candidate = hostname(candidate)
             normalized.append(candidate)
@@ -113,7 +113,7 @@ class Edge(BaseModel):
         for item in values:
             candidate = item.strip()
             try:
-                normalized.append(str(ipaddress.ip_network(candidate, strict=False)))
+                normalized.append(str(ip_network(candidate, strict=False)))
             except ValueError as error:
                 raise ValueError(
                     f"{item!r} is not a management CIDR such as '203.0.113.0/24': "

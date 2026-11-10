@@ -60,12 +60,39 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     # accept `*.192.0.2.1` — a `server_name` nginx takes that matches nothing.
     if prefix:
         raise ValueError("wildcards cannot be used with IP addresses")
-    # `ip_address` accepts anything after an IPv6 `%` zone index, and these
-    # values reach nginx unquoted: `fe80::1%x;return 200 x` would become a
-    # directive. A zone names a local interface, never meaningful here.
+    _refuse_zone_index(address, value)
+    return candidate
+
+
+def _refuse_zone_index(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address, value: str
+) -> None:
+    # `ipaddress` accepts anything after an IPv6 `%` zone index, and these
+    # values reach nginx and the host firewall unquoted: `fe80::1%x;return 200 x`
+    # would become a directive. A zone names a local interface, never meaningful
+    # here.
     if isinstance(address, ipaddress.IPv6Address) and address.scope_id is not None:
         raise ValueError(f"IPv6 zone indexes are not accepted: {value!r}")
-    return candidate
+
+
+def ip_literal(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Parse an IP address that will be rendered unquoted, or raise ``ValueError``."""
+    address = ipaddress.ip_address(value)
+    _refuse_zone_index(address, value)
+    return address
+
+
+def ip_network(
+    value: str, *, strict: bool
+) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    """Parse an IP or CIDR network that will be rendered unquoted.
+
+    ``ValueError`` on anything ``ipaddress.ip_network`` refuses, and on an IPv6
+    zone index, which it accepts with arbitrary text after the ``%``.
+    """
+    network = ipaddress.ip_network(value, strict=strict)
+    _refuse_zone_index(network.network_address, value)
+    return network
 
 
 #: "This network" (RFC 1122): Linux routes `0.x` to the host itself. Python's
