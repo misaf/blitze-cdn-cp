@@ -9,7 +9,7 @@ import typer
 from blitzecdn.capabilities.workflows.domain import Workflow
 from blitzecdn.capabilities.workflows.ports import WorkflowHistory
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 workflow_app = typer.Typer(
     help="Durable progress for work that crosses out of a transaction."

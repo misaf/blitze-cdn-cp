@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, Response, status
 from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.capabilities.origins.api.models import OriginCheckRequest
 from blitzecdn.capabilities.origins.service.operations import OriginCheckJob
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import Operation, as_queued
-from blitzecdn.entrypoints.api.responses import (
+from blitzecdn.delivery.api.models import Operation, as_queued
+from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
 )

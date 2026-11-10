@@ -17,9 +17,9 @@ from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.capabilities.traffic import UsageQuery
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.common import ExitCode
-from blitzecdn.entrypoints.cli.domain_editing import report, update
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode
+from blitzecdn.delivery.cli.domain_editing import report, update
 
 cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses and inspect cache effectiveness."

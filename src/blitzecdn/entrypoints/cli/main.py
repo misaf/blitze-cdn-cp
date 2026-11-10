@@ -1,9 +1,9 @@
 """The `blitzecdn` command line, assembled from what the features contribute.
 
-The root options and `config`, `init`, `migrate` and `setup` stay here: they
-configure the control plane features load into. Loading features builds no
-services, so `--help` needs no database. Importing this module assembles the
-tree; ``run`` is the console-script entry point.
+The root options and `config`, `init`, `migrate`, `setup` and `serve` stay
+here: they configure or start the control plane features load into. Loading
+features builds no services, so `--help` needs no database. Importing this
+module assembles the tree; ``run`` is the console-script entry point.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ from pydantic import ValidationError
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, FeatureError, classify
 from blitzecdn.core.features import CliCommandGroup, FeatureRegistry
-from blitzecdn.entrypoints.cli import common, configuration, setup
-from blitzecdn.entrypoints.cli.common import ExitCode, emit, settings
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode, emit, settings
+from blitzecdn.entrypoints.cli import configuration, server, setup
 from blitzecdn.entrypoints.cli.root import app, main
 
 app.add_typer(configuration.config_app, name="config")
@@ -95,6 +96,7 @@ __all__ = [
     "main",
     "register_commands",
     "run",
+    "server",
     "settings",
     "setup",
 ]

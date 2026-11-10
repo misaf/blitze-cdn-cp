@@ -11,13 +11,13 @@ from blitzecdn.capabilities.deployments.api.models import (
     RollbackRequest,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import as_operation
-from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
-from blitzecdn.entrypoints.api.responses import (
+from blitzecdn.delivery.api.models import as_operation
+from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
+from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
     POLL_RESPONSE,
     polling_headers,

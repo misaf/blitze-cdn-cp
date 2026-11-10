@@ -15,8 +15,8 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.entrypoints.api.models import AnsibleRun, HostRun, Model
-from blitzecdn.entrypoints.api.requests import FleetRequest, RequestModel
+from blitzecdn.delivery.api.models import AnsibleRun, HostRun, Model
+from blitzecdn.delivery.api.requests import FleetRequest, RequestModel
 
 
 class Deployment(Model):

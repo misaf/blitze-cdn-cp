@@ -6,8 +6,8 @@ import typer
 
 from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.deployments import DeploymentStatus
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode
 
 ssl_app = typer.Typer(
     no_args_is_help=True,

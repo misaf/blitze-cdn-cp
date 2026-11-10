@@ -115,7 +115,8 @@ def cli_surface() -> str:
     """
     from typer.main import get_command
 
-    from blitzecdn.entrypoints.cli import common, main
+    from blitzecdn.delivery.cli import common
+    from blitzecdn.entrypoints.cli import main
 
     owners = _command_owners(common.installed_features())
     lines = []

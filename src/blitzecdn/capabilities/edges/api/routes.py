@@ -11,13 +11,13 @@ from blitzecdn.capabilities.edges.service.operations import (
     remove_dedupe_key,
 )
 from blitzecdn.capabilities.jobs import OperationService
-from blitzecdn.entrypoints.api.dependencies import (
+from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.entrypoints.api.models import Operation, as_queued
-from blitzecdn.entrypoints.api.pagination import Page, paginate
-from blitzecdn.entrypoints.api.responses import (
+from blitzecdn.delivery.api.models import Operation, as_queued
+from blitzecdn.delivery.api.pagination import Page, paginate
+from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
 )

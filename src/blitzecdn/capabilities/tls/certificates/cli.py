@@ -14,8 +14,8 @@ from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.core.ports.operations import PlaybookRunner
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode
 
 cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect, issue and renew managed TLS certificates."

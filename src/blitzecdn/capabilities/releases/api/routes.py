@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, Query, status
 
 from blitzecdn.capabilities.releases.api.models import Release, ReleaseDetail
 from blitzecdn.capabilities.releases.service import ReleaseService
-from blitzecdn.entrypoints.api.dependencies import require_operator
-from blitzecdn.entrypoints.api.models import as_operation
-from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
+from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.models import as_operation
+from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

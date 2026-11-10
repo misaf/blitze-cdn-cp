@@ -23,7 +23,7 @@ from blitzecdn.capabilities.traffic.domain import EdgeCollection
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.capabilities.traffic.settings import TrafficConfig
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 from blitzecdn.entrypoints.cli import main as cli
 
 NOW = datetime(2026, 10, 27, 12, tzinfo=UTC)
