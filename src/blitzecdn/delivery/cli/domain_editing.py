@@ -7,9 +7,14 @@ from __future__ import annotations
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService, serving_document
-from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, PatchPolicy
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.capabilities.dns import (
+    DnsService,
+    Domain,
+    DomainPatch,
+    PatchPolicy,
+    serving_document,
+)
+from blitzecdn.delivery.cli import common
 
 __all__ = ["report", "update"]
 

@@ -11,8 +11,8 @@ import typer
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.entrypoints.cli import common
-from blitzecdn.entrypoints.cli.common import ExitCode
+from blitzecdn.delivery.cli import common
+from blitzecdn.delivery.cli.common import ExitCode
 
 #: Root-level verbs: `blitzecdn deploy`, not `blitzecdn deployment deploy`.
 deployment_app = typer.Typer()

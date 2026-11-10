@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends
 from blitzecdn.capabilities.diagnostics.domain.status import OperationalStatus
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.core.ports.operations import AuditTrail
-from blitzecdn.entrypoints.api.dependencies import require_operator
-from blitzecdn.entrypoints.api.models import AuditEvent, as_operation
-from blitzecdn.entrypoints.api.pagination import Page, PaginationParams, stored_page
+from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.models import AuditEvent, as_operation
+from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
     route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]

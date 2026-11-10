@@ -26,8 +26,8 @@ from blitzecdn.core.domain.composed import ComposedModel
 from blitzecdn.core.domain.paths import PathRedirect as DomainPathRedirect
 from blitzecdn.core.domain.site import CdnSite as DomainCdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
-from blitzecdn.entrypoints.api.models import Model
-from blitzecdn.entrypoints.api.requests import PatchValue
+from blitzecdn.delivery.api.models import Model
+from blitzecdn.delivery.api.requests import PatchValue
 
 
 def _policy_fields() -> dict[str, tuple[Any, Any]]:

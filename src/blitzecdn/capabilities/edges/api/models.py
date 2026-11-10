@@ -8,8 +8,8 @@ from pydantic import Field, model_validator
 
 from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
 from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
-from blitzecdn.entrypoints.api.models import Model
-from blitzecdn.entrypoints.api.requests import PatchValue
+from blitzecdn.delivery.api.models import Model
+from blitzecdn.delivery.api.requests import PatchValue
 
 
 class Edge(Model):

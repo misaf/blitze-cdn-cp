@@ -4,7 +4,7 @@ from pydantic import ConfigDict, Field
 
 from blitzecdn.capabilities.deployments import DeploymentStatus
 from blitzecdn.capabilities.tls.contract import SslMode
-from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.delivery.api.models import Model
 
 
 class DeploymentReference(Model):

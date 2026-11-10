@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from blitzecdn.entrypoints.api.requests import FleetRequest
+from blitzecdn.delivery.api.requests import FleetRequest
 
 
 class OriginCheckRequest(FleetRequest):

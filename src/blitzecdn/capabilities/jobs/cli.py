@@ -9,7 +9,7 @@ import typer
 
 from blitzecdn.capabilities.jobs.domain import JobStatus, Schedule
 from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 job_app = typer.Typer(help="Durable background work: what is queued and what ran.")
 

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.capabilities.traffic.domain.analytics import Granularity, SiteQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
-from blitzecdn.entrypoints.cli import common
+from blitzecdn.delivery.cli import common
 
 traffic_app = typer.Typer(help="Saved per-hostname bandwidth and request counts.")
 analytics_app = typer.Typer(
