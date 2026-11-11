@@ -194,8 +194,9 @@ argument_specs:
         required: true
         no_log: true
         description: >-
-          Shared secret a request must carry in X-BlitzeCDN-Probe to read
-          /.blitzecdn/release. Supplied by the controller.
+          Shared secret that keys the secure_link signature a request must
+          carry in X-BlitzeCDN-Probe to read /.blitzecdn/release. Supplied by
+          the controller, which never sends it to the edge over HTTP.
       blitzecdn_nginx_release_probe_file:
         type: path
         required: true

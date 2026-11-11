@@ -29,6 +29,7 @@ from support.control_plane import (
     seed_edge,
     seed_site,
 )
+from support.release_probe import edge_accepts
 from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
@@ -54,7 +55,12 @@ class _Edge(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         # As the edge does: the marker is the controller's alone.
-        if self.headers.get("X-BlitzeCDN-Probe") != "0" * 64:
+        if not edge_accepts(
+            self.headers.get("X-BlitzeCDN-Probe"),
+            token="0" * 64,
+            host=self.headers.get("Host", ""),
+            uri=self.path,
+        ):
             self.send_response(404)
             self.send_header("Content-Length", "0")
             self.end_headers()

@@ -25,7 +25,11 @@
       #
       # Included by the reserved /.blitzecdn/release location: only the
       # controller's rollout verification may read which release this edge serves.
-      if ($http_x_blitzecdn_probe != "{{ blitzecdn_nginx_release_probe_token }}") {
+      # It sends "<hash>,<expires>", signed with the token for this hostname,
+      # never the token itself; "1" is a valid signature that has not expired.
+      secure_link $http_x_blitzecdn_probe;
+      secure_link_md5 "$secure_link_expires$host$uri {{ blitzecdn_nginx_release_probe_token }}";
+      if ($secure_link != "1") {
           return 404;
       }
     dest: "{{ blitzecdn_nginx_release_probe_file }}"
