@@ -427,10 +427,6 @@ def _ansible_playbook() -> str:
     return executable
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="issue 242: extra-vars files are loaded as trusted templates",
-)
 def test_hostile_text_reaches_a_play_literally(tmp_path):
     """Through the control plane's own extra-vars writer, into a real play.
 
