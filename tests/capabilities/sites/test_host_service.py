@@ -77,6 +77,48 @@ def test_host_reads_share_one_snapshot_and_join_an_existing_write(control, monke
         assert all(value is session for value in observed)
 
 
+def test_unchanged_state_is_derived_once_and_an_edit_derives_again(
+    control, monkeypatch
+):
+    from blitzecdn.capabilities.sites.service import hosts
+
+    seed_site(control)
+    derivations = []
+    derive = hosts.derive_hosts
+
+    def counted(*args):
+        derivations.append(args)
+        return derive(*args)
+
+    monkeypatch.setattr(hosts, "derive_hosts", counted)
+
+    first = control.sites.list_sites()
+    derivations.clear()
+    assert control.sites.list_sites() == first
+    assert control.sites.get_site("example-com") == first[0]
+    with pytest.raises(NotFoundError):
+        control.sites.get_site("absent-com")
+    assert derivations == []
+
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
+    )
+    site = control.sites.get_site("example-com")
+    assert site.policy[CachePolicy].cache_enabled is False
+    assert len(derivations) == 1
+
+
+def test_a_caller_cannot_change_the_reused_derivation(control):
+    seed_site(control)
+    control.sites.list_sites().clear()
+    assert control.sites.list_sites()
+
+    for read in (control.sites.list_sites()[0], control.sites.get_site("example-com")):
+        read.policy[CachePolicy].cache_ttl_overrides["/caller"] = "1h"
+    for site in (control.sites.list_sites()[0], control.sites.get_site("example-com")):
+        assert "/caller" not in site.policy[CachePolicy].cache_ttl_overrides
+
+
 def test_host_read_failure_releases_the_transaction(control, monkeypatch):
     def broken():
         raise RuntimeError("read interrupted")
