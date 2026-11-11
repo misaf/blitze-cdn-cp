@@ -35,8 +35,10 @@ PREFLIGHT_DNS_SOURCE: Final = "BLITZE_PREFLIGHT_DNS_SOURCE"
 _CERTIFICATE_DIRECTORY: Final = "certificates"
 
 
-#: The ACME account key. Not configurable, for the same reason.
-_ACME_ACCOUNT_DIRECTORY: Final = "acme"
+#: The ACME account key. Not configurable, for the same reason. Not `acme`:
+#: an edge serves HTTP-01 challenges from `/var/lib/blitzecdn/acme`, and on a
+#: standalone host that is this state directory's `acme`.
+_ACME_ACCOUNT_DIRECTORY: Final = "acme-account"
 
 
 def certificate_dir(state_dir: Path) -> Path:

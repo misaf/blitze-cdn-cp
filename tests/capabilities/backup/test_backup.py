@@ -91,7 +91,7 @@ def _populate(
         (directory / "privkey-aa.pem").write_text("PRIVATE KEY", encoding="utf-8")
         (directory / "metadata.json").write_text("{}", encoding="utf-8")
     if acme:
-        root = settings.state_dir / "acme"
+        root = settings.state_dir / "acme-account"
         root.mkdir(parents=True, exist_ok=True)
         (root / "account-key.pem").write_text("ACCOUNT KEY", encoding="utf-8")
         (root / "archive/example-com").mkdir(parents=True, exist_ok=True)
@@ -551,7 +551,7 @@ def _clean(settings) -> None:
         path.unlink(missing_ok=True)
     for directory in (
         certificate_dir(settings),
-        settings.state_dir / "acme",
+        settings.state_dir / "acme-account",
     ):
         if directory.exists():
             for child in sorted(directory.rglob("*"), reverse=True):
@@ -580,7 +580,7 @@ def test_a_full_backup_restores_every_component(populated):
     assert populated.database_path.is_file()
     assert (certificate_dir(populated) / "example-com/privkey-aa.pem").is_file()
     assert (populated.project_dir / ".env").is_file()
-    assert (populated.state_dir / "acme/account-key.pem").is_file()
+    assert (populated.state_dir / "acme-account/account-key.pem").is_file()
 
 
 def test_a_database_only_backup_restores_only_the_database(populated):
@@ -978,7 +978,7 @@ def test_staged_database_failure_preserves_every_live_component(
     live_files = [
         populated.database_path,
         certificate_dir(populated) / "example-com/privkey-aa.pem",
-        populated.state_dir / "acme/account-key.pem",
+        populated.state_dir / "acme-account/account-key.pem",
         populated.project_dir / "blitzecdn.toml",
         populated.environment_path,
         populated.state_dir / "id_ed25519",
@@ -1497,7 +1497,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     )
     assert (rebuilt.project_dir / ".env").read_text().startswith("BLITZE_API_KEYS=")
     assert (rebuilt.state_dir / "id_ed25519").read_text() == "PRIVATE"
-    link = rebuilt.state_dir / "acme/live/example-com/fullchain.pem"
+    link = rebuilt.state_dir / "acme-account/live/example-com/fullchain.pem"
     assert link.is_symlink() and link.read_text() == "CHAIN"
 
 

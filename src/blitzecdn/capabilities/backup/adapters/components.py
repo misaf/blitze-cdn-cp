@@ -342,7 +342,7 @@ class AcmeComponent(_DirectoryComponent):
     @property
     def _root(self) -> Path:
         # The tls capability's account directory, carried by its name.
-        return self._settings.state_dir / "acme"
+        return self._settings.state_dir / "acme-account"
 
 
 class GeoIpDatabasesComponent(_DirectoryComponent):

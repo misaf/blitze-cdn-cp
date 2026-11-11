@@ -10,19 +10,23 @@ from __future__ import annotations
 
 import stat
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import requests
+import yaml
 from acme import challenges, messages
 from acme import errors as acme_errors
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from josepy import b64
+from support.paths import CORE_ANSIBLE
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.tls.certificates.adapters import acme as acme_module
 from blitzecdn.capabilities.tls.certificates.adapters.acme import AcmeIssuer
+from blitzecdn.capabilities.tls.settings import acme_account_dir, certificate_dir
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 
 _CHAIN = "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n"
@@ -355,3 +359,19 @@ def test_a_spent_budget_stops_before_the_next_challenge(monkeypatch, tmp_path):
         ("present", "cdn.example.com"),
         ("absent", "cdn.example.com"),
     ]
+
+
+def test_the_account_directory_is_not_a_path_an_edge_writes():
+    """A standalone host is controller and edge at once, and the edge's runtime
+    paths sit beside the controller's state directory. Sharing one would hand
+    the account key's directory to the edge role's owner and mode."""
+    defaults = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_edge/defaults/main.yml").read_text()
+    )
+    edge_paths = {
+        Path(path) for path in defaults["blitzecdn_edge_runtime"]["paths"].values()
+    }
+    state = Path("/var/lib/blitzecdn")
+
+    assert acme_account_dir(state) not in edge_paths
+    assert certificate_dir(state) not in edge_paths
