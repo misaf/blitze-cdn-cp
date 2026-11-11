@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from blitzecdn.capabilities.workflows.domain import (
     Workflow,
@@ -210,15 +211,13 @@ def test_an_operator_facing_error_is_recorded_in_full(coordinator, journal):
     assert closed.error == "ExecutionError: certificate request timed out"
 
 
-def test_an_unexpected_error_message_stays_out_of_the_journal(
-    coordinator, journal, caplog
-):
+def test_an_unexpected_error_message_stays_out_of_the_journal(coordinator, journal):
     """The journal is persisted, backed up and served; the message may hold a
     credential. Only the type is recorded, and the detail goes to the local log.
     """
     endpoint = "https://user:hunter2@dns.example/api"
     with (
-        caplog.at_level("ERROR"),
+        capture_logs() as events,
         pytest.raises(RuntimeError),
         coordinator.run("certificate", "alice", "example-com"),
     ):
@@ -229,9 +228,9 @@ def test_an_unexpected_error_message_stays_out_of_the_journal(
     assert "hunter2" not in closed.error
     assert closed.error.startswith("RuntimeError: ")
     assert "controller log" in closed.error
-    [record] = [r for r in caplog.records if r.name.endswith("coordinator")]
-    assert record.workflow_id == closed.id
-    assert "hunter2" in caplog.text
+    [event] = [e for e in events if e["event"] == "workflow failed unexpectedly"]
+    assert event["workflow_id"] == closed.id
+    assert "hunter2" in str(event["exc_info"])
 
 
 def test_an_interrupt_is_recorded_too(coordinator, journal):
