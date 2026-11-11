@@ -8,9 +8,8 @@ from __future__ import annotations
 import ipaddress
 import re
 from fnmatch import fnmatch
-from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 #: One label of a DNS name: no leading or trailing hyphen, 63 bytes at most.
 DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
@@ -92,52 +91,6 @@ def ip_network(
     """
     _refuse_zone_index(value)
     return ipaddress.ip_network(value, strict=strict)
-
-
-def _address_text(value: str) -> str:
-    candidate = value.strip()
-    try:
-        return str(ip_literal(candidate))
-    except ValueError as error:
-        raise ValueError(f"{value!r} must be an IP address: {error}") from error
-
-
-def _exact_network_text(value: str) -> str:
-    candidate = value.strip()
-    try:
-        return str(ip_network(candidate, strict=True))
-    except ValueError as error:
-        raise ValueError(
-            f"{value!r} is not an IP address or CIDR network: {error}"
-        ) from error
-
-
-def _widened_network_text(value: str) -> str:
-    candidate = value.strip()
-    try:
-        return str(ip_network(candidate, strict=False))
-    except ValueError as error:
-        raise ValueError(
-            f"{value!r} is not a CIDR network such as '203.0.113.0/24': {error}"
-        ) from error
-
-
-# The field types every contract uses for an address or network that reaches
-# a rendered file. Each strips, refuses an IPv6 zone index and stores the
-# canonical spelling (`2001:db8::1`, `192.0.2.0/24`), so equal values compare
-# equal and nothing after a `%` ever reaches nginx or the host firewall.
-# Strings rather than `ipaddress` objects: templates and JSON read them as text.
-
-#: One IPv4 or IPv6 address.
-IpAddress = Annotated[str, AfterValidator(_address_text)]
-
-#: An address or CIDR network with no host bits set; a bare address is its /32
-#: or /128. ``192.0.2.8/24`` is refused, as it is ambiguous.
-IpNetwork = Annotated[str, AfterValidator(_exact_network_text)]
-
-#: A CIDR network whose host bits are masked off: ``192.0.2.8/24`` means
-#: ``192.0.2.0/24``, an operator naming the network they are on.
-IpNetworkWidened = Annotated[str, AfterValidator(_widened_network_text)]
 
 
 #: "This network" (RFC 1122): Linux routes `0.x` to the host itself. Python's

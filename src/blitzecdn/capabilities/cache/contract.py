@@ -3,12 +3,12 @@
 import re
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 from pydantic import ConfigDict, Field, field_validator
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import DURATION
+from blitzecdn.core.domain.values import Duration, NginxValue
 
 #: A cookie name, optionally with ``*`` standing for any run of name characters.
 #: Narrower than RFC 6265's token: the name reaches an nginx regex, and real
@@ -36,6 +36,36 @@ def _content_key(value: str) -> str:
             "content type such as 'text/html' or 'image/*'"
         )
     return candidate
+
+
+def _cookie_pattern(value: str) -> str:
+    candidate = value.strip()
+    if not COOKIE_PATTERN.fullmatch(candidate):
+        raise ValueError(
+            f"{value!r} is not a cookie name: use letters, digits, "
+            "'_', '.', '-' and '*' as a wildcard"
+        )
+    return candidate
+
+
+def _edge_ttl(value: str) -> str:
+    candidate = value.strip()
+    if not EDGE_TTL.fullmatch(candidate):
+        raise ValueError(
+            f"{value!r} is not an edge TTL: use 0, or a whole number followed "
+            "by s, m, h, d or w"
+        )
+    return candidate
+
+
+#: A cookie name, ``*`` matching any run of name characters.
+CookiePattern = Annotated[str, NginxValue("cookie name", _cookie_pattern)]
+
+#: A URL extension, a media type or a media type family.
+ContentKey = Annotated[str, NginxValue("content key", _content_key)]
+
+#: An edge TTL in whole seconds or larger units.
+EdgeTtl = Annotated[str, NginxValue("edge TTL", _edge_ttl)]
 
 
 class CacheQueryStringMode(StrEnum):
@@ -88,7 +118,7 @@ class CachePolicy(CapabilityPolicy):
             "200, 301, 302 and 404 whatever its type."
         ),
     )
-    cache_bypass_cookies: tuple[str, ...] = Field(
+    cache_bypass_cookies: tuple[CookiePattern, ...] = Field(
         default=(),
         max_length=50,
         description=(
@@ -99,7 +129,7 @@ class CachePolicy(CapabilityPolicy):
             "'standard' static file URLs are cached whatever the cookies."
         ),
     )
-    cache_ttl_overrides: dict[str, str] = Field(
+    cache_ttl_overrides: dict[ContentKey, EdgeTtl] = Field(
         default_factory=dict,
         max_length=50,
         description=(
@@ -112,7 +142,7 @@ class CachePolicy(CapabilityPolicy):
             "an exact type over a family. Units: s, m, h, d, w."
         ),
     )
-    cache_ignore_origin_headers: tuple[str, ...] = Field(
+    cache_ignore_origin_headers: tuple[ContentKey, ...] = Field(
         default=(),
         max_length=50,
         description=(
@@ -127,59 +157,27 @@ class CachePolicy(CapabilityPolicy):
         ),
     )
     cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
-    cache_valid_success: str = "10m"
-    cache_valid_not_found: str = "1m"
+    cache_valid_success: Duration = "10m"
+    cache_valid_not_found: Duration = "1m"
 
-    @field_validator("cache_valid_success", "cache_valid_not_found")
+    @field_validator("cache_bypass_cookies", "cache_ignore_origin_headers")
     @classmethod
-    def validate_duration(cls, value: str) -> str:
-        if not DURATION.fullmatch(value):
-            raise ValueError(
-                "duration must be a non-negative integer followed by "
-                "ms, s, m, h, d, or w"
-            )
-        return value
+    def deduplicate(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(values))
 
-    @field_validator("cache_bypass_cookies")
+    @field_validator("cache_ttl_overrides", mode="before")
     @classmethod
-    def validate_cookies(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized: list[str] = []
-        for value in values:
-            candidate = value.strip()
-            if not COOKIE_PATTERN.fullmatch(candidate):
-                raise ValueError(
-                    f"{value!r} is not a cookie name: use letters, digits, "
-                    "'_', '.', '-' and '*' as a wildcard"
-                )
-            if candidate not in normalized:
-                normalized.append(candidate)
-        return tuple(normalized)
-
-    @field_validator("cache_ttl_overrides")
-    @classmethod
-    def validate_ttl_overrides(cls, values: dict[str, str]) -> dict[str, str]:
-        normalized: dict[str, str] = {}
-        for key, ttl in values.items():
-            candidate = _content_key(key)
-            if candidate in normalized:
+    def refuse_repeated_keys(cls, values: object) -> object:
+        """Two spellings of one key would otherwise collapse silently."""
+        if not isinstance(values, Mapping):
+            return values
+        seen: set[str] = set()
+        for key in values:
+            candidate = str(key).strip().lower()
+            if candidate in seen:
                 raise ValueError(f"{key!r} is listed twice")
-            if not EDGE_TTL.fullmatch(ttl):
-                raise ValueError(
-                    f"{ttl!r} for {key!r} is not an edge TTL: use 0, or a "
-                    "whole number followed by s, m, h, d or w"
-                )
-            normalized[candidate] = ttl
-        return normalized
-
-    @field_validator("cache_ignore_origin_headers")
-    @classmethod
-    def validate_ignore_origin_headers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized: list[str] = []
-        for value in values:
-            candidate = _content_key(value)
-            if candidate not in normalized:
-                normalized.append(candidate)
-        return tuple(normalized)
+            seen.add(candidate)
+        return values
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:

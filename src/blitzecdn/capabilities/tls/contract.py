@@ -7,9 +7,9 @@ scan is its own capability, ``automatic_ssl``, which builds on this contract.
 import re
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
@@ -17,6 +17,7 @@ from blitzecdn.capabilities.http.contract import (
     ProtocolPolicy,
 )
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.values import NginxValue
 from blitzecdn.core.features.types import HostView, PolicyView
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
@@ -26,6 +27,29 @@ CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
 #: unquoted into ``ssl_certificate``, so a semicolon or newline would end the
 #: directive and start one of the author's choosing on every edge.
 CERTIFICATE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def _certificate_path(value: str) -> str:
+    """Bound where an edge certificate path may point, and what it may say.
+
+    A deploy copies these paths as root, hence the traversal and root checks; the
+    value is rendered unquoted into nginx, hence the character check.
+    """
+    if not value.startswith("/") or ".." in value.split("/"):
+        raise ValueError("certificate paths must be absolute and cannot contain '..'")
+    if not value.startswith(CERTIFICATE_ROOTS):
+        raise ValueError(
+            "certificate paths must live under one of: " + ", ".join(CERTIFICATE_ROOTS)
+        )
+    if not CERTIFICATE_PATH.fullmatch(value):
+        raise ValueError(
+            "certificate paths may contain only letters, digits, '.', '_', '-' and '/'"
+        )
+    return value
+
+
+#: A certificate or key file on the edge, under :data:`CERTIFICATE_ROOTS`.
+CertificatePath = Annotated[str, NginxValue("certificate path", _certificate_path)]
 
 
 class CertificateVersion(BaseModel):
@@ -165,8 +189,8 @@ class TlsPolicy(CapabilityPolicy):
         description="Redirect visitor HTTP requests to HTTPS while TLS is active.",
     )
     certificate_mode: CertificateMode = CertificateMode.DISABLED
-    certificate_path: str | None = None
-    certificate_key_path: str | None = None
+    certificate_path: CertificatePath | None = None
+    certificate_key_path: CertificatePath | None = None
 
     @property
     def canonical_visitor_scheme(self) -> HttpScheme:
@@ -187,32 +211,6 @@ class TlsPolicy(CapabilityPolicy):
     def redirects_http_to_https(self) -> bool:
         """A redirect needs an active HTTPS listener, even when requested."""
         return self.ssl_mode.serves_tls and self.always_use_https
-
-    @field_validator("certificate_path", "certificate_key_path")
-    @classmethod
-    def validate_remote_path(cls, value: str | None) -> str | None:
-        """Bound where an edge certificate path may point, and what it may say.
-
-        A deploy copies these paths as root, hence the traversal and root checks; the
-        value is rendered unquoted into nginx, hence the character check.
-        """
-        if value is None:
-            return None
-        if not value.startswith("/") or ".." in value.split("/"):
-            raise ValueError(
-                "certificate paths must be absolute and cannot contain '..'"
-            )
-        if not value.startswith(CERTIFICATE_ROOTS):
-            raise ValueError(
-                "certificate paths must live under one of: "
-                + ", ".join(CERTIFICATE_ROOTS)
-            )
-        if not CERTIFICATE_PATH.fullmatch(value):
-            raise ValueError(
-                "certificate paths may contain only letters, digits, '.', '_', "
-                "'-' and '/'"
-            )
-        return value
 
     @model_validator(mode="after")
     def validate_certificate_pair(self) -> Self:
