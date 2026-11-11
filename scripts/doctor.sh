@@ -112,7 +112,7 @@ else
 fi
 
 # --- integration: the privileged container harnesses ------------------------
-printf '\nContainer integration (tests/container-install.sh, just test-integration-http3)\n'
+printf '\nContainer integration (tests/integration/container-install.sh, just test-integration-http3)\n'
 if docker_running; then
   ok "Docker daemon $(docker version --format '{{.Server.Version}}' 2>/dev/null)"
   if [[ $(uname -s) == Linux ]]; then

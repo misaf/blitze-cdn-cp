@@ -1,4 +1,6 @@
-"""Render the release `tests/http3-edge-integration.sh` asks its edge to serve.
+"""Render the release the HTTP/3 harness asks its edge to serve.
+
+The harness is `tests/integration/http3-edge-integration.sh`.
 
 The edge play stages a configuration the controller rendered: it takes a
 content-addressed `blitzecdn_release_digest` and the bundle rendered for it,
@@ -20,7 +22,8 @@ it, so an image change under the same digest would never reach the container.
 
 Run on the outer host, where the workspace is installed:
 
-    uv run python tests/http3_release.py STATE RUNNER OUTPUT EDGE_OUTPUT [NAME=VAL...]
+    uv run python tests/support/http3_release.py \
+        STATE RUNNER OUTPUT EDGE_OUTPUT [NAME=VAL...]
 
 OUTPUT is written from scratch. EDGE_OUTPUT is the same directory as the edge
 host sees it, because the execution document names the bundle by the path the

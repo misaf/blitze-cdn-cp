@@ -1,4 +1,4 @@
-"""Regenerate the frozen public surfaces. Run through `just refreeze`.
+"""Regenerate the frozen surfaces and docs/openapi.json. Run through `just refreeze`.
 
 A script rather than a `--update` flag, so regenerating a promise is a
 deliberate act that shows in its own diff.
@@ -43,6 +43,15 @@ def main() -> int:
         lines = len(generated[name].splitlines())
         state = "unchanged" if before == generated[name] else "UPDATED"
         print(f"  {name:12} {lines:5} lines  {state}")
+    document = surfaces.openapi_document(settings)
+    before = (
+        surfaces.OPENAPI.read_text(encoding="utf-8")
+        if surfaces.OPENAPI.is_file()
+        else ""
+    )
+    surfaces.OPENAPI.write_text(document, encoding="utf-8")
+    state = "unchanged" if before == document else "UPDATED"
+    print(f"  {'openapi':12} {len(document.splitlines()):5} lines  {state}")
     print(
         "\nRead the diff. Every line is something outside this repository can "
         "depend on."

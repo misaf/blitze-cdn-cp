@@ -60,9 +60,11 @@ uv run blitzecdn-worker      # Schedule and consume durable jobs
 ```
 
 Control endpoints use `/v3`, independently of the application release version.
-`/docs` and `/openapi.json` describe the current API; `/health` and `/metrics`
-remain unversioned. See [request defaults](docs/api-defaults.md) for creation
-values, PATCH semantics, inheritance, and operation scope.
+`/docs` and `/openapi.json` describe the current API, and
+[docs/openapi.json](docs/openapi.json) is the same document for reading without
+an installed controller. `/health` and `/metrics` remain unversioned. See
+[request defaults](docs/api-defaults.md) for creation values, PATCH semantics,
+inheritance, and operation scope.
 See [queued API work](docs/queued-operations.md) for submission responses,
 polling headers, and result handling.
 
@@ -183,6 +185,10 @@ and do not renew job leases.
 
 ## Testing and checks
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for where each rule is written and
+what checks it, and [CHANGELOG.md](CHANGELOG.md) for what changed between
+releases.
+
 The [justfile](justfile) owns the development commands used by CI:
 
 | Command | Use |
@@ -259,8 +265,9 @@ with controller services stopped using `uv run blitzecdn migrate`.
 Public CLI, HTTP, database, and Ansible surfaces are frozen under
 `tests/contract/frozen/`. For an intentional public change, update delivery
 parity coverage where applicable, run `just refreeze`, and review the generated
-diff. For edge configuration changes, update the Python policy and Ansible/Nginx
-implementation together and run the relevant contract tests.
+diff, which includes `docs/openapi.json`. For edge configuration changes,
+update the Python policy and Ansible/Nginx implementation together and run the
+relevant contract tests.
 
 ## Licence
 

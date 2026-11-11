@@ -3,7 +3,8 @@
 The protocol objects are the library's own (`acme.messages`, `acme.challenges`),
 so key authorizations, tokens and identifiers are computed exactly as against a
 real CA; only the HTTP transport is replaced. The Pebble stage of
-`tests/container-install.sh` covers the transport against a CA that validates.
+`tests/integration/container-install.sh` covers the transport against a CA that
+validates.
 """
 
 from __future__ import annotations

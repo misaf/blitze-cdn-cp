@@ -90,12 +90,14 @@ installer-sync:
     uv run python scripts/installer_sync.py
 
 # Move the application version, both edge image pins and the control-plane
-# image pin together. Publishing the corresponding images remains an explicit
-# release action: the tag does it.
+# image pin together, turn CHANGELOG.md's Unreleased notes into this release's
+# section, and regenerate docs/openapi.json for the new version. Publishing
+# the corresponding images remains an explicit release action: the tag does it.
 release-version version:
     #!/usr/bin/env bash
     set -euo pipefail
     python3 - <<'PY'
+    import datetime
     import pathlib
     import re
     import sys
@@ -110,6 +112,35 @@ release-version version:
     def reversion(text):
         return re.sub(r'(?m)^version = ".*"$', 'version = "%s"' % version, text, count=1)
 
+
+    # The notes collected under Unreleased become this release's. An empty
+    # section is refused: a release nobody can describe is not ready to tag.
+    changelog = pathlib.Path("CHANGELOG.md")
+    text = changelog.read_text()
+    heading = "## [Unreleased]\n"
+    if text.count(heading) != 1:
+        sys.exit("error: CHANGELOG.md: expected one %r heading" % heading.strip())
+    if "## [%s]" % version in text:
+        sys.exit("error: CHANGELOG.md already has a %s section" % version)
+    start = text.index(heading) + len(heading)
+    following_section = text.find("\n## ", start)
+    notes = text[start:] if following_section == -1 else text[start:following_section]
+    if not notes.strip():
+        sys.exit("error: CHANGELOG.md: nothing under Unreleased to release")
+    dated = "%s\n## [%s] - %s\n" % (heading, version, datetime.date.today().isoformat())
+    released = text.replace(heading, dated, 1)
+    # The compare links at the foot: Unreleased now starts at this tag.
+    compare = re.compile(r"(?m)^\[Unreleased\]: (\S+)/compare/(v\S+)\.\.\.HEAD$")
+    link = compare.search(released)
+    if link is None:
+        sys.exit("error: CHANGELOG.md: no [Unreleased] compare link")
+    base, previous = link.groups()
+    released = compare.sub(
+        "[Unreleased]: %s/compare/v%s...HEAD\n[%s]: %s/compare/%s...v%s"
+        % (base, version, version, base, previous, version),
+        released,
+        count=1,
+    )
 
     core = pathlib.Path("pyproject.toml")
     core.write_text(reversion(core.read_text()))
@@ -139,8 +170,11 @@ release-version version:
         if count != 1:
             sys.exit("error: %s: expected one image pin, rewrote %d" % (name, count))
         path.write_text(text)
+    changelog.write_text(released)
     PY
     uv lock
+    # `info.version` in the published API reference is this version.
+    uv run python scripts/refreeze.py
     echo "Moved to {{version}}. Commit, then tag v{{version}} to publish both images."
 
 # --- the gates, in CI order ---------------------------------------------
@@ -164,7 +198,7 @@ types:
 # Lint the shell scripts that run as root.
 shell-lint:
     uv run shellcheck install.sh \
-        tests/container-install.sh tests/http3-edge-integration.sh \
+        tests/integration/container-install.sh tests/integration/http3-edge-integration.sh \
         scripts/collect-diagnostics.sh scripts/doctor.sh \
         scripts/collections-check.sh
 
@@ -185,7 +219,7 @@ control-plane-image tag="blitzecdn-control-plane:dev":
 # plus image upgrade, rollback, engine restart and both kinds of teardown.
 # Deliberately separate from the normal unit suite.
 test-integration-http3:
-    bash tests/http3-edge-integration.sh
+    bash tests/integration/http3-edge-integration.sh
 
 # `worksteal` rather than the default `load`: the suite's cost is lopsided — a
 # handful of tests spawn a real Ansible and take seconds while most take
@@ -434,10 +468,13 @@ bench-traffic records="200000":
 # is that touching them is its own act, visible in its own diff.
 #
 # Every shipped surface has one owner, the application distribution.
+#
+# Also rewrites `docs/openapi.json`, the full document `/openapi.json` serves,
+# so the API reference can be read without installing the controller.
 refreeze:
     uv sync --frozen
     uv run python scripts/refreeze.py
-    @git diff --stat -- tests/contract/frozen || true
+    @git diff --stat -- tests/contract/frozen docs/openapi.json || true
 
 # --- database -----------------------------------------------------------
 

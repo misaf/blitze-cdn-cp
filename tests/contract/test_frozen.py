@@ -53,6 +53,37 @@ def test_the_http_api_is_what_it_was(settings):
     _compare("http", surfaces.http_surface(settings))
 
 
+def test_the_published_api_reference_is_current(settings):
+    """`docs/openapi.json` is what `/openapi.json` serves from this tree.
+
+    It is the API reference a reader gets without installing the controller,
+    so a stale copy documents an API that no longer exists. The version in
+    `info` moves with `just release-version`, which regenerates it.
+    """
+    path = surfaces.OPENAPI
+    if not path.is_file():
+        pytest.fail(f"{path} does not exist. Run `just refreeze` to create it.")
+    expected = path.read_text(encoding="utf-8")
+    current = surfaces.openapi_document(settings)
+    if expected == current:
+        return
+    diff = "\n".join(
+        list(
+            difflib.unified_diff(
+                expected.splitlines(),
+                current.splitlines(),
+                fromfile="docs/openapi.json",
+                tofile="this tree",
+                lineterm="",
+            )
+        )[:200]
+    )
+    pytest.fail(
+        f"docs/openapi.json is stale:\n\n{diff}\n\n"
+        "Run `just refreeze` and commit the result with the change that caused it."
+    )
+
+
 def test_the_ansible_interface_is_what_it_was():
     _compare("ansible", surfaces.ansible_surface())
 
