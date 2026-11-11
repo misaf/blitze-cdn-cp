@@ -1,0 +1,17 @@
+---
+argument_specs:
+  main:
+    short_description: Remove the cache capability's purge index from a decommissioned host.
+    description:
+      - >-
+        blitzecdn_cache_purge keeps an index of what each cached file holds
+        outside the cache directory, which core's teardown removes. Runs in
+        the decommission play's capability slot, before blitzecdn_edge_teardown.
+      - >-
+        Always removed, whether or not the decommission keeps the cache: the
+        index is derived from the cache, and the next purge rebuilds it.
+    options:
+      blitzecdn_cache_teardown_index_path:
+        type: path
+        required: true
+        description: Must equal blitzecdn_cache_purge_index_path on the same host.
