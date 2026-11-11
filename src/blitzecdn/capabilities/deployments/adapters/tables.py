@@ -35,6 +35,8 @@ class DeploymentRow(Base):
         Index("ix_deployments_rollback_of", "rollback_of"),
         # Read by rollback selection and by release pruning.
         Index("ix_deployments_release_id", "release_id"),
+        # Release pruning keeps what these name, and deletes check this key.
+        Index("ix_deployments_previous_release_id", "previous_release_id"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
@@ -50,6 +52,9 @@ class DeploymentRow(Base):
     error: Mapped[str | None] = mapped_column()
     #: The converged release, by short digest; immutable, so shared across runs.
     release_id: Mapped[str] = mapped_column(ForeignKey("releases.id"))
+    #: The release the fleet was running when this was queued, so the record
+    #: shows what it changed; ``NULL`` when nothing had reached an edge yet.
+    previous_release_id: Mapped[str | None] = mapped_column(ForeignKey("releases.id"))
     #: For a rollback: the digest of canonical inputs when it was queued. Adoption
     #: refuses if state moved since, because restoring wholesale would silently
     #: delete records written meanwhile. ``NULL`` for an ordinary deployment.

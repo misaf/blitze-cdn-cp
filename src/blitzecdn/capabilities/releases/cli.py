@@ -139,6 +139,31 @@ def release_artifact(
     )
 
 
+@release_app.command("diff")
+@common.inject
+def release_diff(
+    releases: FromDishka[ReleaseService],
+    json_output: common.JsonOutput = False,
+) -> None:
+    """What deploying now would change on the edges, as a unified diff.
+
+    Current desired state, rendered, against the release the fleet is running.
+    Records nothing, so run it after every edit; secrets are never in the diff.
+    """
+    diff = releases.diff()
+    if json_output:
+        common.emit(diff.summary(), json_output=True)
+        return
+    configuration = diff.configuration
+    if not configuration.changed:
+        typer.echo(f"No changes: release {diff.release.id} is what the fleet runs.")
+        return
+    typer.echo(configuration.patch(), nl=False)
+    for change in configuration.changes:
+        if change.diff is None:
+            typer.echo(f"Binary {change.change.value}: {change.path}")
+
+
 @release_app.command("render")
 @common.inject
 def release_render(

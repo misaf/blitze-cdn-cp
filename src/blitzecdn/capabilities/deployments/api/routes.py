@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from blitzecdn.capabilities.deployments.api.models import (
     Deployment,
+    DeploymentDiff,
     DeploymentTarget,
     DeployRequest,
     DriftReport,
@@ -108,6 +109,27 @@ def drift_report(
     deployments: FromDishka[DeploymentService],
 ) -> DriftReport:
     return as_operation(deployments.drift_report(deployment_id), DriftReport)
+
+
+@router.get("/v3/deployments/{deployment_id}/diff", response_model=DeploymentDiff)
+def deployment_diff(
+    deployment_id: str,
+    deployments: FromDishka[DeploymentService],
+) -> DeploymentDiff:
+    """What this deployment changed on the edges, as a unified diff per file.
+
+    Against the release the fleet was running when it was queued.
+    """
+    deployment = deployments.get_deployment(deployment_id)
+    return as_operation(
+        {
+            "deployment_id": deployment.id,
+            "previous_release_id": deployment.previous_release_id,
+            "release_id": deployment.release_id,
+            **deployments.diff(deployment_id).summary(),
+        },
+        DeploymentDiff,
+    )
 
 
 @router.post(

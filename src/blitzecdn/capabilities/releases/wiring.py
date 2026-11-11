@@ -20,6 +20,7 @@ from blitzecdn.capabilities.releases.domain import (
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
     ConfigurationRenderer,
+    LiveRelease,
     ReleaseReferences,
     ReleaseStore,
     StateContributors,
@@ -107,6 +108,7 @@ def build_release_service(
     retention: int,
     uow: UnitOfWork,
     renderer: ConfigurationRenderer,
+    live: LiveRelease,
 ) -> ReleaseService:
     """Wire the compiler's inputs; ``retention`` is the history bound."""
     return ReleaseService(
@@ -120,6 +122,7 @@ def build_release_service(
         uow=uow,
         retention=retention,
         renderer=renderer,
+        live=live,
     )
 
 
@@ -184,6 +187,7 @@ class ReleasesProvider(Provider):
         rendering: Rendering[CdnSite],
         edge_contributions: EdgeContributions,
         uow: UnitOfWork,
+        live: LiveRelease,
     ) -> ReleaseService:
         return build_release_service(
             state=state,
@@ -201,4 +205,5 @@ class ReleasesProvider(Provider):
                 ansible_dir=core_ansible.ROLES_PATH.parent,
                 contributions=edge_contributions,
             ),
+            live=live,
         )

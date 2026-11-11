@@ -50,7 +50,7 @@ from blitzecdn.capabilities.deployments.settings import (
     DeploymentsConfig,
 )
 from blitzecdn.capabilities.edges import EdgeStore
-from blitzecdn.capabilities.releases import Release, ReleaseReferences
+from blitzecdn.capabilities.releases import LiveRelease, Release, ReleaseReferences
 from blitzecdn.capabilities.sites import RuleStore, ZoneStore
 from blitzecdn.core.ansible.variables import write_variables
 from blitzecdn.core.config import Settings
@@ -274,6 +274,8 @@ class DeploymentsProvider(Provider):
 
     # Release pruning asks which releases are still rollback targets.
     referenced = alias(source=DeploymentStore, provides=ReleaseReferences)
+    # A release diff compares against what deployment history says is live.
+    live = alias(source=DeploymentStore, provides=LiveRelease)
     rules = alias(source=RuleStore, provides=RuleRestore)
     locker = alias(source=DeploymentRunner, provides=DeploymentLocker)
     gateway = alias(source=DeploymentService, provides=DeploymentGateway)

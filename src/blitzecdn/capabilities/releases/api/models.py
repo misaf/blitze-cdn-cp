@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from blitzecdn.capabilities.releases.domain import SettingOrigin
+from blitzecdn.core.domain.configuration import ConfigurationChangeKind
 from blitzecdn.delivery.api.models import Model
 
 
@@ -54,11 +55,36 @@ class ReleaseDetail(Release):
     explanations: tuple[HostExplanation, ...] = ()
 
 
+class ConfigurationChange(Model):
+    """One rendered path that differs; ``diff`` is ``None`` for non-text content."""
+
+    path: str
+    change: ConfigurationChangeKind
+    diff: str | None = None
+
+
+class ReleaseDiff(Model):
+    """What deploying ``release`` would change on the edges, file by file.
+
+    ``live_release`` is what the fleet is running, ``None`` before any deployment
+    reached an edge; ``before`` and ``after`` are the two bundles' digests.
+    """
+
+    live_release: str | None = None
+    release: str
+    changed: bool
+    before: str | None = None
+    after: str
+    changes: tuple[ConfigurationChange, ...] = ()
+
+
 __all__ = [
     "ArtifactDigest",
+    "ConfigurationChange",
     "HostExplanation",
     "Release",
     "ReleaseDetail",
+    "ReleaseDiff",
     "ReleaseFinding",
     "SettingSource",
 ]

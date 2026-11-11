@@ -19,7 +19,7 @@ from blitzecdn.capabilities.releases.domain import (
     SettingOrigin,
     SettingSource,
 )
-from blitzecdn.capabilities.releases.ports import ReleaseReferences
+from blitzecdn.capabilities.releases.ports import LiveRelease, ReleaseReferences
 
 __all__ = [
     "COMPILER_VERSION",
@@ -27,6 +27,7 @@ __all__ = [
     "Artifact",
     "CompiledSite",
     "HostExplanation",
+    "LiveRelease",
     "Release",
     "ReleaseInputs",
     "ReleaseReferences",

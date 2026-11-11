@@ -22,6 +22,7 @@ from blitzecdn.core.domain.site import CdnSite
 __all__ = [
     "CanonicalState",
     "ConfigurationRenderer",
+    "LiveRelease",
     "ReleaseReferences",
     "ReleaseStore",
     "SiteChecks",
@@ -108,6 +109,14 @@ class ReleaseStore(Protocol):
 
         Returns how many were removed.
         """
+        ...
+
+
+class LiveRelease(Protocol):
+    """Which release the fleet is running, as deployment history records it."""
+
+    def live_release(self) -> str | None:
+        """The release of the newest real run that reached any edge, or ``None``."""
         ...
 
 

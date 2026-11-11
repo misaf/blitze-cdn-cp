@@ -53,6 +53,7 @@ from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutO
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
 from blitzecdn.capabilities.releases import Release
 from blitzecdn.capabilities.workflows import WorkflowKind
+from blitzecdn.core.domain.configuration import ConfigurationDiff
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.validation import validate_edge_limit
@@ -382,6 +383,16 @@ class DeploymentService:
         """How far each edge got in this deployment."""
         return tuple(self.persistence.targets.targets(deployment_id))
 
+    def diff(self, deployment_id: str) -> ConfigurationDiff:
+        """What this deployment changed, or would: its configuration against the
+        one the fleet was running when it was queued, both as first rendered."""
+        deployment = self.persistence.deployments.get_deployment(deployment_id)
+        previous = deployment.previous_release_id
+        return ConfigurationDiff.between(
+            self.releases.configuration(previous) if previous else None,
+            self.releases.configuration(deployment.release_id),
+        )
+
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site."""
         return reporting.site_is_deployed(
@@ -425,6 +436,7 @@ class DeploymentService:
         with self.persistence.uow.transaction():
             deployment = self.persistence.deployments.create_deployment(
                 operator,
+                previous_release_id=self.persistence.deployments.live_release(),
                 check_mode=check,
                 rollback_of=rollback_of,
                 release_id=release.id,
