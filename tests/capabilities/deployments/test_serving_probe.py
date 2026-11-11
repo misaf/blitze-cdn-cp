@@ -10,6 +10,7 @@ import http.server
 import ipaddress
 import ssl
 import threading
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
@@ -20,14 +21,21 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from support.policy import site_from_settings
+from support.release_probe import edge_accepts
 
 from blitzecdn.capabilities.deployments.adapters.serving import (
     ServingProbe,
     _certificate_covers,
 )
+from blitzecdn.core.ansible.probe import (
+    RELEASE_PROBE_LIFETIME,
+    release_probe_signature,
+)
 from blitzecdn.core.domain.site import CdnSite
 
 _TOKEN = "0" * 64
+_PATH = "/.blitzecdn/release"
+_KNOWN_HASH = "QJHoTmkqqYDPSIFRuNCS8w"
 
 
 class _Recorder(http.server.BaseHTTPRequestHandler):
@@ -36,10 +44,16 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
     seen: ClassVar[list[str]] = []
     tokens: ClassVar[list[str | None]] = []
     release: ClassVar[str] = "a" * 64
+    refuse: ClassVar[bool] = False
 
     def do_GET(self) -> None:
         type(self).seen.append(self.headers.get("Host", ""))
         type(self).tokens.append(self.headers.get("X-BlitzeCDN-Probe"))
+        if type(self).refuse:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(200)
         payload = (type(self).release + "\n").encode("ascii")
         self.send_header("Content-Length", str(len(payload)))
@@ -109,13 +123,86 @@ def test_the_request_is_addressed_to_the_hostname_not_to_the_edge(edge_server):
     assert _Recorder.seen == ["cdn.example.com"]
 
 
-def test_the_request_carries_the_release_probe_token(edge_server):
+def test_the_request_is_signed_with_the_release_probe_token(edge_server):
     """The edge answers the marker only to the controller; anyone else gets 404."""
     probe_on(edge_server).verify(
         edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
     )
 
-    assert _Recorder.tokens == [_TOKEN]
+    (header,) = _Recorder.tokens
+    assert edge_accepts(
+        header, token=_TOKEN, host="cdn.example.com", uri="/.blitzecdn/release"
+    )
+
+
+def test_the_token_itself_never_reaches_the_edge(edge_server):
+    """The request may be plain HTTP, so anyone on the path would read it."""
+    token = "0123456789abcdef" * 4
+
+    class Probe(ServingProbe):
+        def _connection(self, scheme, address, _port, hostname):
+            return super()._connection(scheme, address, edge_server, hostname)
+
+    Probe(token=token, timeout=5.0).verify(
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
+    )
+
+    (header,) = _Recorder.tokens
+    assert header is not None
+    assert token not in header
+
+
+def test_a_signature_reads_only_the_hostname_it_was_made_for():
+    """A captured one does not unlock the marker under another site's name."""
+    header = release_probe_signature(_TOKEN, "cdn.example.com")
+
+    assert edge_accepts(header, token=_TOKEN, host="CDN.example.com.", uri=_PATH)
+    assert not edge_accepts(header, token=_TOKEN, host="www.example.com", uri=_PATH)
+    assert not edge_accepts(header, token="1" * 64, host="cdn.example.com", uri=_PATH)
+
+
+def test_a_signature_expires():
+    """Replaying a captured one works only until it goes stale."""
+    issued = time.time() - RELEASE_PROBE_LIFETIME - 1
+    header = release_probe_signature(_TOKEN, "cdn.example.com", now=issued)
+
+    assert not edge_accepts(header, token=_TOKEN, host="cdn.example.com", uri=_PATH)
+
+
+def test_a_signature_matches_nginx_secure_link_for_a_known_input():
+    """Pinned: ``echo -n '1700000300cdn.example.com/.blitzecdn/release <token>' |
+    openssl md5 -binary | openssl base64 | tr +/ -_ | tr -d =``."""
+    header = release_probe_signature(
+        _TOKEN, "cdn.example.com", now=1_700_000_300 - RELEASE_PROBE_LIFETIME
+    )
+
+    assert header == f"{_KNOWN_HASH},1700000300"
+
+
+def test_a_refused_probe_points_at_the_clock_and_the_token():
+    """A 404 is what the edge answers an expired or wrongly keyed signature."""
+    _Recorder.refuse = True
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", 0), _Recorder)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            (result,) = probe_on(server.server_address[1]).verify(
+                edge="edge-a",
+                address="127.0.0.1",
+                release_digest="a" * 64,
+                sites=[site()],
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+    finally:
+        _Recorder.refuse = False
+
+    assert result.served is False
+    assert "clock" in result.detail
+    assert "probe token" in result.detail
 
 
 def test_an_edge_that_is_not_listening_is_reported_as_not_serving():
