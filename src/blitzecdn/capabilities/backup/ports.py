@@ -51,6 +51,36 @@ class ArchiveGateway(Protocol):
         ...
 
 
+class ArchiveCipher(Protocol):
+    """At-rest encryption of a finished archive, to keys configured in advance.
+
+    Only public keys live on the controller: it can seal an archive but never
+    open one without an identity the operator supplies at the time.
+    """
+
+    @property
+    def encrypting(self) -> bool:
+        """Whether new archives are to be encrypted at all."""
+        ...
+
+    def encrypted(self, archive: Path) -> bool:
+        """Whether ``archive`` is encrypted, judged from its header alone."""
+        ...
+
+    def encrypt(self, source: Path, destination: Path) -> None:
+        """Seal ``source`` into a new file at ``destination``, never overwriting."""
+        ...
+
+    def decrypt(self, source: Path, destination: Path, identity: str) -> None:
+        """Open ``source`` into a new private file at ``destination``.
+
+        ``identity`` is the text of a key file. Raises ``ConfigurationError``
+        when it is unusable, does not match, or the archive fails authentication;
+        ``destination`` is then incomplete and must not be read.
+        """
+        ...
+
+
 class BackupComponentGateway(Protocol):
     """One component's storage; every ``validate`` precedes any ``restore``."""
 
@@ -163,6 +193,7 @@ class Workspace(Protocol):
 
 
 __all__ = [
+    "ArchiveCipher",
     "ArchiveEntry",
     "ArchiveGateway",
     "BackupComponentGateway",

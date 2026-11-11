@@ -1,10 +1,11 @@
 """Compose serving policy from the contracts the features contribute.
 
 `SitePolicy` names no contract. The fields come from
-:class:`~blitzecdn.core.features.PolicyContribution`, fixed once by
-:meth:`~blitzecdn.core.domain.site_policy.SitePolicy.seal` when the
-registry loads, and a contract is read with ``policy[TlsPolicy]``. The class is
-a :class:`~blitzecdn.core.domain.composed.ComposedModel`, so a field, body or
+:class:`~blitzecdn.core.features.PolicyContribution`, fixed by
+:meth:`~blitzecdn.core.domain.site_policy.SitePolicy.seal` when
+``blitzecdn.composition`` is imported, and a contract is read with
+``policy[TlsPolicy]``. The class is a
+:class:`~blitzecdn.core.domain.composed.ComposedModel`, so a field, body or
 response can name it at import time, before the registry exists.
 """
 
@@ -53,9 +54,9 @@ class SitePolicy(ComposedModel):
         """The contributions this policy is composed from."""
         if SitePolicy._schema is None:
             raise FeatureError(
-                "the site policy is not composed yet: load the feature registry "
-                "(`blitzecdn.composition.load_registry`) before validating a "
-                "policy; the test suite does so in tests/conftest.py"
+                "the site policy is not composed yet: import `blitzecdn.composition`, "
+                "which composes it from the built-in features, before validating "
+                "a policy"
             )
         return SitePolicy._schema
 

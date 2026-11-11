@@ -703,6 +703,8 @@
           and start the services:
           `sudo blitzecdn backup restore ARCHIVE --yes`, then
           `sudo docker compose --file {{ blitzecdn_controlplane_compose_file }} up --detach --wait`.
+          An archive ending in .age is encrypted: add `--identity - < KEY` to
+          the restore, with the private key that matches BLITZE_BACKUP_RECIPIENTS.
           Or fix the cause above and rerun `sudo {{ blitzecdn_controlplane_installer | basename }} update`.
           {%- elif blitzecdn_controlplane_previous_started.rc | default(1) == 0 -%}
           The control-plane update failed {{ blitzecdn_controlplane_recovery_point }},

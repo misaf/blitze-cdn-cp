@@ -52,6 +52,9 @@ dependencies = [
   # ACME issuance in-process: no certbot subprocess, no hook re-entering the
   # CLI, nothing inheriting the controller's environment.
   "acme>=5.10,<6",
+  # Optional at-rest encryption of backup archives to age recipients;
+  # streams, so an archive of any size never sits whole in memory.
+  "pyrage>=1.4,<2",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
@@ -213,6 +216,11 @@ ignore_errors = true
 # test in tests/contract/test_configuration_rendering.py.
 [[tool.mypy.overrides]]
 module = ["ansible", "ansible.*"]
+ignore_missing_imports = true
+
+# pyrage is a compiled extension and ships no type information.
+[[tool.mypy.overrides]]
+module = ["pyrage", "pyrage.*"]
 ignore_missing_imports = true
 
 [tool.bandit]

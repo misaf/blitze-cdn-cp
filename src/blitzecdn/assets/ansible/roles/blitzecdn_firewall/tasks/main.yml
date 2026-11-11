@@ -14,6 +14,49 @@
           - blitzecdn_firewall_ssh_port <= 65535
         fail_msg: Configure at least one trusted blitzecdn_firewall_ssh_sources CIDR before enabling the firewall.
 
+    # The established connection survives the policy change, so a source list
+    # that leaves the controller out converges cleanly and is only found out by
+    # the next ansible-playbook run — the commit, or the withdrawal after it —
+    # which opens a fresh connection to a closed port. Checked before anything
+    # on the host changes. Read without become: sudo's env_reset drops
+    # SSH_CONNECTION, so gathered facts would not carry it.
+    - name: Read the address the controller connects from
+      ansible.builtin.command: printenv SSH_CONNECTION
+      become: false
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: blitzecdn_firewall_ssh_connection
+      when:
+        - blitzecdn_firewall_verify_controller_source | bool
+        - ansible_connection | default('ssh') != 'local'
+
+    - name: Refuse SSH sources that would lock the controller out
+      vars:
+        blitzecdn_firewall_controller_address: >-
+          {{ (blitzecdn_firewall_ssh_connection.stdout | default('')).split() | first | default('') }}
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_firewall_controller_address | length > 0
+          - >-
+            blitzecdn_firewall_controller_address
+            | blitzecdn_address_in_networks(blitzecdn_firewall_ssh_sources)
+        fail_msg: >-
+          {% if blitzecdn_firewall_controller_address | length == 0 %}Cannot tell
+          which address the controller reaches {{ inventory_hostname }} from:
+          SSH_CONNECTION is not set in the login session.{% else %}The controller
+          reaches {{ inventory_hostname }} from {{ blitzecdn_firewall_controller_address }},
+          which is in none of blitzecdn_firewall_ssh_sources
+          ({{ blitzecdn_firewall_ssh_sources | join(', ') }}).{% endif %}
+          Enabling the firewall would admit this run's connection and refuse the
+          next one. Add the controller's network as an SSH source, or, where the
+          address the edge sees is not one the firewall should admit (a bastion
+          or NAT whose own range is listed), set
+          blitzecdn_firewall_verify_controller_source to false.
+      when:
+        - blitzecdn_firewall_verify_controller_source | bool
+        - ansible_connection | default('ssh') != 'local'
+
     - name: Install UFW
       ansible.builtin.apt:
         name: ufw

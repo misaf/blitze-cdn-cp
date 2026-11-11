@@ -59,6 +59,7 @@ from blitzecdn.capabilities.tls.settings import (
     certificate_dir as tls_certificate_dir,
 )
 from blitzecdn.composition import (
+    BUILTIN_REGISTRY,
     Adapters,
     ApiNode,
     ApiProvider,
@@ -67,7 +68,6 @@ from blitzecdn.composition import (
     Repository,
     Worker,
     WorkerProvider,
-    load_registry,
     service_providers,
 )
 from blitzecdn.core.ansible import AnsibleRunner
@@ -1000,7 +1000,7 @@ def repository_on(settings: Settings) -> Stores:
 
 def control_plane_app(settings: Settings) -> FastAPI:
     """The all-package workspace API used by cross-capability integration tests."""
-    return create_app(settings, features=load_registry())
+    return create_app(settings, features=BUILTIN_REGISTRY)
 
 
 #: The API key `settings` configures, as the header a client sends.

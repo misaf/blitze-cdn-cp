@@ -240,9 +240,9 @@ def test_ansible_roles_path_is_what_a_deployment_would_resolve():
     assert all(Path(entry).is_dir() for entry in entries)
     # Ordered by feature name after core's, which is what makes two controllers
     # with the same packages installed resolve every role identically.
-    from blitzecdn.composition import load_registry
+    from blitzecdn.composition import BUILTIN_REGISTRY
 
-    contributions = load_registry().ansible_contributions()
+    contributions = BUILTIN_REGISTRY.ansible_contributions()
     expected = [
         str(item.roles_path)
         for item in sorted(contributions, key=lambda item: item.feature)

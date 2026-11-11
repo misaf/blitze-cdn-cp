@@ -11,8 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
+from blitzecdn.capabilities.backup.adapters.encryption import parse_recipient
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     ConfigurationModel,
@@ -23,6 +24,7 @@ __all__ = ["CONFIGURATION", "BackupConfig"]
 
 BACKUP_DIR: Final = "BLITZE_BACKUP_DIR"
 BACKUP_RETAIN: Final = "BLITZE_BACKUP_RETAIN_COUNT"
+BACKUP_RECIPIENTS: Final = "BLITZE_BACKUP_RECIPIENTS"
 
 
 #: Relative, so under the state directory in a checkout; an installed
@@ -51,6 +53,30 @@ class BackupConfig(ConfigurationModel):
             "archive."
         ),
     )
+
+    backup_recipients: str = Field(
+        default="",
+        alias=BACKUP_RECIPIENTS,
+        description=(
+            "Comma-separated public keys every new archive is encrypted to: "
+            "age (age1...) or ssh-ed25519/ssh-rsa. Empty writes unencrypted "
+            "archives. Restoring an encrypted one needs a matching private key."
+        ),
+    )
+
+    @property
+    def recipients(self) -> tuple[str, ...]:
+        """The configured recipients, in order; empty when archives are plain."""
+        return tuple(filter(None, self.backup_recipients.split(",")))
+
+    @field_validator("backup_recipients")
+    @classmethod
+    def validate_recipients(cls, value: str) -> str:
+        """Refuse a key that cannot be encrypted to before any backup runs."""
+        recipients = [part.strip() for part in value.split(",") if part.strip()]
+        for recipient in recipients:
+            parse_recipient(recipient)
+        return ",".join(recipients)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> BackupConfig:

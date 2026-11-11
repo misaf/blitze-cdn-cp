@@ -33,7 +33,7 @@ from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.jobs.service import JobQueue
 from blitzecdn.capabilities.origins.settings import OriginsConfig
 from blitzecdn.composition.repository import Repository
-from blitzecdn.composition.roster import load_registry
+from blitzecdn.composition.roster import BUILTIN_REGISTRY
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.probe import release_probe_token
@@ -116,7 +116,7 @@ class InfrastructureProvider(Provider):
 
     @provide
     def features(self, adapters: Adapters) -> FeatureRegistry:
-        return adapters.features if adapters.features is not None else load_registry()
+        return adapters.features if adapters.features is not None else BUILTIN_REGISTRY
 
     @provide
     def capability_config(
