@@ -3,6 +3,9 @@ name: Bug report
 about: Report a problem with BlitzeCDN
 ---
 
+<!-- Do not report security vulnerabilities here. Report them privately as described in
+https://github.com/misaf/blitze-cdn-cp/blob/master/SECURITY.md -->
+
 ## Description
 
 Describe the problem and its impact.

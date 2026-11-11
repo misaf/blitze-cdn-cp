@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/misaf/blitze-cdn-cp/security/advisories/new
+    about: Report vulnerabilities privately as described in SECURITY.md, not in a public issue.
