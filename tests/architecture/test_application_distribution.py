@@ -8,7 +8,7 @@ from pathlib import Path
 
 from support.paths import REPO_ROOT, SOURCE
 
-from blitzecdn.composition import BUILTIN_FEATURES, load_registry
+from blitzecdn.composition import BUILTIN_FEATURES, BUILTIN_REGISTRY
 from blitzecdn.core.features.resolution import resolve_nginx_resources
 
 
@@ -23,7 +23,7 @@ def test_one_distribution_owns_the_application_and_every_capability():
 
 
 def test_all_shipped_features_share_the_application_version():
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
     version = importlib.metadata.version("blitzecdn")
     declared = [
         feature
@@ -78,7 +78,7 @@ def test_edge_providers_have_no_business_services_or_delivery_layers():
 
 
 def test_every_declared_role_and_nginx_fragment_is_owned_by_the_application():
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
     owners = set()
     for contribution in registry.ansible_contributions():
         assert contribution.roles_path.is_relative_to(SOURCE)
