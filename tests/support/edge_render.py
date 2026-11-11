@@ -80,6 +80,9 @@ def nginx_environment() -> jinja2.Environment:
     environment.filters["bool"] = ansible_bool
     environment.filters["regex_escape"] = regex_escape
     environment.filters["combine"] = combine
+    # A site looks up the same few fragments dozens of times; compiling each
+    # once is most of the difference between milliseconds and seconds.
+    compiled: dict[str, jinja2.Template] = {}
 
     @jinja2.pass_context
     def lookup(
@@ -91,7 +94,9 @@ def nginx_environment() -> jinja2.Environment:
     ) -> str:
         values = dict(context.get_all())
         values.update(template_vars or {})
-        return environment.from_string(Path(template).read_text()).render(**values)
+        if template not in compiled:
+            compiled[template] = environment.from_string(Path(template).read_text())
+        return compiled[template].render(**values)
 
     environment.globals["lookup"] = lookup
     return environment

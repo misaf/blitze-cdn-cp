@@ -579,6 +579,11 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    return configured_settings(tmp_path)
+
+
+def configured_settings(tmp_path: Path) -> Settings:
+    """What ``settings`` provides, under any directory, for wider-scoped fixtures."""
     ansible = tmp_path / "ansible"
     (ansible / "inventory").mkdir(parents=True)
     (ansible / "playbooks").mkdir()
