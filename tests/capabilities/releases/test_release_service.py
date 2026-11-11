@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 from support.control_plane import FakeRunner, build_application, seed_record, seed_site
 from support.stores import Stores
 
@@ -26,6 +25,7 @@ from blitzecdn.capabilities.sites.domain import (
     PatchPolicy,
     RecordType,
 )
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import NotFoundError
 
@@ -198,7 +198,7 @@ def test_a_deployment_converges_the_document_its_release_carries(control, settin
     release = plane.releases.get(deployment.release_id)
 
     published = settings.generated_vars_path.read_text(encoding="utf-8")
-    envelope = yaml.safe_load(published)
+    envelope = read_variables(settings.generated_vars_path)
     assert envelope.pop("blitzecdn_release_digest") == release.digest
     # The bundle the edge stages is the one stored with the release.
     bundle = Path(envelope.pop("blitzecdn_config_release_bundle"))

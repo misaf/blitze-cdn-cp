@@ -1,15 +1,68 @@
-"""Per-run variable files: one caller's request, visible to nobody else."""
+"""Variable files handed to Ansible as ``--extra-vars @file``.
+
+ansible-core loads an ``@file`` as a trusted template, so a string holding
+``{{ ... }}`` would be evaluated wherever a play touches it — a purge URI or an
+error page could run ``lookup('pipe', ...)`` as the controller. Every string is
+therefore written with Ansible's ``!unsafe`` tag: plays still read, compare and
+filter the values, but never render them. Nothing the control plane passes this
+way is meant to be a template.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
-from blitzecdn.core.runtime.filesystem import atomic_write_yaml
+import yaml
 
-__all__ = ["run_variables"]
+from blitzecdn.core.runtime.filesystem import atomic_write_bytes
+
+__all__ = ["read_variables", "run_variables", "write_variables"]
+
+#: Ansible's tag for a value it must never template.
+_UNSAFE = "!unsafe"
+
+
+class _UnsafeDumper(yaml.SafeDumper):
+    """Safe YAML whose every string, key or value, is tagged ``!unsafe``."""
+
+
+def _represent_unsafe(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar(_UNSAFE, value, style=style)
+
+
+_UnsafeDumper.add_representer(str, _represent_unsafe)
+
+
+class _UnsafeLoader(yaml.SafeLoader):
+    """Read a variables file back as plain data, for Python rather than Ansible."""
+
+
+_UnsafeLoader.add_constructor(
+    _UNSAFE, lambda loader, node: loader.construct_scalar(node)
+)
+
+
+def write_variables(
+    path: Path, values: Mapping[str, Any], *, mode: int = 0o600
+) -> None:
+    """Atomically write ``values`` as an extra-vars file no play will template."""
+    document = yaml.dump(
+        dict(values),
+        Dumper=_UnsafeDumper,
+        sort_keys=False,
+        allow_unicode=False,
+    )
+    atomic_write_bytes(path, document.encode("utf-8"), mode=mode)
+
+
+def read_variables(path: Path) -> Any:
+    """Load a file :func:`write_variables` wrote, its strings as plain ``str``."""
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=_UnsafeLoader)  # noqa: S506
 
 
 @contextmanager
@@ -24,7 +77,7 @@ def run_variables(
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{prefix}-{uuid4().hex}.yml"
     try:
-        atomic_write_yaml(path, values)
+        write_variables(path, values)
         yield path
     finally:
         path.unlink(missing_ok=True)

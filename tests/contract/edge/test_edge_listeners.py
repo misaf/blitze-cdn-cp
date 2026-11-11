@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-import yaml
 from support.contracts import (
     role_defaults,
 )
@@ -35,6 +34,7 @@ from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
+from blitzecdn.core.ansible.variables import read_variables
 
 REQUIRES_CAPABILITIES = {
     "test_http3_is_additive_and_limited_to_udp_443": ("http3",),
@@ -180,7 +180,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
         )
     output = tmp_path / "http3.yml"
     control.deployments.publish_artifact(control.releases.compile(), output)
-    document = yaml.safe_load(output.read_text(encoding="utf-8"))
+    document = read_variables(output)
 
     assert isinstance(document["blitzecdn_edge_http3_enabled"], bool)
     assert isinstance(document["blitzecdn_nginx_http3_listener_owner"], str)

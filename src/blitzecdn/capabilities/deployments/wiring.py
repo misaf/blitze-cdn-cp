@@ -52,6 +52,7 @@ from blitzecdn.capabilities.deployments.settings import (
 from blitzecdn.capabilities.edges import EdgeStore
 from blitzecdn.capabilities.releases import Release, ReleaseReferences
 from blitzecdn.capabilities.sites import RuleStore, ZoneStore
+from blitzecdn.core.ansible.variables import write_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
@@ -59,11 +60,7 @@ from blitzecdn.core.features import FeatureOperations, ScheduledJob
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports.clock import Clock
-from blitzecdn.core.runtime.filesystem import (
-    atomic_write_bytes,
-    atomic_write_yaml,
-    read_log_tail,
-)
+from blitzecdn.core.runtime.filesystem import atomic_write_bytes, read_log_tail
 
 __all__ = [
     "CONFIGURATION_BUNDLE",
@@ -90,7 +87,7 @@ def publish_release(
     """
     bundle_path = variables.with_name(CONFIGURATION_BUNDLE)
     atomic_write_bytes(bundle_path, bundle.encode().encode("utf-8"))
-    atomic_write_yaml(
+    write_variables(
         variables,
         {
             **release.execution_document(),
@@ -194,7 +191,7 @@ def build_deployment_service(
             runner=runner,
             background=background,
             read_log=read_log_tail,
-            write_yaml=atomic_write_yaml,
+            write_yaml=write_variables,
             rollout=Rollout(
                 targets=targets,
                 runner=runner,
