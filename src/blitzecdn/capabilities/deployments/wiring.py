@@ -201,6 +201,7 @@ def build_deployment_service(
                 addresses=addresses,
                 verifier=verifier,
                 clock=clock,
+                batch_size=config.batch_size,
                 # The PREPARE phase writes the release's configuration and its
                 # execution document beside it, for the edge play to stage.
                 publish=lambda release: publish_release(

@@ -153,7 +153,8 @@ and queue readiness checks; historical failures do not make it fail.
 The `blitzecdn_convergence_*` metrics carry a fixed `kind` label: `applied` for
 real deployments and rollbacks, `drift_check` for check-mode runs such as the
 scheduled drift check. Only full-fleet runs count; a canary (`--limit`) neither
-raises nor resets the streak. An attempt refused before any deployment was
+raises nor resets the streak, and neither does a drift check that stood aside
+for a waiting deployment. An attempt refused before any deployment was
 recorded, for example a release that would not compile, counts as a failure, so
 a bad setting that blocks every deploy is still visible. The same figures are in
 `GET /v3/status` and `blitzecdn overview` under `convergence`.

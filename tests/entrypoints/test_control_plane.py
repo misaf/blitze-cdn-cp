@@ -601,14 +601,15 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     control = build_application(
         settings=settings,
         repository=repository,
+        # One batch; the play stopped at edge-b before edge-c ever reported.
         runner=FakeRunner(
             [
-                ansible_run(host_run("edge-a", changed=0)),
                 ansible_run(
+                    host_run("edge-a", changed=0),
                     host_run("edge-b", failed=1, failure="unreachable"),
                     status=RunStatus.FAILED,
                     return_code=2,
-                ),
+                )
             ]
         ),
     )
