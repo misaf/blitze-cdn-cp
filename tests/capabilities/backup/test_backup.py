@@ -30,6 +30,7 @@ from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.adapters import (
+    AgeCipher,
     BackupStatusFile,
     TarArchive,
     TemporaryWorkspace,
@@ -1612,6 +1613,7 @@ def test_a_backup_service_without_a_component_refuses_to_restore_it(
         policy=BackupPolicy(backup_dir=_backup_dir(populated), version="0"),
         components=(),
         archive=TarArchive(),
+        cipher=AgeCipher(()),
         schema=DatabaseSchema(populated),
         services=_RecordingServices(),
         workspace=TemporaryWorkspace(tmp_path / "work"),
@@ -1835,3 +1837,214 @@ def test_checkout_restore_needs_no_container_lifecycle(monkeypatch):
     monkeypatch.delenv("COMPOSE_RESTORE_OFFLINE", raising=False)
     with ComposeRestoreGuard().stopped():
         pass
+
+
+# --- encryption at rest -----------------------------------------------
+
+
+def _age_key():
+    from pyrage import x25519
+
+    identity = x25519.Identity.generate()
+    return str(identity.to_public()), str(identity)
+
+
+def _ssh_key():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    key = ed25519.Ed25519PrivateKey.generate()
+    public = key.public_key().public_bytes(
+        serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH
+    )
+    private = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption(),
+    )
+    return public.decode("ascii"), private.decode("ascii")
+
+
+def _sealing_service(settings, *recipients):
+    configured = with_capability_settings(
+        settings, backup_recipients=",".join(recipients)
+    )
+    return configured, build_backup_service(
+        configured,
+        configuration=load_registry().configuration_contributions(),
+        clock=system_clock,
+    )
+
+
+def test_an_encrypted_archive_name_is_still_counted_by_retention():
+    moment = datetime(2026, 8, 30, 0, 15, 30, tzinfo=UTC)
+    name = backup_filename(moment, encrypted=True)
+    assert name == "blitzecdn-backup-2026-08-30_00-15-30Z.tar.gz.age"
+    assert backup_moment(name) == moment
+    assert backup_moment(name + ".age") is None
+
+
+def test_recipients_are_validated_and_normalised():
+    public, _ = _age_key()
+    ssh_public, _ = _ssh_key()
+    config = BackupConfig.model_validate(
+        {"BLITZE_BACKUP_RECIPIENTS": f" {public} , {ssh_public},"}
+    )
+    assert config.recipients == (public, ssh_public)
+    assert BackupConfig.model_validate({}).recipients == ()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["age1notakey", "AGE-SECRET-KEY-1QQQQ", "ssh-dss AAAAB3Nza", "gpg:ABCDEF"],
+)
+def test_a_recipient_that_cannot_be_encrypted_to_is_refused(value):
+    with pytest.raises(ValidationError, match="backup recipient"):
+        BackupConfig.model_validate({"BLITZE_BACKUP_RECIPIENTS": value})
+
+
+def test_an_encrypted_backup_holds_no_plaintext_and_needs_its_key(populated):
+    public, secret = _age_key()
+    configured, service = _sealing_service(populated, public)
+    archive = service.create()
+    assert archive.name.endswith("Z.tar.gz.age")
+    assert archive.read_bytes().startswith(b"age-encryption.org/v1\n")
+    assert archive.stat().st_mode & 0o777 == 0o600
+    assert not tarfile.is_tarfile(archive)
+    # Nothing plain is left behind beside it or in the workspace.
+    assert list(archive.parent.iterdir()) == [archive]
+    assert not any((configured.state_dir / "backup-work").iterdir())
+    # The history still records it, as the scheduled backup's success.
+    assert service.latest().archive == archive.name
+
+    with pytest.raises(ConfigurationError, match="is encrypted"):
+        service.inspect(archive)
+    _, other = _age_key()
+    with pytest.raises(ConfigurationError, match="cannot decrypt"):
+        service.inspect(archive, identity=other)
+    manifest = service.inspect(archive, identity=f"# created: today\n{secret}\n")
+    assert BackupComponent.DATABASE in manifest.components
+    assert not any((configured.state_dir / "backup-work").iterdir())
+
+
+def test_any_one_of_several_recipients_opens_the_archive(populated):
+    age_public, age_secret = _age_key()
+    ssh_public, ssh_secret = _ssh_key()
+    _, service = _sealing_service(populated, age_public, ssh_public)
+    archive = service.create(only=(BackupComponent.TLS,))
+    for secret in (age_secret, ssh_secret):
+        manifest = service.inspect(archive, identity=secret)
+        assert manifest.components == (BackupComponent.TLS,)
+
+
+def test_an_encrypted_archive_restores_with_its_key(populated):
+    public, secret = _age_key()
+    _, service = _sealing_service(populated, public)
+    archive = service.create(only=(BackupComponent.TLS,))
+    key = certificate_dir(populated) / "example-com/privkey-aa.pem"
+    key.write_text("REPLACED", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="is encrypted"):
+        service.restore(archive)
+    assert key.read_text(encoding="utf-8") == "REPLACED"
+    service.restore(archive, identity=secret)
+    assert key.read_text(encoding="utf-8") == "PRIVATE KEY"
+
+
+def test_a_tampered_encrypted_archive_is_refused_before_anything_is_read(
+    populated, tmp_path
+):
+    public, secret = _age_key()
+    _, service = _sealing_service(populated, public)
+    archive = service.create(only=(BackupComponent.TLS,))
+    sealed = bytearray(archive.read_bytes())
+    sealed[-20] ^= 0x01
+    tampered = tmp_path / "tampered.tar.gz.age"
+    tampered.write_bytes(bytes(sealed))
+    with pytest.raises(ConfigurationError, match="failed authentication"):
+        service.restore(tampered, identity=secret)
+    truncated = tmp_path / "truncated.tar.gz.age"
+    truncated.write_bytes(bytes(sealed[: len(sealed) // 2]))
+    with pytest.raises(ConfigurationError, match="failed authentication"):
+        service.inspect(truncated, identity=secret)
+
+
+def test_an_unusable_identity_is_refused_without_echoing_it(populated):
+    public, _ = _age_key()
+    _, service = _sealing_service(populated, public)
+    archive = service.create(only=(BackupComponent.TLS,))
+    for identity in ("", "# only a comment\n", "not-a-key-at-all"):
+        with pytest.raises(ConfigurationError) as raised:
+            service.inspect(archive, identity=identity)
+        assert "not-a-key-at-all" not in str(raised.value)
+
+
+def test_a_plain_archive_ignores_an_identity(service):
+    archive = service.create(only=(BackupComponent.TLS,))
+    _, secret = _age_key()
+    assert service.inspect(archive, identity=secret).components == (
+        BackupComponent.TLS,
+    )
+
+
+def test_retention_prunes_encrypted_and_plain_archives_together(populated):
+    public, _ = _age_key()
+    configured, service = _sealing_service(populated, public)
+    directory = _backup_dir(configured)
+    directory.mkdir(parents=True, exist_ok=True)
+    names = [
+        backup_filename(datetime(2026, 1, day, tzinfo=UTC), encrypted=day % 2 == 0)
+        for day in range(1, 5)
+    ]
+    for name in names:
+        (directory / name).write_bytes(b"")
+    removed = service.prune(keep=2)
+    assert sorted(path.name for path in removed) == sorted(names[:2])
+
+
+def test_cli_reads_the_identity_from_standard_input(populated, monkeypatch):
+    public, secret = _age_key()
+    configured = with_capability_settings(populated, backup_recipients=public)
+    monkeypatch.setattr(cli.common, "settings", lambda: configured)
+    created = runner.invoke(cli.app, ["backup", "create", "--only", "tls"])
+    assert created.exit_code == 0, created.output
+    assert "Encrypted to the configured backup recipients." in created.stdout
+    archive = created.stdout.split("Backup created: ")[1].splitlines()[0].strip()
+
+    refused = runner.invoke(cli.app, ["backup", "inspect", archive])
+    assert isinstance(refused.exception, ConfigurationError)
+
+    shown = runner.invoke(
+        cli.app, ["backup", "inspect", archive, "--identity", "-"], input=secret
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "  tls" in shown.stdout
+
+    unconfirmed = runner.invoke(
+        cli.app, ["backup", "restore", archive, "--identity", "-"], input=secret
+    )
+    assert isinstance(unconfirmed.exception, ConfigurationError)
+    assert "add --yes" in str(unconfirmed.exception)
+
+    restored = runner.invoke(
+        cli.app,
+        ["backup", "restore", archive, "--identity", "-", "--yes"],
+        input=secret,
+    )
+    assert restored.exit_code == 0, restored.output
+    assert "Restored: tls" in restored.stdout
+
+
+def test_cli_reads_the_identity_from_a_file(populated, monkeypatch, tmp_path):
+    public, secret = _age_key()
+    configured = with_capability_settings(populated, backup_recipients=public)
+    monkeypatch.setattr(cli.common, "settings", lambda: configured)
+    created = runner.invoke(cli.app, ["backup", "create", "--only", "tls"])
+    archive = created.stdout.split("Backup created: ")[1].splitlines()[0].strip()
+    key = tmp_path / "key.txt"
+    key.write_text(secret + "\n", encoding="utf-8")
+    shown = runner.invoke(cli.app, ["backup", "inspect", archive, "-i", str(key)])
+    assert shown.exit_code == 0, shown.output
+    missing = runner.invoke(
+        cli.app, ["backup", "inspect", archive, "-i", str(tmp_path / "absent")]
+    )
+    assert isinstance(missing.exception, ConfigurationError)

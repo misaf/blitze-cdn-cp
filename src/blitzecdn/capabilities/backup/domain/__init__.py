@@ -3,6 +3,7 @@
 from blitzecdn.capabilities.backup.domain.history import BackupRecord
 from blitzecdn.capabilities.backup.domain.manifest import (
     BACKUP_FORMAT_VERSION,
+    ENCRYPTED_SUFFIX,
     MANIFEST_NAME,
     BackupComponent,
     BackupManifest,
@@ -15,6 +16,7 @@ from blitzecdn.capabilities.backup.domain.manifest import (
 
 __all__ = [
     "BACKUP_FORMAT_VERSION",
+    "ENCRYPTED_SUFFIX",
     "MANIFEST_NAME",
     "BackupComponent",
     "BackupManifest",

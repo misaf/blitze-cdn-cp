@@ -1,15 +1,17 @@
 """Creating and restoring a backup, as a sequence of decisions.
 
 Creation stages everything privately, writes the manifest last, then publishes
-under a fresh name. Restoration checks the whole archive before writing a byte
-anywhere real. Retention removes only archives this capability named.
+under a fresh name, sealed to the configured recipients if there are any.
+Restoration opens a sealed archive privately first, then checks the whole
+archive before writing a byte anywhere real. Retention removes only archives
+this capability named.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from contextlib import nullcontext
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +29,7 @@ from blitzecdn.capabilities.backup.domain import (
     unsafe_member,
 )
 from blitzecdn.capabilities.backup.ports import (
+    ArchiveCipher,
     ArchiveGateway,
     BackupComponentGateway,
     BackupHistory,
@@ -58,6 +61,7 @@ class BackupService:
         policy: BackupPolicy,
         components: Sequence[BackupComponentGateway],
         archive: ArchiveGateway,
+        cipher: ArchiveCipher,
         schema: SchemaVersions,
         services: ServiceControl,
         workspace: Workspace,
@@ -67,6 +71,7 @@ class BackupService:
     ) -> None:
         self.policy = policy
         self.archive = archive
+        self.cipher = cipher
         self.schema = schema
         self.services = services
         self.workspace = workspace
@@ -110,7 +115,15 @@ class BackupService:
             (staging / MANIFEST_NAME).write_text(
                 manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
             )
-            self.archive.write(staging, target)
+            if self.cipher.encrypting:
+                # The plaintext tar stays in the private workspace; only the
+                # sealed file is ever published.
+                with self.workspace.scratch("blitzecdn-seal-") as sealing:
+                    plain = sealing / "archive.tar.gz"
+                    self.archive.write(staging, plain)
+                    self.cipher.encrypt(plain, target)
+            else:
+                self.archive.write(staging, target)
         if only is None:
             self.history.record(
                 BackupRecord(
@@ -161,7 +174,10 @@ class BackupService:
         if destination is None:
             self.policy.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.policy.backup_dir.chmod(0o700)
-        target = destination or (self.policy.backup_dir / backup_filename(moment))
+        target = destination or (
+            self.policy.backup_dir
+            / backup_filename(moment, encrypted=self.cipher.encrypting)
+        )
         # The operator-facing check; the atomic rename is what enforces it.
         if target.exists():
             raise ConfigurationError(
@@ -202,14 +218,22 @@ class BackupService:
         """The last full backup that completed, if one has been recorded."""
         return self.history.latest()
 
-    def inspect(self, archive: Path) -> BackupManifest:
-        """What an archive holds, without extracting or restoring any of it."""
-        return self._validated_manifest(archive)
+    def inspect(self, archive: Path, *, identity: str | None = None) -> BackupManifest:
+        """What an archive holds, without extracting or restoring any of it.
+
+        ``identity`` is the text of the key file that opens an encrypted archive.
+        """
+        with self._opened(archive, identity) as readable:
+            return self._validated_manifest(readable)
 
     # -- Restoring -----------------------------------------------------
 
-    def restore(self, archive: Path) -> BackupManifest:
+    def restore(self, archive: Path, *, identity: str | None = None) -> BackupManifest:
         """Restore exactly the components the archive's manifest declares."""
+        with self._opened(archive, identity) as readable:
+            return self._restore(readable)
+
+    def _restore(self, archive: Path) -> BackupManifest:
         manifest = self._validated_manifest(archive)
         gateways = [self._components[name] for name in manifest.components]
         with self.workspace.scratch("blitzecdn-restore-") as staging:
@@ -230,6 +254,27 @@ class BackupService:
                     for gateway in gateways:
                         gateway.restore(staging / gateway.component.value)
         return manifest
+
+    @contextmanager
+    def _opened(self, archive: Path, identity: str | None) -> Iterator[Path]:
+        """The archive as a plain tar: itself, or a private decrypted copy.
+
+        The copy is read only once decryption has authenticated all of it, so a
+        tampered archive is refused before any of its members is looked at.
+        """
+        if not archive.is_file():
+            raise NotFoundError(f"{archive} does not exist")
+        if not self.cipher.encrypted(archive):
+            yield archive
+            return
+        if identity is None:
+            raise ConfigurationError(
+                f"{archive} is encrypted; pass the key that opens it with --identity"
+            )
+        with self.workspace.scratch("blitzecdn-open-") as opening:
+            plain = opening / "archive.tar.gz"
+            self.cipher.decrypt(archive, plain, identity)
+            yield plain
 
     # -- Validation ----------------------------------------------------
 
