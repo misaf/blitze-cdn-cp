@@ -76,7 +76,7 @@ DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
 }
 
 
-def aborted_run(exc: BaseException, *, interrupted: bool, now: datetime) -> AnsibleRun:
+def aborted_run(exc: Exception, *, now: datetime) -> AnsibleRun:
     """A result for a deployment whose runner raised before Ansible reported anything.
 
     Recorded in the same shape as any other outcome so readers handle one form.
@@ -88,11 +88,7 @@ def aborted_run(exc: BaseException, *, interrupted: bool, now: datetime) -> Ansi
         return_code=None,
         started_at=now,
         finished_at=now,
-        error=(
-            f"deployment interrupted: {type(exc).__name__}"
-            if interrupted
-            else f"deployment runner error: {type(exc).__name__}: {exc}"
-        ),
+        error=f"deployment runner error: {type(exc).__name__}: {exc}",
     )
 
 

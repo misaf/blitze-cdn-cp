@@ -524,10 +524,13 @@ class DeploymentService:
             deployment = self._complete_rollout(
                 deployment, outcome, release, operator, check=check
             )
-        except BaseException as exc:
-            deployment, interrupted = self._fail_convergence(deployment, operator, exc)
-            if interrupted:
-                raise
+        except Exception as exc:
+            # Only an ordinary failure is recorded here. An interrupt or exit
+            # (`KeyboardInterrupt`, `SystemExit`) writes nothing and propagates:
+            # the row stays RUNNING and takeover in `initialize` or `run_queued`
+            # decides its outcome under a fresh fence, exactly as it does after a
+            # SIGKILL or a crash, which never reach this handler at all.
+            deployment = self._fail_convergence(deployment, operator, exc)
             if isinstance(exc, ExecutionError):
                 raise
             return deployment
@@ -555,7 +558,6 @@ class DeploymentService:
                 or "no edges are registered, so nothing was converged; add one "
                 "with 'blitzecdn edge add'"
             ),
-            interrupted=False,
             now=self.clock(),
         )
         if outcome.succeeded:
@@ -623,32 +625,30 @@ class DeploymentService:
         return deployment
 
     def _fail_convergence(
-        self, deployment: Deployment, operator: str, exc: BaseException
-    ) -> tuple[Deployment, bool]:
-        """Finalize a convergence that ended before producing a usable result."""
-        interrupted = not isinstance(exc, Exception)
-        status = DeploymentStatus.ABANDONED if interrupted else DeploymentStatus.FAILED
+        self, deployment: Deployment, operator: str, exc: Exception
+    ) -> Deployment:
+        """Finalize a convergence that failed before producing a usable result."""
         with self.persistence.uow.transaction():
             now = self.clock()
             deployment = self.persistence.deployments.save(
                 deployment,
                 deployment.finish(
-                    status,
+                    DeploymentStatus.FAILED,
                     now=now,
-                    result=aborted_run(exc, interrupted=interrupted, now=now),
+                    result=aborted_run(exc, now=now),
                 ),
             )
             self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
-                    "deployment.abandoned" if interrupted else "deployment.failed",
+                    "deployment.failed",
                     "deployment",
                     deployment.id,
                     {"error_type": type(exc).__name__},
                 )
             )
-        return deployment, interrupted
+        return deployment
 
     def _record_finished(self, deployment: Deployment) -> None:
         """Count a finished full-fleet run; a canary says nothing about the fleet."""
