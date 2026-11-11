@@ -17,7 +17,7 @@ from support.control_plane import (
 from support.stores import Stores
 
 from blitzecdn.capabilities.deployments import cli as deployments_cli
-from blitzecdn.capabilities.dns.domain import Domain
+from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.entrypoints.cli import main as cli

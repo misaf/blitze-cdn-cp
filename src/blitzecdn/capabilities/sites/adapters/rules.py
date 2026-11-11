@@ -1,0 +1,112 @@
+"""Persistence for the per-hostname overrides on a zone's policy."""
+
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+
+from blitzecdn.capabilities.sites.adapters.tables import RuleRow
+from blitzecdn.capabilities.sites.domain import Rule
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.engine import Database
+
+
+class RuleStore:
+    """The overrides, ordered the way the resolver reads them."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def list_rules(self, domain: str | None = None) -> list[Rule]:
+        """Every rule, in the order hostnames are matched against them (first wins)."""
+        query = select(RuleRow).order_by(RuleRow.domain, RuleRow.priority, RuleRow.name)
+        if domain is not None:
+            query = query.where(RuleRow.domain == domain)
+        with self._db.reader() as session:
+            return [self._rule(row) for row in session.scalars(query).all()]
+
+    def get_rule(self, domain: str, name: str) -> Rule:
+        with self._db.reader() as session:
+            row = session.get(RuleRow, (domain, name))
+            if row is None:
+                raise NotFoundError(f"rule {name!r} in {domain!r} does not exist")
+            return self._rule(row)
+
+    def create_rule(self, rule: Rule) -> Rule:
+        with self._db.writer() as session:
+            session.add(self._row(rule))
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                raise ConflictError(
+                    f"rule {rule.name!r} already exists in {rule.domain!r}"
+                ) from exc
+        return rule
+
+    def replace_rule(self, rule: Rule, *, expected: Rule | None = None) -> Rule:
+        """Write a stored rule. ``domain`` and ``name`` are its identity.
+
+        ``expected`` makes it a compare-and-swap: ``overrides`` is replaced wholesale,
+        and the certificate issuer writes unattended.
+        """
+        if expected is not None:
+            self._db.require_transaction("replace_rule(expected=...)")
+        with self._db.writer() as session:
+            row = session.get(RuleRow, (rule.domain, rule.name))
+            if row is None:
+                raise NotFoundError(
+                    f"rule {rule.name!r} in {rule.domain!r} does not exist"
+                )
+            if expected is not None and self._rule(row) != expected:
+                raise ConflictError(
+                    f"rule {rule.name!r} in {rule.domain!r} changed while it "
+                    "was being edited"
+                )
+            self._apply(row, rule)
+        return rule
+
+    def delete_rule(self, domain: str, name: str) -> None:
+        with self._db.writer() as session:
+            row = session.get(RuleRow, (domain, name))
+            if row is None:
+                raise NotFoundError(f"rule {name!r} in {domain!r} does not exist")
+            session.delete(row)
+
+    def replace_all_rules(self, rules: list[Rule]) -> None:
+        """Restore the table wholesale. Used by rollback and backup restore."""
+        with self._db.writer() as session:
+            session.execute(delete(RuleRow))
+            session.flush()
+            session.add_all([self._row(rule) for rule in rules])
+
+    def _row(self, rule: Rule) -> RuleRow:
+        row = RuleRow(domain=rule.domain, name=rule.name)
+        self._apply(row, rule)
+        return row
+
+    def _apply(self, row: RuleRow, rule: Rule) -> None:
+        row.priority = rule.priority
+        row.match = rule.match
+        row.path = rule.path
+        row.overrides = dict(rule.overrides)
+        row.redirect = (
+            None if rule.redirect is None else rule.redirect.model_dump(mode="json")
+        )
+        row.enabled = rule.enabled
+        row.updated_at = self._db.now()
+
+    @staticmethod
+    def _rule(row: RuleRow) -> Rule:
+        return Rule.model_validate(
+            {
+                "domain": row.domain,
+                "name": row.name,
+                "priority": row.priority,
+                "match": row.match,
+                "path": row.path,
+                "overrides": row.overrides,
+                "redirect": row.redirect,
+                "enabled": row.enabled,
+            }
+        )
+
+
+__all__ = ["RuleStore"]

@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from support.control_plane import API_HEADERS, control_plane_app
 
-from blitzecdn.capabilities.dns.api.models import DomainPatch, RecordPatch, RulePatch
 from blitzecdn.capabilities.edges.api.models import EdgePatch
+from blitzecdn.capabilities.sites.api.models import DomainPatch, RecordPatch, RulePatch
 
 PATCHES = [
     (

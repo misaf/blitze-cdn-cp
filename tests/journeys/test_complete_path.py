@@ -37,8 +37,8 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
+from blitzecdn.capabilities.sites.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
 from blitzecdn.core.domain.runs import RunStatus
 

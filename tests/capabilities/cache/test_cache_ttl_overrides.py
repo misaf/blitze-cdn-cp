@@ -19,7 +19,7 @@ from support.edge_render import render_http_fragment, render_site
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 OVERRIDES = {"image/*": "7d", "text/html": "0", ".css": "1h"}
 

@@ -3,12 +3,12 @@
 import pytest
 from support.cli import cli_control, runner
 
-from blitzecdn.capabilities.dns.domain import (
+from blitzecdn.capabilities.http.domain import EditVisitorHeaders
+from blitzecdn.capabilities.security.domain import EditFirewall
+from blitzecdn.capabilities.sites.domain import (
     Domain,
     PatchPolicy,
 )
-from blitzecdn.capabilities.http.domain import EditVisitorHeaders
-from blitzecdn.capabilities.security.domain import EditFirewall
 from blitzecdn.entrypoints.cli import main as cli
 
 

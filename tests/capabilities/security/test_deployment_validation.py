@@ -20,8 +20,8 @@ from support.stores import Stores
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.security.settings import SECRET_VARIABLE
+from blitzecdn.capabilities.sites.domain import DomainPatch, PatchPolicy
 from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()

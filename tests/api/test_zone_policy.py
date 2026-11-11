@@ -6,9 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from support.control_plane import API_HEADERS, control_plane_app
 
-from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
-from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.sites.api.models import Domain as DomainModel
+from blitzecdn.capabilities.sites.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.core.domain.site_policy import SitePolicy
 
 

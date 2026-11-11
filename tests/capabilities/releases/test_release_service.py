@@ -14,17 +14,17 @@ import yaml
 from support.control_plane import FakeRunner, build_application, seed_record, seed_site
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import (
-    Domain,
-    DomainPatch,
-    PatchPolicy,
-    RecordType,
-)
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.adapters.persistence import ReleaseStore
 from blitzecdn.capabilities.releases.domain import (
     DESIRED_STATE_ARTIFACT,
     UnservableReleaseError,
+)
+from blitzecdn.capabilities.sites.domain import (
+    Domain,
+    DomainPatch,
+    PatchPolicy,
+    RecordType,
 )
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import NotFoundError

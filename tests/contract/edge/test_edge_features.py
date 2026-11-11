@@ -24,13 +24,13 @@ from blitzecdn.capabilities.compression.contract import (
     CompressionMode,
     CompressionPolicy,
 )
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
     ProtocolPolicy,
 )
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
 )

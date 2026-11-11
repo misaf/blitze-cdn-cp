@@ -32,7 +32,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.dns.domain import (
+from blitzecdn.capabilities.sites.domain import (
     DomainPatch,
     PatchPolicy,
     RecordPatch,

@@ -19,7 +19,7 @@ from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import Rule
+from blitzecdn.capabilities.sites.domain import Rule
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 
 # ----------------------------------------------------------------------

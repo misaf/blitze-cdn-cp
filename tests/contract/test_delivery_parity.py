@@ -9,7 +9,7 @@ The map below is exhaustive by construction: an unclassified command or route
 fails the tests underneath with the entry it needs.
 
 Pairing is by operation, not by shape: many `domain` commands map to one
-`PATCH /v3/domains/{domain}` (see `blitzecdn.capabilities.dns.cli`).
+`PATCH /v3/domains/{domain}` (see `blitzecdn.capabilities.sites.cli`).
 """
 
 from __future__ import annotations

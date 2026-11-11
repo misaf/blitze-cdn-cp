@@ -6,9 +6,9 @@ import pytest
 from sqlalchemy import select
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.releases.adapters.tables import ReleaseInputsRow, ReleaseRow
 from blitzecdn.capabilities.releases.domain import Artifact, Release, ReleaseInputs
+from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 
@@ -85,8 +85,8 @@ def test_release_inputs_store_composed_policy_and_refuse_retired_schema(
 ):
     import json
 
-    from blitzecdn.capabilities.dns.domain import Domain
     from blitzecdn.capabilities.releases.domain import ReleaseInputs
+    from blitzecdn.capabilities.sites.domain import Domain
     from blitzecdn.core.domain.site_policy import SitePolicy
 
     inputs = ReleaseInputs.of(

@@ -55,7 +55,7 @@ from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
 from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import BACKUP_STATUS, build_backup_service
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
-from blitzecdn.capabilities.dns.domain import Domain
+from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.composition import load_registry
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
