@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Final, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
+from blitzecdn.core.domain.validation import ip_literal
 from blitzecdn.core.features import ConfigurationModel
 
 __all__ = ["CONFIGURATION", "SETTINGS", "CertificateConfig", "certificate_dir"]
@@ -120,13 +120,13 @@ class CertificateConfig(ConfigurationModel):
     @classmethod
     def validate_dns_servers(cls, value: str) -> str:
         """Addresses only: a hostname would need the resolver we distrust."""
-        servers = [part.strip() for part in value.split(",") if part.strip()]
-        for server in servers:
+        servers = []
+        for part in filter(str.strip, value.split(",")):
             try:
-                ip_address(server)
+                servers.append(str(ip_literal(part.strip())))
             except ValueError as exc:
                 raise ValueError(
-                    f"preflight DNS server {server!r} is not an IP address"
+                    f"preflight DNS server {part.strip()!r} is not an IP address"
                 ) from exc
         return ",".join(servers)
 

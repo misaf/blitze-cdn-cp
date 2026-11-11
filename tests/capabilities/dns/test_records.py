@@ -229,3 +229,26 @@ def test_release_inputs_round_trip_zones_records_and_rules(settings):
     # compiler, which is why a rule matching nothing contributes none.
     hosts = derive_hosts(list(inputs.domains), list(inputs.rules), list(inputs.records))
     assert [host.name for host in hosts] == ["example-com"]
+
+
+@pytest.mark.parametrize(
+    ("type_", "value", "stored"),
+    [
+        (RecordType.A, " 198.51.100.7 ", "198.51.100.7"),
+        (RecordType.AAAA, "2001:DB8:0::1", "2001:db8::1"),
+    ],
+)
+def test_record_value_is_stored_canonical(type_, value, stored):
+    """Two spellings of one address must group as one host (issue 245)."""
+    record = DnsRecord(domain="example.com", name="x", type=type_, value=value)
+    assert record.value == stored
+
+
+def test_record_value_refuses_an_ipv6_zone_index():
+    with pytest.raises(ValueError, match="zone index"):
+        DnsRecord(
+            domain="example.com",
+            name="x",
+            type=RecordType.AAAA,
+            value="fe80::1%x;evil",
+        )
