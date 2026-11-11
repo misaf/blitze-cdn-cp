@@ -19,6 +19,10 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule, derive_ho
 REQUIRES_CAPABILITIES = {
     "test_a_path_scope_reads_its_own_cookie_map": ("cache",),
     "test_a_path_location_carries_its_cache_settings": ("cache",),
+    "test_a_redirect_answers_only_after_the_hosts_firewall_and_rate_limit": (
+        "security",
+    ),
+    "test_a_redirect_answers_only_after_under_attack_mode": ("security",),
 }
 
 TLS = {
@@ -117,7 +121,6 @@ def test_a_redirect_takes_its_suffix_from_the_raw_request_uri():
     assert 'if ($request_uri ~ "^/old/([^?]*)") {' in rendered
     assert 'return 308 "https://new.example.net/$1$is_args$args";' in rendered
     assert 'return 308 "https://new.example.net/$is_args$args";' in rendered
-    assert "@blitzecdn_path_old" not in rendered
 
 
 def test_a_redirect_can_drop_the_query_string():
@@ -134,6 +137,45 @@ def test_a_redirect_can_drop_the_query_string():
     assert 'location ~ "^/gone\\.html$" {' in rendered
     assert 'return 302 "/";' in rendered
     assert "$request_uri ~" not in rendered
+
+
+def _block(rendered: str, header: str) -> str:
+    return rendered.split(f"    location {header} {{", 1)[1].split("\n    }\n", 1)[0]
+
+
+def test_a_redirect_answers_only_after_the_hosts_firewall_and_rate_limit():
+    """`return` runs in the rewrite phase; limit_req and deny would never be read."""
+    site = _site(
+        {"name": "old", "path": "/old/", "redirect": {"target": "/new/"}},
+        firewall={"denied_countries": ["CN"], "deny_sources": ["203.0.113.0/24"]},
+        rate_limit={"rate": "10r/s"},
+    )
+
+    rendered = render_site(site)
+    access = _block(rendered, '~ "^/old/"')
+    redirect = _block(rendered, "@blitzecdn_path_old_redirect")
+
+    assert 'if ($blitzecdn_country ~ "^(CN)$") { return 403; }' in access
+    assert "deny 203.0.113.0/24;" in access
+    assert "limit_req zone=blitzecdn_rate_10rs nodelay;" in access
+    assert "return 301" not in access
+    assert "try_files /__blitzecdn_dispatch__ @blitzecdn_path_old;" in access
+    assert 'return 301 "/new/$is_args$args";' in redirect
+
+
+def test_a_redirect_answers_only_after_under_attack_mode():
+    """auth_request runs in the access phase, after a `return` beside it."""
+    site = _site(
+        {"name": "old", "path": "/old/", "redirect": {"target": "/new/"}},
+        under_attack_mode=True,
+    )
+
+    rendered = render_site(site)
+    upstream = _block(rendered, "@blitzecdn_path_old")
+
+    assert "auth_request /.blitzecdn/internal/under-attack-guard;" in upstream
+    assert "return 301" not in upstream
+    assert "try_files /__blitzecdn_dispatch__ @blitzecdn_path_old_redirect;" in upstream
 
 
 def test_a_path_location_carries_its_cache_settings():

@@ -37,3 +37,20 @@ percent-encoded as the visitor sent it. A capture of the decoded `$uri` could
 carry a CR or LF into the `Location` header. A request whose raw form spells
 the path differently (`/%6Fld/`) still matches the location and is redirected
 without its suffix.
+
+## Redirects and the firewall
+
+A redirect is answered only after the host's own fragments have run, as a
+request to the host's `location /` would be: maintenance mode, the firewall's
+country, method, path and source rules, the rate limit, and Under Attack Mode.
+A client the firewall refuses gets its 403 or 429, not the redirect.
+
+The `return` sits two named locations behind the regex one. `return` runs in
+nginx's rewrite phase, so written beside the fragments it would answer before
+`limit_req` (preaccess), `allow`/`deny` and Under Attack Mode's `auth_request`
+(access) were consulted. The first `try_files` hop leaves the access
+fragments' phases behind; the second does the same for the upstream
+fragments, which is where Under Attack Mode's `auth_request` lives.
+
+A redirect rule carries no settings of its own, so its fragments read the
+host's scope.

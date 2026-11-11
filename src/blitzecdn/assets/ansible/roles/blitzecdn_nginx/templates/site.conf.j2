@@ -101,6 +101,19 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% if location.redirect %}
 {% set redirect = location.redirect %}
 {% set query = '$is_args$args' if redirect.preserve_query_string | default(true) else '' %}
+{# The host's fragments, then two hops: `return` runs in the rewrite phase,
+   before limit_req, allow/deny and auth_request. See
+   docs/design/path-rules.md#redirects-and-the-firewall. #}
+{{ fragments('access', listener_port, visitor_scheme) }}
+        root {{ blitzecdn_edge_runtime.paths.empty }};
+        try_files /__blitzecdn_dispatch__ @blitzecdn_path_{{ location.rule }};
+    }
+    location @blitzecdn_path_{{ location.rule }} {
+{{ fragments('upstream', listener_port, visitor_scheme) }}
+        root {{ blitzecdn_edge_runtime.paths.empty }};
+        try_files /__blitzecdn_dispatch__ @blitzecdn_path_{{ location.rule }}_redirect;
+    }
+    location @blitzecdn_path_{{ location.rule }}_redirect {
 {% if '$1' in redirect.target %}
         {# $request_uri, not $uri: a decoded capture could inject CR/LF. #}
         if ($request_uri ~ "^{{ location.path | regex_escape }}([^?]*)") {
