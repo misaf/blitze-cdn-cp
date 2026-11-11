@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES, SecurityPolicy
 from blitzecdn.capabilities.security.domain import EditFirewall
@@ -18,7 +19,9 @@ domain_commands = typer.Typer()
 
 
 @domain_commands.command("under-attack")
+@common.inject
 def domain_under_attack(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool,
@@ -35,8 +38,9 @@ def domain_under_attack(
     capability and a signing secret. A deploy fails rather than ignoring a
     zone whose edge cannot enforce it.
     """
-    zone = update(name, DomainPatch.model_validate({"under_attack_mode": on}))
+    zone = update(sites, name, DomainPatch.model_validate({"under_attack_mode": on}))
     report(
+        sites,
         zone,
         f"Under Attack Mode is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,
@@ -44,7 +48,9 @@ def domain_under_attack(
 
 
 @domain_commands.command("firewall")
+@common.inject
 def domain_firewall(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     allow_source: Annotated[
         list[str] | None,
@@ -167,11 +173,12 @@ def domain_firewall(
         raise typer.BadParameter(
             "give at least one rule option, or --clear to remove every rule"
         )
-    zone = common.service(SiteService).update_domain(
+    zone = sites.update_domain(
         name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
     )
     rules = zone.policy[SecurityPolicy].firewall.rule_count
     report(
+        sites,
         zone,
         f"{zone.name} now carries {rules} firewall rule(s)."
         if rules
@@ -181,7 +188,9 @@ def domain_firewall(
 
 
 @domain_commands.command("rate-limit")
+@common.inject
 def domain_rate_limit(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     rate: Annotated[
         str | None,
@@ -238,9 +247,10 @@ def domain_rate_limit(
         if off
         else {"rate": rate, "burst": burst, "status": status, "paths": path or []}
     )
-    zone = update(name, DomainPatch.model_validate({"rate_limit": limit}))
+    zone = update(sites, name, DomainPatch.model_validate({"rate_limit": limit}))
     current = zone.policy[SecurityPolicy].rate_limit
     report(
+        sites,
         zone,
         f"{zone.name} now limits each client to {current.rate}."
         if current.rate

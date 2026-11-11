@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.http.contract import HeaderPolicy, MaxUploadSize
 from blitzecdn.capabilities.http.domain import EditVisitorHeaders
@@ -18,7 +19,9 @@ domain_commands = typer.Typer()
 
 
 @domain_commands.command("http3")
+@common.inject
 def domain_http3(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool,
@@ -33,8 +36,9 @@ def domain_http3(
     HTTP/2 and HTTP/1.1 remain available over TCP. This setting never changes
     the protocol used from the edge to the origin.
     """
-    zone = update(name, DomainPatch.model_validate({"http3_enabled": on}))
+    zone = update(sites, name, DomainPatch.model_validate({"http3_enabled": on}))
     report(
+        sites,
         zone,
         f"HTTP/3 is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,
@@ -42,7 +46,9 @@ def domain_http3(
 
 
 @domain_commands.command("max-upload-size")
+@common.inject
 def domain_max_upload_size(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     size: Annotated[
         MaxUploadSize,
@@ -56,8 +62,9 @@ def domain_max_upload_size(
     contacted, so this is a limit on what visitors may upload rather than on
     what the origin is willing to receive.
     """
-    zone = update(name, DomainPatch.model_validate({"max_upload_size": size}))
+    zone = update(sites, name, DomainPatch.model_validate({"max_upload_size": size}))
     report(
+        sites,
         zone,
         f"{zone.name} now accepts uploads up to {size.value}.",
         json_output=json_output,
@@ -65,7 +72,9 @@ def domain_max_upload_size(
 
 
 @domain_commands.command("always-use-https")
+@common.inject
 def domain_always_use_https(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool,
@@ -81,8 +90,9 @@ def domain_always_use_https(
     The setting takes effect only while the SSL mode serves HTTPS. Disabling it
     leaves HTTPS available and serves HTTP requests through to the origin.
     """
-    zone = update(name, DomainPatch.model_validate({"always_use_https": on}))
+    zone = update(sites, name, DomainPatch.model_validate({"always_use_https": on}))
     report(
+        sites,
         zone,
         f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,
@@ -90,7 +100,9 @@ def domain_always_use_https(
 
 
 @domain_commands.command("visitor-headers")
+@common.inject
 def domain_visitor_headers(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     connecting_ip: Annotated[
         bool | None,
@@ -134,9 +146,7 @@ def domain_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    zone = common.service(SiteService).update_domain(
-        name, EditVisitorHeaders.model_validate(named), "cli"
-    )
+    zone = sites.update_domain(name, EditVisitorHeaders.model_validate(named), "cli")
     sent = [
         header
         for header, on in (
@@ -149,6 +159,7 @@ def domain_visitor_headers(
         if on
     ]
     report(
+        sites,
         zone,
         f"{zone.name} now sends {', '.join(sent)} to the origin."
         if sent

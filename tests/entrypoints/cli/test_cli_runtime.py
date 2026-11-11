@@ -114,7 +114,7 @@ def test_control_plane_factory_builds_from_the_environment(settings, monkeypatch
         cli.Settings, "from_environment", classmethod(lambda cls: settings)
     )
     assert cli.common.settings() is settings
-    assert cli.common.service(cli.Settings) is settings
+    assert cli.common.container().get(cli.Settings) is settings
 
 
 def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):

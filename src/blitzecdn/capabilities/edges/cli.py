@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.domain import (
@@ -63,7 +64,10 @@ def _enroll_host_key(
 
 
 @edge_app.command("list")
-def edge_list(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def edge_list(
+    edges: FromDishka[EdgeOperationsService], json_output: common.JsonOutput = False
+) -> None:
     """List edge servers.
 
     This is exactly what Ansible is given: the same rows the `blitzecdn`
@@ -72,13 +76,13 @@ def edge_list(json_output: common.JsonOutput = False) -> None:
 
         ansible-inventory -i ansible/inventory/blitzecdn.yml --list
     """
-    common.emit(
-        common.service(EdgeOperationsService).list_edges(), json_output=json_output
-    )
+    common.emit(edges.list_edges(), json_output=json_output)
 
 
 @edge_app.command("add")
+@common.inject
 def edge_add(
+    service: FromDishka[EdgeOperationsService],
     name: Annotated[str, typer.Argument(help="Stable edge name.")],
     host: Annotated[str, typer.Option("--host", help="SSH hostname or address.")],
     ssh_source: Annotated[
@@ -164,7 +168,6 @@ def edge_add(
         raise typer.BadParameter(
             "--skip-host-key and --host-key-fingerprint contradict each other"
         )
-    service = common.service(EdgeOperationsService)
     candidate = Edge(
         name=name,
         host=host,
@@ -197,7 +200,9 @@ def edge_add(
 
 
 @edge_app.command("host-key")
+@common.inject
 def edge_host_key(
+    service: FromDishka[EdgeOperationsService],
     name: Annotated[str, typer.Argument(help="Registered edge name.")],
     host_key_fingerprint: HostKeyFingerprint = None,
 ) -> None:
@@ -208,7 +213,6 @@ def edge_host_key(
     reinstalled. The edge is scanned and its fingerprint confirmed exactly as
     on `edge add`; every key previously trusted for its address is replaced.
     """
-    service = common.service(EdgeOperationsService)
     edge = service.get_edge(name)
     if not service.manages_host_keys(edge):
         raise typer.BadParameter(
@@ -229,7 +233,9 @@ def edge_host_key(
 
 
 @edge_app.command("update")
+@common.inject
 def edge_update(
+    service: FromDishka[EdgeOperationsService],
     name: Annotated[str, typer.Argument(help="Stable edge name.")],
     host: Annotated[
         str | None, typer.Option("--host", help="Replacement SSH hostname or address.")
@@ -289,7 +295,6 @@ def edge_update(
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter("give at least one field to change")
-    service = common.service(EdgeOperationsService)
     edge = service.update_edge(name, EdgePatch.model_validate(named), "cli")
     # Host keys are trusted per address, so a new one has none yet.
     readdressed = (host is not None or port is not None) and (
@@ -309,7 +314,9 @@ def edge_update(
 
 
 @edge_app.command("remove")
+@common.inject
 def edge_remove(
+    edges: FromDishka[EdgeOperationsService],
     name: str,
     yes: common.Yes = False,
     decommission: Annotated[
@@ -345,11 +352,9 @@ def edge_remove(
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
     if decommission:
-        common.service(EdgeOperationsService).decommission_edge(
-            name, "cli", force=force
-        )
+        edges.decommission_edge(name, "cli", force=force)
     else:
-        common.service(EdgeOperationsService).remove_edge(name, "cli")
+        edges.remove_edge(name, "cli")
     typer.echo(f"Removed {name}")
 
 

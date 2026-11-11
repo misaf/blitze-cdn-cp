@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.sites import SiteService, serving_document
@@ -19,7 +20,9 @@ from blitzecdn.delivery.cli.domain_editing import report, update
 
 
 @domain_app.command("add")
+@common.inject
 def domain_add(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone to serve, e.g. example.com.")],
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -30,15 +33,15 @@ def domain_add(
     at anything.
     """
     common.emit(
-        serving_document(
-            common.service(SiteService).create_domain(Domain(name=name), "cli")
-        ),
+        serving_document(sites.create_domain(Domain(name=name), "cli")),
         json_output=json_output,
     )
 
 
 @domain_app.command("hosts")
+@common.inject
 def domain_hosts(
+    site_reader: FromDishka[SiteReader],
     json_output: common.JsonOutput = False,
 ) -> None:
     """List the virtual hosts the zones and their rules resolve to.
@@ -52,19 +55,21 @@ def domain_hosts(
     been deployed is already here. Use 'drift' for the fleet's view.
     """
     common.emit(
-        [serving_document(site) for site in common.service(SiteReader).list_sites()],
+        [serving_document(site) for site in site_reader.list_sites()],
         json_output=json_output,
     )
 
 
 @domain_app.command("show")
+@common.inject
 def domain_show(
+    sites: FromDishka[SiteService],
     name: str,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show a zone and the policy every hostname in it is served by."""
     common.emit(
-        serving_document(common.service(SiteService).get_domain(name)),
+        serving_document(sites.get_domain(name)),
         json_output=json_output,
     )
 
@@ -76,7 +81,9 @@ def _cleared(no_request_host: bool, no_sni: bool) -> frozenset[str]:
 
 
 @domain_app.command("origin")
+@common.inject
 def domain_origin(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     request_host: Annotated[
         str | None,
@@ -153,11 +160,12 @@ def domain_origin(
             "give at least one of --request-host, --sni or --allow-private-origin"
         )
     # Built from the dict so an unnamed option stays unset rather than cleared.
-    zone = update(name, DomainPatch.model_validate(named))
+    zone = update(sites, name, DomainPatch.model_validate(named))
     identity = (
         zone.policy[OriginPolicy].origin_request_host or "the visitor's Host header"
     )
     report(
+        sites,
         zone,
         f"{zone.name} reaches its origin as {identity}.",
         json_output=json_output,
@@ -165,7 +173,9 @@ def domain_origin(
 
 
 @domain_app.command("enable")
+@common.inject
 def domain_enable(
+    sites: FromDishka[SiteService],
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool, typer.Option("--on/--off", help="Serve this zone, or withdraw it.")
@@ -178,8 +188,9 @@ def domain_enable(
     stops being converged. Unproxying the records instead would change what DNS
     answers with, which is a different decision.
     """
-    zone = update(name, DomainPatch.model_validate({"enabled": on}))
+    zone = update(sites, name, DomainPatch.model_validate({"enabled": on}))
     report(
+        sites,
         zone,
         f"{zone.name} is now {'enabled' if on else 'disabled'}.",
         json_output=json_output,
@@ -187,16 +198,21 @@ def domain_enable(
 
 
 @domain_app.command("list")
-def domain_list(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def domain_list(
+    sites: FromDishka[SiteService], json_output: common.JsonOutput = False
+) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
     common.emit(
-        [serving_document(zone) for zone in common.service(SiteService).list_domains()],
+        [serving_document(zone) for zone in sites.list_domains()],
         json_output=json_output,
     )
 
 
 @domain_app.command("remove")
+@common.inject
 def domain_remove(
+    sites: FromDishka[SiteService],
     name: str,
     yes: common.Yes = False,
 ) -> None:
@@ -206,5 +222,5 @@ def domain_remove(
     """
     if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()
-    common.service(SiteService).delete_domain(name, "cli")
+    sites.delete_domain(name, "cli")
     typer.echo(f"Deleted {name}")
