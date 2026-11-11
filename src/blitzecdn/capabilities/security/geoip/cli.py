@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.security.geoip.service import GeoIpService
 from blitzecdn.core.exceptions import ConfigurationError
@@ -15,14 +16,16 @@ geoip_app = typer.Typer(
 
 
 @geoip_app.command("update")
-def geoip_update(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def geoip_update(
+    service: FromDishka[GeoIpService], json_output: common.JsonOutput = False
+) -> None:
     """Download GeoLite2 from MaxMind once, for the whole fleet.
 
     The scheduler does this on its own; run it to provision the first database
     without waiting a refresh interval. A changed database reaches the edges
     with the next deployment.
     """
-    service = common.service(GeoIpService)
     if not service.configured:
         raise ConfigurationError(
             "BLITZE_MAXMIND_ACCOUNT_ID and BLITZE_MAXMIND_LICENSE_KEY are not "

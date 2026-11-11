@@ -740,8 +740,9 @@ def test_the_compiler_accepts_only_captured_values():
 
 
 #: The modules that start a process, and the one container each may build.
-#: The CLI's sits in `delivery` because every command resolves its services
-#: through `common.service`, so the per-invocation container is shared toolkit.
+#: The CLI's sits in `delivery` because `common.inject` resolves every command's
+#: `FromDishka` parameters from it, so the per-invocation container is shared
+#: toolkit.
 _PROCESS_ENTRY_POINTS = {
     "entrypoints/api/app.py": "api_container",
     "delivery/cli/common.py": "cli_container",
@@ -805,6 +806,28 @@ def test_delivery_code_names_no_part_of_the_composition():
         named = _names_from_composition(path) - _DELIVERY_CONTAINERS[layer]
         if named:
             offenders.append(f"{relative} names {sorted(named)}")
+    assert offenders == []
+
+
+def test_cli_commands_declare_their_services_rather_than_look_them_up():
+    """A command takes `FromDishka[...]` parameters, as a route does.
+
+    Only `delivery/cli/common.py` reaches the invocation's container; anything
+    else asking it for a service is a locator, and its dependencies are hidden
+    in its body and, for a Protocol, untyped.
+    """
+    offenders = []
+    for path in sorted(_SOURCE.rglob("*.py")):
+        relative = str(path.relative_to(_SOURCE))
+        if _delivery_layer(path) != "cli" or relative == "delivery/cli/common.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        offenders.extend(
+            f"{relative}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and ast.unparse(node.func) in {"common.container", "common.service"}
+        )
     assert offenders == []
 
 

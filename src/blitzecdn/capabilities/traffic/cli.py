@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 from pydantic import BaseModel
 
 from blitzecdn.capabilities.traffic.domain import UsageQuery
@@ -30,7 +31,9 @@ Offset = Annotated[int, typer.Option("--offset", min=0, max=2**63 - 1)]
 
 
 @traffic_app.command("usage")
+@common.inject
 def usage(
+    traffic: FromDishka[TrafficService],
     start: Annotated[
         str, typer.Option("--start", help="Inclusive UTC hour, ISO 8601 with timezone.")
     ],
@@ -56,7 +59,7 @@ def usage(
             "offset": offset,
         }
     )
-    result = common.service(TrafficService).usage(query)
+    result = traffic.usage(query)
     common.emit(
         {
             "items": [
@@ -71,7 +74,9 @@ def usage(
 
 
 @traffic_app.command("status")
+@common.inject
 def collection_status(
+    traffic: FromDishka[TrafficService],
     edge: Annotated[
         str,
         typer.Argument(
@@ -81,11 +86,13 @@ def collection_status(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Last observed collection state, attempt times, backlog and safe error."""
-    common.emit(common.service(TrafficService).status(edge), json_output=json_output)
+    common.emit(traffic.status(edge), json_output=json_output)
 
 
 @analytics_app.command("site")
+@common.inject
 def site(
+    traffic: FromDishka[TrafficService],
     site: Annotated[str, typer.Argument(help="Served hostname.")],
     start: Start,
     end: End,
@@ -112,12 +119,14 @@ def site(
             "offset": offset,
         }
     )
-    result = common.service(TrafficService).site_buckets(query)
+    result = traffic.site_buckets(query)
     _page(result.items, result.total, query, json_output=json_output)
 
 
 @analytics_app.command("paths")
+@common.inject
 def paths(
+    traffic: FromDishka[TrafficService],
     site: Annotated[str, typer.Argument(help="Served hostname.")],
     start: Start,
     end: End,
@@ -137,7 +146,7 @@ def paths(
             "offset": offset,
         }
     )
-    result = common.service(TrafficService).site_paths(query)
+    result = traffic.site_paths(query)
     _page(result.items, result.total, query, json_output=json_output)
 
 

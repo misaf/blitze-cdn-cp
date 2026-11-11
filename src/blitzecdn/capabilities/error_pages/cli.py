@@ -13,7 +13,7 @@ from blitzecdn.capabilities.error_pages.contract import (
 )
 from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.delivery.cli import common
-from blitzecdn.delivery.cli.domain_editing import report, update
+from blitzecdn.delivery.cli.domain_editing import Sites, report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: error presentation, so they ship with the capability that owns them.
@@ -21,7 +21,9 @@ domain_commands = typer.Typer()
 
 
 @domain_commands.command("error-pages")
+@common.inject
 def domain_error_pages(
+    sites: Sites,
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     page: Annotated[
         list[str] | None,
@@ -57,18 +59,20 @@ def domain_error_pages(
     if not page and not clear:
         raise typer.BadParameter("give at least one --page, or --clear")
     pages = {} if clear else _pages(page or [])
-    zone = update(name, DomainPatch.model_validate({"error_pages": pages}))
+    zone = update(sites, name, DomainPatch.model_validate({"error_pages": pages}))
     statuses = sorted(zone.policy[ErrorPagesPolicy].error_pages)
     state = (
         "has custom error pages for " + ", ".join(statuses)
         if statuses
         else "shows Nginx's own error pages"
     )
-    report(zone, f"{zone.name} now {state}.", json_output=json_output)
+    report(sites, zone, f"{zone.name} now {state}.", json_output=json_output)
 
 
 @domain_commands.command("maintenance")
+@common.inject
 def domain_maintenance(
+    sites: Sites,
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool | None,
@@ -127,14 +131,14 @@ def domain_maintenance(
         raise typer.BadParameter(
             "give at least one of --on/--off, --page, --default-page or --retry-after"
         )
-    zone = update(name, DomainPatch.model_validate(named))
+    zone = update(sites, name, DomainPatch.model_validate(named))
     policy = zone.policy[ErrorPagesPolicy]
     state = (
         f"in maintenance, retry after {policy.maintenance_retry_after}s"
         if policy.maintenance_mode
         else "not in maintenance"
     )
-    report(zone, f"{zone.name} is now {state}.", json_output=json_output)
+    report(sites, zone, f"{zone.name} is now {state}.", json_output=json_output)
 
 
 def _pages(values: list[str]) -> dict[str, str]:

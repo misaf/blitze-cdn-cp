@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.jobs.domain import JobStatus, Schedule
 from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
@@ -14,9 +15,9 @@ from blitzecdn.delivery.cli import common
 job_app = typer.Typer(help="Durable background work: what is queued and what ran.")
 
 
-def _schedules() -> Sequence[Schedule]:
+def _schedules(scheduler: JobScheduler) -> Sequence[Schedule]:
     """Every registered schedule, newest information first."""
-    return common.service(JobScheduler).schedules.list_schedules()
+    return scheduler.schedules.list_schedules()
 
 
 def _row(job: object) -> dict[str, object]:
@@ -38,7 +39,9 @@ def _row(job: object) -> dict[str, object]:
 
 
 @job_app.command("list")
+@common.inject
 def job_list(
+    jobs: FromDishka[JobQueue],
     status: Annotated[
         JobStatus | None,
         typer.Option("--status", help="Only jobs in this state."),
@@ -54,16 +57,15 @@ def job_list(
     clear the lease. Use job show JOB_ID --json for the recorded deadline.
     """
     common.emit(
-        [
-            _row(job)
-            for job in common.service(JobQueue).list_jobs(status=status, limit=limit)
-        ],
+        [_row(job) for job in jobs.list_jobs(status=status, limit=limit)],
         json_output=json_output,
     )
 
 
 @job_app.command("show")
+@common.inject
 def job_show(
+    jobs: FromDishka[JobQueue],
     job_id: Annotated[str, typer.Argument(help="The job's identifier.")],
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -80,12 +82,15 @@ def job_show(
     Expiry permits a claim; it does not guarantee immediate or successful work.
     Do not edit queue rows or submit duplicate work to bypass the wait.
     """
-    job = common.service(JobQueue).get(job_id)
+    job = jobs.get(job_id)
     common.emit({**_row(job), "result": job.result}, json_output=json_output)
 
 
 @job_app.command("schedules")
-def job_schedules(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def job_schedules(
+    scheduler: FromDishka[JobScheduler], json_output: common.JsonOutput = False
+) -> None:
     """Recurring work, and when each piece is next due; durable across restarts."""
     common.emit(
         [
@@ -98,7 +103,7 @@ def job_schedules(json_output: common.JsonOutput = False) -> None:
                     schedule.last_run_at.isoformat() if schedule.last_run_at else None
                 ),
             }
-            for schedule in _schedules()
+            for schedule in _schedules(scheduler)
         ],
         json_output=json_output,
     )

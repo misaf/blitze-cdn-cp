@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.deployments import DeploymentService, DeploymentStatus
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
@@ -38,7 +39,9 @@ def _read_material(path: Path, limit: int) -> bytes:
 
 
 @cert_app.command("list")
+@common.inject
 def cert_list(
+    certificates: FromDishka[CertificateService],
     expiring_in: Annotated[
         int | None,
         typer.Option(
@@ -53,7 +56,6 @@ def cert_list(
     Exits 4 if any listed certificate has already expired, so a scheduled
     check notices without anyone reading the output.
     """
-    certificates = common.service(CertificateService)
     statuses = (
         certificates.expiring_certificates(expiring_in)
         if expiring_in is not None
@@ -67,7 +69,9 @@ def cert_list(
 
 
 @cert_app.command("preflight")
+@common.inject
 def cert_preflight(
+    certificates: FromDishka[CertificateService],
     name: Annotated[str, typer.Argument(help="Site name.")],
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -81,7 +85,7 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = common.service(CertificateService).certificate_preflight(name)
+    report = certificates.certificate_preflight(name)
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -96,7 +100,10 @@ def cert_preflight(
 
 
 @cert_app.command("renew")
+@common.inject
 def cert_renew(
+    certificates: FromDishka[CertificateService],
+    deployments: FromDishka[DeploymentService],
     expiring_in: Annotated[
         int,
         typer.Option(
@@ -135,7 +142,7 @@ def cert_renew(
     Use --site to retry a single failure without sending every other
     subscription back to the CA, which is rate limited.
     """
-    result = common.service(CertificateService).renew_certificates(
+    result = certificates.renew_certificates(
         "cli",
         within_days=expiring_in,
         force=force,
@@ -144,7 +151,7 @@ def cert_renew(
     )
     deployment = None
     if deploy_after and result.renewed and not result.failed:
-        deployment = common.service(DeploymentService).deploy("cli")
+        deployment = deployments.deploy("cli")
     output: dict[str, Any] = result.model_dump(mode="json")
     if deploy_after:
         output["deployment"] = (
@@ -169,7 +176,9 @@ def cert_renew(
 
 
 @cert_app.command("reconcile")
+@common.inject
 def cert_reconcile(
+    certificates: FromDishka[CertificateService],
     json_output: common.JsonOutput = False,
 ) -> None:
     """Issue ready first certificates and queue a deployment to install them.
@@ -179,9 +188,7 @@ def cert_reconcile(
     least one new certificate was issued. The worker converges it. Unlike the
     scheduled run, every waiting site is checked, even one backing off.
     """
-    result = common.service(CertificateService).reconcile_certificates(
-        "cli", force=True
-    )
+    result = certificates.reconcile_certificates("cli", force=True)
     deployment = result.deployment
     common.emit(
         result,
@@ -198,7 +205,9 @@ def cert_reconcile(
 
 
 @cert_app.command("upload")
+@common.inject
 def cert_upload(
+    certificates: FromDishka[CertificateService],
     name: Annotated[str, typer.Argument(help="Site name.")],
     certificate_file: Annotated[
         Path,
@@ -228,7 +237,7 @@ def cert_upload(
     """
     certificate_pem = _read_material(certificate_file, PEM_CERTIFICATE_LIMIT)
     private_key_pem = _read_material(private_key_file, PEM_PRIVATE_KEY_LIMIT)
-    info = common.service(CertificateService).upload_certificate(
+    info = certificates.upload_certificate(
         name, certificate_pem, private_key_pem, "cli"
     )
     common.emit(info, json_output=json_output)
@@ -240,7 +249,9 @@ def cert_upload(
 
 
 @cert_app.command("request")
+@common.inject
 def cert_request(
+    certificates: FromDishka[CertificateService],
     name: Annotated[str, typer.Argument(help="Site name.")],
     email: Annotated[
         str | None,
@@ -273,7 +284,7 @@ def cert_request(
     the case preflight cannot see, such as a resolver that answers differently
     from where the edge sits.
     """
-    info = common.service(CertificateService).request_certificate(
+    info = certificates.request_certificate(
         name, "cli", email, skip_preflight=skip_preflight
     )
     common.emit(info, json_output=json_output)
@@ -285,7 +296,10 @@ def cert_request(
 
 
 @cert_app.command("collect")
-def cert_collect(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def cert_collect(
+    certificates: FromDishka[CertificateService], json_output: common.JsonOutput = False
+) -> None:
     """Remove controller material unreferenced by policy or retained releases."""
-    removed = common.service(CertificateService).collect_material("cli")
+    removed = certificates.collect_material("cli")
     common.emit({"removed": list(removed)}, json_output=json_output)

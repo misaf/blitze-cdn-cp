@@ -10,6 +10,7 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 import typer
+from dishka import FromDishka
 
 from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
@@ -40,9 +41,12 @@ ansible_app = typer.Typer(
 
 
 @diagnostics_app.command()
-def overview(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def overview(
+    diagnostics: FromDishka[DiagnosticsService], json_output: common.JsonOutput = False
+) -> None:
     """Show queue backlog, worker progress, recovery review and certificate state."""
-    common.emit(common.service(DiagnosticsService).status(), json_output=json_output)
+    common.emit(diagnostics.status(), json_output=json_output)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,15 +86,13 @@ def check_resolver(
     )
 
 
-def _preflight_resolver_check() -> ResolverCheck:
+def _preflight_resolver_check(
+    environment: ResolvedCapabilityEnvironment,
+) -> ResolverCheck:
     """Probe the resolver certificate preflight is configured to ask."""
     # Read by name: the settings are the certificates feature's, and diagnostics
     # sees them as `blitzecdn features` does rather than through its model.
-    configured = (
-        common.service(ResolvedCapabilityEnvironment)
-        .for_feature("certificates")
-        .settings
-    )
+    configured = environment.for_feature("certificates").settings
     servers = str(configured["BLITZE_PREFLIGHT_DNS_SERVERS"])
     return check_resolver(
         servers=tuple(filter(None, servers.split(","))),
@@ -100,7 +102,10 @@ def _preflight_resolver_check() -> ResolverCheck:
 
 
 @diagnostics_app.command()
+@common.inject
 def features(
+    registry: FromDishka[FeatureRegistry],
+    configured: FromDishka[ResolvedCapabilityEnvironment],
     json_output: common.JsonOutput = False,
 ) -> None:
     """List the features this controller ships and the configuration they claim.
@@ -114,8 +119,6 @@ def features(
     is provisioned" has no command to ask: the names live in a README, and
     whether they arrived is visible only in a failed play.
     """
-    registry = common.service(FeatureRegistry)
-    configured = common.service(ResolvedCapabilityEnvironment)
     secrets: dict[str, list[EnvironmentKey]] = {}
     settings: dict[str, list[CapabilitySetting]] = {}
     for contribution in registry.configuration_contributions():
@@ -209,19 +212,24 @@ def ansible_slots() -> None:
 
 
 @diagnostics_app.command()
+@common.inject
 def audit(
+    audit_service: FromDishka[AuditTrail],
     limit: Annotated[int, typer.Option(min=1, max=500)] = 100,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show immutable operator audit events."""
     common.emit(
-        common.service(AuditTrail).list_audit_events(limit),
+        audit_service.list_audit_events(limit),
         json_output=json_output,
     )
 
 
 @diagnostics_app.command()
+@common.inject
 def doctor(
+    sites: FromDishka[SiteService],
+    environment: FromDishka[ResolvedCapabilityEnvironment],
     json_output: common.JsonOutput = False,
     resolver_check: Annotated[
         bool,
@@ -250,11 +258,9 @@ def doctor(
         "configuration_errors": settings.validate_runtime(),
         # Stated outright: nothing publishes DNS, so a ready fleet still serves nobody
         # until something answers for its hostnames.
-        "dns_publication": common.service(SiteService)
-        .publication()
-        .model_dump(mode="json"),
+        "dns_publication": sites.publication().model_dump(mode="json"),
     }
-    resolver_report = _preflight_resolver_check() if resolver_check else None
+    resolver_report = _preflight_resolver_check(environment) if resolver_check else None
     if resolver_report is not None:
         report["resolver"] = {
             "passed": resolver_report.passed,

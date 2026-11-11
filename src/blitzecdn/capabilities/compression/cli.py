@@ -12,7 +12,7 @@ from blitzecdn.capabilities.compression.contract import (
 )
 from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.delivery.cli import common
-from blitzecdn.delivery.cli.domain_editing import report, update
+from blitzecdn.delivery.cli.domain_editing import Sites, report, update
 
 #: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
 #: compression settings, so they ship with the capability that owns them.
@@ -20,7 +20,9 @@ domain_commands = typer.Typer()
 
 
 @domain_commands.command("compression")
+@common.inject
 def domain_compression(
+    sites: Sites,
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
         CompressionMode,
@@ -38,8 +40,9 @@ def domain_compression(
     edge compressing; a response the origin already compressed is still passed
     through, because nginx never re-encodes an encoded body.
     """
-    zone = update(name, DomainPatch.model_validate({"compression": mode}))
+    zone = update(sites, name, DomainPatch.model_validate({"compression": mode}))
     report(
+        sites,
         zone,
         f"{zone.name} edge compression is now "
         f"{zone.policy[CompressionPolicy].compression.value!r}.",
