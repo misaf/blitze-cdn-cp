@@ -330,7 +330,13 @@ class Rollout:
         fence: int,
         check: bool,
     ) -> dict[str, _Miss]:
-        """Run one phase, closing every row first if Ansible cannot run at all."""
+        """Run one phase; any error raised is a miss for every edge it was given.
+
+        An ``ExecutionError`` means Ansible cannot run at all: the rows are closed
+        and it is re-raised to fail the deployment. Anything else (an ``OSError``
+        after the play ran, say) is these edges' failure, settled like any other,
+        which withdraws an activation the play may already have made.
+        """
         try:
             return self._run_phase(phase, due, release, runs, check=check)
         except ExecutionError as exc:
@@ -340,6 +346,14 @@ class Rollout:
                 detail = self._withdraw(phase, edge, str(exc), check=check)
                 self._fail(deployment_id, edge, fence, phase, detail)
             raise
+        except Exception as exc:
+            _LOGGER.exception(
+                "deployment %s failed on %s during %s",
+                deployment_id,
+                ",".join(due),
+                phase.value,
+            )
+            return {edge: _Miss(f"{type(exc).__name__}: {exc}") for edge in due}
 
     def _record(
         self,
@@ -421,14 +435,7 @@ class Rollout:
                     misses[edge] = _Miss(f"{type(exc).__name__}: {exc}")
             served = [edge for edge in edges if edge not in misses]
             if served:
-                # Only an external observation may commit the edge-local journal.
-                # Replaying this after a lost reply is safe: commit is idempotent.
-                misses.update(
-                    self._judged(
-                        self._run(runs, served, check=False, tags=("commit",)),
-                        served,
-                    )
-                )
+                misses.update(self._commit(served, runs))
             return misses
         if phase is TargetPhase.VALIDATE:
             produced = self._run(runs, edges, check=True)
@@ -437,6 +444,30 @@ class Rollout:
         else:
             produced = self._run(runs, edges, check=check, tags=("activate",))
         return self._judged(produced, edges)
+
+    def _commit(self, edges: Sequence[str], runs: list[AnsibleRun]) -> dict[str, _Miss]:
+        """Commit the verified edges' activations; returns the edges that missed.
+
+        Only an external observation may commit the edge-local journal, and
+        replaying a commit is safe: it is idempotent. An edge the play stopped
+        because another failed may have committed already, and a committed journal
+        cannot be rolled back, so it is committed again on its own rather than
+        withdrawn with the edge that failed.
+        """
+        misses = self._judged(
+            self._run(runs, edges, check=False, tags=("commit",)), edges
+        )
+        for edge, miss in list(misses.items()):
+            if not miss.collateral:
+                continue
+            retried = self._judged(
+                self._run(runs, [edge], check=False, tags=("commit",)), [edge]
+            )
+            if retried:
+                misses.update(retried)
+            else:
+                del misses[edge]
+        return misses
 
     def _run(
         self,
