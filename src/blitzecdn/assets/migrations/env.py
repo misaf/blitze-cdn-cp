@@ -14,12 +14,12 @@ from sqlalchemy import create_engine
 from blitzecdn.capabilities.deployments.adapters import (
     tables as _deployments,  # noqa: F401
 )
-from blitzecdn.capabilities.dns.adapters import tables as _dns  # noqa: F401
 from blitzecdn.capabilities.edges.adapters import tables as _edges  # noqa: F401
 from blitzecdn.capabilities.jobs.adapters import tables as _jobs  # noqa: F401
 from blitzecdn.capabilities.releases.adapters import (
     tables as _releases,  # noqa: F401
 )
+from blitzecdn.capabilities.sites.adapters import tables as _sites  # noqa: F401
 from blitzecdn.capabilities.tls.adapters import tables as _tls  # noqa: F401
 from blitzecdn.capabilities.traffic.adapters import tables as _traffic  # noqa: F401
 from blitzecdn.capabilities.workflows.adapters import (

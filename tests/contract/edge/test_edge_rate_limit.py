@@ -12,8 +12,8 @@ from support.edge_render import (
 )
 from support.policy import site_from_settings
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.security.contract import rate_limit_zone
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 REQUIRES_CAPABILITIES = {
     "test_a_rate_limit_renders_into_the_site_location": ("security",),

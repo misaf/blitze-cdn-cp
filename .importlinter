@@ -434,20 +434,20 @@ allowed_importers =
     blitzecdn.composition
     blitzecdn.entrypoints
 
-[importlinter:contract:dns-public-surface]
-name = Other capabilities reach dns only through its package or contract
+[importlinter:contract:sites-public-surface]
+name = Other capabilities reach sites only through its package or contract
 type = protected
 protected_modules =
-    blitzecdn.capabilities.dns.adapters
-    blitzecdn.capabilities.dns.api
-    blitzecdn.capabilities.dns.cli
-    blitzecdn.capabilities.dns.domain
-    blitzecdn.capabilities.dns.feature
-    blitzecdn.capabilities.dns.ports
-    blitzecdn.capabilities.dns.service
-    blitzecdn.capabilities.dns.wiring
+    blitzecdn.capabilities.sites.adapters
+    blitzecdn.capabilities.sites.api
+    blitzecdn.capabilities.sites.cli
+    blitzecdn.capabilities.sites.domain
+    blitzecdn.capabilities.sites.feature
+    blitzecdn.capabilities.sites.ports
+    blitzecdn.capabilities.sites.service
+    blitzecdn.capabilities.sites.wiring
 allowed_importers =
-    blitzecdn.capabilities.dns
+    blitzecdn.capabilities.sites
     blitzecdn.assets
     blitzecdn.composition
     blitzecdn.entrypoints

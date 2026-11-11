@@ -6,12 +6,12 @@ from support.control_plane import API_HEADERS, control_plane_app
 
 from blitzecdn.capabilities.cache.api.models import PurgeEntry as ApiPurgeEntry
 from blitzecdn.capabilities.cache.domain import PurgeEntry
-from blitzecdn.capabilities.dns.api.models import DnsRecord as ApiDnsRecord
-from blitzecdn.capabilities.dns.api.models import Domain as ApiDomain
-from blitzecdn.capabilities.dns.api.models import RecordCreate, RuleCreate
-from blitzecdn.capabilities.dns.domain import DnsRecord, Rule
 from blitzecdn.capabilities.edges.api.models import Edge as ApiEdge
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.sites.api.models import DnsRecord as ApiDnsRecord
+from blitzecdn.capabilities.sites.api.models import Domain as ApiDomain
+from blitzecdn.capabilities.sites.api.models import RecordCreate, RuleCreate
+from blitzecdn.capabilities.sites.domain import DnsRecord, Rule
 from blitzecdn.capabilities.tls.certificates.api.models import (
     CertificateRequest as ApiCertificateRequest,
 )

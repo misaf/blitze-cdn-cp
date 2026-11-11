@@ -10,8 +10,8 @@ from blitzecdn.capabilities.deployments import (
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.capabilities.dns import DnsRecord, SiteChange, SiteReader
 from blitzecdn.capabilities.releases import Release, ReleaseInputs
+from blitzecdn.capabilities.sites import DnsRecord, SiteChange, SiteReader
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,

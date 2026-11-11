@@ -33,8 +33,6 @@ from blitzecdn.capabilities.diagnostics.wiring import (
     DiagnosticsProvider,
     diagnostics_operations,
 )
-from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
-from blitzecdn.capabilities.dns.wiring import DnsProvider
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.edges.service import operations as edge_operations
@@ -58,6 +56,8 @@ from blitzecdn.capabilities.security.geoip.wiring import (
 )
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.security.wiring import security_rendering
+from blitzecdn.capabilities.sites.wiring import RENDERING as SITES_RENDERING
+from blitzecdn.capabilities.sites.wiring import SiteProvider
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.certificates.service import (
@@ -222,9 +222,9 @@ ROSTER: tuple[RosterEntry, ...] = (
         rendering=lambda _inputs: HTTP_RENDERING,
     ),
     RosterEntry(
-        "blitzecdn.capabilities.dns.feature",
-        provider=DnsProvider,
-        rendering=lambda _inputs: DNS_RENDERING,
+        "blitzecdn.capabilities.sites.feature",
+        provider=SiteProvider,
+        rendering=lambda _inputs: SITES_RENDERING,
     ),
     RosterEntry(
         "blitzecdn.capabilities.edges.feature",

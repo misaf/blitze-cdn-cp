@@ -19,10 +19,10 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetStatus,
 )
 from blitzecdn.capabilities.deployments.service.rollout import Rollout
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError
 

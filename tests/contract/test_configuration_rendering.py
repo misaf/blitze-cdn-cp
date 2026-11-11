@@ -18,7 +18,7 @@ from support.control_plane import (
 )
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
+from blitzecdn.capabilities.sites.domain import DomainPatch, PatchPolicy
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 _SECRET = "parity-test-signing-key-" + "x" * 32

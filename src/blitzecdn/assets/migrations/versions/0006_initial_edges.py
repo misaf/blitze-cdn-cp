@@ -1,7 +1,7 @@
 """Initial edges schema.
 
 Revision ID: 0006_edges
-Revises: 0005_dns
+Revises: 0005_sites
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from alembic import op
 from sqlalchemy.dialects import sqlite
 
 revision = "0006_edges"
-down_revision = "0005_dns"
+down_revision = "0005_sites"
 branch_labels = None
 depends_on = None
 

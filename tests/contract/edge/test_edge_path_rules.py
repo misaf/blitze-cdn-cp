@@ -13,8 +13,8 @@ from support.edge_render import (
     server_blocks,
 )
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule, derive_hosts
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule, derive_hosts
 
 REQUIRES_CAPABILITIES = {
     "test_a_path_scope_reads_its_own_cookie_map": ("cache",),
@@ -258,7 +258,7 @@ def test_a_path_scope_variable_fits_the_hash_whatever_the_names():
     """The longest host and rule names would otherwise overflow the bucket."""
     host, rule = "a" * 127, "r" + "b" * 62
     site = {"name": host, "locations": [{"rule": rule}]}
-    from blitzecdn.capabilities.dns.adapters.ansible import variable_scope
+    from blitzecdn.capabilities.sites.adapters.ansible import variable_scope
 
     name = "blitzecdn_cache_cookie_" + variable_scope(site["name"], rule)
     assert nginx_hash_entry_size(name) <= nginx_hash_bucket_size(

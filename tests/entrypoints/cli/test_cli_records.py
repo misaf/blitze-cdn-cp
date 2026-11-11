@@ -14,7 +14,7 @@ from support.control_plane import (
 )
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain
 from blitzecdn.entrypoints.cli import main as cli
 
 

@@ -15,7 +15,7 @@ from blitzecdn.capabilities.deployments.domain import (
     ConvergenceKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.dns.domain import RecordType
+from blitzecdn.capabilities.sites.domain import RecordType
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConfigurationError, ConflictError, ExecutionError
 

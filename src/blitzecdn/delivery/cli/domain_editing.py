@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import typer
 
-from blitzecdn.capabilities.dns import (
-    DnsService,
+from blitzecdn.capabilities.sites import (
     Domain,
     DomainPatch,
     PatchPolicy,
+    SiteService,
     serving_document,
 )
 from blitzecdn.delivery.cli import common
@@ -20,7 +20,7 @@ __all__ = ["report", "update"]
 
 
 def update(name: str, patch: DomainPatch) -> Domain:
-    return common.service(DnsService).update_domain(
+    return common.service(SiteService).update_domain(
         name, PatchPolicy.from_patch(patch), "cli"
     )
 
@@ -38,7 +38,7 @@ def report(zone: Domain, message: str, *, json_output: bool) -> None:
 def _applied(zone: Domain, message: str) -> str:
     """A confirmation that says whether anything in the zone is actually served yet."""
     if any(
-        record.proxied for record in common.service(DnsService).list_records(zone.name)
+        record.proxied for record in common.service(SiteService).list_records(zone.name)
     ):
         return f"{message} Run 'blitzecdn deploy' to apply."
     return (

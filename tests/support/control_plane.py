@@ -27,19 +27,6 @@ from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.deployments.settings import (
     lock_path as deployment_lock_path,
 )
-from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.domain import (
-    DnsRecord,
-    Domain,
-    DomainPatch,
-    PatchPolicy,
-    RecordType,
-    Rule,
-    RulePatch,
-)
-from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
-from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.dns.service import HostService, RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
@@ -51,6 +38,19 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
+from blitzecdn.capabilities.sites import SiteService
+from blitzecdn.capabilities.sites.domain import (
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    PatchPolicy,
+    RecordType,
+    Rule,
+    RulePatch,
+)
+from blitzecdn.capabilities.sites.domain.hosts import host_name as host_name_for
+from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.capabilities.sites.service import HostService, RuleService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
@@ -675,7 +675,7 @@ def site_payload() -> dict[str, object]:
     """A site with one hostname routed to it.
 
     ``server_names`` is here because the payload also builds a `CdnSite` directly;
-    through the API and services `dns` maintains it.
+    through the API and services `sites` maintains it.
     """
     return {
         "name": "example-com",
@@ -849,7 +849,7 @@ class ControlPlane:
     job_queue = _Resolved(JobQueue)
     job_scheduler = _Resolved(JobScheduler)
     job_runner = _Resolved(JobRunner)
-    dns = _Resolved(DnsService)
+    dns = _Resolved(SiteService)
     hosts = _Resolved(HostService)
     rules = _Resolved(RuleService)
     rendering = _Resolved(Rendering[CdnSite])

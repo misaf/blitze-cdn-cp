@@ -145,7 +145,7 @@ def test_collection_preserves_a_pair_installed_before_failed_canonical_writeback
 def test_inactive_rule_override_remains_a_material_root(settings, certificate_pair):
     from support.control_plane import seed_site
 
-    from blitzecdn.capabilities.dns.domain import RulePatch
+    from blitzecdn.capabilities.sites.domain import RulePatch
 
     control = certificate_control_plane(settings, runner=FakeRunner())
     site = seed_site(control, name="rule-host", record="api")

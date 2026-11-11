@@ -7,7 +7,7 @@ from dishka import Provider, Scope, provide
 from blitzecdn.capabilities.cache.adapters import CachePlaybooks
 from blitzecdn.capabilities.cache.ports import CacheUsage
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns import SiteReader
+from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 from blitzecdn.core.runtime.resources import distribution_version

@@ -8,7 +8,7 @@ accept a second, ambiguous storage format.
 from collections.abc import Mapping
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import Domain
+from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.capabilities.tls.contract import CertificateVersion
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy

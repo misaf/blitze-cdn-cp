@@ -18,8 +18,8 @@ import jinja2.runtime
 import yaml
 from ansible.plugins.filter.core import combine, regex_escape
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
-from blitzecdn.capabilities.dns.domain.hosts import host_name
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule
+from blitzecdn.capabilities.sites.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )

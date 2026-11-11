@@ -10,9 +10,9 @@ from blitzecdn import __version__
 from blitzecdn.capabilities.deployments.api import routes as deployment_routes
 from blitzecdn.capabilities.diagnostics.api import readiness as diagnostics
 from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
-from blitzecdn.capabilities.dns.api import routes as site_routes
-from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
+from blitzecdn.capabilities.sites.api import routes as site_routes
+from blitzecdn.capabilities.sites.api import routes as zone_routes
 from blitzecdn.composition import load_registry
 
 
@@ -45,7 +45,7 @@ def test_routes_are_domain_modules():
         "blitzecdn.capabilities.deployments.api.routes",
         "blitzecdn.capabilities.diagnostics.api.routes",
         "blitzecdn.capabilities.edges.api.routes",
-        "blitzecdn.capabilities.dns.api.routes",
+        "blitzecdn.capabilities.sites.api.routes",
     }
 
 

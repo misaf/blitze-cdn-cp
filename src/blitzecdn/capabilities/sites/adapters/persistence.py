@@ -1,0 +1,187 @@
+"""Zone identity in its own column; the complete nested policy as one JSON document."""
+
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+
+from blitzecdn.capabilities.sites.adapters.tables import DnsRecordRow, DomainRow
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, RecordType
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.engine import Database
+
+
+class ZoneStore:
+    """Zones and their records."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def list_domains(self) -> list[Domain]:
+        with self._db.reader() as session:
+            rows = session.scalars(select(DomainRow).order_by(DomainRow.name)).all()
+            return [self._domain(row) for row in rows]
+
+    def get_domain(self, name: str) -> Domain:
+        with self._db.reader() as session:
+            row = session.get(DomainRow, name)
+            if row is None:
+                raise NotFoundError(f"domain {name!r} does not exist")
+            return self._domain(row)
+
+    def create_domain(self, domain: Domain) -> Domain:
+        with self._db.writer() as session:
+            session.add(self._domain_row(domain))
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                raise ConflictError(f"domain {domain.name!r} already exists") from exc
+        return domain
+
+    def replace_domain(
+        self, domain: Domain, *, expected: Domain | None = None
+    ) -> Domain:
+        """Write the zone's policy. The name is its identity and is not moved.
+
+        Pass ``expected`` — the zone the patch was merged onto — to make it a
+        compare-and-swap; otherwise two operators patching different settings would
+        silently lose one change.
+        """
+        if expected is not None:
+            self._db.require_transaction("replace_domain(expected=...)")
+        with self._db.writer() as session:
+            row = session.get(DomainRow, domain.name)
+            if row is None:
+                raise NotFoundError(f"domain {domain.name!r} does not exist")
+            if expected is not None and self._domain(row) != expected:
+                raise ConflictError(
+                    f"domain {domain.name!r} changed while it was being edited"
+                )
+            self._apply_domain(row, domain)
+        return domain
+
+    def delete_domain(self, name: str) -> None:
+        with self._db.writer() as session:
+            row = session.get(DomainRow, name)
+            if row is None:
+                raise NotFoundError(f"domain {name!r} does not exist")
+            # Deletes the zone's records too, via ON DELETE CASCADE.
+            session.delete(row)
+
+    def list_records(self, domain: str | None = None) -> list[DnsRecord]:
+        query = select(DnsRecordRow).order_by(
+            DnsRecordRow.domain, DnsRecordRow.name, DnsRecordRow.type
+        )
+        if domain is not None:
+            query = query.where(DnsRecordRow.domain == domain)
+        with self._db.reader() as session:
+            return [self._record(row) for row in session.scalars(query).all()]
+
+    def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
+        with self._db.reader() as session:
+            row = session.get(DnsRecordRow, (domain, name, type_.value))
+            if row is None:
+                raise NotFoundError(
+                    f"{type_.value} record {name!r} in {domain!r} does not exist"
+                )
+            return self._record(row)
+
+    def create_record(self, record: DnsRecord) -> DnsRecord:
+        with self._db.writer() as session:
+            # Check the zone first, so a missing zone and a duplicate record are told
+            # apart without parsing the driver's IntegrityError.
+            if session.get(DomainRow, record.domain) is None:
+                raise NotFoundError(
+                    f"domain {record.domain!r} does not exist; add it first"
+                )
+            session.add(self._row(record))
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                raise ConflictError(
+                    f"{record.type.value} record {record.name!r} already exists "
+                    f"in {record.domain!r}"
+                ) from exc
+        return record
+
+    def replace_record(
+        self, record: DnsRecord, *, expected: DnsRecord | None = None
+    ) -> DnsRecord:
+        if expected is not None:
+            self._db.require_transaction("replace_record(expected=...)")
+        key = (record.domain, record.name, record.type.value)
+        with self._db.writer() as session:
+            row = session.get(DnsRecordRow, key)
+            if row is None:
+                raise NotFoundError(
+                    f"{record.type.value} record {record.name!r} in "
+                    f"{record.domain!r} does not exist"
+                )
+            if expected is not None and self._record(row) != expected:
+                raise ConflictError(
+                    f"{record.type.value} record {record.name!r} changed "
+                    "while it was being edited"
+                )
+            self._apply(row, record)
+        return record
+
+    def delete_record(self, domain: str, name: str, type_: RecordType) -> None:
+        with self._db.writer() as session:
+            row = session.get(DnsRecordRow, (domain, name, type_.value))
+            if row is None:
+                raise NotFoundError(
+                    f"{type_.value} record {name!r} in {domain!r} does not exist"
+                )
+            session.delete(row)
+
+    def replace_all_records(
+        self, domains: list[Domain], records: list[DnsRecord]
+    ) -> None:
+        """Restore zones wholesale. Used by rollback."""
+        with self._db.writer() as session:
+            session.execute(delete(DnsRecordRow))
+            session.execute(delete(DomainRow))
+            session.flush()
+            session.add_all([self._domain_row(domain) for domain in domains])
+            session.flush()
+            session.add_all([self._row(record) for record in records])
+
+    def _domain_row(self, domain: Domain) -> DomainRow:
+        row = DomainRow(name=domain.name)
+        self._apply_domain(row, domain)
+        return row
+
+    def _apply_domain(self, row: DomainRow, domain: Domain) -> None:
+        row.policy = domain.policy.model_dump(mode="json")
+        row.updated_at = self._db.now()
+
+    @staticmethod
+    def _domain(row: DomainRow) -> Domain:
+        return Domain.model_validate({"policy": row.policy, "name": row.name})
+
+    def _row(self, record: DnsRecord) -> DnsRecordRow:
+        row = DnsRecordRow(
+            domain=record.domain, name=record.name, type=record.type.value
+        )
+        self._apply(row, record)
+        return row
+
+    def _apply(self, row: DnsRecordRow, record: DnsRecord) -> None:
+        row.value = record.value
+        row.ttl = record.ttl
+        row.proxied = record.proxied
+        row.updated_at = self._db.now()
+
+    @staticmethod
+    def _record(row: DnsRecordRow) -> DnsRecord:
+        return DnsRecord.model_validate(
+            {
+                "domain": row.domain,
+                "name": row.name,
+                "type": row.type,
+                "value": row.value,
+                "ttl": row.ttl,
+                "proxied": row.proxied,
+            }
+        )
+
+
+__all__ = ["ZoneStore"]

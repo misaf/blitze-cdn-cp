@@ -26,12 +26,12 @@ from support.edge_render import (
 from support.policy import site_from_settings
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.http.contract import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
 )
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )

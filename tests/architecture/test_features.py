@@ -26,9 +26,9 @@ from blitzecdn.capabilities.automatic_ssl.settings import AutomaticSslConfig
 from blitzecdn.capabilities.automatic_ssl.wiring import automatic_ssl_operations
 from blitzecdn.capabilities.deployments.wiring import deployments_operations
 from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
-from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.http.http3.wiring import RENDERING as HTTP3_RENDERING
 from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
+from blitzecdn.capabilities.sites.wiring import RENDERING as SITES_RENDERING
 from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
@@ -115,29 +115,29 @@ def test_every_built_in_feature_is_declared(baseline):
 
 
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
-    """No degraded mode: a control plane missing `dns` renders an empty fleet."""
+    """No degraded mode: a control plane missing `sites` renders an empty fleet."""
     with pytest.raises(FeatureError, match="could not be imported"):
         load_features(("blitzecdn.capabilities.nonexistent.feature",))
 
 
 def test_a_built_in_module_has_to_declare_its_features():
     with pytest.raises(FeatureError, match="must export FEATURES"):
-        load_features(("blitzecdn.capabilities.dns.wiring",))
+        load_features(("blitzecdn.capabilities.sites.wiring",))
 
 
 def test_two_built_in_modules_cannot_declare_one_feature():
-    with pytest.raises(FeatureError, match="both declare a feature named 'dns'"):
+    with pytest.raises(FeatureError, match="both declare a feature named 'sites'"):
         load_features(
             (
-                "blitzecdn.capabilities.dns.feature",
-                "blitzecdn.capabilities.dns.feature",
+                "blitzecdn.capabilities.sites.feature",
+                "blitzecdn.capabilities.sites.feature",
             )
         )
 
 
 def test_the_built_in_registration_order_does_not_change_desired_state():
     """Reordering the roster is a presentation change and nothing more."""
-    renderings = (DNS_RENDERING, HTTP_RENDERING, HTTP3_RENDERING)
+    renderings = (SITES_RENDERING, HTTP_RENDERING, HTTP3_RENDERING)
     forward = FeatureRegistry(load_features(BUILTIN_FEATURES))
     backward = FeatureRegistry(load_features(tuple(reversed(BUILTIN_FEATURES))))
     subject = site()
@@ -156,13 +156,13 @@ def test_bound_behaviour_has_to_belong_to_a_declared_feature(baseline):
 
 
 def test_a_feature_binds_its_behaviour_once(baseline):
-    with pytest.raises(FeatureError, match="'dns' binds its rendering twice"):
-        baseline.bind_rendering((DNS_RENDERING, DNS_RENDERING))
+    with pytest.raises(FeatureError, match="'sites' binds its rendering twice"):
+        baseline.bind_rendering((SITES_RENDERING, SITES_RENDERING))
 
 
 def test_rendering_merges_every_bound_feature(baseline):
     variables = baseline.bind_rendering(
-        (DNS_RENDERING, HTTP_RENDERING)
+        (SITES_RENDERING, HTTP_RENDERING)
     ).fleet_variables((site(),))
 
     assert variables == {
@@ -177,7 +177,7 @@ def test_rendering_merges_every_bound_feature(baseline):
 def test_the_roster_names_each_feature_module_once():
     assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES) == len(ROSTER)
     assert {feature.name for feature in load_registry().metadata} >= {
-        "dns",
+        "sites",
         "tls",
         "certificates",
         "geoip",
@@ -287,17 +287,17 @@ def test_a_feature_that_ships_no_roles_contributes_no_directory(baseline):
     assert contributing == {
         feature.name for feature in baseline.features if feature.ansible
     }
-    assert "dns" not in contributing
+    assert "sites" not in contributing
 
 
 # --- names and capability tokens -------------------------------------------
 
 
 def test_a_registry_refuses_two_features_with_one_name(baseline):
-    dns = next(feature for feature in baseline.features if feature.name == "dns")
+    sites = next(feature for feature in baseline.features if feature.name == "sites")
 
-    with pytest.raises(FeatureError, match="two features claim the name 'dns'"):
-        FeatureRegistry((*baseline.features, dns))
+    with pytest.raises(FeatureError, match="two features claim the name 'sites'"):
+        FeatureRegistry((*baseline.features, sites))
 
 
 def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
@@ -306,8 +306,8 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     A feature identifies itself with `name`; a configuration depends on a
     capability token, which another feature may supply.
     """
-    assert "dns" in baseline.capabilities
-    assert baseline.missing(["dns", "waf"]) == ("waf",)
+    assert "sites" in baseline.capabilities
+    assert baseline.missing(["sites", "waf"]) == ("waf",)
 
     metadata = FeatureMetadata(
         name="acme-waf",
@@ -332,7 +332,7 @@ def test_contributions_come_back_in_registration_order(baseline):
 
 def test_a_declared_override_wins_wherever_it_registered():
     base = SiteStateContribution(
-        feature="dns", variables={"certificate_path": "/model"}
+        feature="sites", variables={"certificate_path": "/model"}
     )
     override = SiteStateContribution(
         feature="certificates",
@@ -388,7 +388,7 @@ def test_an_override_of_a_variable_nobody_else_writes_is_allowed():
 
 def test_fleet_variables_merge_under_the_same_rule():
     contributions = [
-        FleetStateContribution(feature="dns", variables={"a": True}),
+        FleetStateContribution(feature="sites", variables={"a": True}),
         FleetStateContribution(feature="waf", variables={"b": False}),
     ]
 
@@ -432,13 +432,15 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     feature metadata, so nothing on this path knows what `geoip` is. The mapping
     adds which setting asked.
     """
-    dns_only = FeatureRegistry(load_features(("blitzecdn.capabilities.dns.feature",)))
+    sites_only = FeatureRegistry(
+        load_features(("blitzecdn.capabilities.sites.feature",))
+    )
     requested = site(
         visitor_headers={"ip_country": True},
         firewall={"denied_countries": ["RU"]},
     )
 
-    result = dns_only.bind_rendering(()).validate_site(requested)
+    result = sites_only.bind_rendering(()).validate_site(requested)
 
     assert not result.ok
     messages = {issue.message for issue in result.blocking}
@@ -635,7 +637,7 @@ def test_an_extending_group_joins_the_founder_in_its_declared_order():
     registry = _registry(
         CliCommandGroup(feature="waf", name="zone", app=_verbs("cache"), extends=True),
         CliCommandGroup(
-            feature="dns", name="zone", app=founder, order=("add", "cache", "show")
+            feature="sites", name="zone", app=founder, order=("add", "cache", "show")
         ),
     )
 
@@ -652,7 +654,9 @@ def test_an_extending_group_joins_the_founder_in_its_declared_order():
 
 def test_a_command_the_founder_did_not_place_refuses_to_start():
     registry = _registry(
-        CliCommandGroup(feature="dns", name="zone", app=_verbs("add"), order=("add",)),
+        CliCommandGroup(
+            feature="sites", name="zone", app=_verbs("add"), order=("add",)
+        ),
         CliCommandGroup(feature="waf", name="zone", app=_verbs("waf"), extends=True),
     )
 
@@ -671,7 +675,7 @@ def test_extending_a_group_nobody_founds_is_refused():
 
 def test_two_features_cannot_found_one_group():
     registry = _registry(
-        CliCommandGroup(feature="dns", name="zone", app=Typer()),
+        CliCommandGroup(feature="sites", name="zone", app=Typer()),
         CliCommandGroup(feature="waf", name="zone", app=Typer()),
     )
 

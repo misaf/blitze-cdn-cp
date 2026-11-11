@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from blitzecdn.capabilities.dns import derive_hosts
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.domain.inputs import ReleaseInputs
 from blitzecdn.capabilities.releases.domain.release import (
@@ -17,6 +16,7 @@ from blitzecdn.capabilities.releases.domain.release import (
     EdgeCapabilities,
 )
 from blitzecdn.capabilities.releases.ports import SiteChecks, StateContributors
+from blitzecdn.capabilities.sites import derive_hosts
 
 
 def prepare_compilation(

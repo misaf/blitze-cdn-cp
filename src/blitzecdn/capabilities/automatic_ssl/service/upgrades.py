@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from blitzecdn.capabilities.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn.capabilities.automatic_ssl.ports import SslModeUpgrades
 from blitzecdn.capabilities.deployments import DeploymentGateway
-from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import OriginProbe
 from blitzecdn.capabilities.origins import (
     OriginCheck,
@@ -15,6 +14,7 @@ from blitzecdn.capabilities.origins import (
     OriginReport,
     edge_origins,
 )
+from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslAutomaticMode,
