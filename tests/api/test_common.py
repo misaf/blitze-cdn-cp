@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import CONTENT_TYPE_LATEST
 from support.control_plane import control_plane_app
 
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
@@ -121,13 +122,16 @@ def test_metrics_are_authenticated_and_readable(settings):
         response = client.get("/metrics", headers=_HEADERS)
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/plain")
+    assert response.headers["content-type"] == CONTENT_TYPE_LATEST
     body = response.text
-    assert "blitzecdn_edges 0" in body
-    assert "blitzecdn_sites 0" in body
-    assert "blitzecdn_certificates_expiring 0" in body
-    assert 'blitzecdn_jobs{status="pending"} 0' in body
-    assert 'blitzecdn_workers{state="busy"} 0' in body
+    for sample in (
+        "blitzecdn_edges 0.0",
+        "blitzecdn_sites 0.0",
+        "blitzecdn_certificates_expiring 0.0",
+        'blitzecdn_jobs{status="pending"} 0.0',
+        'blitzecdn_workers{state="busy"} 0.0',
+    ):
+        assert sample in body.splitlines()
 
 
 @pytest.mark.parametrize("failure", ["start", "stop"])

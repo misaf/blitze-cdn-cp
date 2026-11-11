@@ -4,9 +4,15 @@ from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
+from prometheus_client import CONTENT_TYPE_LATEST
 
 from blitzecdn.capabilities.deployments import DeploymentService
-from blitzecdn.capabilities.diagnostics.api.metrics import operational_metrics
+from blitzecdn.capabilities.diagnostics.api.metrics import (
+    exposition,
+    gauge,
+    labelled_gauge,
+    operational_metrics,
+)
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
@@ -51,7 +57,7 @@ def metrics(
     edges: FromDishka[EdgeOperationsService],
     sites: FromDishka[SiteReader],
     diagnostics: FromDishka[DiagnosticsService],
-) -> str:
+) -> PlainTextResponse:
     """Prometheus gauges derived from persisted control-plane state."""
     recent = deployments.list_deployments(_METRICS_WINDOW)
     by_status: dict[str, int] = {}
@@ -59,18 +65,15 @@ def metrics(
         by_status[deployment.status.value] = (
             by_status.get(deployment.status.value, 0) + 1
         )
-    lines = [
-        "# HELP blitzecdn_edges Registered edge servers.",
-        "# TYPE blitzecdn_edges gauge",
-        f"blitzecdn_edges {len(edges.list_edges())}",
-        "# HELP blitzecdn_sites Derived virtual hosts.",
-        "# TYPE blitzecdn_sites gauge",
-        f"blitzecdn_sites {len(sites.list_sites())}",
-        "# HELP blitzecdn_deployments Deployments in the recent window, by status.",
-        "# TYPE blitzecdn_deployments gauge",
+    families = [
+        gauge("edges", "Registered edge servers.", len(edges.list_edges())),
+        gauge("sites", "Derived virtual hosts.", len(sites.list_sites())),
+        labelled_gauge(
+            "deployments",
+            "Deployments in the recent window, by status.",
+            "status",
+            ((state, by_status[state]) for state in sorted(by_status)),
+        ),
+        *operational_metrics(diagnostics.status()),
     ]
-    lines.extend(
-        f'blitzecdn_deployments{{status="{state}"}} {by_status[state]}'
-        for state in sorted(by_status)
-    )
-    return "\n".join(lines) + "\n" + operational_metrics(diagnostics.status())
+    return PlainTextResponse(exposition(families), media_type=CONTENT_TYPE_LATEST)
