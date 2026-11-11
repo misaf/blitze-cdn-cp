@@ -112,7 +112,7 @@ def operation_leases(
 ) -> dict[str, int]:
     """How long the worker holds each kind before another may take it over.
 
-    One issuance is bounded by certbot's timeout. A renewal sweep checks its
+    One issuance is bounded by the issuance timeout. A renewal sweep checks its
     budget only between sites, so it can run one issuance past the budget,
     as the scheduled renewal's lease allows. Reconciliation is given the same
     room; it has no budget of its own.

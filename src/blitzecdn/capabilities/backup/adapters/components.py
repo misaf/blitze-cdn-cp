@@ -44,8 +44,8 @@ _ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 def _copy_tree(source: Path, destination: Path, *, links: dict[str, str]) -> None:
     """Copy a directory, recording symlinks in a sidecar instead of following them.
 
-    Certbot's tree is symlinks into `archive/`; dereferencing breaks renewal, and
-    the archive refuses links. On restore each target is checked to stay inside.
+    A tree may hold symlinks; dereferencing would change what restores, and the
+    archive refuses links. On restore each target is checked to stay inside.
     """
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     for path in sorted(source.rglob("*")):
@@ -335,13 +335,14 @@ class TlsComponent(_DirectoryComponent):
 
 
 class AcmeComponent(_DirectoryComponent):
-    """The ACME account, renewal configuration and archive; not work or log dirs."""
+    """The ACME account key; a new one would register a new account."""
 
     component = BackupComponent.ACME
 
     @property
     def _root(self) -> Path:
-        return self._settings.state_dir / "letsencrypt/config"
+        # The tls capability's account directory, carried by its name.
+        return self._settings.state_dir / "acme"
 
 
 class GeoIpDatabasesComponent(_DirectoryComponent):

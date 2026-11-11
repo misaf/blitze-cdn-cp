@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
-import os
 import re
-import shlex
-import shutil
-import subprocess
-import sys
 from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -29,10 +24,9 @@ from blitzecdn.capabilities.tls.contract import (
 from blitzecdn.capabilities.tls.settings import certificate_dir
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.site import CdnSite
-from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
-from blitzecdn.core.runtime.process import terminate_process_group
 
 _MAX_CERTIFICATE_BYTES = 1_048_576
 _MAX_PRIVATE_KEY_BYTES = 262_144
@@ -259,102 +253,6 @@ class CertificateStore:
                 raise ConfigurationError(
                     "certificate chain is not ordered or signatures do not match"
                 ) from exc
-
-
-class CertbotIssuer:
-    def __init__(
-        self, settings: Settings, certbot: str, *, timeout_seconds: int
-    ) -> None:
-        self._settings = settings
-        # Passed in: which certbot to run is this capability's configuration.
-        self._certbot = certbot
-        # The deployment timeout: issuance runs under the deployment lock.
-        self._timeout_seconds = timeout_seconds
-
-    def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]:
-        if any(name.startswith("*.") for name in site.server_names):
-            raise ConfigurationError(
-                "HTTP-01 cannot issue wildcard certificates; upload one or use DNS-01"
-            )
-        executable = self._certbot
-        if "/" in executable:
-            available = Path(executable).is_file()
-        else:
-            available = shutil.which(executable) is not None
-        if not available:
-            raise ConfigurationError(
-                f"certbot is not available: {executable}; install certbot on PATH"
-            )
-        config_dir = self._settings.state_dir / "letsencrypt/config"
-        work_dir = self._settings.state_dir / "letsencrypt/work"
-        logs_dir = self._settings.state_dir / "letsencrypt/logs"
-        for directory in (config_dir, work_dir, logs_dir):
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        hook = shlex.join(
-            [sys.executable, "-m", "blitzecdn.entrypoints.cli", "cert", "acme-hook"]
-        )
-        command = [
-            executable,
-            "certonly",
-            "--manual",
-            "--preferred-challenges",
-            "http",
-            "--manual-auth-hook",
-            f"{hook} present",
-            "--manual-cleanup-hook",
-            f"{hook} absent",
-            "--non-interactive",
-            "--agree-tos",
-            # Certbot's default `--keep-until-expiring` exits 0 without renewing a
-            # lineage it thinks is not due, and the old PEM would be returned as fresh.
-            # Whether a certificate is due is decided before `issue` is called.
-            "--force-renewal",
-            "--email",
-            email,
-            "--cert-name",
-            site.name,
-            "--config-dir",
-            str(config_dir),
-            "--work-dir",
-            str(work_dir),
-            "--logs-dir",
-            str(logs_dir),
-        ]
-        for domain in site.server_names:
-            command.extend(("--domain", domain))
-        environment = os.environ.copy()
-        environment["BLITZE_PROJECT_DIR"] = str(self._settings.project_dir)
-        try:
-            process = subprocess.Popen(  # noqa: S603 -- fixed argument array
-                command,
-                cwd=self._settings.project_dir,
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            raise ExecutionError(f"unable to execute certbot: {exc}") from exc
-        try:
-            stdout, stderr = process.communicate(timeout=self._timeout_seconds)
-        except subprocess.TimeoutExpired as exc:
-            terminate_process_group(process, process.communicate)
-            raise ExecutionError("certificate request timed out") from exc
-        if process.returncode != 0:
-            detail = (stderr or stdout)[-4000:].strip()
-            raise ExecutionError(f"certificate request failed: {detail}")
-        live = config_dir / "live" / site.name
-        try:
-            return (
-                (live / "fullchain.pem").read_bytes(),
-                (live / "privkey.pem").read_bytes(),
-            )
-        except OSError as exc:
-            raise ExecutionError(
-                "certbot succeeded but certificate files are missing"
-            ) from exc
 
 
 def _covered(requested: str, certificate_names: set[str]) -> bool:
