@@ -11,7 +11,7 @@ from blitzecdn.capabilities.security.geoip import __version__
 from blitzecdn.capabilities.security.geoip.feature import FEATURES
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
-    load_registry,
+    BUILTIN_REGISTRY,
 )
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
@@ -55,13 +55,13 @@ def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
 def test_geoip_is_a_built_in() -> None:
     """GeoIP is on the built-in roster."""
     assert any("geoip" in module for module in BUILTIN_FEATURES)
-    builtins = load_registry()
+    builtins = BUILTIN_REGISTRY
     assert "geoip" in builtins.capabilities
 
 
 def test_application_assembly_supplies_the_capability() -> None:
     """Discovery over the real installed metadata, as a control plane does it."""
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
 
     assert "geoip" in registry.capabilities
     assert "geoip" in {feature.name for feature in registry.metadata}
@@ -74,7 +74,7 @@ def test_an_installed_geoip_capability_clears_the_site_validation() -> None:
     """The mirror of core's "requested but absent" test: same site, same token,
     opposite answer.
     """
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
 
     for policy in (
         {"visitor_headers": {"ip_country": True}},

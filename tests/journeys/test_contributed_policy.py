@@ -17,7 +17,7 @@ from support.control_plane import API_HEADERS, seed_site_over_http
 
 from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.domain import DomainPatch, Rule
-from blitzecdn.composition import compose_registry, load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY, compose_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
@@ -71,7 +71,7 @@ def _feature(*, provides: bool) -> Feature:
 def registry() -> Iterator[FeatureRegistry]:
     """The built-in features plus rate limiting; the real policy is restored after."""
     saved = SitePolicy._schema
-    builtin = load_registry().features
+    builtin = BUILTIN_REGISTRY.features
     yield compose_registry((*builtin, _feature(provides=True)))
     SitePolicy._schema = saved
 
@@ -179,7 +179,7 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
 def test_a_site_asking_for_an_absent_capability_is_refused_by_name():
     saved = SitePolicy._schema
     try:
-        builtin = load_registry().features
+        builtin = BUILTIN_REGISTRY.features
         registry = compose_registry((*builtin, _feature(provides=False)))
         policy = SitePolicy.from_settings({"request_quota": 5})
 

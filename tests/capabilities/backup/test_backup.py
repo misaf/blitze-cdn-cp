@@ -57,7 +57,7 @@ from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.backup.wiring import BACKUP_STATUS, build_backup_service
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
 from blitzecdn.capabilities.sites.domain import Domain
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.ports.clock import system_clock
@@ -134,7 +134,7 @@ def populated(settings):
 def service(populated):
     return build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
 
@@ -213,7 +213,7 @@ def test_a_full_backup_skips_a_component_with_nothing_in_it(settings):
     _populate(settings, tls=False, acme=False, geoip=False)
     archive = build_backup_service(
         settings,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create()
     assert _manifest(archive)["components"] == ["config", "database"]
@@ -250,7 +250,7 @@ def test_selecting_a_component_with_no_data_is_an_error(settings):
     with pytest.raises(NotFoundError):
         build_backup_service(
             settings,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).create(only=(BackupComponent.TLS,))
 
@@ -358,7 +358,7 @@ def test_an_existing_destination_is_never_overwritten(service, populated):
 def test_a_failed_creation_leaves_no_temporary_files(populated, monkeypatch):
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
 
@@ -562,13 +562,13 @@ def _clean(settings) -> None:
 def test_a_full_backup_restores_every_component(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create()
     _clean(populated)
     manifest = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert [component.value for component in manifest.components] == [
@@ -587,7 +587,7 @@ def test_a_full_backup_restores_every_component(populated):
 def test_a_database_only_backup_restores_only_the_database(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
     (certificate_dir(populated) / "example-com/privkey-aa.pem").write_text(
@@ -596,7 +596,7 @@ def test_a_database_only_backup_restores_only_the_database(populated):
     populated.database_path.unlink()
     manifest = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert [c.value for c in manifest.components] == ["database"]
@@ -610,7 +610,7 @@ def test_a_database_only_backup_restores_only_the_database(populated):
 def test_a_tls_only_restore_does_nothing_database_shaped(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
     before = populated.database_path.read_bytes()
@@ -618,7 +618,7 @@ def test_a_tls_only_restore_does_nothing_database_shaped(populated):
     populated.database_path.write_bytes(before)
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -633,13 +633,13 @@ def test_a_tls_only_restore_does_nothing_database_shaped(populated):
 def test_multiple_selected_components_restore_together(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE, BackupComponent.TLS))
     _clean(populated)
     build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert populated.database_path.is_file()
@@ -651,7 +651,7 @@ def test_the_manifest_decides_what_is_restored(populated, tmp_path):
     """Data present in the archive but absent from the manifest is refused."""
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
     tampered = _repack(
@@ -665,7 +665,7 @@ def test_the_manifest_decides_what_is_restored(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="does not declare"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -673,7 +673,7 @@ def test_the_manifest_decides_what_is_restored(populated, tmp_path):
 def test_a_newer_format_version_is_refused(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
 
@@ -687,7 +687,7 @@ def test_a_newer_format_version_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="newer than this installation"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -695,7 +695,7 @@ def test_a_newer_format_version_is_refused(populated, tmp_path):
 def test_an_unknown_component_is_refused_by_name(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
 
@@ -709,7 +709,7 @@ def test_an_unknown_component_is_refused_by_name(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="unknown components: quantum"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -717,7 +717,7 @@ def test_an_unknown_component_is_refused_by_name(populated, tmp_path):
 def test_a_declared_component_with_no_data_is_refused(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
 
@@ -732,7 +732,7 @@ def test_a_declared_component_with_no_data_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="does not contain"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -740,7 +740,7 @@ def test_a_declared_component_with_no_data_is_refused(populated, tmp_path):
 def test_a_component_missing_its_required_file_is_refused(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
 
@@ -751,7 +751,7 @@ def test_a_component_missing_its_required_file_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="not a SQLite database"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -774,7 +774,7 @@ def test_path_traversal_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="escapes its root"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -795,7 +795,7 @@ def test_an_absolute_member_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="absolute path"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -816,7 +816,7 @@ def test_a_link_member_is_refused(populated, tmp_path, kind):
     with pytest.raises(ConfigurationError, match="contains a link"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -831,7 +831,7 @@ def test_a_special_file_member_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="special file"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -848,7 +848,7 @@ def test_duplicate_archive_members_are_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="duplicate entry"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -862,7 +862,7 @@ def test_an_archive_without_a_manifest_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match=r"no manifest\.json"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -873,7 +873,7 @@ def test_a_file_that_is_not_an_archive_is_refused(populated, tmp_path):
     with pytest.raises(ConfigurationError, match="not a readable backup"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(archive)
 
@@ -882,7 +882,7 @@ def test_a_missing_archive_is_not_found(populated, tmp_path):
     with pytest.raises(NotFoundError):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tmp_path / "absent.tar.gz")
 
@@ -891,7 +891,7 @@ def test_a_schema_this_installation_does_not_know_is_refused(populated, tmp_path
     """A database from a later release is never migrated backwards."""
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
 
@@ -905,7 +905,7 @@ def test_a_schema_this_installation_does_not_know_is_refused(populated, tmp_path
     with pytest.raises(ConfigurationError, match="does not know"):
         build_backup_service(
             populated,
-            configuration=load_registry().configuration_contributions(),
+            configuration=BUILTIN_REGISTRY.configuration_contributions(),
             clock=system_clock,
         ).restore(tampered)
 
@@ -913,7 +913,7 @@ def test_a_schema_this_installation_does_not_know_is_refused(populated, tmp_path
 def test_the_staged_database_revision_must_match_the_manifest(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
 
@@ -929,7 +929,7 @@ def test_the_staged_database_revision_must_match_the_manifest(populated, tmp_pat
     tampered = _repack(archive, tmp_path / "schema-mismatch.tar.gz", remove_revision)
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -942,7 +942,7 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
     """A bad component in an otherwise good archive changes nothing at all."""
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE, BackupComponent.TLS))
     key = certificate_dir(populated) / "example-com/privkey-aa.pem"
@@ -955,7 +955,7 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
     tampered = _repack(archive, tmp_path / "half-bad.tar.gz", corrupt)
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -972,7 +972,7 @@ def test_staged_database_failure_preserves_every_live_component(
 ):
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     archive = service.create(destination=tmp_path / "recovery.tar.gz")
@@ -1055,7 +1055,7 @@ def _restore_state(service):
 def test_later_restore_failure_recovers_all_previous_components_before_restart(
     populated, tmp_path, monkeypatch, component, existing
 ):
-    configuration = load_registry().configuration_contributions()
+    configuration = BUILTIN_REGISTRY.configuration_contributions()
     source = build_backup_service(
         populated, configuration=configuration, clock=system_clock
     )
@@ -1108,7 +1108,7 @@ def test_failed_restore_recovery_keeps_checkpoint_for_explicit_retry(
 ):
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     archive = service.create(destination=tmp_path / "restore.tar.gz")
@@ -1151,7 +1151,7 @@ def test_failed_restore_recovery_keeps_checkpoint_for_explicit_retry(
 def test_restore_publishes_the_migrated_staged_database(populated, monkeypatch):
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     archive = service.create(only=(BackupComponent.DATABASE,))
@@ -1186,7 +1186,7 @@ def test_managed_restore_retains_previous_state_until_host_acknowledgement(
     monkeypatch.setenv("COMPOSE_RESTORE_OFFLINE", "1")
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     archive = service.create()
@@ -1316,14 +1316,14 @@ def test_directory_restore_removes_old_state_only_after_success(
 def test_restored_tls_private_keys_are_not_world_readable(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
     key = certificate_dir(populated) / "example-com/privkey-aa.pem"
     key.chmod(0o644)
     build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert key.stat().st_mode & 0o777 == 0o600
@@ -1333,13 +1333,13 @@ def test_restored_tls_private_keys_are_not_world_readable(populated):
 def test_a_restored_database_is_consistent_and_migrated(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
     populated.database_path.unlink()
     build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     store = Stores(populated.database_path)
@@ -1356,7 +1356,7 @@ def test_a_restored_database_is_consistent_and_migrated(populated):
 def test_an_acme_link_that_escapes_is_refused_before_restore(populated, tmp_path):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.ACME,))
 
@@ -1370,7 +1370,7 @@ def test_an_acme_link_that_escapes_is_refused_before_restore(populated, tmp_path
     tampered = _repack(archive, tmp_path / "escaping-acme.tar.gz", escape)
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -1397,12 +1397,12 @@ class _RecordingServices:
 def test_services_come_back_even_when_a_restore_fails(populated, monkeypatch):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -1421,12 +1421,12 @@ def test_services_come_back_even_when_a_restore_fails(populated, monkeypatch):
 def test_a_database_restore_takes_the_controller_offline(populated):
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.DATABASE,))
     service = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
     service.services = _RecordingServices()
@@ -1470,7 +1470,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     store.close()
     archive = build_backup_service(
         settings,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create()
 
@@ -1479,7 +1479,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     rebuilt = _relocated(settings, fresh)
     manifest = build_backup_service(
         rebuilt,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert set(manifest.components) == set(BackupComponent)
@@ -1506,7 +1506,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
     _populate(settings)
     archive = build_backup_service(
         settings,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
     fresh = tmp_path / "tls-only"
@@ -1514,7 +1514,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
     rebuilt = _relocated(settings, fresh)
     build_backup_service(
         rebuilt,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
     assert (certificate_dir(rebuilt) / "example-com/fullchain-aa.pem").is_file()
@@ -1542,7 +1542,7 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     (settings.state_dir / "id_ed25519.pub").write_text("PUBLIC", encoding="utf-8")
     archive = build_backup_service(
         settings,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.CONFIG,))
 
@@ -1564,7 +1564,7 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     )
     build_backup_service(
         fresh,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).restore(archive)
 
@@ -1606,7 +1606,7 @@ def test_a_backup_service_without_a_component_refuses_to_restore_it(
     """
     archive = build_backup_service(
         populated,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     ).create(only=(BackupComponent.TLS,))
     partial = BackupService(
