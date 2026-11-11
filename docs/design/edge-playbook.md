@@ -5,33 +5,70 @@ Code: `assets/ansible/playbooks/edge.yml`,
 
 ## How a rollout is paced
 
-The controller converges edges strictly one at a time. Each edge takes four
-`ansible-playbook` runs, each limited to that edge (`--limit <edge>`):
+Each edge goes through four `ansible-playbook` runs, each a tag selection:
 
 1. **Validate**, in check mode. This is the only phase a `plan` or the
    scheduled drift check runs.
 2. **Stage** writes a candidate configuration tree and seals it.
 3. **Activate** switches to it and reloads. The controller then verifies the
-   public listener.
+   public listener of each edge from outside.
 4. **Commit** after verification succeeds, or **rollback** if activation or
    verification failed.
 
-Phases are tag selections (`stage`, `activate`, `commit`, `rollback`); an
-untagged hand run stages and then activates.
+An untagged hand run stages and then activates.
 
-A failed edge stops the rollout before the next edge is touched. Because every
-run is limited to one host, the play's `serial` batches (`1`, `10%`, `25%`,
-`100%`) never take effect for a controller-driven deployment; they only shape a
-hand-run `ansible-playbook` against the whole inventory. Parallel or batched
-controller rollouts are tracked in issue 264.
+The controller paces the fleet itself (`capabilities/deployments/service/rollout.py`)
+rather than through the play's `serial`, so progress is a database row and an
+interrupted rollout resumes where it stopped:
+
+- **Canary first.** The first edge goes alone, through every phase, and must
+  succeed before any other edge is touched. A resumed rollout whose canary
+  already succeeded skips this.
+- **Then batches.** The remaining edges go in batches of at most
+  `deployment_batch_size` (default 10): one run per phase per batch, the run
+  limited to that batch (`--limit edge-b,edge-c,...`). Each edge's outcome is read
+  from Ansible Runner's per-host events. A batch is also cut short if its names
+  would not fit in one host limit (512 characters).
+- **Stop after a failure.** A failure in validate or stage stops the batch
+  there: the failing edge is FAILED, the others in its batch and every later
+  edge are SKIPPED and still serve what they had. A failure in activate or
+  verify withdraws that edge's activation; the batch's other edges, already
+  serving the release, finish verification and commit. Either way no later
+  batch starts.
+- **Check mode needs no canary.** `plan` and the drift check change nothing, so
+  every batch, the first included, is full-size, and the record merges every
+  batch's per-host result.
+
+A real rollout over N edges therefore makes about `4 × (1 + ⌈(N − 1) / B⌉)`
+playbook runs for batch size B, instead of `4 × N`, and a drift check about
+`⌈N / B⌉`. Each run gathers facts on its hosts; a run takes about as long as the
+slowest edge in it, bounded by `deployment_timeout_seconds`. Ansible's `forks`
+(20 in `ansible.cfg`) caps how many edges in one run work at once, so batch
+sizes above it add no parallelism. No per-phase timing has been measured yet;
+fact gathering runs in every phase, and a first install also pulls the runtime
+image during stage.
+
+### The drift check and the deployment lock
+
+The drift check publishes the release it checks against to the same
+desired-state file a deployment uses, so it takes the deployment lock. It does
+not keep it from a deployment that wants it: a refused attempt to take the lock
+(a `deploy`, a worker's queued job, certificate issuance) leaves a marker beside
+it, and the check, between batches, stops when it sees one. The edges it had not
+reached are recorded as unattempted, it does not count towards the
+`drift_check` failure streak, and the waiter gets the lock on its next attempt:
+the CLI's `--wait` and the worker retry on their own.
 
 ## Failure policy
 
-`any_errors_fatal: true` stops the play on the first failed edge, so in a
-hand run a broken runtime image stops after the first batch rather than
-reaching the fleet. Each failing edge returns to its previous image on its
-own. `max_fail_percentage` is deliberately not also set: it expresses the same
-rule in a second dialect, and `any_errors_fatal` is the stricter of the two.
+`any_errors_fatal: true` stops the play on every host in the run after the task
+that failed on one of them. For a controller run that is one batch: the
+controller then reads which edge failed and which were only stopped with it.
+`max_fail_percentage` is deliberately not also set: it expresses the same rule
+in a second dialect, and `any_errors_fatal` is the stricter of the two.
+
+The play has no `serial`. A hand-run `ansible-playbook` against the whole
+inventory converges every edge at once, so canary one edge with `--limit` first.
 
 ## Order
 

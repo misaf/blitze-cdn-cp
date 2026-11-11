@@ -3,15 +3,13 @@
   hosts: blitzecdn_edges
   become: true
   gather_facts: true
-  # Stop on the first failed edge. See docs/design/edge-playbook.md#failure-policy.
+  # A failed edge stops every edge in the same run after that task. See
+  # docs/design/edge-playbook.md#failure-policy.
   any_errors_fatal: true
-  # Only shapes a hand run: the controller limits every run to one edge.
-  # See docs/design/edge-playbook.md#how-a-rollout-is-paced.
-  serial:
-    - 1
-    - "10%"
-    - "25%"
-    - "100%"
+  # No `serial`: the controller paces a rollout itself, canary first and then in
+  # batches, limiting each run to one batch. A hand run reaches every edge it is
+  # given at once, so canary one with --limit first. See
+  # docs/design/edge-playbook.md#how-a-rollout-is-paced.
   # Phases are tag selections; untagged runs stage then activate. See
   # docs/design/edge-playbook.md.
   pre_tasks:

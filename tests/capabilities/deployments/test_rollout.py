@@ -116,7 +116,9 @@ def deployment_in(repository, control_plane_release_id: str) -> str:
         ).id
 
 
-def rollout_for(repository, *, edges, runner=None, verifier=None, published=None):
+def rollout_for(
+    repository, *, edges, runner=None, verifier=None, published=None, batch_size=10
+):
     return Rollout(
         targets=repository.deployment_targets,
         runner=runner or FakeRunner(),
@@ -124,7 +126,39 @@ def rollout_for(repository, *, edges, runner=None, verifier=None, published=None
         verifier=verifier or StubVerifier(),
         publish=(published if published is not None else lambda _release: None),
         clock=lambda: _NOW,
+        batch_size=batch_size,
     )
+
+
+class PerHostRunner(FakeRunner):
+    """Answers each run per host, the way Runner's events do.
+
+    ``failing`` maps a tag selection to the edges that fail it. Under the play's
+    ``any_errors_fatal`` the rest of the run still reports, unfailed, and the run
+    as a whole fails.
+    """
+
+    def __init__(self, failing: dict[tuple[str, ...], set[str]] | None = None):
+        super().__init__()
+        self.failing = failing or {}
+
+    def run(self, *, check, host_limit=None, tags=()):
+        super().run(check=check, host_limit=host_limit, tags=tags)
+        edges = (host_limit or "").split(",")
+        bad = self.failing.get(tags, set()) & set(edges)
+        return ansible_run(
+            *(
+                host_run(edge, failure="refused" if edge in bad else None)
+                for edge in edges
+            ),
+            status=RunStatus.FAILED if bad else RunStatus.SUCCEEDED,
+            return_code=2 if bad else 0,
+            targeted=tuple(edges),
+        )
+
+
+def fleet(count: int) -> dict[str, str]:
+    return {f"edge-{index}": f"192.0.2.{10 + index}" for index in range(count)}
 
 
 def stored(repository, release, inputs: ReleaseInputs | None = None):
@@ -515,3 +549,179 @@ def test_failed_activation_is_withdrawn_before_the_rollout_stops(repository):
     assert ("commit",) not in runner.tag_selections
     assert outcome.targets[0].phase is TargetPhase.STAGE
     assert not outcome.run.succeeded
+
+
+# -- Pacing ----------------------------------------------------------------
+
+
+def test_the_canary_goes_alone_and_the_rest_go_in_batches(repository):
+    """One run per phase per batch, not one per edge."""
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(4)
+    runner = PerHostRunner()
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    assert outcome.succeeded
+    assert runner.host_limits == [
+        *["edge-0"] * 4,
+        *["edge-1,edge-2"] * 4,
+        *["edge-3"] * 4,
+    ]
+
+
+def test_a_check_mode_rollout_needs_no_canary_and_reports_every_edge(repository):
+    """The drift report reads the record, so it must hold every batch's hosts."""
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(3)
+    runner = PerHostRunner()
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=True)
+
+    assert outcome.succeeded
+    assert runner.host_limits == ["edge-0,edge-1", "edge-2"]
+    assert [host.host for host in outcome.run.hosts] == list(edges)
+    assert outcome.run.unattempted == ()
+
+
+def test_a_batch_is_cut_where_its_names_would_not_fit_one_host_limit(repository):
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = {f"{letter * 200}": "192.0.2.10" for letter in "abcd"}
+    runner = PerHostRunner()
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=10)
+
+    rollout.converge(deployment, release, edges=list(edges), check=True)
+
+    assert [len(limit.split(",")) for limit in runner.host_limits] == [2, 2]
+    assert all(len(limit) <= 512 for limit in runner.host_limits)
+
+
+def test_a_resumed_rollout_whose_canary_passed_goes_straight_to_batches(repository):
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(3)
+    rollout_for(repository, edges={"edge-0": edges["edge-0"]}).converge(
+        deployment, release, edges=["edge-0"], check=False
+    )
+
+    runner = PerHostRunner()
+    rollout_for(repository, edges=edges, runner=runner, batch_size=5).converge(
+        deployment, release, edges=list(edges), check=False
+    )
+
+    assert set(runner.host_limits) == {"edge-1,edge-2"}
+
+
+def test_a_validation_failure_in_a_batch_skips_the_edges_stopped_with_it(
+    repository,
+):
+    """Edges the play stopped because another failed were never changed."""
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(5)
+    runner = PerHostRunner({(): {"edge-2"}})
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    assert not outcome.succeeded
+    assert outcome.error.startswith("edge-2: validate failed: edge-2:")
+    assert {t.edge: t.status for t in outcome.targets} == {
+        "edge-0": TargetStatus.SUCCEEDED,
+        "edge-1": TargetStatus.SKIPPED,
+        "edge-2": TargetStatus.FAILED,
+        "edge-3": TargetStatus.SKIPPED,
+        "edge-4": TargetStatus.SKIPPED,
+    }
+    stopped = next(t for t in outcome.targets if t.edge == "edge-1")
+    assert "stopped because edge-2 failed" in (stopped.last_error or "")
+    assert ("stage",) not in runner.tag_selections[4:]
+
+
+def test_an_activation_failure_in_a_batch_withdraws_every_edge_it_stopped(
+    repository,
+):
+    """Collateral edges stopped mid-activation are in an unknown state: restore."""
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(3)
+    runner = PerHostRunner({("activate",): {"edge-1"}})
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    assert not outcome.succeeded
+    assert outcome.error.startswith("edge-1: activate failed")
+    statuses = {t.edge: t.status for t in outcome.targets}
+    assert statuses["edge-1"] is TargetStatus.FAILED
+    assert statuses["edge-2"] is TargetStatus.FAILED
+    rollbacks = [
+        limit
+        for limit, tags in zip(runner.host_limits, runner.tag_selections, strict=True)
+        if tags == ("rollback",)
+    ]
+    assert rollbacks == ["edge-1", "edge-2"]
+    assert ("commit",) not in runner.tag_selections[4:]
+
+
+def test_an_edge_failing_verification_does_not_hold_back_its_batch(repository):
+    """Edges already serving the release and answering for it are committed."""
+
+    class OneDeaf(StubVerifier):
+        def verify(self, *, edge, address, sites, release_digest):
+            results = super().verify(
+                edge=edge, address=address, sites=sites, release_digest=release_digest
+            )
+            if edge == "edge-1":
+                for result in results:
+                    result.served = False
+            return results
+
+    release = stored(repository, a_release(serving=True), release_inputs(serving=True))
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(4)
+    runner = PerHostRunner()
+    rollout = rollout_for(
+        repository, edges=edges, runner=runner, verifier=OneDeaf(), batch_size=2
+    )
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    assert not outcome.succeeded
+    assert {t.edge: t.status for t in outcome.targets} == {
+        "edge-0": TargetStatus.SUCCEEDED,
+        "edge-1": TargetStatus.FAILED,
+        "edge-2": TargetStatus.SUCCEEDED,
+        "edge-3": TargetStatus.SKIPPED,
+    }
+    calls = list(zip(runner.host_limits, runner.tag_selections, strict=True))
+    assert ("edge-2", ("commit",)) in calls
+    assert ("edge-1", ("rollback",)) in calls
+
+
+def test_a_check_stands_aside_between_batches_for_a_waiting_deployment(repository):
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(5)
+    runner = PerHostRunner()
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+    asked: list[int] = []
+
+    def waiting() -> bool:
+        asked.append(len(runner.host_limits))
+        return len(runner.host_limits) >= 1
+
+    outcome = rollout.converge(
+        deployment, release, edges=list(edges), check=True, should_yield=waiting
+    )
+
+    assert outcome.yielded
+    assert not outcome.succeeded
+    assert runner.host_limits == ["edge-0,edge-1"]
+    assert outcome.unattempted == ("edge-2", "edge-3", "edge-4")
+    assert "stood aside" in (outcome.error or "")

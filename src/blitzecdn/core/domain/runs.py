@@ -103,9 +103,9 @@ class AnsibleRun(BaseModel):
     started_at: datetime
     finished_at: datetime
     hosts: tuple[HostRun, ...] = ()
-    #: The edges this run was aimed at, resolved before it started. The edge
-    #: play is ``serial`` with ``any_errors_fatal``, so batches after a failure
-    #: never appear in ``hosts``; this is how a split fleet is detected.
+    #: The edges this run was aimed at, resolved before it started. A play that
+    #: stops early may never hear from some of them, so they never appear in
+    #: ``hosts``; this is how a split fleet is detected.
     targeted: tuple[str, ...] = ()
     #: Where the raw output was kept. Never parsed; shown to an operator, and
     #: named in errors so the next question has somewhere to go.
