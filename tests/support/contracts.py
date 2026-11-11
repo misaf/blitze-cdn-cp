@@ -19,7 +19,7 @@ import yaml
 from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.sites.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 from support.control_plane import build_application
@@ -44,7 +44,7 @@ def contributed_roles() -> dict[str, Path]:
     Read from the feature registry rather than a directory glob, so a test cannot
     quietly check fewer roles than a deployment runs.
     """
-    features = load_registry()
+    features = BUILTIN_REGISTRY
     roles = {
         f"{contribution.feature}:{directory.name}": directory
         for contribution in features.ansible_contributions()

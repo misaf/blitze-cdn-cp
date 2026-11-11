@@ -7,7 +7,7 @@ country settings against the real registry.
 import pytest
 
 from blitzecdn.capabilities.security.geoip.feature import FEATURES
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
 
@@ -47,7 +47,7 @@ def test_every_country_setting_requests_this_capability(
 def test_every_country_setting_deploys_once_the_capability_is_installed(
     _setting: str, policy: dict[str, object]
 ) -> None:
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
     assert registry.missing(_site(**policy).policy.required_capabilities) == ()
 
 

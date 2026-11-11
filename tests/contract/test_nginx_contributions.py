@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import blitzecdn
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import (
     NginxContribution,
@@ -80,7 +80,7 @@ def test_every_nginx_template_is_owned_by_a_feature():
     Derived from what is installed rather than a list of names: core contributes
     no fragment of its own.
     """
-    features = load_registry()
+    features = BUILTIN_REGISTRY
     owners = {feature.name for feature in features.metadata}
     resources = resolve_nginx_resources(features.nginx_contributions())
     flattened = [resource for context in resources.values() for resource in context]

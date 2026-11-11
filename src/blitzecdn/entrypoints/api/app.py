@@ -11,7 +11,7 @@ from fastapi_pagination import add_pagination
 from pydantic import ValidationError
 
 from blitzecdn import __version__
-from blitzecdn.composition import Adapters, ApiNode, api_container, load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY, Adapters, ApiNode, api_container
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
@@ -28,8 +28,8 @@ def create_app(
     settings: Settings | None = None, features: FeatureRegistry | None = None
 ) -> FastAPI:
     resolved = settings or Settings.from_environment()
-    # Loaded once, for the routers and the lifespan alike; injectable for tests.
-    registry = features if features is not None else load_registry()
+    # One registry for the routers and the lifespan alike; injectable for tests.
+    registry = features if features is not None else BUILTIN_REGISTRY
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:

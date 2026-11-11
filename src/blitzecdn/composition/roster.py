@@ -90,6 +90,7 @@ from blitzecdn.core.features.resolution import (
 
 __all__ = [
     "BUILTIN_FEATURES",
+    "BUILTIN_REGISTRY",
     "ROSTER",
     "OperationInputs",
     "RenderingInputs",
@@ -100,7 +101,6 @@ __all__ = [
     "bind_renderings",
     "capability_providers",
     "compose_registry",
-    "load_registry",
 ]
 
 
@@ -306,23 +306,21 @@ ROSTER: tuple[RosterEntry, ...] = (
 BUILTIN_FEATURES: tuple[str, ...] = tuple(entry.module for entry in ROSTER)
 
 
-def load_registry() -> FeatureRegistry:
-    """Every built-in feature's declarations, and the site policy they compose.
-
-    Any failure is fatal.
-    """
-    return compose_registry(load_features(BUILTIN_FEATURES))
-
-
 def compose_registry(features: Sequence[Feature]) -> FeatureRegistry:
     """A registry of ``features``, with the site policy composed from them.
 
-    Composing the policy here, before any process builds a service, is what
-    lets every model that carries one be declared at import.
+    The built-in registry is composed this way when this module is imported;
+    calling it again with other features is for tests that add a contribution.
     """
     registry = FeatureRegistry(features)
     SitePolicy.seal(resolve_policy_schema(registry.policy_contributions()))
     return registry
+
+
+#: Every built-in feature's declarations. Composed on import, so importing the
+#: composition root is all it takes for a site policy to validate: there is no
+#: call to remember first. Any failure is fatal, at import.
+BUILTIN_REGISTRY: FeatureRegistry = compose_registry(load_features(BUILTIN_FEATURES))
 
 
 def bind_renderings(inputs: RenderingInputs) -> tuple[FeatureRendering[CdnSite], ...]:
