@@ -122,7 +122,13 @@ def rollback(
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
 ) -> Deployment:
-    """Queue reapplying an earlier deployment's release; it is a deployment too."""
+    """Queue reapplying an earlier deployment's release; it is a deployment too.
+
+    Without ``deployment_id`` the target is the newest successful full-fleet
+    deployment of a release other than the one the newest real run that reached
+    any edge applied, so a partial rollout is repaired. Success adopts that
+    release as desired state, discarding undeployed changes.
+    """
     queued = as_operation(
         deployments.submit_rollback(
             operator, request.deployment_id, check=request.check

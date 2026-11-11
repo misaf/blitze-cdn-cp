@@ -71,6 +71,18 @@ transaction journal, including abandoned staging attempts, are preserved because
 they cannot safely be distinguished from an in-progress stage. This retention
 does not remove external TLS material, runtime data, logs, or container images.
 
+## Rolling back
+
+`blitzecdn deployment rollback` (`POST /v3/deployments/rollback`) converges an
+earlier successful deployment's release, then adopts it as desired state. Without
+a deployment id it picks the newest successful full-fleet deployment of a release
+other than the one the fleet was last moved to: the release of the newest real
+run that reached any edge, canary included. A rollout stops at the first failing
+edge and leaves the edges before it on the new release, so a failed run that
+committed some edges counts, and rolling back repairs it. Desired state is not
+compared, so undeployed changes neither steer the choice nor survive it: adoption
+replaces them with the target's inputs.
+
 ## Controller deployment retention
 
 Each deployment that is queued prunes the controller's deployment history.

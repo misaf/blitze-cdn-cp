@@ -18,26 +18,33 @@ from blitzecdn.capabilities.deployments.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.releases import ReleaseInputs
-from blitzecdn.core.exceptions import ConflictError
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 __all__ = ["adopt_inputs", "require_unchanged_canonical", "select_target"]
 
 
 def select_target(
-    deployments: DeploymentStore, releases: Releases, deployment_id: str | None
+    deployments: DeploymentStore, deployment_id: str | None
 ) -> Deployment:
     """The deployment whose release this rollback will converge.
 
-    Named, or the newest successful applied run of a different release: check-mode,
-    failed and abandoned runs never describe a state the whole fleet was in.
-    Release ids are content digests, so "different" is exact. Uses ``compile`` so
-    choosing writes no release history.
+    Named, or the newest successful full-fleet run of a release other than the
+    one the fleet was last moved to: the newest real run that reached any edge,
+    canary or not. That includes a failed run that committed some edges before
+    stopping, so rolling back repairs a partial rollout. Desired state is not the
+    reference: with undeployed edits it matches no run, and the "rollback" would
+    re-converge the live release and discard the edits instead of going back
+    one. Check-mode, failed and abandoned runs are never a target: they do not
+    describe a state the whole fleet was in. Release ids are content digests, so
+    "different" is exact.
     """
-    target = (
-        deployments.get_deployment(deployment_id)
-        if deployment_id
-        else deployments.successful_rollback_target(releases.compile().id)
-    )
+    if deployment_id:
+        target = deployments.get_deployment(deployment_id)
+    else:
+        live = deployments.live_release()
+        if live is None:
+            raise NotFoundError("no deployment has reached an edge to roll back")
+        target = deployments.successful_rollback_target(live)
     if target.check_mode or target.status is not DeploymentStatus.SUCCEEDED:
         raise ConflictError("rollback target must be a successful applied deployment")
     return target
