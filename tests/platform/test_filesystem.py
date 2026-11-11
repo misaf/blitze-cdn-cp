@@ -3,34 +3,13 @@ import os
 import tempfile
 
 import pytest
-import yaml
 
-from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.runtime import filesystem
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
-    atomic_write_yaml,
     create_private_file,
     read_log_tail,
 )
-
-
-def test_atomic_yaml_is_restrictive(tmp_path):
-    target = tmp_path / "nested/state.yml"
-    atomic_write_yaml(target, {"secret": "masked"})
-    assert yaml.safe_load(target.read_text()) == {"secret": "masked"}
-    assert os.stat(target).st_mode & 0o777 == 0o600
-
-
-def test_atomic_yaml_refuses_symlink(tmp_path):
-    real = tmp_path / "real"
-    real.write_text("safe", encoding="utf-8")
-    link = tmp_path / "link"
-    link.symlink_to(real)
-    with pytest.raises(ConfigurationError, match="symlink"):
-        atomic_write_yaml(link, {"bad": True})
-    assert real.read_text(encoding="utf-8") == "safe"
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["link", "real"]
 
 
 def test_atomic_bytes_creates_a_private_parent_and_applies_the_mode(tmp_path):

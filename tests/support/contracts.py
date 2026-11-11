@@ -20,6 +20,7 @@ from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.sites.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
 from blitzecdn.composition import BUILTIN_REGISTRY
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 from support.control_plane import build_application
@@ -125,7 +126,7 @@ def _yaml_mapping(path: Path) -> dict[str, Any]:
     `safe_load` is `Any`; asserting the shape once makes the annotation true and
     fails on the file that is wrong.
     """
-    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document = read_variables(path)
     assert isinstance(document, dict), f"{path} is not a mapping"
     return document
 

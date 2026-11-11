@@ -3,19 +3,8 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
-
-import yaml
 
 from blitzecdn.core.exceptions import ConfigurationError
-
-
-def atomic_write_yaml(
-    path: Path, payload: dict[str, Any], *, mode: int = 0o600
-) -> None:
-    """Atomically replace a YAML file, through :func:`atomic_write_bytes`."""
-    document = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
-    atomic_write_bytes(path, document.encode("utf-8"), mode=mode)
 
 
 def read_log_tail(path: Path | str | None, *, limit: int) -> str:
