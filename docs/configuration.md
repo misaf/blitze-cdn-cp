@@ -61,6 +61,10 @@ the newest archives `blitzecdn backup prune` keeps; 0 keeps all of them. The
 daily schedule is a host timer, not an application setting; see
 [Backups](operations.md#backups).
 
+`BLITZE_AUDIT_RETENTION` (`audit_retention`, default 100000) is how many of the
+newest audit events the controller keeps; see
+[Controller deployment retention](operations.md#controller-deployment-retention).
+
 `allowed_ips` restricts which client addresses the API answers, but loopback is
 always allowed, so a reverse proxy on the controller host defeats it. See
 [API network access](operations.md#api-network-access) before exposing the API.

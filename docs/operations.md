@@ -86,6 +86,11 @@ Once nothing names a release, release pruning drops it, with its rendered
 configuration bundle, beyond the newest `history_retention` releases. The
 database therefore stops growing with every deploy.
 
+`audit_retention` (`BLITZE_AUDIT_RETENTION`, default 100000, allowed 1000 to
+10000000) bounds the audit log: the newest that many events are kept. It is a
+disk bound, not a retention policy; the default holds years of activity, and a
+trail kept longer belongs off the controller.
+
 ## Prometheus
 
 The existing authenticated `GET /metrics` endpoint retains its edge, site and

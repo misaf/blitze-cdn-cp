@@ -37,6 +37,7 @@ class Settings(BaseSettings):
             "output_limit_bytes",
             "run_log_retention",
             "history_retention",
+            "audit_retention",
             "allow_empty_sites",
             "worker_poll_seconds",
             "api_max_body_bytes",
