@@ -219,3 +219,123 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
 
     assert rules(http3=False) == expected
     assert rules(http3=True) == expected | {"udp|443|any"}
+
+
+def _controller_source_check(
+    tmp_path: Path, ssh_connection: str | None, sources: list[str], **inputs: Any
+) -> subprocess.CompletedProcess[str]:
+    """Run the role's controller-source guard as shipped, minus the local skip.
+
+    The run is local, so SSH_CONNECTION comes from the play's environment rather
+    than a real session, and the `ansible_connection` clause that skips local
+    runs is dropped so the guard still fires.
+    """
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+    firewall = role_path("blitzecdn_firewall")
+    tasks = yaml.safe_load((firewall / "tasks/main.yml").read_text(encoding="utf-8"))
+    guard = [
+        task | {"when": [c for c in task["when"] if "ansible_connection" not in c]}
+        for task in tasks[0]["block"]
+        if task["name"]
+        in {
+            "Read the address the controller connects from",
+            "Refuse SSH sources that would lock the controller out",
+        }
+    ]
+    assert len(guard) == 2
+    playbook = tmp_path / "source-check.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "connection": "local",
+                    "gather_facts": False,
+                    "environment": (
+                        {}
+                        if ssh_connection is None
+                        else {"SSH_CONNECTION": ssh_connection}
+                    ),
+                    "vars": defaults_of(firewall)
+                    | {"blitzecdn_firewall_ssh_sources": sources}
+                    | inputs,
+                    "tasks": guard,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
+        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("COV_CORE", "COVERAGE", "SSH_CONNECTION"))
+        }
+        | {
+            "ANSIBLE_LOCALHOST_WARNING": "False",
+            "ANSIBLE_FILTER_PLUGINS": str(firewall / "filter_plugins"),
+        },
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("connection", "sources"),
+    [
+        ("198.51.100.7 51022 203.0.113.10 22", ["192.0.2.0/24", "198.51.100.0/24"]),
+        ("198.51.100.7 51022 203.0.113.10 22", ["198.51.100.7"]),
+        ("::ffff:198.51.100.7 51022 ::ffff:203.0.113.10 22", ["198.51.100.0/24"]),
+        ("2001:db8:1::5 51022 2001:db8::10 22", ["2001:db8:1::/48"]),
+    ],
+)
+def test_the_firewall_admits_a_controller_inside_its_ssh_sources(
+    tmp_path, connection, sources
+):
+    result = _controller_source_check(tmp_path, connection, sources)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+
+def test_the_firewall_refuses_ssh_sources_that_leave_the_controller_out(tmp_path):
+    """The established session would survive; the next run would not connect.
+
+    Refused before ufw is touched, naming the address and the networks.
+    """
+    result = _controller_source_check(
+        tmp_path, "198.51.100.7 51022 203.0.113.10 22", ["192.0.2.0/24"]
+    )
+    assert result.returncode != 0, result.stdout
+    assert "198.51.100.7" in result.stdout, result.stdout
+    assert "192.0.2.0/24" in result.stdout, result.stdout
+
+
+def test_the_firewall_refuses_when_it_cannot_tell_the_controller_address(tmp_path):
+    result = _controller_source_check(tmp_path, None, ["192.0.2.0/24"])
+    assert result.returncode != 0, result.stdout
+    assert "SSH_CONNECTION is not set" in result.stdout, result.stdout
+
+
+def test_the_controller_source_check_can_be_turned_off(tmp_path):
+    result = _controller_source_check(
+        tmp_path,
+        "198.51.100.7 51022 203.0.113.10 22",
+        ["192.0.2.0/24"],
+        blitzecdn_firewall_verify_controller_source=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+
+def test_the_controller_source_check_runs_before_the_firewall_changes():
+    firewall = role_path("blitzecdn_firewall")
+    tasks = yaml.safe_load((firewall / "tasks/main.yml").read_text(encoding="utf-8"))
+    names = [task["name"] for task in tasks[0]["block"]]
+    guard = names.index("Refuse SSH sources that would lock the controller out")
+    assert guard < names.index("Install UFW")
+    assert guard < names.index("Allow SSH from trusted management networks")
