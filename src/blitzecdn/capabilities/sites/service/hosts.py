@@ -79,15 +79,19 @@ class HostService:
     # -- The virtual hosts, derived ------------------------------------
 
     def list_sites(self) -> list[CdnSite]:
-        """Derive virtual hosts from one snapshot of zones, rules, and records."""
-        return list(self._derivation().sites)
+        """Derive virtual hosts from one snapshot of zones, rules, and records.
+
+        Deep copies: a host is frozen only at the top, and its policy holds
+        dicts a caller could otherwise change under the next reader.
+        """
+        return [site.model_copy(deep=True) for site in self._derivation().sites]
 
     def get_site(self, name: str) -> CdnSite:
         """One virtual host by its derived name."""
         site = self._derivation().by_name.get(name)
         if site is None:
             raise NotFoundError(f"CDN site {name!r} does not exist")
-        return site
+        return site.model_copy(deep=True)
 
     def _derivation(self) -> _Derivation:
         """The derivation of the current snapshot, reused if nothing changed."""

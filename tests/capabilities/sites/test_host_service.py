@@ -113,6 +113,11 @@ def test_a_caller_cannot_change_the_reused_derivation(control):
     control.sites.list_sites().clear()
     assert control.sites.list_sites()
 
+    for read in (control.sites.list_sites()[0], control.sites.get_site("example-com")):
+        read.policy[CachePolicy].cache_ttl_overrides["/caller"] = "1h"
+    for site in (control.sites.list_sites()[0], control.sites.get_site("example-com")):
+        assert "/caller" not in site.policy[CachePolicy].cache_ttl_overrides
+
 
 def test_host_read_failure_releases_the_transaction(control, monkeypatch):
     def broken():
