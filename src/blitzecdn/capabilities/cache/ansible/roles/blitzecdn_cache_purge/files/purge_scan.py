@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove every cached response under a hostname and path prefix, or carrying a tag.
+"""Remove every cached response with a key, under a prefix, or carrying a tag.
 
 Standalone standard-library code: Ansible copies this to an edge, where the
 control-plane package is not installed. It reads a JSON request on stdin and
@@ -9,8 +9,20 @@ nginx open source cannot delete by pattern, and a cache file's name is the MD5
 of its key, so what a file holds has to be read back from it. nginx writes a
 cache file as a binary header, a ``KEY: <key>`` line, then the upstream
 response exactly as the origin sent it: status line, header lines, a blank
-line, the body. Prefixes and tags are matched in one walk, reading only the
-head of each file.
+line, the body. Keys, prefixes and tags are matched in one walk, reading only
+the head of each file.
+
+Keys
+    A named purge gives the exact keys of a URL: one per scheme, listener
+    port, method and encoding. Hashing a key gives the file of the entry it
+    names, but not every file holding that key. When the origin answers with
+    ``Vary``, nginx files the first representation under the MD5 of the key
+    and every other one under a hash of the key plus the varied request
+    headers, and it reopens such a secondary file whenever the request's
+    headers select it. ``Vary: Accept-Encoding`` alone does this: the key
+    names the normalized encoding, but nginx computes the variant from the
+    visitor's raw header. Every one of those files carries the same KEY line,
+    so matching it exactly is what removes them all.
 
 Prefixes
     The key is built by blitzecdn_nginx as
@@ -78,6 +90,8 @@ class Head(NamedTuple):
 
     #: The key, or as much of it as was read; None if there is no KEY line.
     key: bytes | None
+    #: Whether the read reached the end of the KEY line, so ``key`` is all of it.
+    whole_key: bool
     #: The response header lines after the status line; None if the read
     #: ended before the blank line that closes them.
     header: bytes | None
@@ -94,7 +108,7 @@ def read_head(path: Path, *, need_header: bool) -> Head:
             start = head.find(KEY_MARKER)
             key_end = head.find(b"\n", start + len(KEY_MARKER)) if start >= 0 else -1
             header_end = HEADER_END.search(head, key_end + 1) if key_end >= 0 else None
-            done = (start >= 0 and not need_header) or header_end is not None
+            done = (key_end >= 0 and not need_header) or header_end is not None
             if done or len(head) >= MAX_HEAD_BYTES:
                 break
             more = handle.read(min(HEAD_BYTES, MAX_HEAD_BYTES - len(head)))
@@ -102,18 +116,18 @@ def read_head(path: Path, *, need_header: bool) -> Head:
                 break
             head += more
     if start < 0:
-        return Head(None, None)
+        return Head(None, False, None)
     start += len(KEY_MARKER)
     if key_end < 0:
         # The key runs past the read. Its start is all a prefix needs.
-        return Head(head[start:], None)
+        return Head(head[start:], False, None)
     key = head[start:key_end]
     if header_end is None:
-        return Head(key, None)
+        return Head(key, True, None)
     response = head[key_end + 1 : header_end.start()]
     # Drop the status line; what is left is the header lines.
     _status, _, lines = response.partition(b"\n")
-    return Head(key, lines)
+    return Head(key, True, lines)
 
 
 def header_tags(lines: bytes, name: bytes) -> set[bytes]:
@@ -174,11 +188,12 @@ def cache_files(root: Path) -> Iterable[Path]:
 def purge(
     root: Path,
     *,
+    keys: frozenset[bytes] = frozenset(),
     prefixes: tuple[bytes, ...] = (),
     tags: frozenset[bytes] = frozenset(),
     tag_header: bytes = DEFAULT_TAG_HEADER.lower().encode(),
 ) -> dict[str, int]:
-    """Walk one cache directory once, deleting what any prefix or tag matches."""
+    """Walk one cache directory once, deleting what any key, prefix or tag matches."""
     scanned = removed = unchecked = 0
     for path in cache_files(root):
         try:
@@ -194,8 +209,12 @@ def purge(
         if head.key is None:
             unchecked += 1
             continue
-        if under_prefix(head.key, prefixes):
+        if under_prefix(head.key, prefixes) or (head.whole_key and head.key in keys):
             matched = True
+        elif not head.whole_key and any(key.startswith(head.key) for key in keys):
+            # Cut off where a requested key could still continue: undecided.
+            unchecked += 1
+            continue
         elif not tags:
             matched = False
         elif head.header is None:
@@ -216,13 +235,14 @@ def purge(
 def main() -> int:
     request: dict[str, Any] = json.load(sys.stdin)
     root = Path(request["path"])
+    keys = frozenset(key.encode() for key in request.get("keys", []))
     prefixes = tuple(
         f"{prefix['host']}{prefix.get('prefix', '/')}".encode()
         for prefix in request.get("prefixes", [])
     )
     tags = frozenset(tag.strip().lower().encode() for tag in request.get("tags", []))
-    if not prefixes and not tags:
-        print("no prefixes or tags to purge", file=sys.stderr)
+    if not keys and not prefixes and not tags:
+        print("no keys, prefixes or tags to purge", file=sys.stderr)
         return 2
     if not root.is_dir():
         # A missing cache directory is a misconfigured role, not an empty cache:
@@ -233,6 +253,7 @@ def main() -> int:
     json.dump(
         purge(
             root,
+            keys=keys,
             prefixes=prefixes,
             tags=tags,
             tag_header=tag_header.strip().lower().encode(),

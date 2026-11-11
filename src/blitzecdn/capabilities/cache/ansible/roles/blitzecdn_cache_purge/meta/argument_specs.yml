@@ -9,9 +9,11 @@ argument_specs:
         cache entirely.
       - >-
         nginx open source has no proxy_cache_purge directive, so an entry is
-        removed by deleting the file proxy_cache_path stores it in. The path is
-        derived from the MD5 of the same cache key nginx computes, which is why
-        this role has to be told the cache settings blitzecdn_nginx used.
+        removed by deleting the files proxy_cache_path stores it in: every file
+        whose KEY line matches, which includes each Vary variant nginx filed
+        under its own hash. Named entries are rebuilt into the same cache keys
+        nginx computes, which is why this role has to be told the cache
+        settings blitzecdn_nginx used.
       - >-
         Deleting the file is enough. nginx keeps the key in its shared-memory
         zone, finds the file gone on the next request for it, and treats the
@@ -27,15 +29,13 @@ argument_specs:
         description: >-
           Must equal blitzecdn_nginx_normalize_accept_encoding. When true the
           encoding is part of the cache key and every variant is purged.
-      blitzecdn_cache_purge_levels:
-        type: str
-        required: true
-        choices: ["1:2"]
-        description: The proxy_cache_path levels blitzecdn_nginx emits.
       blitzecdn_cache_purge_entries:
         type: list
         elements: dict
         required: true
+        description: >-
+          Matched by exact key in the same scan as the prefixes and tags, so
+          every Vary variant of a named URL is removed with it.
         options:
           host: {type: str, required: true}
           uri: {type: str, required: true}

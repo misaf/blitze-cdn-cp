@@ -1,4 +1,6 @@
-"""`purge_scan.py`, the script the purge role runs on an edge for prefixes and tags.
+"""`purge_scan.py`, the script the purge role runs on an edge.
+
+It matches keys, prefixes and tags in one walk.
 
 Cache files are laid out and headed as nginx writes them: the binary header,
 then ``KEY: <key>``, then the upstream response. The key is the one
@@ -33,9 +35,15 @@ def _store(
     *,
     body: bytes = b"<html>",
     headers: bytes = b"Content-Type: text/html\r\n",
+    variant: str = "",
 ) -> Path:
-    """Write one entry where proxy_cache_path levels=1:2 would."""
-    digest = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
+    """Write one entry where proxy_cache_path levels=1:2 would.
+
+    A ``variant`` stands for the values of the request headers an origin's
+    ``Vary`` names: nginx files that representation under a hash of the key and
+    those values, while its KEY line stays the key.
+    """
+    digest = hashlib.md5((key + variant).encode(), usedforsecurity=False).hexdigest()
     path = cache / digest[-1] / digest[-3:-1] / digest
     path.parent.mkdir(parents=True, exist_ok=True)
     # Version, timestamps and offsets: arbitrary bytes, newlines included.
@@ -52,8 +60,15 @@ def _store(
     return path
 
 
-def _run(scanner, cache: Path, prefixes, monkeypatch, capsys, *, tags=()) -> dict:
-    request = {"path": str(cache), "prefixes": prefixes, "tags": list(tags)}
+def _run(
+    scanner, cache: Path, prefixes, monkeypatch, capsys, *, tags=(), keys=()
+) -> dict:
+    request = {
+        "path": str(cache),
+        "keys": list(keys),
+        "prefixes": prefixes,
+        "tags": list(tags),
+    }
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
     assert scanner["main"]() == 0
     return json.loads(capsys.readouterr().out)
@@ -134,6 +149,53 @@ def test_a_key_longer_than_the_read_still_matches_by_its_start(
     assert not gone.exists()
 
 
+# ----------------------------------------------------------------------
+# Keys
+# ----------------------------------------------------------------------
+
+
+def test_a_key_removes_every_vary_variant_and_nothing_else(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    """Issue 253: a variant nginx filed under its own hash is still the key's."""
+    cache = tmp_path / "cache"
+    key = "https443GETcdn.example.com/app.jsbr"
+    gone = [
+        _store(cache, key),
+        # Vary: Accept-Encoding, browsers with and without zstd.
+        _store(cache, key, variant="gzip, deflate, br"),
+        _store(cache, key, variant="gzip, deflate, br, zstd"),
+    ]
+    kept = [
+        # The same URL under another encoding or method is another key.
+        _store(cache, "https443GETcdn.example.com/app.jsgzip"),
+        _store(cache, "https443HEADcdn.example.com/app.jsbr"),
+        # A key that merely starts with ours is another URL.
+        _store(cache, "https443GETcdn.example.com/app.jsbr2"),
+        _store(cache, "https443GETcdn.example.com/app.js.mapbr"),
+    ]
+
+    report = _run(scanner, cache, [], monkeypatch, capsys, keys=[key])
+
+    assert report == {"scanned": 7, "removed": 3, "unchecked": 0}
+    assert not any(path.exists() for path in gone)
+    assert all(path.exists() for path in kept)
+
+
+def test_a_key_cut_off_by_the_read_is_unchecked_if_it_could_be_requested(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    long_key = "https443GETcdn.example.com/" + "a" * scanner["MAX_HEAD_BYTES"]
+    path = _store(cache := tmp_path / "cache", long_key)
+    other = _store(cache, "https443GETother.example.com/" + "a" * 70000)
+
+    report = _run(scanner, cache, [], monkeypatch, capsys, keys=[long_key])
+
+    assert report == {"scanned": 2, "removed": 0, "unchecked": 1}
+    assert path.exists()
+    assert other.exists()
+
+
 def test_a_missing_cache_directory_is_a_failure_not_an_empty_purge(
     tmp_path, scanner, monkeypatch
 ):
@@ -151,6 +213,7 @@ def test_a_missing_cache_directory_is_a_failure_not_an_empty_purge(
 def test_the_purge_role_runs_the_scanner_it_ships():
     tasks = (SCRIPT.parent.parent / "tasks/main.yml").read_text(encoding="utf-8")
     assert "src: purge_scan.py" in tasks
+    assert "blitzecdn_cache_purge_keys" in tasks
     assert "blitzecdn_cache_purge_prefixes" in tasks
     assert "blitzecdn_cache_purge_tags" in tasks
     # An undecided file fails the edge rather than passing as a non-match.
