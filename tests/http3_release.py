@@ -41,7 +41,7 @@ from typing import Any
 import yaml
 
 from blitzecdn.assets import ansible as core_ansible
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.features import (
@@ -65,7 +65,7 @@ def contributions(edge_roles: Sequence[str]) -> EdgeContributions:
     Docker's), and the renderer has to load the defaults of exactly the roles the
     play runs.
     """
-    features = load_registry()
+    features = BUILTIN_REGISTRY
     ansible = features.ansible_contributions()
     return EdgeContributions.of(
         roles_path=resolve_role_search_path(core_ansible.ROLES_PATH, ansible),

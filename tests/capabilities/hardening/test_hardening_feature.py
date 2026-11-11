@@ -8,7 +8,7 @@ without the teardown slot a decommissioned host stays key-only.
 
 from blitzecdn.capabilities.hardening import __version__, ansible
 from blitzecdn.capabilities.hardening.feature import FEATURES
-from blitzecdn.composition import BUILTIN_FEATURES, load_registry
+from blitzecdn.composition import BUILTIN_FEATURES, BUILTIN_REGISTRY
 from blitzecdn.core.features import FeatureMetadata
 from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
@@ -36,7 +36,7 @@ def test_hardening_is_a_built_in() -> None:
 
 
 def test_the_shipped_registry_includes_it() -> None:
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
 
     assert "hardening" in {feature.name for feature in registry.metadata}
 
@@ -48,7 +48,7 @@ def test_no_site_can_ask_for_this_capability() -> None:
     opinion about. A site field depending on `hardening` would make detaching a
     fleet-wide validation failure.
     """
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
     hardening = next(p for p in registry.metadata if p.name == "hardening")
 
     assert hardening.capabilities == frozenset({"hardening"})

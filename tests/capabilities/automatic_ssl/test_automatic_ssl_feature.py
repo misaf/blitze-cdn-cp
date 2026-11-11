@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from blitzecdn.capabilities.automatic_ssl.feature import FEATURES
 from blitzecdn.capabilities.automatic_ssl.settings import AutomaticSslConfig
 from blitzecdn.capabilities.automatic_ssl.wiring import automatic_ssl_operations
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 
 
 def test_metadata_names_the_capability() -> None:
@@ -35,7 +35,7 @@ def test_the_scan_job_is_owned_by_automatic_ssl() -> None:
 def test_its_settings_belong_to_it_rather_than_to_tls() -> None:
     owners = {
         contribution.feature: {setting.name for setting in contribution.settings}
-        for contribution in load_registry().configuration_contributions()
+        for contribution in BUILTIN_REGISTRY.configuration_contributions()
     }
 
     assert "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS" in owners["automatic_ssl"]

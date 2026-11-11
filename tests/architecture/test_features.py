@@ -33,8 +33,8 @@ from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
+    BUILTIN_REGISTRY,
     ROSTER,
-    load_registry,
 )
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import FeatureError
@@ -176,7 +176,7 @@ def test_rendering_merges_every_bound_feature(baseline):
 
 def test_the_roster_names_each_feature_module_once():
     assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES) == len(ROSTER)
-    assert {feature.name for feature in load_registry().metadata} >= {
+    assert {feature.name for feature in BUILTIN_REGISTRY.metadata} >= {
         "sites",
         "tls",
         "certificates",

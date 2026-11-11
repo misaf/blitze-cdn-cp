@@ -8,7 +8,7 @@ from support.paths import CORE_ANSIBLE, REPO_ROOT
 from blitzecdn.capabilities.deployments.settings import DeploymentsConfig
 from blitzecdn.capabilities.origins.settings import OriginsConfig
 from blitzecdn.capabilities.tls.settings import CertificateConfig
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.features.resolution import resolve_capability_environment
@@ -18,7 +18,7 @@ def _configured[T](settings: Settings, feature: str, model: type[T]) -> T:
     """One capability's configuration, resolved as composition resolves it."""
     return (
         resolve_capability_environment(
-            load_registry().configuration_contributions(),
+            BUILTIN_REGISTRY.configuration_contributions(),
             settings.capability_environment,
             settings.capability_config_file,
             settings.state_dir,
@@ -247,7 +247,7 @@ def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
     An unclaimed key in it would be a refusal every new installation meets first.
     Resolved against the shipped features, which declare every setting.
     """
-    features = load_registry()
+    features = BUILTIN_REGISTRY
     shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
 
     settings = Settings.from_environment({}, project_dir=tmp_path)

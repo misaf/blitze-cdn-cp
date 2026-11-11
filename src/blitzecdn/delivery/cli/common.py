@@ -13,7 +13,6 @@ import yaml
 from dishka import Container
 from dishka.integrations.base import wrap_injection
 
-from blitzecdn.composition import Adapters, cli_container, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.features import FeatureRegistry
@@ -36,6 +35,18 @@ class ExitCode(IntEnum):
 
 def settings() -> Settings:
     return Settings.from_environment()
+
+
+# The composition root is imported where it is used, never at the top: it
+# composes the built-in registry on import, which imports every feature module,
+# and a feature's commands import this one.
+
+
+def cli_container(resolved: Settings) -> Container:
+    """The CLI's container for ``resolved``; tests replace it here."""
+    from blitzecdn.composition import cli_container as build
+
+    return build(resolved)
 
 
 #: The container the current invocation has built, once it has asked for it.
@@ -95,6 +106,8 @@ def clock() -> Clock:
     Backup opens no repository, so it is wired here rather than resolved; the
     clock is still the one :class:`Adapters` names, not a second choice.
     """
+    from blitzecdn.composition import Adapters
+
     return Adapters().clock
 
 
@@ -104,7 +117,9 @@ def installed_features() -> FeatureRegistry:
     `blitzecdn ansible roles-path` and `blitzecdn edge image spec` run in lint
     steps and image builds.
     """
-    return load_registry()
+    from blitzecdn.composition import BUILTIN_REGISTRY
+
+    return BUILTIN_REGISTRY
 
 
 #: The one ``--json`` definition every command shares.
