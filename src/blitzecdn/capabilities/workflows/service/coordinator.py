@@ -34,7 +34,7 @@ _LOGGER = get_logger(__name__)
 _UNEXPECTED = "unexpected failure; the controller log has the details"
 
 
-def recorded_error(exc: BaseException) -> str:
+def recorded_error(exc: Exception) -> str:
     """What the journal may keep about ``exc``.
 
     The journal is persisted, backed up and served by the API, and exception
@@ -89,6 +89,11 @@ class WorkflowCoordinator:
         Leaving normally records success, or failure if ``fail`` was called; an
         exception records failure and propagates. Only a ``BlitzeError``'s message
         is journalled; anything else is reduced to its type.
+
+        An interrupt or exit (`KeyboardInterrupt`, `SystemExit`) records nothing
+        and propagates, leaving the workflow RUNNING. Restart recovery
+        (`reconcile_interrupted`) then turns it into NEEDS_REVIEW, the same as
+        after a SIGKILL or a crash, so every way a worker can stop ends one way.
         """
         workflow_id = uuid4().hex
         with self.uow.transaction():
@@ -110,7 +115,7 @@ class WorkflowCoordinator:
         try:
             progress = WorkflowProgress(checkpoint=checkpoint)
             yield progress
-        except BaseException as exc:
+        except Exception as exc:
             if not isinstance(exc, BlitzeError):
                 # The journal keeps only the type; the local log keeps the rest.
                 _LOGGER.error(
