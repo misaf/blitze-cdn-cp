@@ -194,7 +194,10 @@ function challenge(r) {
         r.return(400, 'Invalid or expired BlitzeCDN challenge.');
         return;
     }
-    const cspNonce = challengeToken(r, '/').split('.')[0].slice(-24);
+    // The nonce must differ on every response. $request_id is fresh per Nginx
+    // request and Date.now() adds the millisecond, so neither the client
+    // binding nor any other per-client constant decides it.
+    const cspNonce = hmac('csp\0' + String(r.variables.request_id || '') + '\0' + Date.now()).slice(0, 24);
     r.headersOut['Content-Type'] = 'text/html; charset=utf-8';
     r.headersOut['Content-Security-Policy'] = "default-src 'none'; script-src 'nonce-" + cspNonce + "'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
     const safeToken = JSON.stringify(token);
