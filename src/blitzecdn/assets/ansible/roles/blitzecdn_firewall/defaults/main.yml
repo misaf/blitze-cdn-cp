@@ -2,6 +2,11 @@
 blitzecdn_firewall_enabled: true
 blitzecdn_firewall_ssh_port: 22
 blitzecdn_firewall_ssh_sources: []
+# Refuse to converge when the address the controller connects from is in none
+# of blitzecdn_firewall_ssh_sources: the firewall would admit the run already
+# connected and refuse every later one. Turn off only where the source the edge
+# sees is deliberately not one the firewall admits by that list.
+blitzecdn_firewall_verify_controller_source: true
 # Which public ports to open is not this role's to decide: it is
 # blitzecdn_edge_runtime.listeners, the same sets blitzecdn_nginx binds and
 # blitzecdn_edge_stack verifies. This role's job is the host policy that admits

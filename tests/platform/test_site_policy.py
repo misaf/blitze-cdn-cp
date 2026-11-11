@@ -18,7 +18,7 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
     http3_requires_edge_tls,
 )
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY, compose_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
@@ -106,7 +106,7 @@ def test_a_rule_across_contracts_is_contributed_by_the_capability_that_owns_it()
     """HTTP/3 needing edge TLS is TLS's rule, declared against what it reads."""
     (tls,) = (
         item
-        for item in load_registry().policy_contributions()
+        for item in BUILTIN_REGISTRY.policy_contributions()
         if item.contract is TlsPolicy
     )
     assert http3_requires_edge_tls in tls.checks
@@ -217,7 +217,7 @@ class _FeaturePolicy(CapabilityPolicy):
 def compose():
     """Compose the policy with extra contributions, then restore the real one."""
     saved = SitePolicy._schema
-    builtin = load_registry().policy_contributions()
+    builtin = BUILTIN_REGISTRY.policy_contributions()
 
     def with_extra(*extra: PolicyContribution) -> None:
         SitePolicy.seal(resolve_policy_schema((*builtin, *extra)))
@@ -261,14 +261,14 @@ def test_a_policy_cannot_be_validated_before_it_is_composed(compose):
 def test_composing_the_same_contributions_again_keeps_the_model():
     composed = SitePolicy.composed()
 
-    load_registry()
+    compose_registry(BUILTIN_REGISTRY.features)
 
     assert SitePolicy.composed() is composed
 
 
 def test_features_contribute_only_the_policy_they_own():
     contributions = {
-        item.contract: item for item in load_registry().policy_contributions()
+        item.contract: item for item in BUILTIN_REGISTRY.policy_contributions()
     }
     assert contributions[HeaderPolicy].feature == "http"
     assert contributions[HeaderPolicy].group == "headers"

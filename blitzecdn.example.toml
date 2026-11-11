@@ -124,6 +124,12 @@ allow_empty_sites = false
 # removes; a relative value is resolved under the state directory.
 # backup_dir = "backups"
 
+# Public keys every new archive is encrypted to, comma-separated: age keys
+# (age1...) or ssh-ed25519/ssh-rsa keys. Empty writes plain archives. Restoring
+# an encrypted archive needs a matching private key (`--identity`), which
+# should not live on the controller.
+# backup_recipients = ""
+
 # --- deployments ------------------------------------------------------------
 
 # Hard limit for one Ansible run, deployment or ACME request.

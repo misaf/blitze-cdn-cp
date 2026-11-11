@@ -52,7 +52,7 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     if len(candidate) > 253 or not candidate:
         raise ValueError("hostname length must be between 1 and 253 characters")
     try:
-        address = ipaddress.ip_address(candidate)
+        ipaddress.ip_address(candidate)
     except ValueError as ip_error:
         if all(DNS_LABEL.fullmatch(label) for label in candidate.split(".")):
             return prefix + candidate
@@ -61,26 +61,25 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     # accept `*.192.0.2.1` — a `server_name` nginx takes that matches nothing.
     if prefix:
         raise ValueError("wildcards cannot be used with IP addresses")
-    _refuse_zone_index(address, value)
+    _refuse_zone_index(value)
     return candidate
 
 
-def _refuse_zone_index(
-    address: ipaddress.IPv4Address | ipaddress.IPv6Address, value: str
-) -> None:
+def _refuse_zone_index(value: str) -> None:
     # `ipaddress` accepts anything after an IPv6 `%` zone index, and these
     # values reach nginx and the host firewall unquoted: `fe80::1%x;return 200 x`
     # would become a directive. A zone names a local interface, never meaningful
-    # here.
-    if isinstance(address, ipaddress.IPv6Address) and address.scope_id is not None:
+    # here. Checked on the text, not on `scope_id`: a network parsed with
+    # `strict=False` masks host bits and drops the zone, so `::1%0/0` would come
+    # back as `::/0` with nothing left to refuse.
+    if "%" in value:
         raise ValueError(f"IPv6 zone indexes are not accepted: {value!r}")
 
 
 def ip_literal(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     """Parse an IP address that will be rendered unquoted, or raise ``ValueError``."""
-    address = ipaddress.ip_address(value)
-    _refuse_zone_index(address, value)
-    return address
+    _refuse_zone_index(value)
+    return ipaddress.ip_address(value)
 
 
 def ip_network(
@@ -91,9 +90,8 @@ def ip_network(
     ``ValueError`` on anything ``ipaddress.ip_network`` refuses, and on an IPv6
     zone index, which it accepts with arbitrary text after the ``%``.
     """
-    network = ipaddress.ip_network(value, strict=strict)
-    _refuse_zone_index(network.network_address, value)
-    return network
+    _refuse_zone_index(value)
+    return ipaddress.ip_network(value, strict=strict)
 
 
 def _address_text(value: str) -> str:
