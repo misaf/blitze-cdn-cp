@@ -78,9 +78,14 @@ def test_binary_content_is_reported_without_a_diff():
     ]
 
 
-def test_a_last_line_without_a_newline_does_not_run_into_the_next_header():
+def test_a_missing_final_newline_is_marked_as_diff_marks_it():
     diff = ConfigurationDiff.between(
-        _bundle({"a": b"one", "b": b"x\n"}), _bundle({"a": b"two", "b": b"y\n"})
+        _bundle({"a": b"one", "b": b"x\n"}), _bundle({"a": b"one\n", "b": b"y\n"})
     )
 
-    assert "+two\n--- a/b\n" in diff.patch()
+    (added_newline, _) = diff.changes
+    assert added_newline.diff == (
+        "--- a/a\n+++ b/a\n@@ -1 +1 @@\n-one\n\\ No newline at end of file\n+one\n"
+    )
+    # Never runs into the next file's header.
+    assert "+one\n--- a/b\n" in diff.patch()

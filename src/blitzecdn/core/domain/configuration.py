@@ -207,5 +207,9 @@ def _unified(path: str, before: bytes | None, after: bytes | None) -> str | None
         fromfile="/dev/null" if before is None else f"a/{path}",
         tofile="/dev/null" if after is None else f"b/{path}",
     )
-    # A last line without a newline would run into the next file's header.
-    return "".join(line if line.endswith("\n") else line + "\n" for line in lines)
+    # A content line without a newline is the side's last; mark it as `diff` does,
+    # so the change stays visible and the patch still applies byte for byte.
+    return "".join(
+        line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+        for line in lines
+    )
