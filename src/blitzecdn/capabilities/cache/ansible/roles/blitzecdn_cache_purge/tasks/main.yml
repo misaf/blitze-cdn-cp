@@ -106,7 +106,7 @@
           {%- endfor -%}
         {%- endfor -%}
       {%- endfor -%}
-      {{ keys | unique | list }}
+      {{ keys | unique(case_sensitive=true) | list }}
 
 # Keys, prefixes and tags name keys and headers, not files: no hash of a prefix
 # or tag leads to the entries under it, and the hash of a key leads to only one

@@ -176,7 +176,9 @@ def test_named_purge_computes_the_same_port_cache_key(tmp_path):
     variables = _defaults_of(CACHE_ROLE_DIR) | {
         "blitzecdn_cache_purge_path": str(cache_path),
         "blitzecdn_cache_purge_entries": [
-            {"host": "example.com", "uri": "/asset", "scheme": "http"}
+            {"host": "example.com", "uri": "/asset", "scheme": "http"},
+            # nginx keys the request target case-sensitively; so must the purge.
+            {"host": "example.com", "uri": "/Asset", "scheme": "http"},
         ],
         "blitzecdn_cache_purge_prefixes": [],
         "blitzecdn_cache_purge_tags": [],
@@ -224,6 +226,7 @@ def test_named_purge_computes_the_same_port_cache_key(tmp_path):
     keys = yaml.safe_load(computed.read_text(encoding="utf-8"))
     # The exact string proxy_cache_key builds, for each encoding variant.
     assert "http80GETexample.com/asset" in keys
+    assert "http80GETexample.com/Asset" in keys
     assert "http8080HEADexample.com/assetbr" in keys
     assert not any(key.startswith("https") for key in keys)
 
