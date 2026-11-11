@@ -239,7 +239,7 @@ def unique(values: tuple[str, ...], label: str) -> tuple[str, ...]:
 #: Host patterns a deploy may narrow itself to, comma-separated. Ansible's
 #: ``:``, ``&``, ``!`` and ``@`` are absent so a limit can only narrow.
 EDGE_LIMIT = re.compile(r"^[A-Za-z0-9_.*-]+(?:,[A-Za-z0-9_.*-]+)*$")
-_MAX_LIMIT_LENGTH = 512
+MAX_EDGE_LIMIT_LENGTH = 512
 
 
 def validate_edge_limit(value: str | None) -> str | None:
@@ -249,8 +249,10 @@ def validate_edge_limit(value: str | None) -> str | None:
     candidate = value.strip()
     if not candidate:
         return None
-    if len(candidate) > _MAX_LIMIT_LENGTH:
-        raise ValueError(f"host limit must be at most {_MAX_LIMIT_LENGTH} characters")
+    if len(candidate) > MAX_EDGE_LIMIT_LENGTH:
+        raise ValueError(
+            f"host limit must be at most {MAX_EDGE_LIMIT_LENGTH} characters"
+        )
     if not EDGE_LIMIT.fullmatch(candidate):
         raise ValueError(
             "host limit must be a comma-separated list of edge names or globs "

@@ -1,4 +1,4 @@
-"""Convergence settings: how long a run may take, and how much history to keep."""
+"""Convergence settings: run length, rollout pacing, and how much history to keep."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ __all__ = ["CONFIGURATION", "DeploymentsConfig", "lock_path"]
 TIMEOUT: Final = "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS"
 RETENTION: Final = "BLITZE_DEPLOYMENT_RETENTION"
 DRIFT_CHECK_INTERVAL: Final = "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS"
+BATCH_SIZE: Final = "BLITZE_DEPLOYMENT_BATCH_SIZE"
 
 #: The one lock every convergence and every material change serialises on,
 #: beside the rest of the controller's state. Not configurable: two
@@ -32,6 +33,17 @@ class DeploymentsConfig(ConfigurationModel):
         description=(
             "Wall-clock budget for one Ansible run, after which it is stopped. "
             "Bounds every fleet play, and ACME issuance."
+        ),
+    )
+    batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        alias=BATCH_SIZE,
+        description=(
+            "Edges converged together once the first edge of a rollout has "
+            "succeeded: one Ansible run per phase per batch. 1 converges one "
+            "edge at a time."
         ),
     )
     retention: int = Field(

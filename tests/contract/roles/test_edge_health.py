@@ -474,11 +474,12 @@ def test_the_edge_lifecycle_order_holds():
     )
 
 
-def test_the_fleet_rollout_starts_with_one_edge():
-    """A canary batch, and `any_errors_fatal` to make it mean something.
+def test_the_controller_paces_the_rollout_not_the_play():
+    """`any_errors_fatal`, and no `serial` to second-guess the controller.
 
-    Wider batches without the flag would roll a broken image across the fleet;
-    the flag without a first batch of one would take a quarter down first.
+    The controller limits each run to one batch, canary first, and reads per-host
+    results; a `serial` list would split its batches again behind its back.
+    `any_errors_fatal` makes one failed edge stop its batch, and
     `max_fail_percentage` is absent so the policy is stated once.
     """
     play = yaml.safe_load(
@@ -487,13 +488,7 @@ def test_the_fleet_rollout_starts_with_one_edge():
 
     assert play["any_errors_fatal"] is True
     assert "max_fail_percentage" not in play
-    assert play["serial"][0] == 1, (
-        "the edge rollout no longer starts with a single canary edge"
-    )
-    assert play["serial"][-1] == "100%"
-    # Monotonic, so a batch is never smaller than the one that preceded it.
-    widths = [1] + [int(str(step).rstrip("%")) for step in play["serial"][1:]]
-    assert widths == sorted(widths), play["serial"]
+    assert "serial" not in play
 
 
 def test_the_image_is_settable_as_ordinary_fleet_policy():

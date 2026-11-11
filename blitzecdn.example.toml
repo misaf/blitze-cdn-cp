@@ -140,6 +140,12 @@ allow_empty_sites = false
 # Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
 # drift_check_interval_seconds = 3600
 
+# Edges converged together after the first edge of a rollout has succeeded.
+# Each batch takes one Ansible run per phase, so a rollout over N edges makes
+# about 4 * (1 + ceil((N - 1) / batch)) runs. A drift check needs no canary
+# and validates every batch at this size. Default: 10. Allowed: 1 to 100.
+# deployment_batch_size = 10
+
 # Number of finished real deployments retained in the database, newest first.
 # The newest successful full-fleet deployment of as many recent releases is also
 # kept, so rollback still has targets. Older deployments are deleted, and their

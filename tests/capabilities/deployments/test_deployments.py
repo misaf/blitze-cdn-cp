@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pytest
 from support.application import seed_proxied_record
 from support.control_plane import (
@@ -317,6 +319,34 @@ def test_failing_drift_checks_build_a_streak_a_success_resets(settings):
     drift = _health(repository, ConvergenceKind.DRIFT_CHECK)
     assert drift.consecutive_failures == 0
     assert drift.last_success_at is not None
+
+
+def test_a_drift_check_that_stood_aside_is_not_counted(settings):
+    """Standing aside for a deployment is not a failed check, nor a clean one."""
+
+    class Contended:
+        def contended(self) -> bool:
+            return True
+
+    class Waited(FakeRunner):
+        def lock(self):
+            return nullcontext(Contended())
+
+    repository = Stores(settings.database_path)
+    runner = Waited([_in_sync_run()])
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+
+    report = control.deployments.check_drift("scheduler")
+
+    assert runner.host_limits == [], "it stood aside before its first batch"
+    assert report.in_sync is False
+    assert report.unattempted == ("edge-a",)
+    drift = _health(repository, ConvergenceKind.DRIFT_CHECK)
+    assert drift.consecutive_failures == 0
+    assert drift.last_success_at is None
+    assert drift.last_failure_at is None
 
 
 def test_a_deploy_refused_before_any_run_still_counts_as_a_failure(
