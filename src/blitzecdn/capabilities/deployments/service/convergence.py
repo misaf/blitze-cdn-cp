@@ -449,7 +449,7 @@ class DeploymentService:
         enqueue: bool = False,
     ) -> Deployment:
         target = rollback_policy.select_target(
-            self.persistence.deployments, self.releases, deployment_id
+            self.persistence.deployments, deployment_id
         )
         return self._queue(
             operator,
