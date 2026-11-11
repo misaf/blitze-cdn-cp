@@ -1,12 +1,12 @@
 """Queue aggregates and worker pulses across process boundaries."""
 
 import json
-import logging
 import threading
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from structlog.testing import capture_logs
 from support.jobs import handling
 from support.stores import Stores
 
@@ -149,7 +149,7 @@ def test_completed_jobs_remain_in_retained_counts(settings, status):
     repository.close()
 
 
-def test_job_logs_have_correlation_and_duration_without_payloads(settings, caplog):
+def test_job_logs_have_correlation_and_duration_without_payloads(settings):
     repository = Stores(settings.database_path)
     queue = JobQueue(
         jobs=repository.jobs,
@@ -162,15 +162,15 @@ def test_job_logs_have_correlation_and_duration_without_payloads(settings, caplo
         payload={"credential": "private-payload-value"},
         available_at=queue.clock(),
     )
-    with caplog.at_level(logging.INFO):
+    with capture_logs() as events:
         queue.run_one()
     started, finished = [
-        record for record in caplog.records if record.message.startswith("job handler")
+        event for event in events if event["event"].startswith("job handler")
     ]
-    assert started.job_id == finished.job_id == job.id
-    assert finished.worker_id == "worker-a"
-    assert finished.job_kind == "example"
-    assert finished.attempt == 1
-    assert finished.duration_seconds >= 0
-    assert "private-payload-value" not in caplog.text
+    assert started["job_id"] == finished["job_id"] == job.id
+    assert finished["worker_id"] == "worker-a"
+    assert finished["job_kind"] == "example"
+    assert finished["attempt"] == 1
+    assert finished["duration_seconds"] >= 0
+    assert "private-payload-value" not in repr(events)
     repository.close()

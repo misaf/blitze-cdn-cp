@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from structlog.testing import capture_logs
 from support.control_plane import cli_control_plane, control_plane_app
 from support.stores import Stores
 from typer.testing import CliRunner
@@ -201,7 +202,7 @@ def test_status_cli_uses_the_same_service(settings, monkeypatch):
     assert control.job_queue.list_jobs() == []
 
 
-def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog):
+def test_recovery_review_is_visible_in_logs_and_persisted_state(settings):
     repository = Stores(settings.database_path)
     repository.workflows.create("interrupted", "certificate", "operator", "site-a")
     coordinator = WorkflowCoordinator(
@@ -210,12 +211,12 @@ def test_recovery_review_is_visible_in_logs_and_persisted_state(settings, caplog
         events=repository.audit_log,
         clock=system_clock,
     )
-    coordinator.reconcile_interrupted()
-    (warning,) = [
-        record for record in caplog.records if "recovery review" in record.message
-    ]
-    assert warning.workflow_id == "interrupted"
-    assert warning.workflow_kind == "certificate"
-    assert warning.resource_id == "site-a"
+    with capture_logs() as events:
+        coordinator.reconcile_interrupted()
+    (warning,) = [event for event in events if "recovery review" in event["event"]]
+    assert warning["log_level"] == "warning"
+    assert warning["workflow_id"] == "interrupted"
+    assert warning["workflow_kind"] == "certificate"
+    assert warning["resource_id"] == "site-a"
     assert repository.workflows.statistics().counts[WorkflowStatus.NEEDS_REVIEW] == 1
     repository.close()
