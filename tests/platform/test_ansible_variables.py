@@ -18,7 +18,9 @@ from blitzecdn.core.exceptions import ConfigurationError
 
 INJECTION = "{{ 7*7 }}"
 _APPEND_KEY = "{{ keys | default([]) + [entry.host ~ entry.uri] }}"
-_REPORT = "{{ {'keys': keys, 'page': sites[0].page} | to_json }}"
+_REPORT = (
+    "{{ {'keys': keys, 'page': sites[0].page, 'lookalikes': lookalikes} | to_json }}"
+)
 
 
 def _strings(node):
@@ -46,6 +48,10 @@ def test_variables_are_private_and_never_replace_a_symlink(tmp_path):
     with pytest.raises(ConfigurationError, match="symlink"):
         write_variables(link, {"bad": True})
     assert real.read_text(encoding="utf-8") == "safe"
+
+
+#: Strings a plain YAML scalar would read as a bool, number or null.
+LOOKALIKES = {"ssl_mode": "off", "tls": "1.2", "flag": "yes", "none": "~", "empty": ""}
 
 
 def test_every_string_is_tagged_unsafe_and_reads_back_as_data(tmp_path):
@@ -76,6 +82,18 @@ def test_every_string_is_tagged_unsafe_and_reads_back_as_data(tmp_path):
     assert read_variables(target) == values
 
 
+def test_a_string_ansible_would_retype_is_quoted_rather_than_tagged(tmp_path):
+    """ansible-core re-resolves an ``!unsafe`` scalar, so ``!unsafe 'off'`` is False."""
+    target = tmp_path / "vars.yml"
+    write_variables(target, LOOKALIKES)
+
+    document = yaml.compose(target.read_text(encoding="utf-8"))
+    values = [value for _, value in document.value]
+    assert all(node.style in ("'", '"') for node in values)
+    assert all(node.tag != "!unsafe" for node in values)
+    assert read_variables(target) == LOOKALIKES
+
+
 def test_run_variables_are_written_unsafe_and_removed_after(tmp_path):
     with run_variables(tmp_path, "purge", {"uri": INJECTION}) as path:
         assert "!unsafe" in path.read_text(encoding="utf-8")
@@ -101,6 +119,7 @@ def test_a_play_reads_operator_text_literally(tmp_path):
             "sites": [
                 {"name": "example.com", "page": f"<h1>{INJECTION}</h1>{command}"}
             ],
+            "lookalikes": LOOKALIKES,
         },
     )
     output = tmp_path / "out.yml"
@@ -157,4 +176,5 @@ def test_a_play_reads_operator_text_literally(tmp_path):
     assert rendered == {
         "keys": [f"example.com/{INJECTION}{command}"],
         "page": f"<h1>{INJECTION}</h1>{command}",
+        "lookalikes": LOOKALIKES,
     }
