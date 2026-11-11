@@ -301,6 +301,29 @@ class DeploymentStore:
                 )
             )
 
+    def live_release(self) -> str | None:
+        # A rollout stops at the first failing edge and withdraws only that one, so
+        # a failed run can still have moved earlier edges to its release.
+        reached_an_edge = (
+            select(DeploymentTargetRow.deployment_id)
+            .where(
+                DeploymentTargetRow.deployment_id == DeploymentRow.id,
+                DeploymentTargetRow.status == TargetStatus.SUCCEEDED.value,
+            )
+            .exists()
+        )
+        with self._db.reader() as session:
+            return session.scalars(
+                select(DeploymentRow.release_id)
+                .where(
+                    DeploymentRow.check_mode.is_(False),
+                    (DeploymentRow.status == DeploymentStatus.SUCCEEDED.value)
+                    | reached_an_edge,
+                )
+                .order_by(DeploymentRow.created_at.desc())
+                .limit(1)
+            ).first()
+
     def successful_rollback_target(self, current_release: str) -> Deployment:
         # `host_limit IS NULL` keeps canaries out of the automatic choice: one edge
         # reaching a release does not make it a state the fleet was running.

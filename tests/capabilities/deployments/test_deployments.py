@@ -382,3 +382,50 @@ def test_automatic_rollback_goes_back_from_the_live_release_not_desired_state(
     assert result.status is DeploymentStatus.SUCCEEDED
     assert result.rollback_of == first.id
     assert result.release_id == first.release_id
+
+
+class _EdgeFailsToStage(FakeRunner):
+    """Stages fail on one edge while ``failing`` is set; everything else succeeds."""
+
+    def __init__(self, edge: str) -> None:
+        super().__init__([ansible_run(host_run("edge-a"), host_run("edge-b"))])
+        self.edge = edge
+        self.failing = False
+
+    def run(self, *, check, host_limit=None, tags=()):
+        result = super().run(check=check, host_limit=host_limit, tags=tags)
+        if self.failing and host_limit == self.edge and tags == ("stage",):
+            return ansible_run(
+                host_run(self.edge, failure="boom"),
+                status=RunStatus.FAILED,
+                return_code=2,
+            )
+        return result
+
+
+def test_automatic_rollback_repairs_a_partially_applied_rollout(settings):
+    """A failed run that committed some edges is what those edges now run."""
+    repository = Stores(settings.database_path)
+    runner = _EdgeFailsToStage("edge-b")
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_edge(control, name="edge-b", host="192.0.2.11")
+    seed_site(control, name="example-com", record="cdn")
+    first = control.deployments.deploy("alice")
+    assert first.status is DeploymentStatus.SUCCEEDED
+
+    seed_site(control, name="other-example-com", record="other")
+    runner.failing = True
+    partial = control.deployments.deploy("alice")
+    runner.failing = False
+    assert partial.status is DeploymentStatus.FAILED
+    statuses = {
+        target.edge: target.status
+        for target in repository.deployment_targets.targets(partial.id)
+    }
+    assert statuses["edge-a"].value == "succeeded"
+
+    result = control.deployments.rollback("alice", None)
+
+    assert result.rollback_of == first.id
+    assert result.release_id == first.release_id

@@ -157,6 +157,14 @@ class DeploymentStore(Protocol):
         """
         ...
 
+    def live_release(self) -> str | None:
+        """The release of the newest real run that reached any edge.
+
+        A run that succeeded, or one that failed after committing some edges, which
+        stay on it. ``None`` when no real run has reached an edge.
+        """
+        ...
+
     def successful_rollback_target(self, current_release: str) -> Deployment:
         """The newest successful full-fleet run of a release not ``current_release``.
 

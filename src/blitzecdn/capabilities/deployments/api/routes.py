@@ -125,7 +125,8 @@ def rollback(
     """Queue reapplying an earlier deployment's release; it is a deployment too.
 
     Without ``deployment_id`` the target is the newest successful full-fleet
-    deployment of a release other than the one the fleet runs. Success adopts that
+    deployment of a release other than the one the newest real run that reached
+    any edge applied, so a partial rollout is repaired. Success adopts that
     release as desired state, discarding undeployed changes.
     """
     queued = as_operation(

@@ -144,7 +144,7 @@ def rollback(
         typer.Argument(
             help=(
                 "Successful deployment ID; defaults to the newest full-fleet "
-                "release before the one the fleet runs."
+                "release before the one last applied to any edge."
             )
         ),
     ] = None,

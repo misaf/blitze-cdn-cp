@@ -29,21 +29,22 @@ def select_target(
     """The deployment whose release this rollback will converge.
 
     Named, or the newest successful full-fleet run of a release other than the
-    one the fleet runs: the release of the newest successful applied run, canary
-    or not. Failed runs restore the previous release on each edge, so they leave
-    that unchanged. Desired state is not the reference: with undeployed edits it
-    matches no run, and the "rollback" would re-converge the live release and
-    discard the edits instead of going back one. Check-mode, failed and abandoned
-    runs never describe a state the whole fleet was in. Release ids are content
-    digests, so "different" is exact.
+    one the fleet was last moved to: the newest real run that reached any edge,
+    canary or not. That includes a failed run that committed some edges before
+    stopping, so rolling back repairs a partial rollout. Desired state is not the
+    reference: with undeployed edits it matches no run, and the "rollback" would
+    re-converge the live release and discard the edits instead of going back
+    one. Check-mode, failed and abandoned runs are never a target: they do not
+    describe a state the whole fleet was in. Release ids are content digests, so
+    "different" is exact.
     """
     if deployment_id:
         target = deployments.get_deployment(deployment_id)
     else:
-        live = deployments.latest_successful_applied()
+        live = deployments.live_release()
         if live is None:
-            raise NotFoundError("no successful deployment is available to roll back")
-        target = deployments.successful_rollback_target(live.release_id)
+            raise NotFoundError("no deployment has reached an edge to roll back")
+        target = deployments.successful_rollback_target(live)
     if target.check_mode or target.status is not DeploymentStatus.SUCCEEDED:
         raise ConflictError("rollback target must be a successful applied deployment")
     return target

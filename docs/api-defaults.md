@@ -181,7 +181,7 @@ them. Omitted PATCH fields preserve the existing edge values.
 | --- | --- |
 | `host_limit` | Omitted or `null`: all registered edges |
 | Deployment/rollback `check` | `false`: apply changes; `true`: Ansible check mode |
-| Rollback `deployment_id` | Omitted or `null`: select the newest successful full-fleet deployment of a release other than the one the fleet runs (the newest successful applied run's) |
+| Rollback `deployment_id` | Omitted or `null`: select the newest successful full-fleet deployment of a release other than the one the newest real run that reached any edge applied |
 | Cache purge `entries`, `prefixes`, `tags`, `purge_all` | `[]`, `[]`, `[]`, `false`; an empty request does not purge everything and is refused |
 | Purge entry `scheme` | `https` |
 | Purge prefix `prefix` | `/`: every cached response for the hostname, over both schemes |
