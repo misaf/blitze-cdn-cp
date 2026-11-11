@@ -79,7 +79,36 @@ Only successful admission returns the polling headers. Validation, authenticatio
 and admission errors keep their normal HTTP error responses. A `409` caused by
 a busy deployment may separately include `Retry-After: 30`; that is an admission
 retry hint, not a link to newly accepted work. Do not automatically repeat a
-mutating request after a network timeout: it may already have been accepted.
+mutating request after a network timeout without an `Idempotency-Key`: it may
+already have been accepted.
+
+## Retrying safely
+
+Every queued endpoint accepts an `Idempotency-Key` header: up to 255 visible
+ASCII characters, unique per intended action (a UUID works). A client that
+loses the response can send the same request with the same key, and receives
+`202` with the resource the first request queued (same `id`, same `Location`)
+instead of queueing the work again.
+
+```http
+POST /v3/deployments/rollback
+X-API-Key: YOUR_API_KEY
+Idempotency-Key: 6f1c2f0e-9a51-4c0b-8f43-1f8a2d2c7d10
+Content-Type: application/json
+
+{}
+```
+
+- Keys are per API key and are remembered for 24 hours.
+- The key is checked before admission, so a retry is answered even when the
+  first request's work has since changed what admission would decide.
+- Reusing a key for a different method, path, query or body is `409`. JSON
+  bodies are compared by value, not by spacing or key order.
+- A retry that arrives while the first request is still being admitted is
+  `409`; retry it shortly.
+- A request that was refused (any `4xx` or `5xx`) queued nothing and does not
+  hold its key, so the same key can be sent again.
+- If the work has since been dropped by job retention, the retry is `404`.
 
 ## Certificates
 
