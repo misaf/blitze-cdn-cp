@@ -12,12 +12,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import (
-    IpNetworkWidened,
-    hostname,
-    ip_literal,
-    unique,
-)
+from blitzecdn.core.domain.validation import hostname, ip_literal, unique
+from blitzecdn.core.domain.values import IpNetworkWidened
 
 #: The Ansible group every managed edge belongs to. The playbooks target it by
 #: name, so it is part of the contract with the roles rather than a label.

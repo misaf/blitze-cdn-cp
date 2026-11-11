@@ -10,9 +10,17 @@ ends in ``/`` is a prefix and any other is exact, the convention the firewall's
 from __future__ import annotations
 
 import re
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from blitzecdn.core.domain.values import (
+    NginxValue,
+    RuleName,
+    UrlPath,
+    WildcardHostname,
+    regex,
+)
 
 __all__ = [
     "PathLocation",
@@ -20,45 +28,13 @@ __all__ = [
     "path_is_prefix",
     "path_matches",
     "path_pattern",
-    "validate_rule_path",
 ]
 
 #: The capture a redirect target may name: what followed a prefix path.
 SUFFIX = "$1"
 
-#: Characters a path or target may not hold. Both reach an Nginx quoted string
-#: and a regex, so each of these could end the string, the directive or the
-#: block, or (``$``) name a variable the operator did not mean to read.
-_FORBIDDEN = frozenset(" \t\r\n;{}\"'\\`")
-
 #: An absolute http(s) URL or a path on the same host.
 _TARGET = re.compile(r"^(?:https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?)?/\S*$")
-
-
-def validate_rule_path(value: str) -> str:
-    """A path a rule matches: absolute, at most 512 characters, no query.
-
-    ``?`` and ``#`` are refused rather than ignored, since ``$uri`` never
-    contains them and a rule naming one would silently match nothing.
-    """
-    candidate = value.strip()
-    if not candidate.startswith("/"):
-        raise ValueError(f"path {value!r} must start with '/'")
-    if len(candidate) > 512:
-        raise ValueError("a path must be at most 512 characters")
-    if any(character in candidate for character in _FORBIDDEN):
-        raise ValueError(
-            f"path {value!r} may not contain whitespace, quotes, backslashes, "
-            "backticks, ';', '{' or '}'"
-        )
-    if "?" in candidate or "#" in candidate:
-        raise ValueError(
-            f"path {value!r} may not contain '?' or '#': a rule matches the "
-            "path alone, never the query string or fragment"
-        )
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in candidate):
-        raise ValueError(f"path {value!r} may not contain control characters")
-    return candidate
 
 
 def path_is_prefix(path: str) -> bool:
@@ -69,9 +45,9 @@ def path_is_prefix(path: str) -> bool:
 def path_pattern(path: str) -> str:
     """The anchored regex the edge renders for ``path``.
 
-    Mirrors ``site.conf.j2``, whose ``regex_escape`` is ``re.escape``.
+    Mirrors ``site.conf.j2``, whose ``regex_escape`` is :func:`regex`.
     """
-    return "^" + re.escape(path) + ("" if path_is_prefix(path) else "$")
+    return "^" + regex(path) + ("" if path_is_prefix(path) else "$")
 
 
 def path_matches(path: str, candidate: str) -> bool:
@@ -79,6 +55,37 @@ def path_matches(path: str, candidate: str) -> bool:
     if path_is_prefix(path):
         return candidate.startswith(path)
     return candidate == path
+
+
+def _redirect_target(value: str) -> str:
+    """An absolute ``http(s)`` URL or a path, naming no ``$`` but :data:`SUFFIX`.
+
+    Characters that could end the quoted string or directive it is rendered in
+    are refused by :class:`~blitzecdn.core.domain.values.NginxValue`.
+    """
+    candidate = value.strip()
+    if not _TARGET.fullmatch(candidate):
+        raise ValueError(
+            "a redirect target must be an absolute http:// or https:// URL "
+            "or a path starting with '/'"
+        )
+    if "$" in candidate.replace(SUFFIX, ""):
+        raise ValueError(
+            f"a redirect target may name {SUFFIX}, what followed the "
+            "matched prefix, and no other '$' variable"
+        )
+    if re.search(r"\$1[0-9]", candidate):
+        raise ValueError(
+            f"{SUFFIX} may not be followed by a digit, which Nginx would "
+            "read as a different capture"
+        )
+    if "#" in candidate:
+        raise ValueError("a redirect target may not carry a fragment")
+    return candidate
+
+
+#: Where a redirect sends a visitor; rendered into a quoted ``return``.
+RedirectTarget = Annotated[str, NginxValue("redirect target", _redirect_target)]
 
 
 class PathRedirect(BaseModel):
@@ -93,41 +100,9 @@ class PathRedirect(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal[301, 302, 307, 308] = 301
-    target: str = Field(min_length=1, max_length=2048)
+    target: RedirectTarget = Field(min_length=1, max_length=2048)
     #: Append the visitor's query string, so ``/old/?page=2`` keeps ``page=2``.
     preserve_query_string: bool = True
-
-    @field_validator("target")
-    @classmethod
-    def validate_target(cls, value: str) -> str:
-        candidate = value.strip()
-        if any(character in candidate for character in _FORBIDDEN):
-            raise ValueError(
-                "a redirect target may not contain whitespace, quotes, "
-                "backslashes, backticks, ';', '{' or '}'"
-            )
-        if any(
-            ord(character) < 0x20 or ord(character) == 0x7F for character in candidate
-        ):
-            raise ValueError("a redirect target may not contain control characters")
-        if not _TARGET.fullmatch(candidate):
-            raise ValueError(
-                "a redirect target must be an absolute http:// or https:// URL "
-                "or a path starting with '/'"
-            )
-        if "$" in candidate.replace(SUFFIX, ""):
-            raise ValueError(
-                f"a redirect target may name {SUFFIX}, what followed the "
-                "matched prefix, and no other '$' variable"
-            )
-        if re.search(r"\$1[0-9]", candidate):
-            raise ValueError(
-                f"{SUFFIX} may not be followed by a digit, which Nginx would "
-                "read as a different capture"
-            )
-        if "#" in candidate:
-            raise ValueError("a redirect target may not carry a fragment")
-        return candidate
 
     @model_validator(mode="after")
     def validate_query_handling(self) -> Self:
@@ -156,19 +131,14 @@ class PathLocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     #: The rule this came from, which also names the location in Nginx.
-    rule: str
-    path: str
+    rule: RuleName
+    path: UrlPath
     #: The host's hostnames this rule covers: a rule's ``match`` can be narrower
     #: than the hostnames the host groups together.
-    server_names: tuple[str, ...] = Field(min_length=1)
+    server_names: tuple[WildcardHostname, ...] = Field(min_length=1)
     redirect: PathRedirect | None = None
     #: Only the path-scoped settings; every other one is the host's.
     settings: dict[str, object] = Field(default_factory=dict)
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str) -> str:
-        return validate_rule_path(value)
 
     @model_validator(mode="after")
     def validate_action(self) -> Self:

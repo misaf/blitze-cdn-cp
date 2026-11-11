@@ -17,7 +17,7 @@ from blitzecdn.capabilities.sites.ports import (
     ZoneReader,
 )
 from blitzecdn.core.domain.events import domain_event
-from blitzecdn.core.domain.paths import validate_rule_path
+from blitzecdn.core.domain.values import url_path
 
 __all__ = ["RuleService"]
 
@@ -56,7 +56,7 @@ class RuleService:
             self.zones.get_domain(domain),
             self.rules.list_rules(domain),
             fqdn,
-            None if path is None else validate_rule_path(path),
+            None if path is None else url_path(path),
         )
 
     def create_rule(self, rule: Rule, operator: str) -> Rule:
