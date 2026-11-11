@@ -729,7 +729,7 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
     from blitzecdn.entrypoints.cli import main  # noqa: F401 - assembles the group
 
     paths = {
-        Path(inspect.getfile(command.callback))
+        Path(inspect.getfile(inspect.unwrap(command.callback)))
         for command in domain_app.registered_commands
         if command.callback is not None
     }

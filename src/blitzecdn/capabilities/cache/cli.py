@@ -6,6 +6,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.cache.contract import (
     CacheLevel,
@@ -19,7 +20,7 @@ from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.delivery.cli import common
 from blitzecdn.delivery.cli.common import ExitCode
-from blitzecdn.delivery.cli.domain_editing import report, update
+from blitzecdn.delivery.cli.domain_editing import Sites, report, update
 
 cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses and inspect cache effectiveness."
@@ -30,7 +31,9 @@ domain_commands = typer.Typer()
 
 
 @cache_app.command("purge")
+@common.inject
 def cache_purge(
+    cache: FromDishka[CacheService],
     url: Annotated[
         list[str] | None,
         typer.Option(
@@ -110,7 +113,7 @@ def cache_purge(
     prefixes = [_purge_prefix(value) for value in prefix or []] + [
         _purge_hostname(value) for value in hostname or []
     ]
-    result = common.service(CacheService).purge_cache(
+    result = cache.purge_cache(
         "cli",
         entries=entries,
         prefixes=prefixes,
@@ -172,7 +175,9 @@ def _purge_hostname(value: str) -> PurgePrefix:
 
 
 @cache_app.command("stats")
+@common.inject
 def stats(
+    cache: FromDishka[CacheService],
     start: Annotated[
         str, typer.Option("--start", help="Inclusive UTC hour, ISO 8601 with timezone.")
     ],
@@ -204,7 +209,7 @@ def stats(
             "offset": offset,
         }
     )
-    result = common.service(CacheService).stats(query)
+    result = cache.stats(query)
     common.emit(
         {
             "items": [item.model_dump(mode="json") for item in result.items],
@@ -217,7 +222,9 @@ def stats(
 
 
 @cache_app.command("connections")
+@common.inject
 def connections(
+    cache: FromDishka[CacheService],
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -225,7 +232,7 @@ def connections(
 
     Changes nothing, so it is safe to run at any time, including during a deploy.
     """
-    result = common.service(CacheService).connections("cli", host_limit=limit)
+    result = cache.connections("cli", host_limit=limit)
     common.emit(result.model_dump(mode="json"), json_output=json_output)
     if not json_output:
         for silent in result.silent:
@@ -233,7 +240,9 @@ def connections(
 
 
 @domain_commands.command("cache")
+@common.inject
 def domain_cache(
+    sites: Sites,
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool | None,
@@ -372,7 +381,7 @@ def domain_cache(
             "--ignore-origin-headers or --respect-origin-headers"
         )
     # Built from the dict so an unnamed option stays unset rather than cleared.
-    zone = update(name, DomainPatch.model_validate(named))
+    zone = update(sites, name, DomainPatch.model_validate(named))
     policy = zone.policy[CachePolicy]
     state = (
         f"caching {policy.cache_level.value}: 2xx for {policy.cache_valid_success} "
@@ -380,7 +389,7 @@ def domain_cache(
         if policy.cache_enabled
         else "not caching"
     )
-    report(zone, f"{zone.name} is now {state}.", json_output=json_output)
+    report(sites, zone, f"{zone.name} is now {state}.", json_output=json_output)
 
 
 def _ttl_overrides(values: list[str] | None) -> dict[str, str] | None:
@@ -399,7 +408,9 @@ def _ttl_overrides(values: list[str] | None) -> dict[str, str] | None:
 
 
 @domain_commands.command("cache-query-string")
+@common.inject
 def domain_cache_query_string(
+    sites: Sites,
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
         CacheQueryStringMode,
@@ -410,8 +421,11 @@ def domain_cache_query_string(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether query strings distinguish cached responses."""
-    zone = update(name, DomainPatch.model_validate({"cache_query_string_mode": mode}))
+    zone = update(
+        sites, name, DomainPatch.model_validate({"cache_query_string_mode": mode})
+    )
     report(
+        sites,
         zone,
         f"{zone.name} cache query-string mode is now "
         f"{zone.policy[CachePolicy].cache_query_string_mode.value!r}.",

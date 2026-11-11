@@ -10,6 +10,7 @@ import json
 from typing import Annotated, Any
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.sites.cli.app import rule_app
 from blitzecdn.capabilities.sites.domain import Rule, RulePatch
@@ -71,7 +72,9 @@ def _redirect(
 
 
 @rule_app.command("add")
+@common.inject
 def rule_add(
+    rules: FromDishka[RuleService],
     domain: Annotated[str, typer.Argument(help="Zone the rule belongs to.")],
     name: Annotated[str, typer.Argument(help="Name for the rule within the zone.")],
     set_: Annotated[list[str] | None, typer.Option("--set", help=_SET_HELP)] = None,
@@ -100,7 +103,7 @@ def rule_add(
 ) -> None:
     """Override some of a zone's policy for the hostnames, or paths, a rule matches."""
     common.emit(
-        common.service(RuleService).create_rule(
+        rules.create_rule(
             Rule(
                 domain=domain,
                 name=name,
@@ -117,28 +120,32 @@ def rule_add(
 
 
 @rule_app.command("list")
+@common.inject
 def rule_list(
+    rules: FromDishka[RuleService],
     domain: Annotated[str, typer.Argument(help="Zone to list the rules of.")],
     json_output: common.JsonOutput = False,
 ) -> None:
     """List a zone's rules in the order a hostname is matched against them."""
-    common.emit(common.service(RuleService).list_rules(domain), json_output=json_output)
+    common.emit(rules.list_rules(domain), json_output=json_output)
 
 
 @rule_app.command("show")
+@common.inject
 def rule_show(
+    rules: FromDishka[RuleService],
     domain: str,
     name: str,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show one rule: what it matches, and what it changes."""
-    common.emit(
-        common.service(RuleService).get_rule(domain, name), json_output=json_output
-    )
+    common.emit(rules.get_rule(domain, name), json_output=json_output)
 
 
 @rule_app.command("set")
+@common.inject
 def rule_set(
+    rules: FromDishka[RuleService],
     domain: str,
     name: str,
     set_: Annotated[list[str] | None, typer.Option("--set", help=_SET_HELP)] = None,
@@ -193,15 +200,15 @@ def rule_set(
             "--priority, or --enabled/--disabled"
         )
     common.emit(
-        common.service(RuleService).update_rule(
-            domain, name, RulePatch.model_validate(changes), "cli"
-        ),
+        rules.update_rule(domain, name, RulePatch.model_validate(changes), "cli"),
         json_output=json_output,
     )
 
 
 @rule_app.command("remove")
+@common.inject
 def rule_remove(
+    rules: FromDishka[RuleService],
     domain: str,
     name: str,
     yes: common.Yes = False,
@@ -209,5 +216,5 @@ def rule_remove(
     """Remove a rule. The hostnames it covered fall back to the zone's policy."""
     if not yes and not typer.confirm(f"Delete rule {name!r} in {domain!r}?"):
         raise typer.Abort()
-    common.service(RuleService).delete_rule(domain, name, "cli")
+    rules.delete_rule(domain, name, "cli")
     typer.echo(f"Deleted rule {name} in {domain}")

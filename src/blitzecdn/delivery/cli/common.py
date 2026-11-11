@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from enum import IntEnum
-from typing import Annotated, Any, overload
+from typing import Annotated, Any
 
 import typer
 import yaml
 from dishka import Container
+from dishka.integrations.base import wrap_injection
 
 from blitzecdn.composition import Adapters, cli_container, load_registry
 from blitzecdn.core.config import Settings
@@ -67,16 +68,25 @@ def container() -> Container:
     return held[0]
 
 
-@overload
-def service[T](kind: type[T]) -> T: ...
-@overload
-def service(kind: Any) -> Any: ...
-def service(kind: Any) -> Any:
-    """One service from this invocation's container.
+def inject[**P, T](command: Callable[P, T]) -> Callable[P, T]:
+    """Resolve a command's ``FromDishka[...]`` parameters, as routes are injected.
 
-    Typed as dishka's ``Container.get``: a Protocol resolves, untyped.
+    Goes under ``@app.command``. The injected parameters are hidden from the
+    signature Typer reads, so they never become options, and are resolved
+    from :func:`container` when the command runs: a command that injects
+    nothing still builds no container, and a test that patches
+    ``common.container`` patches every command.
     """
-    return container().get(kind)
+    injected = wrap_injection(
+        func=command,
+        container_getter=lambda _args, _kwargs: container(),
+        remove_depends=True,
+        is_async=False,
+    )
+    # dishka compiles the wrapper; this lets `inspect` find the command's source.
+    # Its own `__signature__`, without the injected parameters, still wins.
+    injected.__wrapped__ = command  # type: ignore[attr-defined]
+    return injected
 
 
 def clock() -> Clock:
