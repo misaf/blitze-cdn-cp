@@ -1871,7 +1871,7 @@ def _sealing_service(settings, *recipients):
     )
     return configured, build_backup_service(
         configured,
-        configuration=load_registry().configuration_contributions(),
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
         clock=system_clock,
     )
 
