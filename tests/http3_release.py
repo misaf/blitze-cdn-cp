@@ -44,6 +44,7 @@ from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.features import (
     resolve_edge_modules,
     resolve_nginx_resources,
@@ -99,9 +100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("overrides", nargs="*", type=_override)
     arguments = parser.parse_args(argv)
 
-    document: dict[str, Any] = yaml.safe_load(arguments.state.read_text("utf-8"))
+    document: dict[str, Any] = read_variables(arguments.state)
     document.update(dict(arguments.overrides))
-    runner: dict[str, Any] = yaml.safe_load(arguments.runner.read_text("utf-8"))
+    runner: dict[str, Any] = read_variables(arguments.runner)
     contributed = contributions(runner["blitzecdn_capability_roles"])
 
     release = digest(document)

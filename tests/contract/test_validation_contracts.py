@@ -21,6 +21,7 @@ from support.stores import Stores
 
 from blitzecdn.capabilities.sites.domain import Rule
 from blitzecdn.core.ansible.rendering import EdgeRenderer
+from blitzecdn.core.ansible.variables import read_variables
 
 # ----------------------------------------------------------------------
 # Executing the role's validation tasks
@@ -378,7 +379,7 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
     control.deployments.publish_artifact(
         control.releases.compile(), settings.generated_vars_path
     )
-    published = yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
+    published = read_variables(settings.generated_vars_path)
 
     names = [site["name"] for site in published["blitzecdn_nginx_sites"]]
     assert names == ["example-com"], (

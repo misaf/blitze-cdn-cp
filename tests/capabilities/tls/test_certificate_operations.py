@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import yaml
 from support.application import seed_proxied_record
 from support.certificates import (
     FakePreflight,
@@ -44,6 +43,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 )
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode, TlsPolicy
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.ports.clock import system_clock
 
@@ -149,7 +149,7 @@ def test_upload_and_request_certificate_activate_material(settings, certificate_
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "certificate_source_path" in desired
     assert "PRIVATE KEY" not in desired
-    document = yaml.safe_load(desired)["blitzecdn_nginx_sites"][0]
+    document = read_variables(settings.generated_vars_path)["blitzecdn_nginx_sites"][0]
     assert document["certificate_path"].endswith(
         f"/fullchain-{requested.certificate_digest}.pem"
     )
@@ -191,9 +191,7 @@ def test_first_certificate_for_an_auto_host_releases_https(settings, certificate
 
     result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
-    document = yaml.safe_load(settings.generated_vars_path.read_text("utf-8"))[
-        "blitzecdn_nginx_sites"
-    ][0]
+    document = read_variables(settings.generated_vars_path)["blitzecdn_nginx_sites"][0]
     assert document["ssl_mode"] == "flexible"
 
 

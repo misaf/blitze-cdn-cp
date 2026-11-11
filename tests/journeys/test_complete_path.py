@@ -19,7 +19,6 @@ import threading
 from collections.abc import Iterator
 
 import pytest
-import yaml
 from support.control_plane import (
     ControlPlane,
     FakeRunner,
@@ -41,6 +40,7 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
 from blitzecdn.capabilities.sites.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.contract import SslMode, TlsPolicy
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.domain.runs import RunStatus
 
 _SERVERS: dict[int, http.server.HTTPServer] = {}
@@ -137,7 +137,7 @@ def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
             and tags == ("activate",)
             and not server.freeze_release
         ):
-            document = yaml.safe_load(settings.generated_vars_path.read_text())
+            document = read_variables(settings.generated_vars_path)
             server.release_digest = document["blitzecdn_release_digest"]
         return result
 

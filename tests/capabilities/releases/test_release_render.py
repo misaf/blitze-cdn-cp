@@ -10,6 +10,7 @@ from support.control_plane import cli_control_plane, seed_site
 from support.paths import CORE_ANSIBLE
 from typer.testing import CliRunner
 
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.entrypoints.cli import main as cli
 
@@ -90,7 +91,6 @@ def test_a_release_is_rendered_once_and_kept_as_rendered(shipped, monkeypatch):
 def test_publishing_writes_the_bundle_before_the_document_that_names_it(
     shipped, monkeypatch, tmp_path
 ):
-    import yaml
 
     from blitzecdn.capabilities.deployments.wiring import (
         CONFIGURATION_BUNDLE,
@@ -105,7 +105,7 @@ def test_publishing_writes_the_bundle_before_the_document_that_names_it(
 
     publish_release(release, bundle, variables)
 
-    document = yaml.safe_load(variables.read_text())
+    document = read_variables(variables)
     written = variables.with_name(CONFIGURATION_BUNDLE)
     assert document["blitzecdn_config_release_bundle"] == str(written)
     assert document["blitzecdn_release_digest"] == release.digest
