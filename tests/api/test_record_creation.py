@@ -46,7 +46,7 @@ def test_record_creation_uses_the_url_and_returns_the_domain(settings, body):
     [
         {"domain": "example.com"},
         {"domain": "other.example"},
-        {"value": "2001:db8::10"},
+        {"value": "2001:db8::10", "proxied": False},
         {"ttl": 0},
         {"name": ""},
     ],

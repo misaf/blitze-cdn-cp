@@ -46,9 +46,11 @@ def record_add(
     served is the zone's policy, bent by whichever rule matches it — there is
     no second object to create first.
 
-    A dual-stack hostname is two records, one A and one AAAA. Both are proxied
-    or neither is, and both point at the same origin; validation refuses a
-    hostname whose proxied records disagree about where the edge fetches from.
+    A dual-stack hostname is two records, one A and one AAAA. Proxied, both
+    carry the same origin, in whichever family the edge reaches it by: the type
+    picks only which edge address DNS publishes. Validation refuses a hostname
+    whose proxied records disagree about where the edge fetches from. An
+    unproxied record answers with its address, so it must match its type.
     """
     record = DnsRecord(
         domain=domain,

@@ -2,9 +2,11 @@
 
 A record holds no policy — the zone and its rules do. ``value`` does double
 duty: unproxied it is the DNS answer, proxied it is the origin and DNS answers
-with an edge address. Every proxied record for one hostname must carry the same
-``value`` (one origin per host), so a hostname cannot have both a proxied A and
-a proxied AAAA record; see issue 254.
+with an edge address. A proxied record's ``type`` only says which of the fleet's
+addresses DNS publishes, so its origin may be of either family. Every proxied
+record for one hostname carries the same origin (a virtual host has one
+upstream), which is how a hostname is served over both IPv4 and IPv6: a proxied
+A and a proxied AAAA record with one ``value``.
 """
 
 from __future__ import annotations
@@ -28,7 +30,8 @@ class DnsRecord(BaseModel):
 
     ``value`` is always present, so publishing a private origin happens only when
     an operator unproxies with the address they want public. When proxied, ``type``
-    says whether the fleet's A or AAAA address is published.
+    says whether the fleet's A or AAAA address is published, and ``value`` is the
+    origin in whichever family it is reached by.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -63,11 +66,15 @@ class DnsRecord(BaseModel):
 
     @model_validator(mode="after")
     def validate_address_matches_the_type(self) -> Self:
+        """An answer must match its type; an origin is never published as one."""
+        if self.proxied:
+            return self
         address = ipaddress.ip_address(self.value)
         expected = 4 if self.type is RecordType.A else 6
         if address.version != expected:
             raise ValueError(
-                f"{self.type.value} record value must be an IPv{expected} address"
+                f"an unproxied {self.type.value} record answers with its value, "
+                f"so it must be an IPv{expected} address"
             )
         return self
 

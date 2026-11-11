@@ -260,7 +260,9 @@ class SiteService:
         """Report proxy configurations no edge could serve.
 
         A hostname's proxied records must share one origin, since a virtual host has
-        one upstream. Also catches restored or rolled-back state.
+        one upstream; a record's type picks only the edge address DNS publishes, so a
+        dual-stack hostname is an A and an AAAA record with the same value. Also
+        catches restored or rolled-back state.
         """
         domains = self.zones.list_domains()
         records = self.zones.list_records()
@@ -285,8 +287,9 @@ class SiteService:
                 )
                 errors.append(
                     f"{fqdn!r} has proxied records pointing at different "
-                    f"origins ({pointed}); every proxied record for a hostname "
-                    "must point at the same origin, or the others must be "
-                    "unproxied"
+                    f"origins ({pointed}); a virtual host has one origin, so give "
+                    "every proxied record for the hostname the same value (a "
+                    "proxied record's type picks only the edge address DNS "
+                    "publishes), or unproxy the others"
                 )
         return errors
