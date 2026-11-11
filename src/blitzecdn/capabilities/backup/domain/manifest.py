@@ -25,6 +25,9 @@ MANIFEST_NAME = "manifest.json"
 #: UTC, readable, no colons, `Z` marking UTC.
 _FILENAME_FORMAT = "blitzecdn-backup-%Y-%m-%d_%H-%M-%SZ.tar.gz"
 
+#: Appended to an archive encrypted to age recipients, as the `age` tool does.
+ENCRYPTED_SUFFIX = ".age"
+
 
 class BackupComponent(StrEnum):
     """State a controller cannot rebuild for itself; everything else is derived."""
@@ -123,9 +126,9 @@ def _first_reason(exc: ValueError, document: dict[str, Any]) -> str:
     return f"invalid {MANIFEST_NAME}: {exc}"
 
 
-def backup_filename(moment: datetime) -> str:
+def backup_filename(moment: datetime, *, encrypted: bool = False) -> str:
     """The archive name for a backup taken at ``moment``, whatever it holds."""
-    return moment.strftime(_FILENAME_FORMAT)
+    return moment.strftime(_FILENAME_FORMAT) + (ENCRYPTED_SUFFIX if encrypted else "")
 
 
 def backup_moment(name: str) -> datetime | None:
@@ -133,9 +136,12 @@ def backup_moment(name: str) -> datetime | None:
 
     The inverse of :func:`backup_filename`, so retention can tell the archives
     this capability wrote from anything else an operator keeps beside them.
+    Encrypted and plain archives count alike.
     """
     try:
-        return datetime.strptime(name, _FILENAME_FORMAT).replace(tzinfo=UTC)
+        return datetime.strptime(
+            name.removesuffix(ENCRYPTED_SUFFIX), _FILENAME_FORMAT
+        ).replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -182,6 +188,7 @@ def member_component(name: str) -> BackupComponent | None:
 
 __all__ = [
     "BACKUP_FORMAT_VERSION",
+    "ENCRYPTED_SUFFIX",
     "MANIFEST_NAME",
     "BackupComponent",
     "BackupManifest",

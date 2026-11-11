@@ -120,6 +120,17 @@ def test_shared_ip_types_refuse_a_zone_index(address: object, zone: str) -> None
             adapter.validate_python(f"{address}%{zone}")
 
 
+@pytest.mark.parametrize(
+    "value", ["fe80::1%eth0/64", "2001:db8::1%x/32", "::1%0/0", "fe80::1%eth0/128"]
+)
+def test_a_zone_index_is_refused_even_when_masking_would_drop_it(value: str) -> None:
+    """`strict=False` masks host bits, and the zone with them (issue #316)."""
+    with pytest.raises(ValidationError, match="zone indexes are not accepted"):
+        _WIDENED.validate_python(value)
+    with pytest.raises(ValidationError):
+        _NETWORK.validate_python(value)
+
+
 def test_only_the_widened_network_masks_host_bits() -> None:
     assert _WIDENED.validate_python("192.0.2.8/24") == "192.0.2.0/24"
     with pytest.raises(ValidationError, match="host bits set"):

@@ -23,7 +23,7 @@ from blitzecdn.capabilities.sites.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_nginx_resources
@@ -66,7 +66,7 @@ def nginx_resources() -> dict[str, list[dict[str, str]]]:
             for resource in resources
         ]
         for context, resources in resolve_nginx_resources(
-            load_registry().nginx_contributions()
+            BUILTIN_REGISTRY.nginx_contributions()
         ).items()
     }
 
@@ -126,7 +126,7 @@ def _capability_defaults() -> dict[str, Any]:
     capability needs no edit here.
     """
     defaults: dict[str, Any] = {}
-    for contribution in load_registry().ansible_contributions():
+    for contribution in BUILTIN_REGISTRY.ansible_contributions():
         for role in sorted(contribution.roles_path.iterdir()):
             if (role / "defaults/main.yml").is_file():
                 defaults |= defaults_of(role)
