@@ -13,6 +13,14 @@ argument_specs:
       blitzecdn_firewall_enabled: {type: bool, required: true}
       blitzecdn_firewall_ssh_port: {type: int, required: true}
       blitzecdn_firewall_ssh_sources: {type: list, elements: str, required: true}
+      blitzecdn_firewall_verify_controller_source:
+        type: bool
+        required: true
+        description: >-
+          Refuse to change the firewall when the address the controller's SSH
+          session comes from is in none of blitzecdn_firewall_ssh_sources. The
+          established connection would survive the change and the next run
+          would find the port closed. Skipped for local connections.
       blitzecdn_edge_runtime:
         type: dict
         required: true
