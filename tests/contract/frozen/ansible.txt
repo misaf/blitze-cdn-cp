@@ -155,6 +155,7 @@ blitzecdn	variable	blitzecdn_firewall.blitzecdn_firewall_enabled	type=bool requi
 blitzecdn	variable	blitzecdn_firewall.blitzecdn_firewall_registry_file	type=path required
 blitzecdn	variable	blitzecdn_firewall.blitzecdn_firewall_ssh_port	type=int required
 blitzecdn	variable	blitzecdn_firewall.blitzecdn_firewall_ssh_sources	type=list elements=str required
+blitzecdn	variable	blitzecdn_firewall.blitzecdn_firewall_verify_controller_source	type=bool required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_controller_directory	type=path required
 blitzecdn	variable	blitzecdn_geoip.blitzecdn_geoip_database	type=path required
