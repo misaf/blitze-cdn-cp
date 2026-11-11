@@ -41,6 +41,11 @@ dependencies = [
   "sqlalchemy>=2.0.52,<2.1",
   "ansible-runner>=2.4,<3",
   "dishka>=1.10.1,<2",
+  # Renders /metrics: escaping, number formatting and the exposition content
+  # type belong to the reference client, not to string formatting here.
+  "prometheus-client>=0.22,<1",
+  # Backs pydantic's EmailStr for ACME account addresses.
+  "email-validator>=2.2,<3",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
