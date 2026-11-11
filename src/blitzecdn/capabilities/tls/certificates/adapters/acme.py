@@ -8,6 +8,7 @@ no value has to round-trip through a child's environment to reach a playbook.
 from __future__ import annotations
 
 import ipaddress
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
@@ -28,6 +29,7 @@ from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 __all__ = ["AcmeIssuer", "ChallengePublisher"]
 
 _USER_AGENT = "blitzecdn"
+_LOGGER = logging.getLogger(__name__)
 
 
 class ChallengePublisher(Protocol):
@@ -67,18 +69,19 @@ class AcmeIssuer:
             raise ConfigurationError(
                 "HTTP-01 cannot issue wildcard certificates; upload one or use DNS-01"
             )
-        # Naive local time: the library compares against `datetime.now()`.
+        # One budget for the whole issuance, which holds the deployment lock:
+        # checked before each step, and handed to the library's polling.
+        # Naive local time, because the library compares against `datetime.now()`.
         deadline = datetime.now() + timedelta(seconds=self._timeout_seconds)
         private_key = ec.generate_private_key(ec.SECP256R1())
+        presented: list[tuple[str, str]] = []
         try:
             acme = self._client(email)
+            _within(deadline)
             order = acme.new_order(_csr(private_key, site.server_names))
-            presented = self._present(acme, order)
-            try:
-                order = acme.poll_and_finalize(order, deadline=deadline)
-            finally:
-                for domain, token in presented:
-                    self._challenges.absent(domain, token)
+            self._present(acme, order, presented, deadline)
+            _within(deadline)
+            order = acme.poll_and_finalize(order, deadline=deadline)
         except acme_errors.TimeoutError as exc:
             raise ExecutionError("certificate request timed out") from exc
         except acme_errors.ValidationError as exc:
@@ -87,6 +90,10 @@ class AcmeIssuer:
             ) from exc
         except (acme_errors.Error, messages.Error, requests.RequestException) as exc:
             raise ExecutionError(f"certificate request failed: {exc}") from exc
+        finally:
+            # Whatever happened, and never in place of it: a certificate the CA
+            # already issued is kept, and the original error is what is raised.
+            self._remove(presented)
         if not order.fullchain_pem:
             raise ExecutionError("the CA finalized the order without a certificate")
         return (
@@ -103,7 +110,9 @@ class AcmeIssuer:
         network = client.ClientNetwork(key, alg=ES256, user_agent=_USER_AGENT)
         if self._ca_bundle is not None:
             # A private ACME CA whose API certificate the system store lacks.
-            network.session.verify = str(self._ca_bundle)
+            # `verify_ssl` is what the library passes to requests as `verify`,
+            # overriding the session's, and requests takes a bundle path there.
+            network.verify_ssl = str(self._ca_bundle)  # type: ignore[assignment]
         directory = client.ClientV2.get_directory(self._directory_url, network)
         acme = client.ClientV2(directory, network)
         registration = messages.NewRegistration.from_data(
@@ -119,44 +128,61 @@ class AcmeIssuer:
         return acme
 
     def _present(
-        self, acme: client.ClientV2, order: messages.OrderResource
-    ) -> list[tuple[str, str]]:
+        self,
+        acme: client.ClientV2,
+        order: messages.OrderResource,
+        presented: list[tuple[str, str]],
+        deadline: datetime,
+    ) -> None:
         """Place every pending HTTP-01 challenge, then tell the CA to check them.
 
-        Returns what was placed, so the caller removes exactly that.
+        Each placement is appended to ``presented`` as it lands, so the caller
+        removes exactly what reached the edges, however far this got.
         """
         account_key = acme.net.key
-        presented: list[tuple[str, str]] = []
         answers: list[tuple[messages.ChallengeBody, challenges.ChallengeResponse]] = []
-        try:
-            for authorization in order.authorizations:
-                if authorization.body.status == messages.STATUS_VALID:
-                    continue
-                domain = authorization.body.identifier.value
-                challenge = next(
-                    (
-                        body
-                        for body in authorization.body.challenges
-                        if isinstance(body.chall, challenges.HTTP01)
-                    ),
-                    None,
+        for authorization in order.authorizations:
+            if authorization.body.status == messages.STATUS_VALID:
+                continue
+            domain = authorization.body.identifier.value
+            challenge = next(
+                (
+                    body
+                    for body in authorization.body.challenges
+                    if isinstance(body.chall, challenges.HTTP01)
+                ),
+                None,
+            )
+            if challenge is None:
+                raise ExecutionError(
+                    f"the CA offered no HTTP-01 challenge for {domain}"
                 )
-                if challenge is None:
-                    raise ExecutionError(
-                        f"the CA offered no HTTP-01 challenge for {domain}"
-                    )
-                response, validation = challenge.response_and_validation(account_key)
-                token = challenge.chall.encode("token")
-                self._challenges.present(domain, token, validation)
-                presented.append((domain, token))
-                answers.append((challenge, response))
-            for challenge, response in answers:
-                acme.answer_challenge(challenge, response)
-        except BaseException:
-            for domain, token in presented:
+            response, validation = challenge.response_and_validation(account_key)
+            token = challenge.chall.encode("token")
+            _within(deadline)
+            self._challenges.present(domain, token, validation)
+            presented.append((domain, token))
+            answers.append((challenge, response))
+        for challenge, response in answers:
+            _within(deadline)
+            acme.answer_challenge(challenge, response)
+
+    def _remove(self, presented: list[tuple[str, str]]) -> None:
+        """Take each placed challenge off, independently; a failure is logged.
+
+        A stale token on an edge answers nothing the CA will ask again, so it is
+        not worth an issued certificate or the error that ended the attempt.
+        """
+        for domain, token in presented:
+            try:
                 self._challenges.absent(domain, token)
-            raise
-        return presented
+            except Exception:
+                _LOGGER.warning(
+                    "could not remove the HTTP-01 challenge for %s; the token "
+                    "stays on the edge but answers nothing the CA will ask again",
+                    domain,
+                    exc_info=True,
+                )
 
     def _account_key(self) -> JWKEC:
         path = self._account_dir / "account-key.pem"
@@ -178,6 +204,12 @@ class AcmeIssuer:
             ),
         )
         return JWKEC(key=generated)
+
+
+def _within(deadline: datetime) -> None:
+    """Refuse to start another step once the issuance budget is spent."""
+    if datetime.now() >= deadline:
+        raise acme_errors.TimeoutError()
 
 
 def _csr(key: ec.EllipticCurvePrivateKey, names: tuple[str, ...]) -> bytes:
