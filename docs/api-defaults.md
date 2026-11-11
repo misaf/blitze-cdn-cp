@@ -163,7 +163,11 @@ domain; including `domain` in the body is rejected with `422`. Responses retain
 ```
 
 `proxied: true` treats `value` as the origin; `false` publishes it as the DNS
-answer. Record PATCH fields do not accept explicit `null`.
+answer. A proxied record's `type` picks only which edge address DNS publishes,
+so its origin may be IPv4 or IPv6; an unproxied record's value must match its
+type. A hostname served over both IPv4 and IPv6 is a proxied A and a proxied
+AAAA record with the same `value`, since one virtual host has one origin.
+Record PATCH fields do not accept explicit `null`.
 
 One record is addressed by type and name,
 `/v3/domains/{domain}/records/{type}/{name}`, for `GET`, `PATCH` and `DELETE`.

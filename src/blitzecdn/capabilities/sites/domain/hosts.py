@@ -177,8 +177,9 @@ def _derive(
             # hostname is what gets reported.
             refusals[(None, (record.fqdn,))] = _reason(exc)
             continue
-        # Grouped by origin value: records for one hostname that share it
-        # contribute one `server_name`.
+        # Grouped by origin: a hostname's proxied A and AAAA records share one
+        # (validation refuses them otherwise), so they contribute one
+        # `server_name` to one host.
         hostnames.setdefault((zone.name, resolved.rule, record.value), []).append(
             record.fqdn
         )
