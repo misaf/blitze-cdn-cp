@@ -6,9 +6,9 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService, DomainPatch
 from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES, SecurityPolicy
 from blitzecdn.capabilities.security.domain import EditFirewall
+from blitzecdn.capabilities.sites import DomainPatch, SiteService
 from blitzecdn.delivery.cli import common
 from blitzecdn.delivery.cli.domain_editing import report, update
 
@@ -167,7 +167,7 @@ def domain_firewall(
         raise typer.BadParameter(
             "give at least one rule option, or --clear to remove every rule"
         )
-    zone = common.service(DnsService).update_domain(
+    zone = common.service(SiteService).update_domain(
         name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
     )
     rules = zone.policy[SecurityPolicy].firewall.rule_count

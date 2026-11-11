@@ -17,7 +17,7 @@ from support.edge_render import render_http_fragment, render_site
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.cache.contract import CacheLevel, CachePolicy
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 
 def _site(**cache: Any) -> dict[str, Any]:

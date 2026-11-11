@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 from support.policy import domain_from_settings
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Rule
 from blitzecdn.capabilities.releases.domain import (
     COMPILER_VERSION,
     DESIRED_STATE_ARTIFACT,
@@ -20,6 +19,7 @@ from blitzecdn.capabilities.releases.domain import (
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.sites.domain import DnsRecord, Rule
 from blitzecdn.core.domain.site import CdnSite
 
 

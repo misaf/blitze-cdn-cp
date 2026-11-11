@@ -21,10 +21,10 @@ from support.edge_render import render_http_fragment, render_site, server_blocks
 from support.paths import CORE_ANSIBLE
 from support.policy import site_from_settings
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule, derive_hosts
 from blitzecdn.capabilities.error_pages.contract import PAGE_LIMIT, ErrorPagesPolicy
 from blitzecdn.capabilities.error_pages.feature import FEATURES
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule, derive_hosts
 from blitzecdn.entrypoints.cli import main as cli
 
 (FEATURE,) = FEATURES

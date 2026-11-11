@@ -13,7 +13,7 @@ import typer
 
 from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
-from blitzecdn.capabilities.dns import DnsService
+from blitzecdn.capabilities.sites import SiteService
 from blitzecdn.core.features import (
     CapabilitySetting,
     EnvironmentKey,
@@ -250,7 +250,7 @@ def doctor(
         "configuration_errors": settings.validate_runtime(),
         # Stated outright: nothing publishes DNS, so a ready fleet still serves nobody
         # until something answers for its hostnames.
-        "dns_publication": common.service(DnsService)
+        "dns_publication": common.service(SiteService)
         .publication()
         .model_dump(mode="json"),
     }

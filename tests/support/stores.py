@@ -17,12 +17,12 @@ from blitzecdn.capabilities.deployments.adapters.persistence import (
     DeploymentStore,
     DeploymentTargetStore,
 )
-from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
-from blitzecdn.capabilities.dns.adapters.rules import RuleStore
 from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
 from blitzecdn.capabilities.jobs.adapters.persistence import JobStore, ScheduleStore
 from blitzecdn.capabilities.releases.adapters.persistence import ReleaseStore
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
+from blitzecdn.capabilities.sites.adapters.persistence import ZoneStore
+from blitzecdn.capabilities.sites.adapters.rules import RuleStore
 from blitzecdn.capabilities.tls.adapters.persistence import PreflightAttemptStore
 from blitzecdn.capabilities.traffic.adapters.persistence import TrafficStore
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore

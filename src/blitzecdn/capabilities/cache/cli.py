@@ -14,8 +14,8 @@ from blitzecdn.capabilities.cache.contract import (
 )
 from blitzecdn.capabilities.cache.domain import PurgeEntry, PurgePrefix
 from blitzecdn.capabilities.cache.service import CacheService
-from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.capabilities.traffic import UsageQuery
 from blitzecdn.delivery.cli import common
 from blitzecdn.delivery.cli.common import ExitCode

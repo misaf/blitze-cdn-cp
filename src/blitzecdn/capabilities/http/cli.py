@@ -6,9 +6,9 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DnsService, DomainPatch
 from blitzecdn.capabilities.http.contract import HeaderPolicy, MaxUploadSize
 from blitzecdn.capabilities.http.domain import EditVisitorHeaders
+from blitzecdn.capabilities.sites import DomainPatch, SiteService
 from blitzecdn.delivery.cli import common
 from blitzecdn.delivery.cli.domain_editing import report, update
 
@@ -134,7 +134,7 @@ def domain_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    zone = common.service(DnsService).update_domain(
+    zone = common.service(SiteService).update_domain(
         name, EditVisitorHeaders.model_validate(named), "cli"
     )
     sent = [

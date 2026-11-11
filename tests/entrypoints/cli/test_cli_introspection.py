@@ -191,12 +191,12 @@ def test_features_lists_every_feature_and_the_tokens_it_answers_for(
     result = runner.invoke(cli.app, ["features", "--json"])
     document = json.loads(result.stdout)
 
-    assert {"dns", "deployments"} <= {
+    assert {"sites", "deployments"} <= {
         feature["name"] for feature in document["features"]
     }
     by_name = {feature["name"]: feature for feature in document["features"]}
-    assert by_name["dns"]["capabilities"] == ["dns"]
-    assert "dns" in document["capabilities"]
+    assert by_name["sites"]["capabilities"] == ["sites"]
+    assert "sites" in document["capabilities"]
     assert "rejected" not in document
 
 

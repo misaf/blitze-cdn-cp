@@ -11,9 +11,9 @@ from blitzecdn.capabilities.automatic_ssl.settings import (
     AutomaticSslConfig,
 )
 from blitzecdn.capabilities.deployments import DeploymentGateway
-from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import OriginProbe
 from blitzecdn.capabilities.origins import OriginCheckRunner
+from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.core.features import FeatureOperations, ScheduledJob
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 

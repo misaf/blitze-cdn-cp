@@ -90,7 +90,7 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
 
 
 def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
-    """The TTL is the record's, not the site's, so it has to come from `dns`."""
+    """The TTL is the record's, not the site's, so it has to come from `sites`."""
     control, _, _, preflight = _preflight_control(settings, certificate_pair)
     seed_site(control, name="example-com", record="cdn", ttl=7200)
 

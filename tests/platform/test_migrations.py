@@ -20,7 +20,7 @@ from sqlalchemy import create_engine
 from support.paths import REPO_ROOT, SOURCE
 from support.stores import Stores
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.schema import DatabaseSchema
@@ -167,7 +167,7 @@ INITIAL = (
     "0002_jobs",
     "0003_releases",
     "0004_deployments",
-    "0005_dns",
+    "0005_sites",
     "0006_edges",
     "0007_workflows",
     "0008_traffic",

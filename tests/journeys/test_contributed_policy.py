@@ -3,7 +3,7 @@
 The feature below exists only in this test. Registered beside the built-in
 features, its contract must be stored, patched, overridden by a rule, served
 over HTTP, published in the API schema, rendered for the edge and asked about
-by capability validation, without one edit to `dns` or core.
+by capability validation, without one edit to `sites` or core.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 from pydantic import ConfigDict, Field, ValidationError
 from support.control_plane import API_HEADERS, seed_site_over_http
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import DomainPatch, Rule
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.domain import DomainPatch, Rule
 from blitzecdn.composition import compose_registry, load_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.site import CdnSite

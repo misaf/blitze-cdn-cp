@@ -12,7 +12,7 @@ from support.edge_render import (
 )
 from support.policy import site_from_settings
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 REQUIRES_CAPABILITIES = {
     "test_firewall_rules_reach_the_generated_configuration": ("security",),

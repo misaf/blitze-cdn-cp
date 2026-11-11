@@ -20,7 +20,7 @@ class CdnSite(BaseModel):
     """Validated desired state for one CDN virtual host.
 
     Its ``name`` already encodes the zone and rule it came from, via
-    :func:`~blitzecdn.capabilities.dns.domain.hosts.host_name`.
+    :func:`~blitzecdn.capabilities.sites.domain.hosts.host_name`.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

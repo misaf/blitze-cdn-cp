@@ -31,7 +31,7 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     """The ownership rule, asserted on the values themselves.
 
     ``__module__`` is where a class was defined, so this fails if a contract is
-    redefined or aliased into ``dns``.
+    redefined or aliased into ``sites``.
     """
     assert CdnSite.__module__ == "blitzecdn.core.domain.site"
     assert SitePolicy.__module__ == "blitzecdn.core.domain.site_policy"
@@ -167,7 +167,7 @@ def test_the_policy_package_re_exports_only_what_it_owns():
 
 
 def test_domain_values_accept_only_nested_policy_storage():
-    from blitzecdn.capabilities.dns.domain import Domain
+    from blitzecdn.capabilities.sites.domain import Domain
 
     policy = SitePolicy(cache={"cache_enabled": False})
     zone = Domain(name="example.com", policy=policy)
@@ -274,7 +274,7 @@ def test_features_contribute_only_the_policy_they_own():
     assert contributions[HeaderPolicy].group == "headers"
     assert contributions[OriginPolicy].feature == "origins"
     assert contributions[OriginPolicy].group == "origin"
-    assert all(item.feature != "dns" for item in contributions.values())
+    assert all(item.feature != "sites" for item in contributions.values())
 
 
 def test_a_site_can_use_a_policy_without_http_tls_or_origin_contracts(compose):

@@ -14,8 +14,8 @@ from blitzecdn.capabilities.diagnostics.api.metrics import (
     operational_metrics,
 )
 from blitzecdn.capabilities.diagnostics.service.status import DiagnosticsService
-from blitzecdn.capabilities.dns import SiteReader
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.core.features import Operations
 from blitzecdn.delivery.api.dependencies import require_operator
 from blitzecdn.delivery.api.validation import VALIDATION_RESPONSE

@@ -7,11 +7,11 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DomainPatch
 from blitzecdn.capabilities.error_pages.contract import (
     ERROR_PAGE_STATUSES,
     ErrorPagesPolicy,
 )
+from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.delivery.cli import common
 from blitzecdn.delivery.cli.domain_editing import report, update
 

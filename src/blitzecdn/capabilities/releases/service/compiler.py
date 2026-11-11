@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-# Imported from its own module: only provenance reconstruction needs it.
-from blitzecdn.capabilities.dns import host_source, unservable_hosts
 from blitzecdn.capabilities.releases.domain import (
     COMPILER_VERSION,
     DESIRED_STATE_ARTIFACT,
@@ -23,6 +21,9 @@ from blitzecdn.capabilities.releases.domain import (
     explain,
 )
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
+
+# Imported from its own module: only provenance reconstruction needs it.
+from blitzecdn.capabilities.sites import host_source, unservable_hosts
 from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["compile_release"]
