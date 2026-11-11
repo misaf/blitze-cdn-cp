@@ -13,7 +13,7 @@ from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
 from blitzecdn.capabilities.sites.api import routes as site_routes
 from blitzecdn.capabilities.sites.api import routes as zone_routes
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 
 
 def test_routes_are_domain_modules():
@@ -54,7 +54,7 @@ def test_every_route_resolves_its_services_from_the_container():
     as a request body, and publish it."""
     routes = [
         route
-        for router in load_registry().api_routers()
+        for router in BUILTIN_REGISTRY.api_routers()
         for route in router.routes
         if isinstance(route, APIRoute)
     ]

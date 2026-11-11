@@ -13,7 +13,7 @@ from blitzecdn.capabilities.http.http3.feature import FEATURES
 from blitzecdn.capabilities.http.http3.wiring import QUIC_FLEET_VARIABLES, quic_listener
 from blitzecdn.capabilities.http.wiring import baseline_listeners
 from blitzecdn.capabilities.tls.contract import managed_certificate_paths
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.features import FeatureMetadata, merge_variables
@@ -180,6 +180,6 @@ def test_an_installed_http3_capability_clears_the_site_validation() -> None:
     """The mirror of core's "requested but absent" test: same site, same token,
     opposite answer.
     """
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
 
     assert registry.missing(_site("alpha").policy.required_capabilities) == ()

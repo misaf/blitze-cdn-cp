@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from blitzecdn.capabilities.origins import __version__, ansible
 from blitzecdn.capabilities.origins.feature import FEATURES
-from blitzecdn.composition import BUILTIN_FEATURES, load_registry
+from blitzecdn.composition import BUILTIN_FEATURES, BUILTIN_REGISTRY
 from blitzecdn.core.features import FeatureMetadata
 from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
@@ -33,7 +33,7 @@ def test_origins_is_a_built_in() -> None:
 
 
 def test_the_shipped_registry_includes_it() -> None:
-    registry = load_registry()
+    registry = BUILTIN_REGISTRY
 
     assert "origins" in {feature.name for feature in registry.metadata}
 

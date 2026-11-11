@@ -27,15 +27,16 @@ from blitzecdn.composition.processes import (
 from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import (
     BUILTIN_FEATURES,
+    BUILTIN_REGISTRY,
     ROSTER,
     RosterEntry,
     compose_registry,
-    load_registry,
 )
 from blitzecdn.composition.services import ServiceProvider, service_providers
 
 __all__ = [
     "BUILTIN_FEATURES",
+    "BUILTIN_REGISTRY",
     "ROSTER",
     "Adapters",
     "ApiNode",
@@ -51,7 +52,6 @@ __all__ = [
     "cli_container",
     "compose_registry",
     "handoff_container",
-    "load_registry",
     "migrate_database",
     "service_providers",
     "worker_container",

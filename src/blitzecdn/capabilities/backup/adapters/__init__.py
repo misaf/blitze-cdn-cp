@@ -11,11 +11,13 @@ from blitzecdn.capabilities.backup.adapters.components import (
     GeoIpDatabasesComponent,
     TlsComponent,
 )
+from blitzecdn.capabilities.backup.adapters.encryption import AgeCipher
 from blitzecdn.capabilities.backup.adapters.history import BackupStatusFile
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 
 __all__ = [
     "AcmeComponent",
+    "AgeCipher",
     "BackupStatusFile",
     "ComposeRestoreGuard",
     "ConfigComponent",

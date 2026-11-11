@@ -6,9 +6,8 @@ It prepares the process before any test module is imported:
   plain text on CI as well as locally;
 - it registers `support.control_plane` — the shared `settings`, fake runner and
   fake store fixtures — as a plugin for the whole run;
-- it composes the site policy, because a test module may build a site at import
-  time and a site's policy can only be validated once the registry has composed
-  it, so this cannot wait for a fixture.
+- it imports the composition root, which composes the site policy, because a
+  test module may build a site at import time.
 """
 
 from __future__ import annotations
@@ -23,12 +22,7 @@ import os
 # hence here, before anything below can import Typer.
 os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 
-import pytest
 
-from blitzecdn.composition import load_registry
+import blitzecdn.composition  # noqa: F401  # composes the site policy on import
 
 pytest_plugins = ["support.control_plane"]
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    load_registry()

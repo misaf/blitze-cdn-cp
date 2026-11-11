@@ -12,7 +12,7 @@ settings live beside their owner:
 | Edge teardown play | `capabilities/edges/settings.py` |
 | Under Attack Mode | `capabilities/security/settings.py` |
 | MaxMind credentials and GeoIP refresh | `capabilities/security/geoip/settings.py` |
-| Backup location and retention | `capabilities/backup/settings.py` |
+| Backup location, retention and encryption | `capabilities/backup/settings.py` |
 
 Core keeps only process-wide values: the project, state and database paths,
 the API and worker, run logs, and retention for shared tables. A path a
@@ -60,6 +60,9 @@ Backup location is machine-specific and is excluded from portable restores.
 the newest archives `blitzecdn backup prune` keeps; 0 keeps all of them. The
 daily schedule is a host timer, not an application setting; see
 [Backups](operations.md#backups).
+`BLITZE_BACKUP_RECIPIENTS` (`backup_recipients`, default empty) lists the age or
+SSH public keys new archives are encrypted to; see
+[Encrypted archives](operations.md#encrypted-archives).
 
 `BLITZE_AUDIT_RETENTION` (`audit_retention`, default 100000) is how many of the
 newest audit events the controller keeps; see

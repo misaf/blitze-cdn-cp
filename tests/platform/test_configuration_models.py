@@ -10,7 +10,7 @@ from blitzecdn.capabilities.backup.settings import BackupConfig
 from blitzecdn.capabilities.security.geoip.settings import GeoIpConfig
 from blitzecdn.capabilities.security.settings import SecurityConfig
 from blitzecdn.capabilities.tls.settings import CertificateConfig
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError, FeatureError
 from blitzecdn.core.features import (
@@ -23,7 +23,7 @@ from blitzecdn.core.features import (
 
 def resolve(settings):
     return resolve_capability_environment(
-        load_registry().configuration_contributions(),
+        BUILTIN_REGISTRY.configuration_contributions(),
         settings.capability_environment,
         settings.capability_config_file,
         settings.state_dir,
