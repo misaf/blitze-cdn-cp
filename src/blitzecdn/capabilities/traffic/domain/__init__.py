@@ -141,7 +141,10 @@ class LogCursor(TrafficValue):
 class UsageBatch(TrafficValue):
     start: LogCursor | None = None
     end: LogCursor
-    buckets: Annotated[tuple[HourlyUsage, ...], Field(min_length=1)]
+    #: Empty when every record in the range was skipped.
+    buckets: tuple[HourlyUsage, ...]
+    #: Records in the range the edge rejected (invalid or over the line limit).
+    skipped: Counter = 0
 
     @model_validator(mode="after")
     def advances_one_stream(self) -> Self:
@@ -181,6 +184,8 @@ class EdgeCollection(TrafficValue):
     edge: str
     requests: Counter = 0
     bytes_sent: Counter = 0
+    #: Log records the edge rejected and stepped over in this pass.
+    skipped: Counter = 0
     errors: tuple[str, ...] = ()
     more: bool = False
 
