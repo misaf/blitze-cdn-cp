@@ -64,10 +64,13 @@ class ServingProbe:
         """Ask this edge for one hostname per site it should be serving.
 
         A site's hostnames share one ``server`` block, so one name proves the rest.
-        Sites with no hostnames are skipped.
+        Sites with no hostnames are skipped, as are disabled sites: their
+        configuration is rendered but not enabled, so no ``server`` block answers
+        for them. With no enabled site, the edge's default host is asked instead.
         """
         results: list[ServingResult] = []
-        probes = sites or (
+        enabled = tuple(site for site in sites if site.policy.enabled)
+        probes = enabled or (
             CdnSite(
                 name="default",
                 server_names=("blitzecdn.invalid",),
