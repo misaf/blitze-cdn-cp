@@ -234,8 +234,10 @@ next depends on the schema:
   sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml up --detach --wait
   ```
 
-  Or fix the cause and rerun `blitzecdn-install update`. An update run with
-  `--no-backup` has no archive to restore.
+  An archive ending in `.age` is [encrypted](#encrypted-archives); add
+  `--identity - < KEY` to the restore. Or fix the cause and rerun
+  `blitzecdn-install update`. An update run with `--no-backup` has no archive
+  to restore.
 
 A `standalone` run converges the release its installer names, so it refuses a
 host that runs a different one. To start again from a clean state, uninstall,
@@ -468,7 +470,8 @@ A missed run, for example while the host was off, happens soon after it comes
 back. Each run is delayed by up to 15 minutes at random.
 
 Retention counts and removes only archives named the way `backup create` names
-them (`blitzecdn-backup-YYYY-MM-DD_HH-MM-SSZ.tar.gz`). Other files in the
+them (`blitzecdn-backup-YYYY-MM-DD_HH-MM-SSZ.tar.gz`, with `.age` appended when
+encrypted). Other files in the
 directory, and archives written elsewhere with `--output`, are never touched.
 Run `blitzecdn backup prune --keep N` to apply a different count once.
 
@@ -482,7 +485,8 @@ cannot rebuild a controller.
 **Copy archives off the host.** A backup that exists only on the disk it
 protects is lost with that disk. Each archive holds every private key, the
 controller's SSH identity, the secrets file and the full audit trail, so keep
-the copy encrypted and access-controlled. For example, from another machine:
+the copy encrypted and access-controlled — or have the controller encrypt it
+as it writes it (below). For example, from another machine:
 
 ```sh
 rsync -a --chmod=F600 root@controller:/var/backups/blitzecdn/ ./blitzecdn-backups/
@@ -491,6 +495,42 @@ rsync -a --chmod=F600 root@controller:/var/backups/blitzecdn/ ./blitzecdn-backup
 Or point an encrypted backup tool such as restic or borg at
 `/var/backups/blitzecdn` on the same schedule. Uninstalling stops and removes
 the timer but leaves the backup directory in place.
+
+### Encrypted archives
+
+Set `BLITZE_BACKUP_RECIPIENTS` to one or more comma-separated public keys and
+every archive written from then on, scheduled or manual, including the one
+`blitzecdn-install update` takes, is encrypted to them with
+[age](https://age-encryption.org) before it reaches the backup directory. The
+plaintext tar exists only in the private workspace under the state directory
+while the archive is written. Each recipient is either an age public key
+(`age1...`) or an `ssh-ed25519` / `ssh-rsa` public key. Only the public keys
+are on the controller: it can write encrypted archives but cannot open them.
+Keep the private key somewhere else, because a controller that is lost takes
+anything stored on it with it.
+
+```sh
+age-keygen -o backup-key.txt          # on your workstation; prints the public key
+# then on the controller, in /etc/blitzecdn/blitzecdn.env:
+BLITZE_BACKUP_RECIPIENTS=age1...
+```
+
+Encrypted archives are named `...Z.tar.gz.age` and are plain age files.
+`inspect` and `restore` recognize them and need the matching private key with
+`--identity`: an age identity file or an unencrypted OpenSSH private key.
+`--identity -` reads it from standard input, so it never has to be copied onto
+the controller. With standard input taken, `restore` needs `--yes`:
+
+```sh
+sudo blitzecdn backup inspect /var/backups/blitzecdn/ARCHIVE.tar.gz.age --identity - < backup-key.txt
+sudo blitzecdn backup restore /var/backups/blitzecdn/ARCHIVE.tar.gz.age --identity - --yes < backup-key.txt
+```
+
+The age payload is authenticated: a truncated or altered archive is refused
+before any of it is read. Where BlitzeCDN will not start, the `age` tool opens
+one directly: `age -d -i backup-key.txt ARCHIVE.tar.gz.age | tar -xz`.
+Archives written before recipients were set stay plain and restore as before.
+Clearing the setting goes back to plain archives.
 
 ## Logs
 

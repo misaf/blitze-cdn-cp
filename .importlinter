@@ -37,6 +37,7 @@ forbidden_modules =
     acme
     josepy
     cryptography
+    pyrage
     yaml
     sqlalchemy
     sqlmodel
@@ -72,6 +73,7 @@ forbidden_modules =
     acme
     josepy
     cryptography
+    pyrage
     yaml
     sqlalchemy
     sqlmodel
@@ -160,6 +162,7 @@ forbidden_modules =
     acme
     josepy
     cryptography
+    pyrage
     yaml
     sqlalchemy
     sqlmodel
@@ -285,6 +288,7 @@ forbidden_modules =
     acme
     josepy
     cryptography
+    pyrage
     yaml
     sqlalchemy
     sqlmodel
