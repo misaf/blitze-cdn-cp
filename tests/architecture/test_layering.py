@@ -4,7 +4,7 @@ Two graphs, not one. A capability's ``contract`` module holds pure values
 describing its configuration and imports only ``core`` and other contracts.
 Its other modules are its implementation.
 
-``dns`` composes every contract into one virtual host, and most
+``sites`` composes every contract into one virtual host, and most
 implementations consume ``CdnSite``. Counted as one graph that would be a
 cycle, so contract and implementation edges are declared and checked
 separately, and the rule that keeps the whole a DAG is asserted directly:
@@ -452,46 +452,46 @@ def test_domain_models_do_not_render_adapter_documents():
 #: Which capability may know that another exists, enforced both ways: an
 #: undeclared edge fails, and so does a declared edge nothing uses.
 #:
-#: DNS owns zones, records, rules and their projection. Shared site identity
+#: sites owns zones, records, rules and their projection. Shared site identity
 #: and policy belong to core. A capability whose contract a zone carries depends
-#: on dns for its `blitzecdn domain` commands.
+#: on sites for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
-    # A workflow over sites (dns), origin probes (edges, origins) and the deploy
+    # A workflow over sites, origin probes (edges, origins) and the deploy
     # that applies an upgrade. TLS is reached only through its contract (the
     # contract graph below); the upgrade write is a port the composition root
     # binds to TLS's site editor.
-    "automatic_ssl": {"deployments", "dns", "edges", "origins"},
+    "automatic_ssl": {"deployments", "sites", "edges", "origins"},
     "traffic": set(),
     "backup": set(),
     "origins": {"jobs"},
     # `traffic` because its collector counts cache outcomes in the same pass.
-    "cache": {"dns", "jobs", "traffic"},
-    "compression": {"dns"},
-    "deployments": {"dns", "edges", "releases", "workflows"},
+    "cache": {"sites", "jobs", "traffic"},
+    "compression": {"sites"},
+    "deployments": {"sites", "edges", "releases", "workflows"},
     # Readiness and metrics read the state these own.
     # `backup` for the last-backup record the status report and metrics carry.
     "diagnostics": {
         "backup",
         "deployments",
-        "dns",
+        "sites",
         "edges",
         "jobs",
         "tls",
         "workflows",
     },
-    "dns": set(),
+    "sites": set(),
     "edges": {"jobs"},
-    "error_pages": {"dns"},
+    "error_pages": {"sites"},
     "hardening": set(),
-    "http": {"dns"},
+    "http": {"sites"},
     "jobs": set(),
     "maintenance": {"deployments"},
-    "releases": {"dns", "edges"},
+    "releases": {"sites", "edges"},
     "resolver": set(),
-    "security": {"dns"},
+    "security": {"sites"},
     # `releases` because certificate collection keeps every version a retained
     # release still names; `jobs` because the API queues issuance and renewal.
-    "tls": {"deployments", "dns", "edges", "jobs", "releases", "workflows"},
+    "tls": {"deployments", "sites", "edges", "jobs", "releases", "workflows"},
     "workflows": set(),
 }
 
@@ -506,7 +506,7 @@ ALLOWED_CONTRACT_DEPENDENCIES = {
     "compression": set(),
     "deployments": {"http", "tls"},
     "diagnostics": set(),
-    "dns": {"origins", "tls"},
+    "sites": {"origins", "tls"},
     "edges": {"http", "origins", "tls"},
     "error_pages": set(),
     "http": set(),

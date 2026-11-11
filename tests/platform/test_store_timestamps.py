@@ -15,9 +15,9 @@ from sqlalchemy.exc import IntegrityError
 from support.stores import Stores
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.persistence.tables import AnsibleSettingRow, Base, UtcDateTime

@@ -49,9 +49,9 @@ from blitzecdn.capabilities.deployments.settings import (
     CONFIGURATION,
     DeploymentsConfig,
 )
-from blitzecdn.capabilities.dns import RuleStore, ZoneStore
 from blitzecdn.capabilities.edges import EdgeStore
 from blitzecdn.capabilities.releases import Release, ReleaseReferences
+from blitzecdn.capabilities.sites import RuleStore, ZoneStore
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit

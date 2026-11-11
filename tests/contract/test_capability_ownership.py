@@ -14,7 +14,6 @@ from support.paths import CORE_ANSIBLE, SOURCE
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import CompressionPolicy
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.error_pages.contract import ErrorPagesPolicy
 from blitzecdn.capabilities.http.contract import (
     HeaderPolicy,
@@ -23,6 +22,7 @@ from blitzecdn.capabilities.http.contract import (
 )
 from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import TlsPolicy
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy

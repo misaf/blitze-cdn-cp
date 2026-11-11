@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns import DomainPatch
+from blitzecdn.capabilities.sites import DomainPatch
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
     SslAutomaticMode,

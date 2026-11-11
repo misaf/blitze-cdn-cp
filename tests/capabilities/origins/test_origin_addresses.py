@@ -11,13 +11,13 @@ import pytest
 from pydantic import ValidationError
 from support.policy import site_from_settings
 
-from blitzecdn.capabilities.dns.domain import (
+from blitzecdn.capabilities.origins.contract import OriginPolicy
+from blitzecdn.capabilities.sites.domain import (
     DnsRecord,
     Domain,
     derive_hosts,
     unservable_hosts,
 )
-from blitzecdn.capabilities.origins.contract import OriginPolicy
 from blitzecdn.core.domain.site_policy import SitePolicy
 
 

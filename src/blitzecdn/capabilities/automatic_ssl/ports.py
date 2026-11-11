@@ -1,6 +1,6 @@
 """What the Automatic SSL/TLS scan needs from outside.
 
-Sites come from ``dns``, origin probes from ``edges`` and ``origins``, and
+Sites come from ``sites``, origin probes from ``edges`` and ``origins``, and
 deployments from ``deployments``, each through that capability's own ports.
 The one write it makes is declared here, since a port belongs to its caller;
 TLS's site editor satisfies it.

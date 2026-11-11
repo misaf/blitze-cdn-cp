@@ -21,8 +21,9 @@ from support.stores import Stores
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
-from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
-from blitzecdn.capabilities.dns.domain import (
+from blitzecdn.capabilities.jobs import DeploymentJob, JobQueue, ScheduledFiring
+from blitzecdn.capabilities.sites.adapters.persistence import ZoneStore
+from blitzecdn.capabilities.sites.domain import (
     DnsRecord,
     Domain,
     DomainPatch,
@@ -31,7 +32,6 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
     Rule,
 )
-from blitzecdn.capabilities.jobs import DeploymentJob, JobQueue, ScheduledFiring
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import (
     Repository,

@@ -9,7 +9,7 @@ import yaml
 from support.contracts import role_defaults
 from support.edge_render import ROLE_DIR, mode_site, render_site, role_path
 
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.core.ansible.templating import AnsibleTemplates
 

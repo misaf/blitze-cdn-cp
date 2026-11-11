@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 import yaml
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
-from blitzecdn.capabilities.dns.domain.hosts import host_name
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule
+from blitzecdn.capabilities.sites.domain.hosts import host_name
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
 from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings

@@ -33,7 +33,6 @@ from blitzecdn.capabilities.diagnostics.ports import (
     ConvergenceHistory,
     QueueHistory,
 )
-from blitzecdn.capabilities.dns.service import DnsService, HostService
 from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.edges.ports import OriginProbe as EdgeOriginProbe
 from blitzecdn.capabilities.jobs.ports import JobStore
@@ -50,6 +49,7 @@ from blitzecdn.capabilities.security.geoip.ports import (
 from blitzecdn.capabilities.security.geoip.ports import (
     ReleaseHistory as GeoIpReleases,
 )
+from blitzecdn.capabilities.sites.service import HostService, SiteService
 from blitzecdn.capabilities.tls.certificates.ports import (
     IssuanceTimeout,
     RecordReader,
@@ -92,7 +92,7 @@ class PortBindings(Provider):
 
     # -- DNS owns where a host's policy comes from.
     site_writer = alias(source=HostService, provides=SiteWriter)
-    record_reader = alias(source=DnsService, provides=RecordReader)
+    record_reader = alias(source=SiteService, provides=RecordReader)
     origin_sites = alias(source=HostService, provides=OriginsSiteReader)
 
     # -- TLS decides what an Automatic SSL/TLS upgrade writes, and where.

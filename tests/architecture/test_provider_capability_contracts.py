@@ -88,7 +88,7 @@ def test_the_country_settings_derive_their_token_generically_in_core():
 
     `capability_requirements` maps every setting onto its token the same way, so
     `geoip` arrives like `compression` or `http3`: declared by the contract that
-    wants it, merged by `dns` with no branch that knows the name.
+    wants it, merged by `sites` with no branch that knows the name.
     """
     offenders = [
         f"{path.relative_to(SOURCE)} names the geoip token"
@@ -136,7 +136,7 @@ def test_the_composition_names_no_capability_token_at_all():
     tokens = ("geoip", "cache", "compression", "http3", "certificates", "security")
     offenders = [
         f"dns/domain/{path.name} names the {node.value} token"
-        for path in sorted((SOURCE / "capabilities/dns/domain").glob("*.py"))
+        for path in sorted((SOURCE / "capabilities/sites/domain").glob("*.py"))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value in tokens
     ]
