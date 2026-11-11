@@ -284,6 +284,20 @@ def _connect(location: str, identity: str) -> sqlite3.Connection:
     return db
 
 
+#: SQLITE_CORRUPT and SQLITE_NOTADB, the primary result codes.
+CORRUPT_CODES = frozenset({11, 26})
+
+
+def _corrupt(error: sqlite3.DatabaseError) -> bool:
+    """Whether ``error`` says the file is damaged or not a database at all."""
+    code = getattr(error, "sqlite_errorcode", None)
+    if code is not None:
+        return code & 0xFF in CORRUPT_CODES
+    # Python before 3.11 does not expose the code; SQLite's messages are fixed.
+    message = str(error).lower()
+    return "not a database" in message or "malformed" in message
+
+
 def open_index(location: str, root: Path, tag_header: bytes) -> sqlite3.Connection:
     """The index at ``location``, rebuilt empty if it is not one for this cache.
 
@@ -295,7 +309,12 @@ def open_index(location: str, root: Path, tag_header: bytes) -> sqlite3.Connecti
     Path(location).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         return _connect(location, identity)
-    except sqlite3.DatabaseError:
+    except sqlite3.DatabaseError as error:
+        # A lock held past the timeout by another purge is a DatabaseError
+        # too, and that index is healthy and in use: deleting it would let
+        # this purge run beside the other one. Only corruption is rebuilt.
+        if not _corrupt(error):
+            raise
         # Corrupt, or not a database at all. It is only ever derived from the
         # cache, so it is thrown away rather than repaired.
         for suffix in ("", "-journal", "-wal", "-shm"):
