@@ -233,19 +233,23 @@ def test_an_unexpected_error_message_stays_out_of_the_journal(coordinator, journ
     assert "hunter2" in str(event["exc_info"])
 
 
-def test_an_interrupt_is_recorded_too(coordinator, journal):
-    """`except BaseException`, deliberately.
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+def test_an_interrupt_is_left_to_restart_recovery(coordinator, journal, interrupt):
+    """`except Exception`, deliberately.
 
-    A worker killed with SIGINT mid-issuance is what the journal is for, and
-    `KeyboardInterrupt` is not an `Exception`.
+    A write during shutdown can itself be interrupted and never runs on SIGKILL,
+    so an interrupt records nothing and restart recovery reads the workflow the
+    same way it reads one a killed worker left.
     """
-    with pytest.raises(KeyboardInterrupt), coordinator.run("deployment", "alice"):
-        raise KeyboardInterrupt
+    with pytest.raises(interrupt), coordinator.run("deployment", "alice"):
+        raise interrupt
 
-    closed = next(iter(journal.workflows.values()))
-    assert closed.status is WorkflowStatus.FAILED
-    assert closed.error is not None
-    assert closed.error.startswith("KeyboardInterrupt: ")
+    stranded = next(iter(journal.workflows.values()))
+    assert stranded.status is WorkflowStatus.RUNNING
+    assert stranded.error is None
+
+    [recovered] = coordinator.reconcile_interrupted()
+    assert recovered.status is WorkflowStatus.NEEDS_REVIEW
 
 
 def test_retention_is_applied_when_a_workflow_closes(coordinator, journal):
