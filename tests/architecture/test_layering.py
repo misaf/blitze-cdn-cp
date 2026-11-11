@@ -245,7 +245,7 @@ def test_every_capability_package_declares_its_public_surface():
 #: application logic.
 _CONCRETE_ADAPTERS = {
     "AnsibleRunner",
-    "CertbotIssuer",
+    "AcmeIssuer",
     "CertificatePreflight",
     "DramatiqBackgroundRunner",
     "KnownHosts",

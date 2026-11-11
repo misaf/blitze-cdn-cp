@@ -29,9 +29,9 @@ from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
-#: How long one Certbot run may take. Issuance runs under the deployment lock,
-#: so the composition root hands it the deployment budget.
-CertbotTimeout = NewType("CertbotTimeout", int)
+#: How long one ACME issuance may take. It runs under the deployment lock, so
+#: the composition root hands it the deployment budget.
+IssuanceTimeout = NewType("IssuanceTimeout", int)
 
 
 class SiteWriter(Protocol):
@@ -215,12 +215,12 @@ class WorkflowCoordinator(Protocol):
 
 
 __all__ = [
-    "CertbotTimeout",
     "CertificateStore",
     "DeploymentGateway",
     "DeploymentLocker",
     "DeploymentRequirements",
     "EventRecorder",
+    "IssuanceTimeout",
     "Issuer",
     "MaterialReferences",
     "Preflight",

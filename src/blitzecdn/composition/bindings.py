@@ -51,7 +51,7 @@ from blitzecdn.capabilities.security.geoip.ports import (
     ReleaseHistory as GeoIpReleases,
 )
 from blitzecdn.capabilities.tls.certificates.ports import (
-    CertbotTimeout,
+    IssuanceTimeout,
     RecordReader,
     SiteEditor,
     SiteWriter,
@@ -105,9 +105,9 @@ class PortBindings(Provider):
     setting_restore = alias(source=AnsibleSettingStore, provides=SettingRestore)
 
     @provide
-    def certbot_timeout(self, config: DeploymentsConfig) -> CertbotTimeout:
+    def issuance_timeout(self, config: DeploymentsConfig) -> IssuanceTimeout:
         # Issuance runs under the deployment lock, so it shares its budget.
-        return CertbotTimeout(config.timeout_seconds)
+        return IssuanceTimeout(config.timeout_seconds)
 
     @provide
     def geoip_requirement(

@@ -1,7 +1,7 @@
 """Check the outside world before asking a CA for a certificate.
 
 HTTP-01 needs public DNS pointing at an edge, the vhost already on that edge,
-and CAA permitting our CA. Unchecked, each failure surfaces as an opaque certbot
+and CAA permitting our CA. Unchecked, each failure surfaces as an opaque ACME
 error after a rate-limited request is spent. The controller is not the CA's
 vantage point, so a pass is evidence; a blocking failure is grounds to refuse.
 Nothing is mutated, and only hosts an operator declared are contacted.
@@ -121,7 +121,7 @@ class CertificatePreflight:
         resolvable = [name for name in site.server_names if not name.startswith("*.")]
         if not resolvable:
             # A wildcard site cannot be resolved and cannot use HTTP-01 anyway;
-            # `CertbotIssuer` refuses it separately with a better message.
+            # `AcmeIssuer` refuses it separately with a better message.
             return _passed(
                 "dns",
                 "wildcard-only site; nothing to resolve (HTTP-01 cannot issue "

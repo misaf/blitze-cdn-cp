@@ -18,8 +18,8 @@ def terminate_process_group(
 ) -> None:
     """Stop a ``start_new_session`` child and every worker it forked.
 
-    Otherwise tools such as certbot leave workers mutating remote state after the
-    run is recorded as timed out. ``drain`` reaps the child: pass
+    Otherwise tools such as ansible-playbook leave workers mutating remote state
+    after the run is recorded as timed out. ``drain`` reaps the child: pass
     ``process.communicate`` when output is piped, ``process.wait`` when not.
     """
     with suppress(*_LOOKUP_ERRORS):

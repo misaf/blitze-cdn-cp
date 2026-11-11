@@ -31,7 +31,7 @@ class DeploymentsConfig(ConfigurationModel):
         alias=TIMEOUT,
         description=(
             "Wall-clock budget for one Ansible run, after which it is stopped. "
-            "Bounds every fleet play, and certbot issuance."
+            "Bounds every fleet play, and ACME issuance."
         ),
     )
     retention: int = Field(

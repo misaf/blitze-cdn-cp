@@ -551,9 +551,9 @@ in_container 'cd / && blitzecdn drift --wait 300 --json' || {
 }
 
 say "Issuing a certificate from a real ACME server"
-# The control plane's half of ACME: certbot, the manual hooks, the playbook they
-# drive, and the chain the store validates and installs, against Pebble, a
-# throwaway CA that validates HTTP-01 for real. Serving a challenge alone is the
+# The control plane's half of ACME: the in-process ACME client, the challenge
+# playbook it drives, and the chain the store validates and installs, against
+# Pebble, a throwaway CA that validates HTTP-01 for real. Serving a challenge alone is the
 # HTTP/3 harness's job. Preflight is skipped by the request (this edge is not
 # public) and runs during renewal below.
 
@@ -626,11 +626,15 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || 
   fail "the ACME server never answered"
 }
 
-# `certbot` is this capability's setting naming an executable, so a wrapper
-# reaches a different CA. The wrapper is in the image, built from the checkout.
-in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
+# Issuance is pointed at Pebble through the product's own settings: the ACME
+# directory, and a CA bundle for Pebble's API certificate, which the harness
+# generated above and the system store cannot know. The bundle sits in the
+# state directory, the one host path the control-plane containers mount.
+in_container 'install -m 0644 /root/pebble/cert.pem /var/lib/blitzecdn/pebble-ca.pem' ||
+  fail "could not hand the control plane the ACME server's certificate"
+in_container 'printf "acme_directory_url = \"https://127.0.0.1:14000/dir\"\nacme_ca_bundle = \"/opt/blitzecdn/.state/pebble-ca.pem\"\n" \
   >> /etc/blitzecdn/blitzecdn.toml' ||
-  fail "could not point the control plane at the test certbot"
+  fail "could not point the control plane at the test CA"
 # Preflight asks public DNS, which knows nothing of this edge, and renewal
 # has no override, so preflight is pointed at the CA's DNS server. Replaced
 # rather than appended: a duplicate TOML key is a parse error.
@@ -646,7 +650,7 @@ started_before=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecd
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
   up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null || {
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
-  fail "the control plane did not come back with the test certbot configured"
+  fail "the control plane did not come back pointed at the test CA"
 }
 # Check the restart took effect, or everything below runs against the wrong CA.
 started_after=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn-api')
@@ -678,17 +682,17 @@ issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitz
     [ "$(date +%s)" -lt "${deadline}" ] || { printf "timed out: %s\n" "${operation}" >&2; exit 1; }
     sleep 2
   done') || {
-  # certbot's own log first: it names the ACME server it contacted and the
-  # problem document it got back, which is the difference between "the CA
-  # refused" and "the CA was never the one this stage started".
-  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
+  # The worker's log first: the operation's error carries the CA's problem
+  # document, which is the difference between "the CA refused" and "the CA
+  # was never the one this stage started".
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs --tail 60 blitzecdn-worker' || true
   dump_ansible_log
   in_container 'docker logs --tail 40 pebble' || true
   fail "the certificate request did not complete"
 }
 printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
   printf 'response: %s\n' "${issued}"
-  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs --tail 60 blitzecdn-worker' || true
   in_container 'docker logs --tail 40 pebble' || true
   dump_ansible_log
   fail "the control plane did not record an ACME certificate"
@@ -741,7 +745,7 @@ renewed_from=$(served_certificate -fingerprint -sha256) ||
 # --force because nothing is due yet; --deploy because a renewal must reach the
 # edge.
 in_container "cd / && blitzecdn cert renew --force --site ${ACME_SITE} --deploy --json >/dev/null" || {
-  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs --tail 60 blitzecdn-worker' || true
   in_container 'docker logs --tail 40 pebble' || true
   fail "the renewal did not complete"
 }

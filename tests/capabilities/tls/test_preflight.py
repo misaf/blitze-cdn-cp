@@ -421,7 +421,7 @@ def test_a_broken_resolver_is_an_advisory_not_a_block(build, site):
 
 
 def test_a_configured_ca_is_what_caa_is_checked_against(build, site):
-    """Pointing certbot at another ACME server must move the CAA check with it."""
+    """Pointing issuance at another ACME server must move the CAA check with it."""
     checker = build(
         ca_domain="other-ca.example",
         addresses={

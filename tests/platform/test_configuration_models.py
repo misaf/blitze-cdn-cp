@@ -85,7 +85,7 @@ def test_only_declared_secrets_reach_ansible(tmp_path):
         {
             "BLITZE_API_KEY": "operator-api-key-" * 3,
             "BLITZE_UNDER_ATTACK_SECRET": secret,
-            "BLITZE_CERTBOT": "/opt/bin/certbot",
+            "BLITZE_ACME_DIRECTORY_URL": "https://acme.example/directory",
         },
         project_dir=tmp_path,
     )
