@@ -74,11 +74,26 @@ def test_a_record_is_proxied_unless_it_says_otherwise():
         (RecordType.A, "not-an-address"),
     ],
 )
-def test_record_value_must_match_its_type(type_, value):
+def test_an_unproxied_record_value_must_match_its_type(type_, value):
     with pytest.raises(ValueError, match="must be an IP"):
         DnsRecord(
             domain="example.com", name="x", type=type_, proxied=False, value=value
         )
+
+
+@pytest.mark.parametrize(
+    ("type_", "value"),
+    [(RecordType.A, "2001:db8::1"), (RecordType.AAAA, "198.51.100.5")],
+)
+def test_a_proxied_record_origin_may_be_either_family(type_, value):
+    """The type picks the edge address DNS publishes, not the origin's family."""
+    record = DnsRecord(domain="example.com", name="x", type=type_, value=value)
+    assert record.value == value
+
+
+def test_a_proxied_record_value_must_still_be_an_address():
+    with pytest.raises(ValueError, match="IP"):
+        DnsRecord(domain="example.com", name="x", value="not-an-address")
 
 
 def test_records_require_their_zone(settings):
@@ -106,8 +121,8 @@ def test_duplicate_records_conflict(settings):
 
 
 def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
-    """One virtual host has one upstream, so only one address family can be
-    proxied.
+    """One virtual host has one upstream, so a hostname's proxied records must
+    agree on it.
 
     ``validation_errors`` refuses the deploy and names the hostname.
     """
@@ -120,6 +135,7 @@ def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
     (error,) = control.dns.validation_errors()
     assert "cdn.example.com" in error
     assert "different origins" in error
+    assert "same value" in error
 
     # Pointing only one family at the edge is fine, and is one host.
     control.dns.update_record(
@@ -129,6 +145,44 @@ def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
     (host,) = control.sites.list_sites()
     assert host.server_names == ("cdn.example.com",)
     assert host.origin_host == "198.51.100.10"
+
+
+@pytest.mark.parametrize("origin", ["198.51.100.10", "2001:db8::10"])
+def test_a_dual_stack_hostname_is_one_host_with_one_origin(settings, origin):
+    """A proxied record's type picks only which edge address DNS publishes.
+
+    Its value is the origin in either family, so a proxied A and a proxied
+    AAAA record carrying one origin serve the hostname over IPv4 and IPv6 from
+    one virtual host.
+    """
+    repository = Stores(settings.database_path)
+    control = _control(settings, repository)
+    _zone(control)
+    seed_record(control, name="cdn", value=origin)
+    seed_record(control, name="cdn", value=origin, record_type=RecordType.AAAA)
+
+    assert control.dns.validation_errors() == []
+    (host,) = control.sites.list_sites()
+    assert host.server_names == ("cdn.example.com",)
+    assert host.origin_host == origin
+
+
+def test_unproxying_needs_an_answer_of_the_record_s_family(settings):
+    """Off the edge, the value is published, so it must match the type again."""
+    repository = Stores(settings.database_path)
+    control = _control(settings, repository)
+    _zone(control)
+    seed_record(control, name="cdn", value="198.51.100.10", record_type=RecordType.AAAA)
+
+    with pytest.raises(ValueError, match="must be an IPv6 address"):
+        control.dns.update_record(
+            "example.com", "cdn", RecordType.AAAA, RecordPatch(proxied=False), "alice"
+        )
+    unproxied = control.dns.unproxy(
+        "example.com", "cdn", RecordType.AAAA, "2001:db8::20", "alice"
+    )
+    assert not unproxied.proxied
+    assert unproxied.value == "2001:db8::20"
 
 
 def test_hostnames_accumulate_and_drop_as_records_come_and_go(settings):
