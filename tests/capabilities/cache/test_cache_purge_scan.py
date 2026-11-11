@@ -555,6 +555,22 @@ def test_a_corrupt_index_is_rebuilt_from_the_cache(
         assert db.execute("PRAGMA user_version").fetchone()[0] == 1
 
 
+def test_a_lock_held_by_another_purge_keeps_the_index(tmp_path, scanner, monkeypatch):
+    """Only corruption rebuilds the index; a busy one is another purge's."""
+    cache = tmp_path / "cache"
+    _store(cache, "https443GETa.example.com/")
+    index = tmp_path / "index" / "cache-index.sqlite3"
+    scanner["purge"](cache, index=str(index), prefixes=(b"b.example.com/",))
+
+    def busy(location, identity):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setitem(scanner["open_index"].__globals__, "_connect", busy)
+    with pytest.raises(sqlite3.OperationalError):
+        scanner["open_index"](str(index), cache, b"cache-tag")
+    assert index.exists()
+
+
 def test_an_index_of_another_cache_is_not_trusted(
     tmp_path, scanner, monkeypatch, capsys
 ):
