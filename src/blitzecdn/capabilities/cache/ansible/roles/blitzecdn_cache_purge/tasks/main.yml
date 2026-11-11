@@ -72,21 +72,25 @@
          if blitzecdn_cache_purge_normalize_accept_encoding | bool
          else [''] }}
 
-# nginx hashes the cache key with MD5 and, under levels=1:2, files it at
-# <cache>/<md5[-1]>/<md5[-3:-1]>/<md5>. Recomputing that here is what makes
-# purge possible without the commercial proxy_cache_purge directive. MD5 is
-# nginx's choice of layout, not a security decision.
+# A named entry is its exact keys, one per scheme, listener port, method and
+# encoding, built as cache-upstream.conf.j2's proxy_cache_key builds them.
 #
-# One template render rather than one task per variant. A purge of 500 HTTP
-# URLs is 500 x 2 methods x 7 ports x 3 encodings = 21000 keys, and
-# accumulating them with a looped set_fact rebuilt the whole list on every
-# iteration — quadratic, in Ansible task dispatch, per edge. The loops below
-# run inside Jinja instead, so the cost is one render regardless of how many
-# entries were asked for.
-- name: Compute the cache files backing the requested entries
+# They are matched against the KEY line of every cached file rather than hashed
+# into the one path nginx files the key under. A response carrying Vary is
+# stored once at the MD5 of the key and once per other variant under a hash of
+# the key plus the varied request headers, which nothing here can recompute,
+# and nginx goes on serving those secondary files after the primary one is
+# deleted. Every variant carries the same KEY line.
+#
+# One template render rather than one task per key. A purge of 500 HTTP URLs is
+# 500 x 2 methods x 7 ports x 3 encodings = 21000 keys, and accumulating them
+# with a looped set_fact rebuilt the whole list on every iteration — quadratic,
+# in Ansible task dispatch, per edge. The loops below run inside Jinja instead,
+# so the cost is one render regardless of how many entries were asked for.
+- name: Compute the cache keys of the requested entries
   ansible.builtin.set_fact:
-    blitzecdn_cache_purge_files: >-
-      {% set files = [] %}
+    blitzecdn_cache_purge_keys: >-
+      {% set keys = [] %}
       {%- for entry in blitzecdn_cache_purge_entries -%}
         {%- set ports = blitzecdn_cache_purge_http_ports
               if (entry.scheme | default('https')) == 'http'
@@ -94,77 +98,29 @@
         {%- for method in blitzecdn_cache_purge_methods -%}
           {%- for port in ports -%}
             {%- for encoding in blitzecdn_cache_purge_key_encodings -%}
-        {%- set digest = (
+        {%- set _ = keys.append(
               (entry.scheme | default('https')) ~ port ~ method
               ~ entry.host ~ entry.uri ~ encoding
-            ) | trim | hash('md5') -%}
-        {%- set _ = files.append(
-              blitzecdn_cache_purge_path ~ '/' ~ digest[-1] ~ '/' ~ digest[-3:-1] ~ '/' ~ digest
             ) -%}
             {%- endfor -%}
           {%- endfor -%}
         {%- endfor -%}
       {%- endfor -%}
-      {{ files | unique | list }}
-  when: blitzecdn_cache_purge_entries | length > 0
+      {{ keys | unique | list }}
 
-# The list goes to the edge as a file and is consumed in one pass, rather than
-# becoming one `file:` task per entry. Same reason as above: thousands of module
-# invocations per edge is minutes of round trips for an operation whose whole
-# justification is that it happens under time pressure.
-#
-# Every path here is <cache_path>/<hex>/<hex>/<hex> — computed just above, not
-# taken from the request — so there is nothing for xargs to split on and no
-# quoting question. `rm -f` because an entry that was never cached is the
-# ordinary case, not an error.
-- name: Purge named cached responses with a private per-run manifest
-  when: blitzecdn_cache_purge_entries | length > 0
-  block:
-    - name: Stage the list of cache files to remove
-      ansible.builtin.tempfile:
-        state: file
-        prefix: blitzecdn-purge-
-      register: blitzecdn_cache_purge_manifest
-      changed_when: false
-
-    - name: Write the list of cache files to remove
-      ansible.builtin.copy:
-        content: "{{ blitzecdn_cache_purge_files | join('\n') }}\n"
-        dest: "{{ blitzecdn_cache_purge_manifest.path }}"
-        owner: root
-        group: root
-        mode: "0600"
-      changed_when: false
-
-    - name: Remove the cached responses
-      ansible.builtin.command:
-        cmd: xargs -r -a {{ blitzecdn_cache_purge_manifest.path | quote }} rm -f --
-      register: blitzecdn_cache_purge_purged
-      # `rm -f` cannot report which entries were present, and nginx open source
-      # cannot be asked. Reporting the pass as changed matches what the control
-      # plane already documents a successful purge to mean: the object is not
-      # being served from cache any more, not that it was there.
-      changed_when: blitzecdn_cache_purge_purged.rc == 0
-
-  always:
-    - name: Remove the staged list
-      ansible.builtin.file:
-        path: "{{ blitzecdn_cache_purge_manifest.path }}"
-        state: absent
-      changed_when: false
-      when: blitzecdn_cache_purge_manifest.path is defined
-
-# Prefixes and tags name keys and headers, not files: nginx files an entry under
-# the MD5 of its key, and no hash of a prefix or tag leads to the entries under
-# it. purge_scan.py reads the head of every cached file once, for all prefixes
-# and tags together: the KEY line for a prefix, the stored response header for
-# a tag. The cache is its own tag index, bounded by proxy_cache_path max_size,
-# and a tag leaves it exactly when nginx evicts the entry. It is the same walk
-# `--all` does, plus a few KiB read per file, so it costs seconds per hundred
-# thousand entries rather than anything per prefix or tag.
-- name: Purge cached responses by prefix and tag
+# Keys, prefixes and tags name keys and headers, not files: no hash of a prefix
+# or tag leads to the entries under it, and the hash of a key leads to only one
+# of its Vary variants. purge_scan.py reads the head of every cached file once,
+# for all of them together: the KEY line for a key or a prefix, the stored
+# response header for a tag. The cache is its own tag index, bounded by
+# proxy_cache_path max_size, and a tag leaves it exactly when nginx evicts the
+# entry. It is the same walk `--all` does, plus a few KiB read per file, so it
+# costs seconds per hundred thousand entries rather than anything per key,
+# prefix or tag.
+- name: Purge cached responses by key, prefix and tag
   when: >-
-    blitzecdn_cache_purge_prefixes | length > 0
+    blitzecdn_cache_purge_entries | length > 0
+    or blitzecdn_cache_purge_prefixes | length > 0
     or blitzecdn_cache_purge_tags | length > 0
   block:
     - name: Create a private temporary cache scanner
@@ -183,20 +139,26 @@
         mode: "0600"
       changed_when: false
 
-    - name: Remove cached responses under the requested prefixes and tags
+    - name: Remove cached responses with the requested keys, prefixes and tags
       ansible.builtin.command:
         argv:
           - "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
           - "{{ blitzecdn_cache_purge_scanner.path }}"
         stdin: >-
           {{ {'path': blitzecdn_cache_purge_path,
+              'keys': blitzecdn_cache_purge_keys,
               'prefixes': blitzecdn_cache_purge_prefixes,
               'tags': blitzecdn_cache_purge_tags} | to_json }}
       register: blitzecdn_cache_purge_scanned
-      changed_when: (blitzecdn_cache_purge_scanned.stdout | from_json).removed > 0
+      # A named purge reports changed even when nothing matched, as it always
+      # has: what the control plane documents a successful purge to mean is
+      # that the object is not being served from cache any more, not that it
+      # was there.
+      changed_when: >-
+        blitzecdn_cache_purge_entries | length > 0
+        or (blitzecdn_cache_purge_scanned.stdout | from_json).removed > 0
 
-    # How many files matched is the one thing a scan can say that a named
-    # purge cannot, so it goes back to the control plane per edge.
+    # How many files matched goes back to the control plane per edge.
     - name: Report what the cache scan removed  # noqa: var-naming[no-role-prefix]
       ansible.builtin.set_fact:
         blitzecdn_report: "{{ blitzecdn_cache_purge_scanned.stdout | from_json }}"
@@ -210,8 +172,8 @@
           - blitzecdn_report.unchecked | int == 0
         fail_msg: >-
           {{ blitzecdn_report.unchecked }} cached file(s) could not be read far
-          enough to match them (no KEY line, or a response header longer than
-          the scanner reads). They were left in place; rerun the purge, or
+          enough to match them (no KEY line, or a key or response header longer
+          than the scanner reads). They were left in place; rerun the purge, or
           empty the cache if they persist.
   always:
     - name: Remove the temporary cache scanner
