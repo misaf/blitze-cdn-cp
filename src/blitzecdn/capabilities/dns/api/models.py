@@ -198,7 +198,11 @@ class CdnSite(Model, ComposedModel):
 
 
 class PathRedirect(Model):
-    """Answer the requests a path rule matches with a redirect."""
+    """Answer the requests a path rule matches with a redirect.
+
+    The host's firewall, rate limit, Under Attack Mode and maintenance mode
+    still apply first: a refused client gets its 403 or 429, not the redirect.
+    """
 
     status: Literal[301, 302, 307, 308] = 301
     target: str = Field(
