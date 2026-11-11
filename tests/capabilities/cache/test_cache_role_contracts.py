@@ -23,6 +23,7 @@ from blitzecdn.capabilities.cache import ansible
 CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_purge"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
 STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
+TEARDOWN_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_teardown"
 NGINX_DIR = ansible.ROLES_PATH.parent.parent / "nginx"
 #: Where $blitzecdn_accept_encoding is mapped: core, because compression sends
 #: it to the origin and this capability keys by it, each without the other.
@@ -36,10 +37,26 @@ def test_the_roles_this_capability_ships_are_where_it_says_they_are():
         "blitzecdn_cache_config",
         "blitzecdn_cache_purge",
         "blitzecdn_cache_stats",
+        "blitzecdn_cache_teardown",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
     # Cache outcomes come from traffic collection; this role reads no logs.
     assert not (STATS_ROLE_DIR / "files").exists()
+
+
+def test_the_purge_index_is_removed_on_decommission_and_lives_outside_the_cache():
+    """The teardown role removes the index the purge role keeps, nothing else.
+
+    Inside the cache directory nginx's cache loader would delete it as a file
+    it does not recognise, and emptying the cache would take it too.
+    """
+    index = Path(_defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_purge_index_path"])
+    assert _defaults_of(TEARDOWN_ROLE_DIR)[
+        "blitzecdn_cache_teardown_index_path"
+    ] == str(index)
+    cache = Path(_contract_value("paths", "cache"))
+    assert not index.is_relative_to(cache)
+    assert ansible.TEARDOWN_ROLES == ("blitzecdn_cache_teardown",)
 
 
 def test_the_plays_this_capability_runs_ship_with_it():

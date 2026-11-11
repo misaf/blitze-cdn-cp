@@ -65,9 +65,9 @@ response.
   filed at the MD5 of the key, every other one under a hash of the key and the
   varied request header values. `Vary: Accept-Encoding` splits even one
   normalized encoding, since nginx hashes the visitor's raw header. A named
-  purge therefore matches the exact key on each cached file's `KEY` line in the
-  scanner's walk, like prefixes and tags, instead of deleting the one hashed
-  path.
+  purge therefore matches the exact key on each cached file's `KEY` line,
+  through the purge index like prefixes and tags, instead of deleting the one
+  hashed path.
 * **Encoding.** The key names the encoding, so the origin is asked for exactly
   that one (`Accept-Encoding: $blitzecdn_accept_encoding`). When the
   compression capability is installed and active it sends the same header, and
@@ -106,3 +106,35 @@ refetches in full. Extension entries match the URL, which every response has.
 The origin names an entry's purge tags in `Cache-Tag`. The header is hidden
 from visitors, but nginx still stores it with the entry, which is where
 `blitzecdn_cache_purge`'s scanner reads it back to purge by tag.
+
+## Purge index
+
+Nothing in a cache file's name says which URL, prefix or tag it belongs to:
+the name is a hash, and a `Vary` variant's is a hash of more than the key. So
+`blitzecdn_cache_purge` keeps an index on each edge
+(`/var/lib/blitzecdn/cache-index.sqlite3`) of what each cached file holds: its
+`KEY` line, the key from the hostname on for prefixes, and the tags in its
+stored `Cache-Tag` header. A named, prefix or tag purge is a lookup in it.
+
+* **Maintenance.** Every purge brings the index up to date before using it,
+  and reads only what changed. nginx stores an entry by renaming a finished
+  file into place and evicts one by unlinking it, and both change the mtime
+  of the directory holding it. A directory whose mtime matches the index is
+  not listed; in one that changed, only files the index has not seen (by
+  inode, size and mtime) are read. A purge on an unchanged cache costs a
+  `stat` per cache directory and reads no files.
+* **Same-tick changes.** A directory whose mtime is less than two seconds old
+  when listed is recorded as unsettled and listed again next time, because the
+  kernel's timestamps are coarser than the changes they record.
+* **Derived data.** A missing, corrupt or foreign index (another cache path,
+  device, tag header or schema version) is discarded and rebuilt by reading
+  every file once. That is what every purge cost before the index.
+* **Outside the cache.** nginx's cache loader deletes files it does not
+  recognise under `proxy_cache_path`, so the index lives beside the cache, not
+  in it. `blitzecdn_cache_teardown` removes it on decommission.
+* **Reporting.** Every purge kind reports `scanned`, `read`, `removed` and
+  `unchecked` per edge, emptying the cache included. A file the index cannot
+  decide, or a matched file that could not be deleted, fails the edge.
+* **Delivery.** The purge is still an SSH play. Once the edge agent proposed
+  in issue 269 exists, it can carry the same request and keep the index warm
+  between purges.
