@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 import tarfile
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree
+from typing import BinaryIO
 
 from blitzecdn.capabilities.backup.domain import unsafe_member
 from blitzecdn.core.exceptions import ConfigurationError
@@ -20,6 +21,34 @@ _MAX_MEMBER_BYTES = 1_048_576
 
 #: The whole member list is checked before extraction, so cap it.
 _MAX_MEMBERS = 100_000
+
+
+def publish_new(destination: Path, write: Callable[[BinaryIO], None]) -> None:
+    """Create ``destination`` from what ``write`` streams, never overwriting.
+
+    Built beside it and hard-linked into place, so readers never see a partial
+    file and a concurrent writer's file is never clobbered.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        # Created 0600 before any byte is written; it carries private keys.
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            write(stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as exc:
+            raise ConfigurationError(
+                f"{destination} already exists; refusing to overwrite a backup"
+            ) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -35,33 +64,14 @@ class TarArchive:
     """Gzipped tar, written atomically and read only after it is checked."""
 
     def write(self, source: Path, destination: Path) -> None:
-        """Pack ``source`` into a new archive at ``destination``, never overwriting.
+        """Pack ``source`` into a new archive at ``destination``, never overwriting."""
 
-        Built beside it and hard-linked into place, so readers never see a partial file
-        and a concurrent writer's file is never clobbered.
-        """
-        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{destination.name}.", dir=destination.parent
-        )
-        temporary = Path(temporary_name)
-        try:
-            # Created 0600 before any byte is written; it carries private keys.
-            os.fchmod(descriptor, 0o600)
-            with os.fdopen(descriptor, "wb") as stream:
-                with tarfile.open(fileobj=stream, mode="w:gz") as archive:
-                    for path in sorted(source.rglob("*")):
-                        self._add(archive, path, path.relative_to(source).as_posix())
-                stream.flush()
-                os.fsync(stream.fileno())
-            try:
-                os.link(temporary, destination)
-            except FileExistsError as exc:
-                raise ConfigurationError(
-                    f"{destination} already exists; refusing to overwrite a backup"
-                ) from exc
-        finally:
-            temporary.unlink(missing_ok=True)
+        def pack(stream: BinaryIO) -> None:
+            with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+                for path in sorted(source.rglob("*")):
+                    self._add(archive, path, path.relative_to(source).as_posix())
+
+        publish_new(destination, pack)
 
     @staticmethod
     def _add(archive: tarfile.TarFile, path: Path, name: str) -> None:
@@ -180,4 +190,4 @@ class TemporaryWorkspace:
             rmtree(directory, ignore_errors=True)
 
 
-__all__ = ["TarArchive", "TarEntry", "TemporaryWorkspace"]
+__all__ = ["TarArchive", "TarEntry", "TemporaryWorkspace", "publish_new"]
