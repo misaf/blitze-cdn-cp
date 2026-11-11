@@ -9,13 +9,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-import yaml
 from support.control_plane import build_application
 from support.edge_render import seed_site
 from support.stores import Stores
 
 from blitzecdn.capabilities.sites.domain import Domain
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
+from blitzecdn.core.ansible.variables import read_variables
 
 
 @pytest.fixture
@@ -70,4 +70,4 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     control.deployments.publish_artifact(
         control.releases.compile(), settings.generated_vars_path
     )
-    return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
+    return read_variables(settings.generated_vars_path)

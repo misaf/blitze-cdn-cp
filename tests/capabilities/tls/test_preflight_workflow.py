@@ -1,5 +1,4 @@
 import pytest
-import yaml
 from support.application import seed_proxied_record
 from support.certificates import (
     FakePreflight,
@@ -19,6 +18,7 @@ from support.control_plane import (
 from support.stores import Stores
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.exceptions import ConflictError
 
 # ----------------------------------------------------------------------
@@ -196,7 +196,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     seen: list[dict[str, object]] = []
 
     def capture(request):
-        seen.append(yaml.safe_load(request.variables.read_text(encoding="utf-8")))
+        seen.append(read_variables(request.variables))
         return ansible_run(host_run("edge-a", changed=1))
 
     monkeypatch.setattr(runner._executor, "execute", capture)

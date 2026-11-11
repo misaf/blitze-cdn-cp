@@ -41,6 +41,7 @@ from blitzecdn.composition import (
     handoff_container,
     worker_container,
 )
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import (
@@ -235,8 +236,8 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     )
 
     assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
-    desired = settings.generated_vars_path.read_text(encoding="utf-8")
-    assert "blitzecdn_nginx_allow_empty_sites: false" in desired
+    desired = read_variables(settings.generated_vars_path)
+    assert desired["blitzecdn_nginx_allow_empty_sites"] is False
 
     approved = build_application(
         settings=settings.model_copy(update={"allow_empty_sites": True}),
@@ -244,8 +245,8 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
         runner=FakeRunner(),
     )
     assert approved.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
-    desired = settings.generated_vars_path.read_text(encoding="utf-8")
-    assert "blitzecdn_nginx_allow_empty_sites: true" in desired
+    desired = read_variables(settings.generated_vars_path)
+    assert desired["blitzecdn_nginx_allow_empty_sites"] is True
 
 
 def test_an_interrupted_deployment_is_left_for_takeover(settings):

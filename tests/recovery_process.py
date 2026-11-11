@@ -17,7 +17,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import yaml
 from support.control_plane import (
     ControlPlane,
     FakeRunner,
@@ -27,6 +26,7 @@ from support.control_plane import (
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.runtime.lock import DeploymentLock
@@ -77,7 +77,7 @@ class LocalRunner:
                 # The test kills this process; EOF must not silently activate.
                 sys.stdin.read()
                 raise RuntimeError("crash checkpoint was released without a kill")
-            document = yaml.safe_load(self.settings.generated_vars_path.read_text())
+            document = read_variables(self.settings.generated_vars_path)
             self.served.write_text(document["blitzecdn_release_digest"] + "\n")
         return self.delegate.run(check=check, host_limit=host_limit, tags=tags)
 
