@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +15,7 @@ from blitzecdn.capabilities.backup.wiring import (
     build_restore_guard,
     build_restore_journal,
 )
+from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.delivery.cli import common
 
 backup_app = typer.Typer(
@@ -28,9 +30,42 @@ backup_app = typer.Typer(
 
     Archives hold private keys and the whole audit trail. They are written
     0600 into a 0700 directory, and copying them off the server is the point —
-    a backup that only exists on the host it protects is not one.
+    a backup that only exists on the host it protects is not one. Set
+    BLITZE_BACKUP_RECIPIENTS to encrypt every new archive to age or SSH public
+    keys; 'inspect' and 'restore' then need '--identity'.
     """,
 )
+
+#: An identity file is a few lines; anything this large is not one.
+_MAX_IDENTITY_BYTES = 65_536
+
+_IDENTITY = typer.Option(
+    "--identity",
+    "-i",
+    help=(
+        "Private key that opens an encrypted archive: an age identity file or "
+        "an unencrypted OpenSSH private key. '-' reads it from standard input, "
+        "so it never has to be copied onto the controller."
+    ),
+)
+
+
+def _read_identity(source: Path | None) -> str | None:
+    """The identity file's text, read once however many times it is used."""
+    if source is None:
+        return None
+    try:
+        if str(source) == "-":
+            text = sys.stdin.read(_MAX_IDENTITY_BYTES + 1)
+        else:
+            with source.open(encoding="utf-8") as stream:
+                text = stream.read(_MAX_IDENTITY_BYTES + 1)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigurationError(f"cannot read the identity {source}") from exc
+    if len(text) > _MAX_IDENTITY_BYTES:
+        raise ConfigurationError(f"{source} is too large to be an identity file")
+    return text
+
 
 _ONLY = typer.Option(
     "--only",
@@ -83,6 +118,8 @@ def create(
     )
     created = service.create(only=only, destination=destination)
     typer.echo(f"Backup created: {created}")
+    if service.cipher.encrypting:
+        typer.echo("Encrypted to the configured backup recipients.")
 
 
 @backup_app.command("prune")
@@ -124,13 +161,14 @@ def prune(
 @backup_app.command("inspect")
 def inspect(
     archive: Annotated[Path, typer.Argument(help="The archive to describe.")],
+    identity: Annotated[Path | None, _IDENTITY] = None,
 ) -> None:
     """Show what an archive holds, without extracting or restoring any of it."""
     manifest = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
         clock=common.clock(),
-    ).inspect(archive)
+    ).inspect(archive, identity=_read_identity(identity))
     typer.echo(f"Created: {manifest.created_at:%Y-%m-%d %H:%M:%S} UTC")
     typer.echo(f"BlitzeCDN version: {manifest.blitzecdn_version}")
     typer.echo(f"Backup format: {manifest.format_version}")
@@ -144,6 +182,7 @@ def inspect(
 @backup_app.command("restore")
 def restore(
     archive: Annotated[Path, typer.Argument(help="The archive to restore from.")],
+    identity: Annotated[Path | None, _IDENTITY] = None,
     assume_yes: common.Yes = False,
 ) -> None:
     """Restore the components the archive's manifest declares, and nothing else.
@@ -152,19 +191,25 @@ def restore(
     holds, and asking an operator to repeat the selection is an invitation to
     name a component the archive does not contain.
     """
+    if identity is not None and str(identity) == "-" and not assume_yes:
+        raise ConfigurationError(
+            "'--identity -' takes standard input, which the confirmation also "
+            "needs; add --yes"
+        )
+    key = _read_identity(identity)
     service = build_backup_service(
         common.settings(),
         configuration=common.installed_features().configuration_contributions(),
         clock=common.clock(),
     )
-    manifest = service.inspect(archive)
+    manifest = service.inspect(archive, identity=key)
     listed = ", ".join(component.value for component in manifest.components)
     if not assume_yes:
         typer.confirm(
             f"Restore {listed} from {archive}, replacing what is there now?",
             abort=True,
         )
-    service.restore(archive)
+    service.restore(archive, identity=key)
     typer.echo(f"Restored: {listed}")
     if BackupComponent.DATABASE in manifest.components:
         # Edge configuration is generated, never archived, so the fleet is

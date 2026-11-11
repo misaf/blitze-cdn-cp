@@ -9,6 +9,7 @@ from dishka import Provider, Scope, provide
 
 from blitzecdn.capabilities.backup.adapters import (
     AcmeComponent,
+    AgeCipher,
     BackupStatusFile,
     ComposeRestoreGuard,
     ConfigComponent,
@@ -60,11 +61,9 @@ def build_backup_service(
         for setting in contribution.settings
         if not setting.portable
     )
+    config = BackupConfig.from_settings(settings)
     return BackupService(
-        policy=BackupPolicy(
-            backup_dir=BackupConfig.from_settings(settings).backup_dir,
-            version=__version__,
-        ),
+        policy=BackupPolicy(backup_dir=config.backup_dir, version=__version__),
         components=(
             DatabaseComponent(settings),
             TlsComponent(settings),
@@ -73,6 +72,7 @@ def build_backup_service(
             GeoIpDatabasesComponent(settings),
         ),
         archive=TarArchive(),
+        cipher=AgeCipher(config.recipients),
         schema=DatabaseSchema(settings),
         services=build_restore_guard(),
         # Staged under the state directory rather than /tmp: a staged backup is
