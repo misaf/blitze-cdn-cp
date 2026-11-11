@@ -336,6 +336,13 @@ fingerprints it offers and asks before trusting them. With no terminal to ask
 on, it stops without registering the edge. `--skip-host-key` registers an edge
 whose host is not up yet; trust its key before deploying.
 
+`--ssh-source` must include the address the controller connects from. The
+firewall refuses to converge otherwise, naming that address and the configured
+networks: the run already connected would survive the change, and the next one
+would find the port closed. Where the edge sees a source that the list
+deliberately leaves out, turn the check off with
+`blitzecdn config set blitzecdn_firewall_verify_controller_source false`.
+
 `blitzecdn edge host-key NAME` scans a registered edge again and replaces every
 key trusted for its address. Use it after the edge's host key is rotated or the
 host is reinstalled, after `edge update --host` or `--port`, and for an edge
