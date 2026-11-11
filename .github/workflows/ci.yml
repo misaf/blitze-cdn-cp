@@ -136,7 +136,7 @@ jobs:
       - name: Run the ${{ matrix.suite }} suite
         env:
           DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
-        run: bash tests/container-install.sh ${{ matrix.image }} ${{ matrix.suite }}
+        run: bash tests/integration/container-install.sh ${{ matrix.image }} ${{ matrix.suite }}
       - name: Keep the failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -169,7 +169,7 @@ jobs:
       - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
         env:
           DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
-        run: bash tests/http3-edge-integration.sh
+        run: bash tests/integration/http3-edge-integration.sh
       - name: Keep the failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

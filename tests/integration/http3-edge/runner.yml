@@ -15,7 +15,7 @@ blitzecdn_security_under_attack_secret: >-
 # The edge capability slot, named the way the control plane names it: a list
 # the shipped play's `blitzecdn_capabilities` slot loops over. A subset of what
 # is installed — not `blitzecdn_resolver`, which would take over the DNS of a
-# host whose resolver is Docker's. tests/http3_release.py renders with the
+# host whose resolver is Docker's. tests/support/http3_release.py renders with the
 # defaults of exactly these roles.
 blitzecdn_capability_roles:
   - blitzecdn_cache_config

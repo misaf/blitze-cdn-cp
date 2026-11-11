@@ -45,7 +45,7 @@ reports that prerequisite as missing. It never reports it as ok.
 | `just ansible-check` (syntax and lint, against project-managed Ansible) | The same, plus Ansible *executing* roles on disposable hosts (install, HTTP/3 jobs) |
 | `just check-quick`, the inner-loop gate | `just check`, the full gate, including `docker-lint`, `audit` and `build` |
 | `just serve` for local API development | The edge-script contract under Python 3.12, the edge Python floor (quality job; skipped locally when uv has no 3.12) |
-| Not on a laptop without Docker | `tests/container-install.sh` (install jobs, one per suite) and `tests/http3-edge-integration.sh` (HTTP/3 job) |
+| Not on a laptop without Docker | `tests/integration/container-install.sh` (install jobs, one per suite) and `tests/integration/http3-edge-integration.sh` (HTTP/3 job) |
 
 The CI workflow calls the recipes and does not repeat their commands, so a gate
 added to the justfile is a gate CI runs. `just check` runs exactly the quality
@@ -104,12 +104,12 @@ The harnesses write diagnostics when `DIAGNOSTICS_DIR` is set, so a local run
 on a Linux host with Docker can collect the same evidence:
 
 ```sh
-DIAGNOSTICS_DIR=.state/diagnostics bash tests/http3-edge-integration.sh
+DIAGNOSTICS_DIR=.state/diagnostics bash tests/integration/http3-edge-integration.sh
 ```
 
 ## What the integration evidence covers
 
-`tests/container-install.sh IMAGE SUITE` runs the `lifecycle` or the
+`tests/integration/container-install.sh IMAGE SUITE` runs the `lifecycle` or the
 `rollback` stages after a shared install, or both with `all`, the default for a
 run by hand. CI runs each suite as its own install job, side by side, to stay
 within the job timeout.
@@ -156,7 +156,7 @@ These are not verified anywhere yet:
 ### Next step for the gaps
 
 Close the upgrade gap with containers once a release from this line is
-published: an upgrade suite in `tests/container-install.sh` that installs that
+published: an upgrade suite in `tests/integration/container-install.sh` that installs that
 release, updates to the commit under test, and then rolls back the way the
 rollback suite does. It runs on the same runners.
 
