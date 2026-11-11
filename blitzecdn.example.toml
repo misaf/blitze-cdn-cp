@@ -50,6 +50,11 @@ run_log_retention = 500
 # the database. Default: 1000.
 history_retention = 1000
 
+# Number of newest audit events retained in the database. A disk bound, not a
+# retention policy: the default holds years, and a longer trail belongs off
+# the box. Default: 100000. Allowed: 1000 to 10000000.
+audit_retention = 100000
+
 # |--------------------------------------------------------------------------
 # | API Access
 # |--------------------------------------------------------------------------

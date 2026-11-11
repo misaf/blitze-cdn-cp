@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 
+import annotated_types
 import pytest
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
@@ -69,6 +70,39 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
     assert settings.history_retention == 120
     assert settings.state_dir == (tmp_path / ".state").resolve()
     assert settings.allow_empty_sites is True
+
+
+def test_audit_retention_is_an_operator_setting(tmp_path):
+    (tmp_path / "blitzecdn.toml").write_text("[blitzecdn]\naudit_retention = 4000\n")
+    assert Settings.from_environment({}, project_dir=tmp_path).audit_retention == 4000
+
+    settings = Settings.from_environment(
+        {"BLITZE_AUDIT_RETENTION": "5000"}, project_dir=tmp_path
+    )
+    assert settings.audit_retention == 5000
+    assert "BLITZE_AUDIT_RETENTION" not in settings.capability_environment
+
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment(
+            {"BLITZE_AUDIT_RETENTION": "999"}, project_dir=tmp_path
+        )
+
+
+def test_every_bounded_setting_is_one_an_operator_can_set():
+    """A validated range on a field nobody can set guards nothing."""
+    bounds = (
+        annotated_types.Ge,
+        annotated_types.Gt,
+        annotated_types.Le,
+        annotated_types.Lt,
+    )
+    bounded = {
+        name
+        for name, field in Settings.model_fields.items()
+        if any(isinstance(rule, bounds) for rule in field.metadata)
+    }
+    assert bounded
+    assert bounded <= Settings.OPERATOR_SETTINGS
 
 
 def test_deployment_settings_belong_to_the_deployments_capability(tmp_path):
