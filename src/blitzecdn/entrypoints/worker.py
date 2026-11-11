@@ -6,12 +6,10 @@ finishes the job in hand, and loops. No broker: the queue is rows.
 
 from __future__ import annotations
 
-import logging
-
 from blitzecdn.core.config import Settings
-from blitzecdn.core.runtime.logging import configure_logging
+from blitzecdn.core.runtime.logging import configure_logging, get_logger
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 __all__ = ["main", "run_worker"]
 
@@ -27,9 +25,9 @@ def run_worker(settings: Settings | None = None) -> None:
         try:
             worker.start()
             _LOGGER.info(
-                "worker ready: %d scheduled job(s) registered",
-                len(worker.scheduler.schedules.list_schedules()),
-                extra={"worker_id": worker.runner.queue.worker_id},
+                "worker ready",
+                scheduled_jobs=len(worker.scheduler.schedules.list_schedules()),
+                worker_id=worker.runner.queue.worker_id,
             )
             worker.runner.install_signal_handlers()
             worker.runner.run_forever()

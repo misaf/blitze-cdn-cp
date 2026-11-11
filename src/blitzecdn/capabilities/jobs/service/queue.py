@@ -7,7 +7,6 @@ is not attempted.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from time import monotonic
@@ -31,10 +30,11 @@ from blitzecdn.capabilities.jobs.domain import (
 )
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
 from blitzecdn.core.ports.clock import Clock
+from blitzecdn.core.runtime.logging import get_logger
 
 __all__ = ["JobQueue", "handler_table"]
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 _DEFERRAL_SECONDS = 5
 
 
@@ -161,7 +161,10 @@ class JobQueue:
         except ValidationError as exc:
             reason = _invalid_payload(job.kind, exc)
             _LOGGER.warning(
-                "job %s (%s) failed permanently: %s", job.id, job.kind, reason
+                "job failed permanently",
+                job_id=job.id,
+                job_kind=job.kind,
+                reason=reason,
             )
             self._fail(claim, reason, permanent=True)
             return
@@ -173,17 +176,18 @@ class JobQueue:
             "fence": claim.fence,
         }
         started = monotonic()
-        _LOGGER.info("job handler started", extra=context)
+        _LOGGER.info("job handler started", **context)
         try:
             outcome = handler.handle(payload)
         except Exception as exc:
-            _LOGGER.exception("job %s (%s) failed", job.id, job.kind, extra=context)
+            _LOGGER.exception("job failed", **context)
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)
             return
         finally:
             _LOGGER.info(
                 "job handler finished",
-                extra={**context, "duration_seconds": max(0, monotonic() - started)},
+                **context,
+                duration_seconds=max(0, monotonic() - started),
             )
         match outcome:
             case Done(result=result):
@@ -193,13 +197,19 @@ class JobQueue:
                 return
             case Retry(reason=reason):
                 _LOGGER.warning(
-                    "job %s (%s) will be retried: %s", job.id, job.kind, reason
+                    "job will be retried",
+                    job_id=job.id,
+                    job_kind=job.kind,
+                    reason=reason,
                 )
                 self._fail(claim, reason, permanent=False)
                 return
             case Fail(reason=reason):
                 _LOGGER.warning(
-                    "job %s (%s) failed permanently: %s", job.id, job.kind, reason
+                    "job failed permanently",
+                    job_id=job.id,
+                    job_kind=job.kind,
+                    reason=reason,
                 )
                 self._fail(claim, reason, permanent=True)
                 return
@@ -213,9 +223,9 @@ class JobQueue:
         if not self.jobs.complete(job.id, claim.fence, now=self.clock(), result=result):
             # Someone else took the job over meanwhile; record nothing for it.
             _LOGGER.warning(
-                "job %s finished under an expired lease; another worker owns "
+                "job finished under an expired lease; another worker owns "
                 "it now and this result was discarded",
-                job.id,
+                job_id=job.id,
             )
 
     def renew(self, claim: JobClaim, *, seconds: int | None = None) -> bool:
@@ -254,10 +264,12 @@ class JobQueue:
         )
         if deferred:
             _LOGGER.info(
-                "job %s deferred without an execution attempt: %s", job.id, reason
+                "job deferred without an execution attempt",
+                job_id=job.id,
+                reason=reason,
             )
         else:
-            _LOGGER.warning("job %s deferral refused: its claim is stale", job.id)
+            _LOGGER.warning("job deferral refused: its claim is stale", job_id=job.id)
 
     def _fail(self, claim: JobClaim, error: str, *, permanent: bool) -> None:
         now = self.clock()
