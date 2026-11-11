@@ -25,6 +25,7 @@ from support.stores import Stores
 
 from blitzecdn.capabilities.edges.adapters.ansible import edge_to_inventory
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources
+from blitzecdn.core.ansible import rendering
 from blitzecdn.core.domain.validation import RESERVED_ANSIBLE_SETTINGS
 from blitzecdn.core.persistence.schema import DatabaseSchema
 
@@ -192,6 +193,15 @@ def test_the_plugins_reserved_names_match_the_domains():
 
     assert module.RESERVED_SETTINGS == RESERVED_ANSIBLE_SETTINGS
     assert module.EDGE_GROUP == EDGE_GROUP
+
+
+def test_the_controller_renders_with_the_edge_groups_variables():
+    """Core's renderer names the group too: it cannot import the edges capability.
+
+    A renderer reading another group's variables would render a release with
+    shipped defaults the edge play never sees.
+    """
+    assert rendering._EDGE_GROUP == EDGE_GROUP
 
 
 def _plugin_module():

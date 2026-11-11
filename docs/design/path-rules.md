@@ -11,6 +11,9 @@ nginx takes the first matching regex location in the order written, which is
 what makes "first path rule wins" hold however the paths nest. A prefix
 location would instead be chosen by length.
 
+Each location's regex is its `pattern`, which the controller builds with
+`path_pattern` and the template renders as given, so the rule is spelled once.
+
 Rules match the normalized `$uri`, as the firewall's paths do. Nothing a path
 rule declares can shadow the edge's own paths:
 

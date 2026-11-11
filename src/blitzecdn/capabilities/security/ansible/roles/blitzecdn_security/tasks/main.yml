@@ -43,6 +43,7 @@
 
 # The contract offers rates from a fixed ladder so the edge's shared-memory
 # zones stay bounded; a hand-written rate outside it would declare a zone more.
+# Mirrors the contract's RATE_LIMIT_RATES, in order.
 - name: Validate per-site rate limits
   ansible.builtin.assert:
     that:

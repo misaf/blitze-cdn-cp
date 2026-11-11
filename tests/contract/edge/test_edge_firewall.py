@@ -12,6 +12,7 @@ from support.edge_render import (
 )
 from support.policy import site_from_settings
 
+from blitzecdn.capabilities.security.contract import allowed_paths_pattern
 from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 REQUIRES_CAPABILITIES = {
@@ -23,6 +24,7 @@ REQUIRES_CAPABILITIES = {
     ),
     "test_allowed_methods_refuse_every_other_method": ("security",),
     "test_allowed_paths_match_the_normalized_uri_with_escaped_entries": ("security",),
+    "test_the_allowed_paths_rule_is_the_contracts_pattern": ("security",),
     "test_method_and_path_allowlists_combine": ("security",),
     "test_the_acme_challenge_path_is_served_under_a_path_allowlist": ("security",),
     "test_an_allowed_source_is_served_from_a_denied_country": ("geoip", "security"),
@@ -387,3 +389,12 @@ def test_case_insensitive_paths_keep_the_acme_challenge_unfiltered():
     )
     assert not _denied_by_location(rendered, "/.well-known/acme-challenge/token")
     assert _denied_by_location(rendered, "/.Well-Known/security.txt")
+
+
+def test_the_allowed_paths_rule_is_the_contracts_pattern():
+    """The template spells the alternation the contract sizes and validates."""
+    paths = ["/static/", "/robots.txt", "/a+b(c)/"]
+
+    rendered = _render({"allowed_paths": paths})
+
+    assert f'if ($uri !~ "^({allowed_paths_pattern(paths)})")' in rendered
