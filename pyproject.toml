@@ -185,6 +185,10 @@ max-statements = 60
 # always should have, and the exemption is stated where they are rather than
 # being an accident of how the name arrived.
 "tests/support/contracts.py" = ["S603"]
+# Hostile operator text must reach a real play literally, which only running
+# `ansible-playbook` shows. The text travels in a variables file, never in the
+# fixed argument array.
+"tests/platform/test_hostile_input.py" = ["S603"]
 
 [tool.mypy]
 python_version = "3.15"
