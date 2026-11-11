@@ -8,7 +8,6 @@ This side is read through :data:`blitzecdn.capabilities.cache.ansible.ROLES_PATH
 the path a deployment resolves the roles by.
 """
 
-import hashlib
 import re
 import shutil
 import subprocess
@@ -104,16 +103,6 @@ def test_stats_role_reads_the_status_endpoint_the_nginx_role_serves():
     )
 
 
-def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
-    """The role computes <md5[-1]>/<md5[-3:-1]>/<md5>, which is levels=1:2 only."""
-    template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
-    assert "levels=1:2" in template
-    spec = yaml.safe_load(
-        (CACHE_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-    assert spec["blitzecdn_cache_purge_levels"]["choices"] == ["1:2"]
-
-
 def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     """One URL is several entries, and leaving one behind still serves it.
 
@@ -173,7 +162,7 @@ def test_the_encoding_map_asks_for_one_coding_the_visitor_accepts(header, expect
     assert _normalized_encoding(header) == expected
 
 
-def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
+def test_named_purge_computes_the_same_port_cache_key(tmp_path):
     """Execute the role's key calculation, including its Jinja loops."""
     ansible = shutil.which("ansible-playbook") or str(
         PROJECT_DIR / ".venv/bin/ansible-playbook"
@@ -182,15 +171,14 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
         pytest.skip("ansible-playbook is not installed")
 
     cache_path = tmp_path / "cache"
-    key = "http80GETexample.com/asset"
-    digest = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
-    cached = cache_path / digest[-1] / digest[-3:-1] / digest
     computed = tmp_path / "computed.json"
 
     variables = _defaults_of(CACHE_ROLE_DIR) | {
         "blitzecdn_cache_purge_path": str(cache_path),
         "blitzecdn_cache_purge_entries": [
-            {"host": "example.com", "uri": "/asset", "scheme": "http"}
+            {"host": "example.com", "uri": "/asset", "scheme": "http"},
+            # nginx keys the request target case-sensitively; so must the purge.
+            {"host": "example.com", "uri": "/Asset", "scheme": "http"},
         ],
         "blitzecdn_cache_purge_prefixes": [],
         "blitzecdn_cache_purge_tags": [],
@@ -207,14 +195,14 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
                     "hosts": "localhost",
                     "gather_facts": False,
                     "vars": variables,
-                    # Run through "Compute the cache files"; the rest chown a manifest
-                    # to root.
+                    # Run through "Compute the cache keys"; the rest copies a
+                    # scanner owned by root.
                     "tasks": [
                         *role_tasks[:7],
                         {
                             "copy": {
                                 "content": (
-                                    "{{ blitzecdn_cache_purge_files | to_json }}"
+                                    "{{ blitzecdn_cache_purge_keys | to_json }}"
                                 ),
                                 "dest": str(computed),
                                 "mode": "0600",
@@ -235,7 +223,12 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
     )
 
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    assert str(cached) in yaml.safe_load(computed.read_text(encoding="utf-8"))
+    keys = yaml.safe_load(computed.read_text(encoding="utf-8"))
+    # The exact string proxy_cache_key builds, for each encoding variant.
+    assert "http80GETexample.com/asset" in keys
+    assert "http80GETexample.com/Asset" in keys
+    assert "http8080HEADexample.com/assetbr" in keys
+    assert not any(key.startswith("https") for key in keys)
 
 
 def test_the_stats_role_publishes_through_the_agreed_report_fact():

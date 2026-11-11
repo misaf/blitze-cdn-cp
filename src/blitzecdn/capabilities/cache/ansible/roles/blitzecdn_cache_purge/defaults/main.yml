@@ -2,19 +2,13 @@
 # Where nginx keeps the cache, and how it keys entries. This role runs in its
 # own playbook, against a host it does not converge, so it is told these rather
 # than reading the edge runtime contract — but they MUST equal what that
-# contract and blitzecdn_nginx converged with: this role computes the on-disk
-# location of a cached response from them, and a mismatch means a purge that
-# reports success having deleted nothing. The control plane's
+# contract and blitzecdn_nginx converged with: this role rebuilds the cache keys
+# nginx stored and looks for them under that directory, and a mismatch means a
+# purge that reports success having deleted nothing. The control plane's
 # tests/contract/roles/ asserts they agree, because nothing at
 # run time can tell "no such entry cached" apart from "wrong directory".
 blitzecdn_cache_purge_path: /var/cache/nginx/blitzecdn
 blitzecdn_cache_purge_normalize_accept_encoding: true
-
-# proxy_cache_path ... levels=1:2. An entry whose key hashes to <md5> lives at
-# <path>/<last char>/<two chars before that>/<md5>. Only 1:2 is emitted by
-# blitzecdn_nginx, so that is all this role computes; it refuses anything else
-# rather than deleting the wrong path.
-blitzecdn_cache_purge_levels: "1:2"
 
 # Entries to remove, each a mapping of host + uri (+ optional scheme). The
 # control plane builds these; it owns which hostnames are purgeable.

@@ -61,6 +61,13 @@ response.
   the two differently.
 * **Cost.** One URL can be cached once per listener, so a named purge deletes
   every port's variant; `blitzecdn_cache_purge` walks the same listener sets.
+* **Vary.** nginx honours the origin's `Vary`: the first representation is
+  filed at the MD5 of the key, every other one under a hash of the key and the
+  varied request header values. `Vary: Accept-Encoding` splits even one
+  normalized encoding, since nginx hashes the visitor's raw header. A named
+  purge therefore matches the exact key on each cached file's `KEY` line in the
+  scanner's walk, like prefixes and tags, instead of deleting the one hashed
+  path.
 * **Encoding.** The key names the encoding, so the origin is asked for exactly
   that one (`Accept-Encoding: $blitzecdn_accept_encoding`). When the
   compression capability is installed and active it sends the same header, and
