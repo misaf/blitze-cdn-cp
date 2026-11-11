@@ -725,3 +725,55 @@ def test_a_check_stands_aside_between_batches_for_a_waiting_deployment(repositor
     assert runner.host_limits == ["edge-0,edge-1"]
     assert outcome.unattempted == ("edge-2", "edge-3", "edge-4")
     assert "stood aside" in (outcome.error or "")
+
+
+def test_an_edge_stopped_during_another_edges_commit_is_committed_on_its_own(
+    repository,
+):
+    """A committed journal cannot be rolled back, so it is never withdrawn."""
+
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(3)
+    runner = PerHostRunner({("commit",): {"edge-1"}})
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    statuses = {t.edge: t.status for t in outcome.targets}
+    assert statuses["edge-1"] is TargetStatus.FAILED
+    assert statuses["edge-2"] is TargetStatus.SUCCEEDED
+    calls = list(zip(runner.host_limits, runner.tag_selections, strict=True))
+    assert ("edge-2", ("commit",)) in calls
+    assert ("edge-2", ("rollback",)) not in calls
+
+
+def test_an_unexpected_error_in_a_phase_withdraws_and_closes_the_batch(repository):
+    """Not an ExecutionError: the play may already have activated, so restore."""
+
+    class DiesAfterActivating(PerHostRunner):
+        def run(self, *, check, host_limit=None, tags=()):
+            result = super().run(check=check, host_limit=host_limit, tags=tags)
+            if tags == ("activate",) and "," in (host_limit or ""):
+                raise OSError("could not keep the run output")
+            return result
+
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    edges = fleet(3)
+    runner = DiesAfterActivating()
+    rollout = rollout_for(repository, edges=edges, runner=runner, batch_size=2)
+
+    outcome = rollout.converge(deployment, release, edges=list(edges), check=False)
+
+    assert not outcome.succeeded
+    assert "OSError" in (outcome.error or "")
+    statuses = {t.edge: t.status for t in outcome.targets}
+    assert statuses["edge-1"] is TargetStatus.FAILED
+    assert statuses["edge-2"] is TargetStatus.FAILED
+    rollbacks = [
+        limit
+        for limit, tags in zip(runner.host_limits, runner.tag_selections, strict=True)
+        if tags == ("rollback",)
+    ]
+    assert rollbacks == ["edge-1", "edge-2"]
