@@ -15,7 +15,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import DNS_LABEL, hostname
+from blitzecdn.core.domain.validation import DNS_LABEL, IpAddress, hostname
 
 
 class RecordType(StrEnum):
@@ -36,7 +36,8 @@ class DnsRecord(BaseModel):
     domain: str
     name: str
     type: RecordType = RecordType.A
-    value: str
+    #: Stored canonical, so two spellings of one address group as one host.
+    value: IpAddress
     ttl: int = Field(default=300, ge=1, le=604800)
     #: Defaults to on, which is the reason an operator adds a record to a CDN
     #: at all, and matches what the dashboard people arrive from does.
@@ -62,12 +63,7 @@ class DnsRecord(BaseModel):
 
     @model_validator(mode="after")
     def validate_address_matches_the_type(self) -> Self:
-        try:
-            address = ipaddress.ip_address(self.value.strip())
-        except ValueError:
-            raise ValueError(
-                f"{self.type.value} record value must be an IP address"
-            ) from None
+        address = ipaddress.ip_address(self.value)
         expected = 4 if self.type is RecordType.A else 6
         if address.version != expected:
             raise ValueError(

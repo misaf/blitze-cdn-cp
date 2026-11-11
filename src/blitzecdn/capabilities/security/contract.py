@@ -18,7 +18,7 @@ from pydantic import (
 )
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import OmittedWhenEmpty, ip_network, unique
+from blitzecdn.core.domain.validation import IpNetwork, OmittedWhenEmpty, unique
 
 COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
@@ -293,7 +293,7 @@ COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 class SiteFirewall(OmittedWhenEmpty):
     """Per-hostname request filtering applied by Nginx; omitted when empty."""
 
-    allow_sources: tuple[str, ...] = Field(
+    allow_sources: tuple[IpNetwork, ...] = Field(
         default=(),
         max_length=200,
         description=(
@@ -304,7 +304,7 @@ class SiteFirewall(OmittedWhenEmpty):
             "everything else, the site stays open."
         ),
     )
-    deny_sources: tuple[str, ...] = Field(
+    deny_sources: tuple[IpNetwork, ...] = Field(
         default=(), max_length=200, description="CIDR networks answered with 403."
     )
     allowed_countries: tuple[str, ...] = Field(
@@ -387,16 +387,7 @@ class SiteFirewall(OmittedWhenEmpty):
     @field_validator("allow_sources", "deny_sources")
     @classmethod
     def validate_sources(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = []
-        for item in values:
-            candidate = item.strip()
-            try:
-                normalized.append(str(ip_network(candidate, strict=True)))
-            except ValueError as error:
-                raise ValueError(
-                    f"{item!r} is not an IP address or CIDR network: {error}"
-                ) from error
-        return unique(tuple(normalized), "source")
+        return unique(values, "source")
 
     @field_validator("allowed_countries", "denied_countries")
     @classmethod

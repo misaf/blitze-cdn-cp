@@ -12,10 +12,10 @@ Exit 1 with one message on stderr refuses.
 from __future__ import annotations
 
 import argparse
-import ipaddress
 from collections.abc import Sequence
 
 from blitzecdn.core.config.settings import allowed_ip_networks
+from blitzecdn.core.domain.validation import ip_network
 
 
 class RefusedError(Exception):
@@ -39,7 +39,7 @@ def check_allowed_ips(value: str) -> None:
 def check_standalone(admin_cidr: str, email: str) -> None:
     """A parseable SSH administration network and a plausible ACME email."""
     try:
-        ipaddress.ip_network(admin_cidr, strict=False)
+        ip_network(admin_cidr, strict=False)
     except ValueError as error:
         raise RefusedError(f"error: invalid --admin-cidr: {error}") from error
     if email.count("@") != 1 or any(char.isspace() for char in email):
