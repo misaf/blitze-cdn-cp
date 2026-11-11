@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    EmailStr,
+    Field,
+)
 
 from blitzecdn.capabilities.deployments import Deployment
 from blitzecdn.capabilities.tls.contract import CertificateVersion
 from blitzecdn.capabilities.workflows import WorkflowKind
-from blitzecdn.core.domain.validation import hostname
 
 #: The journal entry an issuance opens, named by the capability that opens it.
 CERTIFICATE_WORKFLOW: WorkflowKind = "certificate"
@@ -89,28 +95,26 @@ class CertificateStatus(BaseModel):
         return self.renewable and self.days_remaining <= within_days
 
 
+def _strip(value: object) -> object:
+    return value.strip() if isinstance(value, str) else value
+
+
+#: An ACME account address. ``email-validator`` (through Pydantic's ``EmailStr``)
+#: owns the grammar, length limits and domain checks; no deliverability lookup is
+#: made. Stored lower-cased so the same account is not registered twice.
+AcmeEmail = Annotated[
+    EmailStr, BeforeValidator(_strip), AfterValidator(lambda value: value.lower())
+]
+
+
 class CertificateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str | None = Field(default=None, max_length=254)
+    email: AcmeEmail | None = None
     #: Issue despite a blocking preflight, for what the controller cannot see —
     #: split-horizon DNS, an edge behind an unlisted address. Usually it just spends
     #: a rate limit.
     skip_preflight: bool = False
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        candidate = value.strip().lower()
-        if candidate.count("@") != 1 or any(char.isspace() for char in candidate):
-            raise ValueError("email must be a valid address")
-        local, domain = candidate.rsplit("@", 1)
-        if not local or not domain:
-            raise ValueError("email must be a valid address")
-        hostname(domain)
-        return candidate
 
 
 class RenewalResult(BaseModel):
