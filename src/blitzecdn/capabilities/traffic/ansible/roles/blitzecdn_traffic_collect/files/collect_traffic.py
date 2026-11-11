@@ -5,6 +5,10 @@ Standalone standard-library code: Ansible copies this to an edge, where the
 control-plane package is not installed. Offsets always refer to uncompressed
 bytes. A stream's first record contains Nginx's generated request ID, so its
 hash survives rename/compression without relying on reusable filesystem inodes.
+
+A record that fails validation or exceeds the line limit is skipped and counted
+rather than failing its file: the hostname and line length come from the
+visitor, so one crafted request must not stall accounting for a whole log.
 """
 
 from __future__ import annotations
@@ -150,6 +154,57 @@ def anchor(handle: BinaryIO, offset: int) -> str:
     return hashlib.sha256(tail).hexdigest()
 
 
+def stream_id(first: bytes) -> str:
+    """The stream's identity: a hash of its first line.
+
+    Only the parts that make the hash unique are checked, so a first record
+    rejected for its hostname or counters still identifies the stream. A line
+    over the limit is identified by its bounded prefix, which is stable.
+    """
+    if len(first) <= MAX_LINE_BYTES:
+        record = json.loads(first)
+        if (
+            not isinstance(record, dict)
+            or type(record.get("schema_version")) is not int
+            or record["schema_version"] != 1
+        ):
+            raise CollectionError("unsupported traffic record schema")
+        if not isinstance(record.get("request_id"), str) or not REQUEST_ID.fullmatch(
+            record["request_id"]
+        ):
+            raise CollectionError("missing or invalid generated request ID")
+    return hashlib.sha256(first).hexdigest()
+
+
+def next_line(handle: BinaryIO) -> tuple[bytes | None, int]:
+    """The next complete line and its length in bytes.
+
+    The line is None when it is over the limit; it has then been read past.
+    A length of zero means end of input or a line still being written, which
+    is never consumed.
+    """
+    start = handle.tell()
+    line = handle.readline(MAX_LINE_BYTES + 1)
+    if line.endswith(b"\n"):
+        return (line if len(line) <= MAX_LINE_BYTES else None), len(line)
+    if len(line) <= MAX_LINE_BYTES:
+        return None, 0
+    while chunk := handle.readline(MAX_LINE_BYTES):
+        if chunk.endswith(b"\n"):
+            return None, handle.tell() - start
+    return None, 0
+
+
+def accepted(line: bytes | None) -> Record | None:
+    """The line's record, or None when it is to be skipped."""
+    if line is None:
+        return None
+    try:
+        return usage(line)
+    except (ValueError, TypeError):
+        return None
+
+
 def add(
     buckets: dict[tuple[str, str], dict[str, Any]],
     paths: dict[tuple[str, str], dict[str, list[int]]],
@@ -197,35 +252,38 @@ def read_stream(
     first = handle.readline(MAX_LINE_BYTES + 1)
     if not first:
         return None, 0, False
-    if len(first) > MAX_LINE_BYTES:
-        raise CollectionError("traffic record exceeds the line limit")
-    if not first.endswith(b"\n"):
+    if len(first) <= MAX_LINE_BYTES and not first.endswith(b"\n"):
         return None, 0, True
-    usage(first)
-    stream_id = hashlib.sha256(first).hexdigest()
-    if stream_id in seen:
+    identity = stream_id(first)
+    if identity in seen:
         return None, 0, False
-    seen.add(stream_id)
-    previous = checkpoints.get(stream_id)
+    seen.add(identity)
+    previous = checkpoints.get(identity)
     offset = previous["offset"] if previous else 0
     if previous and anchor(handle, offset) != previous["anchor"]:
         raise CollectionError("traffic log changed before its checkpoint")
     handle.seek(offset)
-    consumed = 0
+    consumed = skipped = 0
     more = False
     buckets: dict[tuple[str, str], dict[str, Any]] = {}
     paths: dict[tuple[str, str], dict[str, list[int]]] = {}
     while True:
-        line = handle.readline(MAX_LINE_BYTES + 1)
-        if not line:
+        position = handle.tell()
+        line, length = next_line(handle)
+        if not length:
+            # Anything read here is a record still being written.
+            more = handle.tell() != position
             break
-        if len(line) > MAX_LINE_BYTES:
-            raise CollectionError("traffic record exceeds the line limit")
-        if not line.endswith(b"\n") or consumed + len(line) > budget:
+        # The first record read always fits, so every run makes progress.
+        if consumed and consumed + length > budget:
             more = True
             break
-        add(buckets, paths, usage(line), path_limit)
-        consumed += len(line)
+        item = accepted(line)
+        if item is None:
+            skipped += 1
+        else:
+            add(buckets, paths, item, path_limit)
+        consumed += length
     if not consumed:
         return None, 0, more
     for key, bucket in buckets.items():
@@ -235,11 +293,12 @@ def read_stream(
         {
             "start": previous,
             "end": {
-                "stream_id": stream_id,
+                "stream_id": identity,
                 "offset": end,
                 "anchor": anchor(handle, end),
             },
             "buckets": list(buckets.values()),
+            "skipped": skipped,
         },
         consumed,
         more,

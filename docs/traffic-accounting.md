@@ -34,8 +34,13 @@ request IDs are reported as unusable, rather than guessed at or counted twice.
 
 The collector reads complete newline-terminated records from active files,
 uncompressed archives and gzip archives. Partial trailing records stay pending.
-A corrupt or oversized record blocks its file without advancing that file's
-cursor; other valid files can still progress. The maximum record size is 64 KiB.
+A record that fails validation (for example a visitor-supplied `Host` that is
+not a valid hostname, which a wildcard site still serves and logs) or exceeds
+the 64 KiB record limit is skipped: the cursor moves past it, it is not
+counted, and the batch reports how many records were skipped. Skipped counts
+appear in the collection audit event and worker logs as `skipped`. A file whose
+first record does not carry the current schema and a generated request ID
+cannot be identified as a stream and is reported as an error instead.
 Each invocation processes at most `BLITZE_TRAFFIC_COLLECTION_MAX_BYTES` (256 MiB
 by default) of new record bytes and 128 stream batches per edge; `more` reports
 remaining work. Completed streams do not emit

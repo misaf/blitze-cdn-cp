@@ -211,7 +211,7 @@ class TrafficStore:
     def apply(
         self, edge: str, collection: CollectedUsage, *, path_limit: int = 0
     ) -> EdgeCollection:
-        requests = bytes_sent = 0
+        requests = bytes_sent = skipped = 0
         with self._db.writer() as session:
             state = session.get(TrafficRetentionRow, 1)
             for batch in collection.batches:
@@ -236,7 +236,18 @@ class TrafficStore:
                     self._increment(session, edge, bucket, path_limit)
                     requests += bucket.requests
                     bytes_sent += bucket.bytes_sent
-                latest_hour = max(bucket.hour for bucket in batch.buckets)
+                skipped += batch.skipped
+                # A range of only skipped records still advances its cursor.
+                latest_hour = max(
+                    (bucket.hour for bucket in batch.buckets),
+                    default=(
+                        current.latest_hour
+                        if current
+                        else self._db.now()
+                        .astimezone(UTC)
+                        .replace(minute=0, second=0, microsecond=0)
+                    ),
+                )
                 if current is None:
                     current = TrafficCursorRow(
                         edge=edge, latest_hour=latest_hour, **batch.end.model_dump()
@@ -259,6 +270,7 @@ class TrafficStore:
                 edge=edge,
                 requests=requests,
                 bytes_sent=bytes_sent,
+                skipped=skipped,
                 errors=collection.errors,
                 more=collection.more,
             )

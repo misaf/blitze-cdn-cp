@@ -76,7 +76,7 @@ def test_first_partial_record_creates_no_cursor(tmp_path, collector, record):
 
 
 @pytest.mark.parametrize("value", [-1, True, "100", 1.5, 2**63])
-def test_invalid_counters_block_the_file_without_leaking_requests(
+def test_invalid_counters_are_skipped_without_leaking_requests(
     tmp_path, collector, record, value
 ):
     (tmp_path / "bad.test.access.log").write_bytes(
@@ -84,9 +84,65 @@ def test_invalid_counters_block_the_file_without_leaking_requests(
     )
     (tmp_path / "good.test.access.log").write_bytes(record())
     result = collect(collector, tmp_path)
-    assert len(result["batches"]) == 1
-    assert result["errors"]
+    assert not result["errors"]
+    assert sorted(batch["skipped"] for batch in result["batches"]) == [0, 1]
     assert "secret" not in str(result)
+
+
+def test_a_visitor_hostname_is_skipped_and_the_checkpoint_advances(
+    tmp_path, collector, record
+):
+    """One request with ``Host: a_b.example.com`` must not stall the log."""
+    lines = [record() for _ in range(9)]
+    lines[1] = record(hostname="a_b.example.com")
+    path = tmp_path / "_wildcard.example.com.access.log"
+    path.write_bytes(b"".join(lines))
+    result = collect(collector, tmp_path, max_bytes=65536, top_paths=0)
+    assert not result["errors"]
+    (batch,) = result["batches"]
+    assert batch["skipped"] == 1
+    assert sum(b["requests"] for b in batch["buckets"]) == 8
+    assert batch["end"]["offset"] == path.stat().st_size
+
+
+def test_a_rejected_first_record_still_identifies_its_stream(
+    tmp_path, collector, record
+):
+    path = tmp_path / "_wildcard.example.com.access.log"
+    path.write_bytes(record(hostname="a_b.example.com"))
+    (batch,) = collect(collector, tmp_path)["batches"]
+    assert batch["buckets"] == [] and batch["skipped"] == 1
+    with path.open("ab") as handle:
+        handle.write(record())
+    (batch,) = collect(collector, tmp_path, [batch["end"]])["batches"]
+    assert batch["skipped"] == 0
+    assert batch["buckets"][0]["requests"] == 1
+
+
+def test_oversized_records_are_skipped(tmp_path, collector, record):
+    huge = record(user_agent="x" * 200_000)
+    path = tmp_path / "api.example.com.access.log"
+    path.write_bytes(record() + huge + record())
+    (batch,) = collect(collector, tmp_path)["batches"]
+    assert batch["skipped"] == 1
+    assert batch["buckets"][0]["requests"] == 2
+    assert batch["end"]["offset"] == path.stat().st_size
+    # A first line over the limit is identified by its prefix and skipped too.
+    path.write_bytes(huge + record())
+    (batch,) = collect(collector, tmp_path)["batches"]
+    assert batch["skipped"] == 1
+    assert batch["buckets"][0]["requests"] == 1
+
+
+def test_an_oversized_record_still_being_written_is_not_advanced(
+    tmp_path, collector, record
+):
+    first = record()
+    path = tmp_path / "api.example.com.access.log"
+    path.write_bytes(first + b'{"user_agent":"' + b"x" * 100_000)
+    result = collect(collector, tmp_path)
+    assert result["more"]
+    assert result["batches"][0]["end"]["offset"] == len(first)
 
 
 def test_truncation_and_changed_checkpoint_anchors_are_reported(
@@ -139,9 +195,9 @@ def test_duplicate_copies_are_counted_once_and_bad_gzip_is_reported(
     assert result["errors"]
 
 
-def test_old_format_and_oversized_records_are_reported(tmp_path, collector, record):
+def test_an_unidentifiable_stream_is_reported(tmp_path, collector, record):
     (tmp_path / "old.test.access.log").write_bytes(b"not-json private-token=secret\n")
-    (tmp_path / "large.test.access.log").write_bytes(record(user_agent="x" * 65536))
+    (tmp_path / "noid.test.access.log").write_bytes(record(request_id="1"))
     result = collect(collector, tmp_path)
     assert not result["batches"] and len(result["errors"]) == 2
     assert "secret" not in str(result)
