@@ -286,6 +286,7 @@ def test_the_edge_document_names_each_locations_variable_scope():
     assert location["variable_scope"] == variable_scope("example-com", "assets")
     assert location["variable_scope"] != variable_scope("example-com", "other")
     assert location["path"] == "/static/"
+    assert location["pattern"] == path_pattern("/static/")
 
 
 def test_a_host_without_path_rules_carries_no_locations_to_the_edge():

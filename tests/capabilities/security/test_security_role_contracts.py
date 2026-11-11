@@ -9,6 +9,7 @@ The role is read through
 deployment resolves it by.
 """
 
+import re
 from typing import Any
 
 import yaml
@@ -27,6 +28,7 @@ from support.role_contracts import (
 )
 
 from blitzecdn.capabilities.security import ansible
+from blitzecdn.capabilities.security.contract import RATE_LIMIT_RATES
 
 ROLE = ansible.ROLES_PATH / ansible.EDGE_ROLE
 TASKS = ROLE / "tasks/main.yml"
@@ -249,3 +251,22 @@ def test_the_role_accepts_method_and_path_allowlists(desired_state, tmp_path):
     accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)
 
     assert accepted.returncode == 0, accepted.stdout
+
+
+def test_the_role_holds_rates_to_the_contracts_ladder():
+    """The edge refuses a hand-written rate off the ladder the contract offers.
+
+    A rung added to the contract alone fails every edge that uses it; one added
+    to the role alone declares a shared zone the contract never budgets for.
+    """
+    tasks = yaml.safe_load(TASKS.read_text(encoding="utf-8"))
+    check = next(
+        task for task in tasks if task["name"] == "Validate per-site rate limits"
+    )
+    ladder = next(
+        condition
+        for condition in check["ansible.builtin.assert"]["that"]
+        if condition.startswith("item.rate_limit.rate in")
+    )
+
+    assert tuple(re.findall(r"'([^']+)'", ladder)) == RATE_LIMIT_RATES

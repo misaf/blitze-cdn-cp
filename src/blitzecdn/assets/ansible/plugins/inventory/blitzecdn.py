@@ -64,7 +64,7 @@ plugin: blitzecdn
 #   ansible-inventory -i ansible/inventory/blitzecdn.yml --list
 """
 
-#: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
+#: The group the playbooks target. Mirrors ``capabilities.edges.domain.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
 #: Files that mark a project root: its configuration, or a checkout before
