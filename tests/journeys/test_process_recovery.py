@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 from support.paths import REPO_ROOT
+from support.release_probe import edge_accepts
 
 from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.core.runtime.lock import DeploymentLock
@@ -41,7 +42,12 @@ def practice(tmp_path):
     class Edge(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             assert self.path == "/.blitzecdn/release"
-            assert self.headers.get("X-BlitzeCDN-Probe") == "0" * 64
+            assert edge_accepts(
+                self.headers.get("X-BlitzeCDN-Probe"),
+                token="0" * 64,
+                host=self.headers.get("Host", ""),
+                uri=self.path,
+            )
             body = served.read_bytes()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))

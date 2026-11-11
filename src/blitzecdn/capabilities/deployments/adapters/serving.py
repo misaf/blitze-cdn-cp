@@ -4,8 +4,10 @@ A reload or a response can come from the previous release, so a reserved
 endpoint returns the digest rendered into the virtual host, whatever the
 origin's health. TLS also checks the certificate names the hostname.
 
-The endpoint answers only a request carrying this controller's release probe
-token; to anyone else it is a 404 like every other reserved path.
+The endpoint answers only a request signed with this controller's release
+probe token; to anyone else it is a 404 like every other reserved path. The
+token itself is never sent: these requests may travel in clear text, or over
+TLS to a certificate nobody verified. See :mod:`blitzecdn.core.ansible.probe`.
 """
 
 from __future__ import annotations
@@ -21,13 +23,14 @@ from cryptography import x509
 
 from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.tls.contract import TlsPolicy
-from blitzecdn.core.ansible.probe import RELEASE_PROBE_HEADER
+from blitzecdn.core.ansible.probe import (
+    RELEASE_PROBE_HEADER,
+    RELEASE_PROBE_PATH,
+    release_probe_signature,
+)
 from blitzecdn.core.domain.site import CdnSite
 
 __all__ = ["ServingProbe", "ServingResult"]
-
-#: Reserved by the edge configuration, never forwarded to a customer's origin.
-_PATH = "/.blitzecdn/release"
 
 #: A response at all is the pass condition; this bounds the wait.
 _TIMEOUT_SECONDS = 10.0
@@ -102,8 +105,13 @@ class ServingProbe:
             try:
                 connection.request(
                     "GET",
-                    _PATH,
-                    headers={"Host": hostname, RELEASE_PROBE_HEADER: self.token},
+                    RELEASE_PROBE_PATH,
+                    headers={
+                        "Host": hostname,
+                        RELEASE_PROBE_HEADER: release_probe_signature(
+                            self.token, hostname
+                        ),
+                    },
                 )
                 response = connection.getresponse()
                 observed = response.read(128).decode("ascii", errors="replace").strip()
@@ -111,6 +119,14 @@ class ServingProbe:
                 connection.close()
         except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
             return False, f"{type(exc).__name__}: {exc}"
+        if response.status == 404:
+            # What the edge answers an unsigned, stale or wrongly keyed probe.
+            return (
+                False,
+                f"expected release {release_digest}, but the edge refused the "
+                "release probe (HTTP 404): check that its clock is synchronised "
+                "and that it was deployed with this controller's probe token",
+            )
         if response.status != 200 or observed != release_digest:
             return (
                 False,

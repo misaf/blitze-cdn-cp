@@ -93,15 +93,26 @@ converge() {
     -e @${EDGE_RELEASE_DIR}/release.yml $*"
 }
 
+# The X-BlitzeCDN-Probe value the control plane would send for a hostname,
+# from the control plane's own code; an optional second argument backdates it.
+probe_signature() {
+  uv run --project "${project_dir}" --no-sync python -c '
+import sys, time
+from blitzecdn.core.ansible.probe import release_probe_signature
+print(release_probe_signature(sys.argv[1], sys.argv[2], now=time.time() - float(sys.argv[3])))
+' "${probe_token}" "$1" "${2:-0}"
+}
+
 # A rollout of one release to the one edge: stage and activate, ask the edge
 # over HTTPS which release it serves, and commit only if it is this one. Every
 # step returns explicitly, because callers capture a failure with `|| true` and
 # `set -e` does not apply inside a function called that way.
 deploy() {
-  local digest served hidden
+  local digest served hidden refused signature
   digest=$(render_release "$@") || return
   converge || return
-  served=$("${client[@]}" -H "X-BlitzeCDN-Probe: ${probe_token}" \
+  signature=$(probe_signature site-one.test) || return
+  served=$("${client[@]}" -H "X-BlitzeCDN-Probe: ${signature}" \
     https://site-one.test/.blitzecdn/release) || return
   if [[ ${served} != "${digest}" ]]; then
     printf 'FAIL: the edge serves release %s, not %s\n' "${served}" "${digest}" >&2
@@ -115,6 +126,20 @@ deploy() {
     printf 'FAIL: the release marker answered %s without the probe token\n' "${hidden}" >&2
     return 1
   fi
+  # Neither does someone who captured a signature: not under another
+  # hostname, not once it has expired, and the bare token is no signature.
+  for refused in \
+    "$(probe_signature site-alias.test)" \
+    "$(probe_signature site-one.test 3600)" \
+    "${probe_token}"; do
+    hidden=$("${client[@]}" -o /dev/null -w '%{http_code}' \
+      -H "X-BlitzeCDN-Probe: ${refused}" \
+      https://site-one.test/.blitzecdn/release) || true
+    if [[ ${hidden} != 404 ]]; then
+      printf 'FAIL: the release marker answered %s to a replayed probe\n' "${hidden}" >&2
+      return 1
+    fi
+  done
   converge --tags commit
 }
 
