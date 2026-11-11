@@ -142,7 +142,10 @@ def rollback(
     deployment_id: Annotated[
         str | None,
         typer.Argument(
-            help="Successful deployment ID; defaults to the latest different state."
+            help=(
+                "Successful deployment ID; defaults to the newest full-fleet "
+                "release before the one the fleet runs."
+            )
         ),
     ] = None,
     yes: common.Yes = False,

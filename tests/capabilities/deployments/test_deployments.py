@@ -358,3 +358,27 @@ def test_a_canary_neither_raises_nor_resets_the_fleet_streak(settings):
     control.deployments.deploy("alice")
 
     assert _health(repository, ConvergenceKind.APPLIED).consecutive_failures == 0
+
+
+def test_automatic_rollback_goes_back_from_the_live_release_not_desired_state(
+    settings,
+):
+    """Undeployed edits must not make "rollback" re-converge the live release."""
+    repository = Stores(settings.database_path)
+    runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control, name="example-com", record="cdn")
+    first = control.deployments.deploy("alice")
+    seed_site(control, name="other-example-com", record="other")
+    live = control.deployments.deploy("alice")
+    assert first.release_id != live.release_id
+
+    # Undeployed, so desired state matches no deployment.
+    repository.zones.delete_record("example.com", "cdn", RecordType.A)
+
+    result = control.deployments.rollback("alice", None)
+
+    assert result.status is DeploymentStatus.SUCCEEDED
+    assert result.rollback_of == first.id
+    assert result.release_id == first.release_id
