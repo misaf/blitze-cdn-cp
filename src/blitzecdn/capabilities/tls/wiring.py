@@ -13,7 +13,10 @@ from dishka import Provider, Scope, alias, provide
 
 from blitzecdn.capabilities.edges import EdgeStore, OriginProbe
 from blitzecdn.capabilities.tls.adapters.persistence import PreflightAttemptStore
-from blitzecdn.capabilities.tls.certificates.adapters import CertbotIssuer
+from blitzecdn.capabilities.tls.certificates.adapters import (
+    AcmeIssuer,
+    PlaybookChallenges,
+)
 from blitzecdn.capabilities.tls.certificates.adapters import (
     CertificateStore as CertificateFiles,
 )
@@ -22,12 +25,12 @@ from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
 )
 from blitzecdn.capabilities.tls.certificates.domain import PreflightBackoff
 from blitzecdn.capabilities.tls.certificates.ports import (
-    CertbotTimeout,
     CertificateStore,
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
     EventRecorder,
+    IssuanceTimeout,
     PreflightAttempts,
     RecordReader,
     ReleaseHistory,
@@ -50,7 +53,11 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
 )
 from blitzecdn.capabilities.tls.ports import CertificateHistory
-from blitzecdn.capabilities.tls.settings import CONFIGURATION, CertificateConfig
+from blitzecdn.capabilities.tls.settings import (
+    CONFIGURATION,
+    CertificateConfig,
+    acme_account_dir,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.features import (
     FeatureOperations,
@@ -63,6 +70,7 @@ from blitzecdn.core.features import (
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports.clock import Clock
+from blitzecdn.core.ports.operations import PlaybookRunner
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -127,10 +135,12 @@ def build_certificate_service(
     workflows: WorkflowCoordinator,
     uow: UnitOfWork,
     preflight_attempts: PreflightAttempts,
-    certbot_timeout_seconds: int,
+    playbooks: PlaybookRunner,
+    issuance_timeout_seconds: int,
     clock: Clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
+    preflight = CertificatePreflight(config, edges, origin_probe=origin_probe)
     return CertificateService(
         material_references=CertificateMaterialReferences(releases),
         policy=CertificatePolicy(
@@ -150,10 +160,17 @@ def build_certificate_service(
         ),
         execution=CertificateExecution(
             runner=lock,
-            issuer=CertbotIssuer(
-                settings, config.certbot, timeout_seconds=certbot_timeout_seconds
+            issuer=AcmeIssuer(
+                directory_url=config.directory_url,
+                account_dir=acme_account_dir(settings.state_dir),
+                challenges=PlaybookChallenges(
+                    playbooks=playbooks,
+                    challenge_edges=preflight.challenge_edges,
+                ),
+                timeout_seconds=issuance_timeout_seconds,
+                ca_bundle=config.ca_bundle,
             ),
-            preflight=CertificatePreflight(config, edges, origin_probe=origin_probe),
+            preflight=preflight,
         ),
         events=events,
         dns=dns,
@@ -312,7 +329,8 @@ class TlsProvider(Provider):
         workflows: WorkflowCoordinator,
         uow: UnitOfWork,
         preflight_attempts: PreflightAttempts,
-        certbot_timeout: CertbotTimeout,
+        playbooks: PlaybookRunner,
+        issuance_timeout: IssuanceTimeout,
         clock: Clock,
     ) -> CertificateService:
         return build_certificate_service(
@@ -332,7 +350,8 @@ class TlsProvider(Provider):
             workflows=workflows,
             uow=uow,
             preflight_attempts=preflight_attempts,
-            certbot_timeout_seconds=certbot_timeout,
+            playbooks=playbooks,
+            issuance_timeout_seconds=issuance_timeout,
             clock=clock,
         )
 

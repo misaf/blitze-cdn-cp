@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import signal
-import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,14 +11,13 @@ from support.control_plane import certificate_dir, private_key_pem
 from support.policy import site_from_settings
 
 from blitzecdn.capabilities.tls.certificates.adapters import (
-    CertbotIssuer,
     CertificateStore,
 )
 from blitzecdn.capabilities.tls.certificates.adapters import (
     store as certificates_module,
 )
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
-from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.ports.clock import system_clock
 
 
@@ -209,108 +206,6 @@ def test_store_validates_certificate_chain(settings, site_payload, rsa_keys):
         CertificateStore(settings, clock=system_clock).install(
             site, invalid_chain, key, source=CertificateSource.UPLOADED
         )
-
-
-def test_certbot_issuer_builds_http01_command(
-    settings, site_payload, certificate_pair, monkeypatch
-):
-    executable = settings.project_dir / "certbot"
-    executable.touch()
-    certificate, key = certificate_pair()
-    captured: list[str] = []
-
-    class FakeProcess:
-        pid = 123
-        returncode = 0
-
-        def communicate(self, timeout=None):
-            return "ok", ""
-
-    def fake_popen(command, **_kwargs):
-        captured.extend(command)
-        config_dir = command[command.index("--config-dir") + 1]
-        live = settings.project_dir.__class__(config_dir) / "live/example-com"
-        live.mkdir(parents=True)
-        (live / "fullchain.pem").write_bytes(certificate)
-        (live / "privkey.pem").write_bytes(key)
-        return FakeProcess()
-
-    monkeypatch.setattr(certificates_module.subprocess, "Popen", fake_popen)
-    result = CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
-        site_from_settings(site_payload), "owner@example.com"
-    )
-    assert result == (certificate, key)
-    assert "--manual-auth-hook" in captured
-    assert captured[captured.index("--domain") + 1] == "cdn.example.com"
-    # Certbot keeps a lineage that is not near expiry and still exits 0, so
-    # without this a renewal reads the old PEM back and reports success.
-    assert "--force-renewal" in captured
-
-
-def test_certbot_issuer_rejects_wildcards_and_reports_failure(
-    settings, site_payload, monkeypatch
-):
-    executable = settings.project_dir / "certbot"
-    executable.touch()
-    wildcard = site_from_settings({**site_payload, "server_names": ["*.example.com"]})
-    with pytest.raises(ConfigurationError, match="wildcard"):
-        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
-            wildcard, "owner@example.com"
-        )
-
-    class FailedProcess:
-        pid = 123
-        returncode = 1
-
-        def communicate(self, timeout=None):
-            return "", "failed"
-
-    monkeypatch.setattr(
-        certificates_module.subprocess,
-        "Popen",
-        lambda *args, **kwargs: FailedProcess(),
-    )
-    with pytest.raises(ExecutionError, match="failed"):
-        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
-            site_from_settings(site_payload), "owner@example.com"
-        )
-
-
-def test_certbot_timeout_terminates_process_group(settings, site_payload, monkeypatch):
-    executable = settings.project_dir / "certbot"
-    executable.touch()
-    signals: list[int] = []
-
-    class TimedOutProcess:
-        pid = 456
-        returncode = None
-
-        def __init__(self):
-            self.calls = 0
-
-        def communicate(self, timeout=None):
-            self.calls += 1
-            if self.calls == 1:
-                raise subprocess.TimeoutExpired("certbot", timeout)
-            return "", ""
-
-    monkeypatch.setattr(
-        certificates_module.subprocess,
-        "Popen",
-        lambda *args, **kwargs: TimedOutProcess(),
-    )
-    monkeypatch.setattr(
-        certificates_module.os,
-        "killpg",
-        lambda _pid, sent_signal: signals.append(sent_signal),
-    )
-
-    with pytest.raises(ExecutionError, match="timed out"):
-        CertbotIssuer(settings, str(executable), timeout_seconds=900).issue(
-            site_from_settings(site_payload), "owner@example.com"
-        )
-
-    assert signals == [signal.SIGTERM]
 
 
 def _install(store, settings, certificate_pair, name, *, days, source):

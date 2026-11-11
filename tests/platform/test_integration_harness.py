@@ -11,7 +11,6 @@ executable lines only; a comment mentioning `docker load` is not one.
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 
@@ -512,9 +511,10 @@ def test_the_harness_serves_an_http01_challenge_through_the_shipped_playbook():
 def test_the_install_harness_issues_against_a_ca_that_really_validates():
     """The control plane's half of ACME, and the ways it could pass hollow.
 
-    Issuance is certbot, the manual hooks, the playbook they drive and the chain
-    the store validates. The key setting is `httpPort`: Pebble's default 5002 is
-    its own challenge server, which would issue without asking the edge.
+    Issuance is the in-process ACME client, the challenge playbook it drives
+    and the chain the store validates. The key setting is `httpPort`: Pebble's
+    default 5002 is its own challenge server, which would issue without asking
+    the edge.
     """
     commands = _commands(INSTALL_HARNESS)
     text = INSTALL_HARNESS.read_text(encoding="utf-8")
@@ -544,29 +544,19 @@ def test_the_install_harness_issues_against_a_ca_that_really_validates():
     )
     assert "StartedAt" in commands, "nothing checks that the restart replaced anything"
 
-    # Through the product's own issuance path, not by driving certbot directly.
+    # Through the product's own issuance path, not by driving an ACME client.
     assert "/certificate/request" in commands, (
         "the harness does not ask the control plane to issue the certificate"
     )
 
-    # certbot reaches Pebble through the committed wrapper, which must be present
-    # and executable in the image.
-    wrapper = REPO_ROOT / "tests/integration/certbot-pebble"
-    assert wrapper.is_file(), "the test certbot wrapper is missing"
-    assert os.access(wrapper, os.X_OK), "the test certbot wrapper is not executable"
-    # Its executable lines, not its text: the comment above the `exec` explains
-    # why `--server` is where the CA is named, and a comment is not a flag.
-    executed = "\n".join(
-        line
-        for line in wrapper.read_text(encoding="utf-8").splitlines()
-        if not line.lstrip().startswith("#")
+    # Pebble is reached through the product's settings, with its API
+    # certificate trusted explicitly rather than TLS verification turned off.
+    assert "acme_directory_url" in commands, (
+        "the harness does not point issuance at the test CA, so it would be "
+        "attempted against the real one"
     )
-    assert "--server" in executed, (
-        "the wrapper does not redirect certbot to the test CA, so issuance "
-        "would be attempted against the real one"
-    )
-    assert str(wrapper.relative_to(REPO_ROOT)) in commands, (
-        "the harness does not point the control plane at the wrapper"
+    assert "acme_ca_bundle" in commands, (
+        "the harness does not trust the test CA's API certificate"
     )
 
     # The chain is verified against its root and for its name, or the last check is
