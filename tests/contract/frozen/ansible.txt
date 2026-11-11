@@ -40,7 +40,6 @@ blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_entries.scheme	ty
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_entries.uri	type=str required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_http_ports	type=list elements=int required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_https_ports	type=list elements=int required
-blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_levels	type=str required choices=[1:2]
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_methods	type=list elements=str required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_normalize_accept_encoding	type=bool required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_path	type=path required
