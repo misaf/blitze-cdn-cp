@@ -299,3 +299,66 @@ console.log(JSON.stringify({
     assert report["short"] == 403
     assert report["pageDifficulty"] is True
     assert report["pageAgrees"] is True
+
+
+def test_the_challenge_page_nonce_differs_on_every_response(tmp_path: Path):
+    """The CSP nonce is per response, not fixed per host, address and User-Agent.
+
+    Pages served to the same client differ in their nonce whenever the request
+    id or the clock does, and the script carries the nonce the header names.
+    """
+    report = _run_harness(
+        tmp_path,
+        _render_module(),
+        """
+import mitigation from './under-attack.mjs';
+
+let clock = 1700000000000;
+Date.now = () => clock;
+
+function request(requestId, token) {
+    return {
+        method: 'GET',
+        remoteAddress: '2001:db8::10',
+        headersIn: {'User-Agent': 'Test Browser/1'},
+        headersOut: {},
+        variables: {
+            host: 'example.com',
+            scheme: 'https',
+            blitzecdn_under_attack_target: '/',
+            cookie_blitzecdn_clearance: '',
+            request_id: requestId,
+            blitzecdn_under_attack_key: '__KEY__',
+        },
+        args: {token: token || ''},
+        return(status, body) { this.status = status; this.body = body; },
+    };
+}
+
+const guarded = request('0123456789abcdef0123456789abcdef');
+mitigation.guard(guarded);
+const token = guarded.variables.blitzecdn_under_attack_location.split('token=')[1];
+
+function page(requestId) {
+    const r = request(requestId, token);
+    mitigation.challenge(r);
+    const header = r.headersOut['Content-Security-Policy'].match(/'nonce-([^']+)'/)[1];
+    const script = r.body.match(/<script nonce="([^"]+)">/)[1];
+    return {status: r.status, header, script};
+}
+
+const first = page('11111111111111111111111111111111');
+const otherRequest = page('22222222222222222222222222222222');
+clock += 1;
+const later = page('11111111111111111111111111111111');
+
+console.log(JSON.stringify({first, otherRequest, later}));
+""",
+    )
+
+    first, other, later = report["first"], report["otherRequest"], report["later"]
+    assert {first["status"], other["status"], later["status"]} == {200}
+    for served in (first, other, later):
+        assert served["header"] == served["script"]
+        assert len(served["header"]) == 24
+    assert len({first["header"], other["header"], later["header"]}) == 3
