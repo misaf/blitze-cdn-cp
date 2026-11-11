@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import (
     ConfigDict,
@@ -18,7 +18,8 @@ from pydantic import (
 )
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import IpNetwork, OmittedWhenEmpty, unique
+from blitzecdn.core.domain.validation import OmittedWhenEmpty, unique
+from blitzecdn.core.domain.values import IpNetwork, NginxValue, UrlPath, regex
 
 COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
@@ -290,6 +291,38 @@ ALLOWED_PATHS_PATTERN_LIMIT = 3500
 COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 
 
+def _country_code(value: str) -> str:
+    candidate = value.strip().upper()
+    if not COUNTRY_CODE.fullmatch(candidate):
+        raise ValueError(
+            f"{value!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
+        )
+    if candidate in COUNTRY_ALIASES:
+        raise ValueError(
+            f"{value!r} is not an ISO 3166-1 alpha-2 country code; "
+            f"use {COUNTRY_ALIASES[candidate]!r}"
+        )
+    if candidate not in ISO_3166_1_ALPHA_2:
+        raise ValueError(
+            f"{value!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
+        )
+    return candidate
+
+
+def _http_method(value: str) -> str:
+    candidate = value.strip().upper()
+    if not HTTP_METHOD.fullmatch(candidate):
+        raise ValueError(f"{value!r} is not an HTTP method such as 'DELETE'")
+    return candidate
+
+
+#: An assigned ISO 3166-1 alpha-2 code, upper case.
+CountryCode = Annotated[str, NginxValue("country code", _country_code)]
+
+#: An HTTP method name, upper case.
+HttpMethod = Annotated[str, NginxValue("HTTP method", _http_method)]
+
+
 class SiteFirewall(OmittedWhenEmpty):
     """Per-hostname request filtering applied by Nginx; omitted when empty."""
 
@@ -307,7 +340,7 @@ class SiteFirewall(OmittedWhenEmpty):
     deny_sources: tuple[IpNetwork, ...] = Field(
         default=(), max_length=200, description="CIDR networks answered with 403."
     )
-    allowed_countries: tuple[str, ...] = Field(
+    allowed_countries: tuple[CountryCode, ...] = Field(
         default=(),
         max_length=250,
         description=(
@@ -315,12 +348,12 @@ class SiteFirewall(OmittedWhenEmpty):
             "geoip capability."
         ),
     )
-    denied_countries: tuple[str, ...] = Field(
+    denied_countries: tuple[CountryCode, ...] = Field(
         default=(),
         max_length=250,
         description="ISO 3166-1 alpha-2 codes answered with 403. Needs geoip.",
     )
-    allowed_methods: tuple[str, ...] = Field(
+    allowed_methods: tuple[HttpMethod, ...] = Field(
         default=(),
         max_length=20,
         description=(
@@ -329,10 +362,10 @@ class SiteFirewall(OmittedWhenEmpty):
             "(OPTIONS) and form posts. Cannot be combined with denied_methods."
         ),
     )
-    denied_methods: tuple[str, ...] = Field(
+    denied_methods: tuple[HttpMethod, ...] = Field(
         default=(), max_length=20, description="HTTP methods answered with 405."
     )
-    allowed_paths: tuple[str, ...] = Field(
+    allowed_paths: tuple[UrlPath, ...] = Field(
         default=(),
         max_length=100,
         description=(
@@ -342,7 +375,7 @@ class SiteFirewall(OmittedWhenEmpty):
             "apply inside an allowed prefix."
         ),
     )
-    denied_paths: tuple[str, ...] = Field(
+    denied_paths: tuple[UrlPath, ...] = Field(
         default=(), max_length=100, description="URI prefixes answered with 403."
     )
     case_insensitive_paths: bool = Field(
@@ -392,35 +425,12 @@ class SiteFirewall(OmittedWhenEmpty):
     @field_validator("allowed_countries", "denied_countries")
     @classmethod
     def validate_countries(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = []
-        for item in values:
-            candidate = item.strip().upper()
-            if not COUNTRY_CODE.fullmatch(candidate):
-                raise ValueError(
-                    f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
-                )
-            if candidate in COUNTRY_ALIASES:
-                raise ValueError(
-                    f"{item!r} is not an ISO 3166-1 alpha-2 country code; "
-                    f"use {COUNTRY_ALIASES[candidate]!r}"
-                )
-            if candidate not in ISO_3166_1_ALPHA_2:
-                raise ValueError(
-                    f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
-                )
-            normalized.append(candidate)
-        return unique(tuple(normalized), "country")
+        return unique(values, "country")
 
     @field_validator("allowed_methods", "denied_methods")
     @classmethod
     def validate_methods(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = []
-        for item in values:
-            candidate = item.strip().upper()
-            if not HTTP_METHOD.fullmatch(candidate):
-                raise ValueError(f"{item!r} is not an HTTP method such as 'DELETE'")
-            normalized.append(candidate)
-        return unique(tuple(normalized), "method")
+        return unique(values, "method")
 
     @field_validator("allowed_methods")
     @classmethod
@@ -435,9 +445,8 @@ class SiteFirewall(OmittedWhenEmpty):
     def validate_paths(
         cls, values: tuple[str, ...], info: ValidationInfo
     ) -> tuple[str, ...]:
-        kind = "allowed" if info.field_name == "allowed_paths" else "denied"
-        normalized = validated_paths(values, kind)
-        if kind == "denied" and "/" in normalized:
+        normalized = unique(values, "path")
+        if info.field_name == "denied_paths" and "/" in normalized:
             # `location ^~ /` duplicates the site's own `location /`, which
             # fails the edge's configuration test.
             raise ValueError(
@@ -472,32 +481,12 @@ class SiteFirewall(OmittedWhenEmpty):
         return bool(self.allowed_countries or self.denied_countries)
 
 
-def validated_paths(values: Sequence[str], kind: str) -> tuple[str, ...]:
-    """Paths that reach an Nginx regex or ``location`` unquoted, normalised."""
-    normalized = []
-    for item in values:
-        candidate = item.strip()
-        if not candidate.startswith("/"):
-            raise ValueError(f"{kind} path {item!r} must start with '/'")
-        if len(candidate) > 512:
-            raise ValueError(f"{kind} paths must be at most 512 characters")
-        if any(character in candidate for character in " \t\r\n;{}\"'\\"):
-            raise ValueError(
-                f"{kind} path {item!r} may not contain whitespace, quotes, "
-                "backslashes, ';', '{' or '}'"
-            )
-        normalized.append(candidate)
-    return unique(tuple(normalized), "path")
-
-
 def allowed_paths_pattern(paths: Sequence[str]) -> str:
     """The alternation the edge renders: a prefix for '/'-terminated paths.
 
-    Mirrors ``security-access.conf.j2``, whose ``regex_escape`` is ``re.escape``.
+    Mirrors ``security-access.conf.j2``, whose ``regex_escape`` is :func:`regex`.
     """
-    return "|".join(
-        re.escape(path) + ("" if path.endswith("/") else "$") for path in paths
-    )
+    return "|".join(regex(path) + ("" if path.endswith("/") else "$") for path in paths)
 
 
 #: The request rates a site may choose, slowest first. A ladder rather than any
@@ -523,6 +512,20 @@ RATE_LIMIT_RATES = (
 RATE_LIMIT_STATUSES = (429, 503)
 
 
+def _rate(value: str) -> str:
+    candidate = value.strip().replace(" ", "")
+    if candidate not in RATE_LIMIT_RATES:
+        raise ValueError(
+            f"{value!r} is not an available rate; choose one of "
+            + ", ".join(RATE_LIMIT_RATES)
+        )
+    return candidate
+
+
+#: One rung of :data:`RATE_LIMIT_RATES`.
+RateLimitRate = Annotated[str, NginxValue("rate", _rate)]
+
+
 def rate_limit_zone(rate: str) -> str:
     """The shared zone one rung renders as; mirrors ``security-http.conf.j2``."""
     return "blitzecdn_rate_" + rate.replace("/", "")
@@ -531,7 +534,7 @@ def rate_limit_zone(rate: str) -> str:
 class SiteRateLimit(OmittedWhenEmpty):
     """A per-client request rate for one site; omitted when no rate is set."""
 
-    rate: str | None = Field(
+    rate: RateLimitRate | None = Field(
         default=None,
         description=(
             "Requests each client address may make, as one of "
@@ -553,7 +556,7 @@ class SiteRateLimit(OmittedWhenEmpty):
         default=429,
         description="The status refused requests get: 429 or 503.",
     )
-    paths: tuple[str, ...] = Field(
+    paths: tuple[UrlPath, ...] = Field(
         default=(),
         max_length=100,
         description=(
@@ -572,19 +575,6 @@ class SiteRateLimit(OmittedWhenEmpty):
     def zone(self) -> str | None:
         return None if self.rate is None else rate_limit_zone(self.rate)
 
-    @field_validator("rate")
-    @classmethod
-    def validate_rate(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        candidate = value.strip().replace(" ", "")
-        if candidate not in RATE_LIMIT_RATES:
-            raise ValueError(
-                f"{value!r} is not an available rate; choose one of "
-                + ", ".join(RATE_LIMIT_RATES)
-            )
-        return candidate
-
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: int) -> int:
@@ -595,7 +585,7 @@ class SiteRateLimit(OmittedWhenEmpty):
     @field_validator("paths")
     @classmethod
     def validate_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return validated_paths(values, "rate-limited")
+        return unique(values, "path")
 
     @model_validator(mode="after")
     def validate_rate_is_set(self) -> Self:

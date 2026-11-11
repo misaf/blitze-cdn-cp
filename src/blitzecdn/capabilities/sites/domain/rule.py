@@ -20,9 +20,10 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.sites.domain.patch import DomainPatch
-from blitzecdn.core.domain.paths import PathRedirect, path_matches, validate_rule_path
+from blitzecdn.core.domain.paths import PathRedirect, path_matches
 from blitzecdn.core.domain.site_policy import SitePolicy
-from blitzecdn.core.domain.validation import SITE_NAME, hostname
+from blitzecdn.core.domain.validation import hostname
+from blitzecdn.core.domain.values import Hostname, RuleName, UrlPath
 
 __all__ = ["Rule", "RulePatch", "validate_rule_action"]
 
@@ -124,43 +125,23 @@ class Rule(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    domain: str
-    name: str
+    domain: Hostname
+    name: RuleName
     #: Lower runs first; ties break on the name for one deterministic answer.
     priority: int = Field(default=100, ge=1, le=1000)
     match: str = "*"
     #: Makes this a path rule: a prefix (``/static/``) or exact (``/robots.txt``)
     #: match on the normalized request path.
-    path: str | None = None
+    path: UrlPath | None = None
     overrides: Mapping[str, Any] = Field(default_factory=dict)
     #: A path rule's alternative to overrides: answer with a redirect.
     redirect: PathRedirect | None = None
     enabled: bool = True
 
-    @field_validator("domain")
-    @classmethod
-    def validate_domain(cls, value: str) -> str:
-        return hostname(value)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if not SITE_NAME.fullmatch(normalized):
-            raise ValueError(
-                "name must start with a letter and contain only a-z, 0-9, and hyphens"
-            )
-        return normalized
-
     @field_validator("match")
     @classmethod
     def validate_match(cls, value: str) -> str:
         return _validate_match(value)
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str | None) -> str | None:
-        return None if value is None else validate_rule_path(value)
 
     @field_validator("overrides")
     @classmethod
@@ -227,15 +208,10 @@ class RulePatch(BaseModel):
 
     priority: int | None = Field(default=None, ge=1, le=1000)
     match: str | None = None
-    path: str | None = None
+    path: UrlPath | None = None
     overrides: Mapping[str, Any] | None = None
     redirect: PathRedirect | None = None
     enabled: bool | None = None
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str | None) -> str | None:
-        return None if value is None else validate_rule_path(value)
 
     @field_validator("match")
     @classmethod

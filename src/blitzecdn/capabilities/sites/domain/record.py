@@ -17,7 +17,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import DNS_LABEL, IpAddress, hostname
+from blitzecdn.core.domain.validation import DNS_LABEL, hostname
+from blitzecdn.core.domain.values import IpAddress
 
 
 class RecordType(StrEnum):
