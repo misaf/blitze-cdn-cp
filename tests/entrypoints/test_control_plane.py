@@ -248,25 +248,42 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     assert "blitzecdn_nginx_allow_empty_sites: true" in desired
 
 
-def test_interrupted_deployment_is_recorded_as_abandoned(settings):
+def test_an_interrupted_deployment_is_left_for_takeover(settings):
+    """An interrupt records nothing; takeover settles it, as after a SIGKILL.
+
+    Writing during shutdown could itself be interrupted and never happens on a
+    kill or a crash, so recovery is the one path for every way a worker stops.
+    """
+
     class InterruptedRunner(FakeRunner):
         def run(self, *, check: bool, host_limit: str | None = None, tags=()):
             raise KeyboardInterrupt
 
     repository = Stores(settings.database_path)
-    control = build_application(
+    interrupted = build_application(
         settings=settings, repository=repository, runner=InterruptedRunner()
     )
-    seed_edge(control)
+    seed_edge(interrupted)
 
     with pytest.raises(KeyboardInterrupt):
-        control.deployments.deploy("alice")
+        interrupted.deployments.deploy("alice")
 
-    deployment = repository.deployments.list_deployments(1)[0]
-    assert deployment.status is DeploymentStatus.ABANDONED
-    assert deployment.finished_at is not None
-    assert deployment.result is not None
-    assert "KeyboardInterrupt" in (deployment.result.error or "")
+    stranded = repository.deployments.list_deployments(1)[0]
+    assert stranded.status is DeploymentStatus.RUNNING
+    assert stranded.finished_at is None
+    [journalled] = repository.workflows.list_workflows()
+    assert journalled.status is WorkflowStatus.RUNNING
+
+    restarted = build_application(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a"))]),
+    )
+    resumed = restarted.deployments.run_queued(stranded.id)
+
+    assert resumed.id == stranded.id
+    assert resumed.status is DeploymentStatus.SUCCEEDED
+    assert repository.workflows.get(journalled.id).status is WorkflowStatus.NEEDS_REVIEW
 
 
 def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
