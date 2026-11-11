@@ -124,6 +124,20 @@ def test_deployment_lock_serializes_processes(settings):
         pass
 
 
+def test_a_refused_entry_tells_the_holder_someone_is_waiting(settings):
+    """What lets the drift check stand aside for a deployment between batches."""
+    with DeploymentLock(deployment_lock(settings)) as held:
+        assert held.contended() is False
+        with (
+            pytest.raises(DeploymentBusyError),
+            DeploymentLock(deployment_lock(settings)),
+        ):
+            pass
+        assert held.contended() is True
+    with DeploymentLock(deployment_lock(settings)) as next_holder:
+        assert next_holder.contended() is False, "taking the lock answers the request"
+
+
 def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
     """`flock` is per open file description, and the fleet has several writers.
 

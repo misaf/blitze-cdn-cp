@@ -5,7 +5,7 @@ from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from blitzecdn.capabilities.deployments.domain import (
     ConvergenceHealth,
@@ -226,6 +226,19 @@ class DeploymentLocker(Protocol):
         ...
 
 
+@runtime_checkable
+class ContendedLock(Protocol):
+    """A held deployment lock that can say whether someone is waiting for it.
+
+    What entering ``DeploymentLocker.lock()`` gives back, when the lock can tell.
+    A holder that may stop early asks between steps and lets the waiter in.
+    """
+
+    def contended(self) -> bool:
+        """Whether someone was refused the lock since it was taken."""
+        ...
+
+
 class DeploymentRunner(DeploymentLocker, Protocol):
     """Converges the fleet, under the lock it inherits.
 
@@ -362,6 +375,7 @@ class Workflows(Protocol):
 
 
 __all__ = [
+    "ContendedLock",
     "DeploymentGateway",
     "DeploymentLocker",
     "DeploymentRequirements",

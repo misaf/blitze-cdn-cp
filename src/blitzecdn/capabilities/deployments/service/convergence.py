@@ -25,6 +25,7 @@ from blitzecdn.capabilities.deployments.domain import (
     aborted_run,
 )
 from blitzecdn.capabilities.deployments.ports import (
+    ContendedLock,
     ConvergenceOutcomes,
     DeploymentRequirements,
     DeploymentRunner,
@@ -197,7 +198,13 @@ class DeploymentService:
             deployment = self._queue(operator, check=check, host_limit=host_limit)
             return self._journalled(deployment, operator)
 
-    def _journalled(self, deployment: Deployment, operator: str) -> Deployment:
+    def _journalled(
+        self,
+        deployment: Deployment,
+        operator: str,
+        *,
+        should_yield: Callable[[], bool] | None = None,
+    ) -> Deployment:
         """Converge inside a workflow record, so every path leaves a durable trace.
 
         The record names the deployment from the moment it opens, so a workflow a
@@ -211,7 +218,7 @@ class DeploymentService:
             kind = DEPLOYMENT_WORKFLOW
             checkpoint = "converged"
         with self.workflows.run(kind, operator, deployment.id) as progress:
-            deployment = self.converge(deployment, operator)
+            deployment = self.converge(deployment, operator, should_yield=should_yield)
             progress.checkpoint(checkpoint, {"deployment_id": deployment.id})
             if deployment.status is not DeploymentStatus.SUCCEEDED:
                 progress.fail(deployment.detail or deployment.status.value)
@@ -303,8 +310,22 @@ class DeploymentService:
     def check_drift(
         self, operator: str, *, host_limit: str | None = None
     ) -> DriftReport:
-        """Ask the fleet, in check mode, whether it still matches desired state."""
-        deployment = self.deploy(operator, check=True, host_limit=host_limit)
+        """Ask the fleet, in check mode, whether it still matches desired state.
+
+        It holds the deployment lock, but stands aside between batches when someone
+        is refused it, so a scheduled check never keeps a real deployment waiting
+        for longer than one batch's validation. A check cut short that way reports
+        the edges it did not reach as unattempted.
+        """
+        with self.execution.runner.lock() as held:
+            deployment = self._queue(operator, check=True, host_limit=host_limit)
+            deployment = self._journalled(
+                deployment,
+                operator,
+                should_yield=(
+                    held.contended if isinstance(held, ContendedLock) else None
+                ),
+            )
         report = self.drift_report(deployment.id)
         self.events.record(
             domain_event(
@@ -463,11 +484,18 @@ class DeploymentService:
             enqueue=enqueue,
         )
 
-    def converge(self, deployment: Deployment, operator: str) -> Deployment:
-        """Roll this deployment's release out edge by edge. Callers hold the lock.
+    def converge(
+        self,
+        deployment: Deployment,
+        operator: str,
+        *,
+        should_yield: Callable[[], bool] | None = None,
+    ) -> Deployment:
+        """Roll this deployment's release out, canary first. Callers hold the lock.
 
         The lock stops two deployments overlapping; the rollout's fence stops a worker
         paused past its lease from recording results for a rollout taken over since.
+        ``should_yield`` lets a check-mode run stop between batches for a waiter.
         """
         check = deployment.check_mode
         if deployment.status is DeploymentStatus.QUEUED:
@@ -491,6 +519,7 @@ class DeploymentService:
                 release,
                 edges=planned_edges,
                 check=check,
+                should_yield=should_yield,
             )
             deployment = self._complete_rollout(
                 deployment, outcome, release, operator, check=check
@@ -561,7 +590,10 @@ class DeploymentService:
             )
             if target_status is DeploymentStatus.SUCCEEDED:
                 requirement_policy.settle(self.persistence.requirements, deployment)
-            self._record_finished(deployment)
+            # A check that stood aside for a deployment learned too little to count
+            # either way; counting it would page someone for being busy.
+            if not outcome.yielded:
+                self._record_finished(deployment)
             self.events.record(
                 domain_event(
                     operator,
@@ -574,6 +606,7 @@ class DeploymentService:
                         "converged": list(outcome.converged),
                         "unattempted": list(outcome.unattempted),
                         "error": outcome.error,
+                        "yielded": outcome.yielded,
                     },
                 )
             )
