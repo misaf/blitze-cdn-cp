@@ -3,10 +3,16 @@
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from pydantic import TypeAdapter, ValidationError
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, derive_hosts
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
-from blitzecdn.core.domain.validation import hostname
+from blitzecdn.core.domain.validation import (
+    IpAddress,
+    IpNetwork,
+    IpNetworkWidened,
+    hostname,
+)
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20
@@ -89,3 +95,32 @@ def test_release_inputs_derive_the_hosts_they_do_not_carry(
 
     assert host.server_names == (f"cdn-{label}.{domains[0].name}",)
     assert host.origin_host == str(address)
+
+
+_ADDRESS = TypeAdapter(IpAddress)
+_NETWORK = TypeAdapter(IpNetwork)
+_WIDENED = TypeAdapter(IpNetworkWidened)
+
+
+@given(address=st.ip_addresses())
+def test_shared_ip_types_store_the_canonical_spelling(address: object) -> None:
+    """Every field typed with these compares equal for equal addresses."""
+    canonical = str(address)
+    spelled = f"  {canonical.upper()} "
+    assert _ADDRESS.validate_python(spelled) == canonical
+    prefix = address.max_prefixlen  # type: ignore[attr-defined]
+    assert _NETWORK.validate_python(spelled) == f"{canonical}/{prefix}"
+    assert _WIDENED.validate_python(spelled) == f"{canonical}/{prefix}"
+
+
+@given(address=st.ip_addresses(v=6), zone=_ZONE)
+def test_shared_ip_types_refuse_a_zone_index(address: object, zone: str) -> None:
+    for adapter in (_ADDRESS, _NETWORK, _WIDENED):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(f"{address}%{zone}")
+
+
+def test_only_the_widened_network_masks_host_bits() -> None:
+    assert _WIDENED.validate_python("192.0.2.8/24") == "192.0.2.0/24"
+    with pytest.raises(ValidationError, match="host bits set"):
+        _NETWORK.validate_python("192.0.2.8/24")

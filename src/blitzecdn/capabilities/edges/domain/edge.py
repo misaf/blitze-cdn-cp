@@ -12,7 +12,12 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import hostname, ip_literal, ip_network, unique
+from blitzecdn.core.domain.validation import (
+    IpNetworkWidened,
+    hostname,
+    ip_literal,
+    unique,
+)
 
 #: The Ansible group every managed edge belongs to. The playbooks target it by
 #: name, so it is part of the contract with the roles rather than a label.
@@ -52,7 +57,7 @@ class Edge(BaseModel):
     #: Empty means the controller's address; resolved at use.
     public_addresses: tuple[str, ...] = Field(default=(), max_length=20)
     #: Management networks allowed to reach SSH; published as a union across edges.
-    ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
+    ssh_sources: tuple[IpNetworkWidened, ...] = Field(default=(), max_length=100)
     #: Capability tokens this edge's runtime is declared to provide; ``None`` means
     #: the controller's set. Declared, so compilation can refuse a site before a run;
     #: the edge role still probes the real binary at converge time.
@@ -125,22 +130,12 @@ class Edge(BaseModel):
     @field_validator("ssh_sources")
     @classmethod
     def validate_ssh_sources(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        """Normalise to CIDR, widening host bits.
+        """Distinct management CIDRs.
 
-        Unlike the site firewall, ``203.0.113.8/24`` here means "my /24": an operator
-        naming their management network.
+        Host bits are widened, unlike the site firewall: ``203.0.113.8/24`` here
+        means "my /24", an operator naming their management network.
         """
-        normalized = []
-        for item in values:
-            candidate = item.strip()
-            try:
-                normalized.append(str(ip_network(candidate, strict=False)))
-            except ValueError as error:
-                raise ValueError(
-                    f"{item!r} is not a management CIDR such as '203.0.113.0/24': "
-                    f"{error}"
-                ) from error
-        return unique(tuple(normalized), "management CIDR")
+        return unique(values, "management CIDR")
 
     @model_validator(mode="after")
     def validate_public_addresses_are_not_the_host(self) -> Self:
