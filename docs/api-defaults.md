@@ -18,6 +18,13 @@ A drift check is a deployment in check mode, `POST /v3/deployments` with
 `"check": true`; its report is `GET /v3/deployments/{id}/drift`. A rollback,
 `POST /v3/deployments/rollback`, is a deployment too.
 
+`GET /v3/releases/current/diff` answers "what would change on the edges if I
+deployed now": a unified diff, per rendered file, between the release the fleet
+runs and the one current state compiles to. It records nothing. Each deployment
+records the release the fleet ran when it was queued, and
+`GET /v3/deployments/{id}/diff` shows what that deployment changed. Secrets are
+never in a rendered bundle, so never in a diff.
+
 A request that only writes controller state answers synchronously: resource
 creation, `PATCH`, `DELETE` of controller records, and installing an uploaded
 certificate with `PUT /v3/sites/{name}/certificate`. A request that contacts

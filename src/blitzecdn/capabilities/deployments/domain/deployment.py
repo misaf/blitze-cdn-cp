@@ -132,6 +132,9 @@ class Deployment(BaseModel):
     #: The compiled release this run converges, by short digest; equal state is
     #: an equal id, so "did anything change" is a string comparison.
     release_id: str
+    #: The release the fleet was running when this was queued, ``None`` if no
+    #: run had reached an edge; what this changed is the diff between the two.
+    previous_release_id: str | None = None
     #: Host pattern this run was narrowed to, or ``None`` for every edge. A green
     #: canary is not a converged fleet, so rollback selection skips limited runs.
     host_limit: str | None = None

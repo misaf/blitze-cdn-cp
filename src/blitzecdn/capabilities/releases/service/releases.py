@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from blitzecdn.capabilities.releases.domain import (
     EdgeCapabilities,
     Release,
+    ReleaseDiff,
     ReleaseFinding,
     ReleaseInputs,
 )
@@ -19,6 +20,7 @@ from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
     ConfigurationRenderer,
+    LiveRelease,
     ReleaseStore,
     SiteChecks,
     StateContributors,
@@ -26,7 +28,7 @@ from blitzecdn.capabilities.releases.ports import (
 )
 from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
-from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.core.domain.configuration import ConfigurationBundle, ConfigurationDiff
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.exceptions import NotFoundError
@@ -51,6 +53,7 @@ class ReleaseService:
         uow: UnitOfWork,
         retention: int,
         renderer: ConfigurationRenderer,
+        live: LiveRelease,
     ) -> None:
         self.state = state
         self.targets = targets
@@ -63,6 +66,8 @@ class ReleaseService:
         self.uow = uow
         self.retention = retention
         self.renderer = renderer
+        #: Deployment history's answer to "what is the fleet running".
+        self.live = live
 
     def inputs(self) -> ReleaseInputs:
         """Canonical desired state as it stands right now."""
@@ -123,6 +128,21 @@ class ReleaseService:
             return self.releases.configuration(release.id)
         except NotFoundError:
             return self.renderer.render(release.execution_document())
+
+    def diff(self) -> ReleaseDiff:
+        """What deploying now would change: current state against the live release.
+
+        Compiles and renders without recording anything. The live side is what that
+        release first rendered to, which is what the edges were handed.
+        """
+        live = self.live.live_release()
+        release = self.compile()
+        before = self.releases.configuration(live) if live is not None else None
+        return ReleaseDiff(
+            live=live,
+            release=release,
+            configuration=ConfigurationDiff.between(before, self.render(release)),
+        )
 
     def get(self, release_id: str) -> Release:
         """One stored release; raises ``NotFoundError`` if there is none by that id."""

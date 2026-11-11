@@ -44,11 +44,20 @@ class DeploymentStore:
         self._db = database
 
     def in_use(self) -> Sequence[str]:
-        """Every release some deployment still names; pruning must keep them."""
+        """Every release some deployment still names; pruning must keep them.
+
+        That includes the release each was queued over, so its diff stays readable.
+        """
         with self._db.reader() as session:
-            return list(
-                session.scalars(select(DeploymentRow.release_id).distinct()).all()
+            converged = set(session.scalars(select(DeploymentRow.release_id)))
+            previous = set(
+                session.scalars(
+                    select(DeploymentRow.previous_release_id).where(
+                        DeploymentRow.previous_release_id.is_not(None)
+                    )
+                )
             )
+            return sorted(converged | {name for name in previous if name})
 
     def create_deployment(
         self,
@@ -59,6 +68,7 @@ class DeploymentStore:
         rollback_of: str | None = None,
         host_limit: str | None = None,
         canonical_digest: str | None = None,
+        previous_release_id: str | None = None,
     ) -> Deployment:
         deployment_id = uuid4().hex
         with self._db.writer() as session:
@@ -72,6 +82,7 @@ class DeploymentStore:
                 release_id=release_id,
                 host_limit=host_limit,
                 canonical_digest=canonical_digest,
+                previous_release_id=previous_release_id,
             )
             session.add(row)
             session.flush()
@@ -352,6 +363,7 @@ class DeploymentStore:
                 "operator": row.operator,
                 "check_mode": row.check_mode,
                 "release_id": row.release_id,
+                "previous_release_id": row.previous_release_id,
                 "host_limit": row.host_limit,
                 "rollback_of": row.rollback_of,
                 "canonical_digest": row.canonical_digest,
