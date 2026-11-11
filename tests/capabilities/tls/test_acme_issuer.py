@@ -9,9 +9,11 @@ real CA; only the HTTP transport is replaced. The Pebble stage of
 from __future__ import annotations
 
 import stat
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+import requests
 from acme import challenges, messages
 from acme import errors as acme_errors
 from cryptography import x509
@@ -27,9 +29,10 @@ _CHAIN = "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n"
 
 
 class _Publisher:
-    def __init__(self, *, fail_on: str | None = None):
+    def __init__(self, *, fail_on: str | None = None, fail_absent=False):
         self.events: list[tuple[str, ...]] = []
         self.fail_on = fail_on
+        self.fail_absent = fail_absent
 
     def present(self, domain, token, validation):
         if domain == self.fail_on:
@@ -38,6 +41,8 @@ class _Publisher:
 
     def absent(self, domain, token):
         self.events.append(("absent", domain, token))
+        if self.fail_absent:
+            raise ExecutionError(f"edge unreachable removing {domain}")
 
 
 def _authorization(domain: str, *, status=messages.STATUS_PENDING):
@@ -78,7 +83,7 @@ class _Ca:
                 ca.keys.append(key)
                 self.key = key
                 self.account = None
-                self.session = SimpleNamespace(verify=True)
+                self.verify_ssl = True
                 ca.network = self
 
         class Client:
@@ -88,7 +93,7 @@ class _Ca:
             @staticmethod
             def get_directory(url, net):
                 ca.directory_url = url
-                ca.verify = net.session.verify
+                ca.verify = net.verify_ssl
                 return object()
 
             def new_account(self, registration):
@@ -268,12 +273,85 @@ def test_a_challenge_that_cannot_be_placed_removes_the_ones_that_were(
     assert ca.answered == []
 
 
-def test_a_private_ca_bundle_is_trusted_for_the_acme_api(monkeypatch, tmp_path):
-    ca = _Ca().install(monkeypatch)
+def test_a_private_ca_bundle_reaches_the_request_requests_sends(monkeypatch, tmp_path):
+    """Through the library's real network layer, which sets `verify` per request
+    and so overrides anything set on its session."""
+    sent = []
+
+    class Refused(requests.ConnectionError):
+        pass
+
+    def capture(self, method, url, **options):
+        sent.append(options.get("verify"))
+        raise Refused("stopped after the first request")
+
+    monkeypatch.setattr(requests.Session, "request", capture)
     bundle = tmp_path / "ca.pem"
 
-    _issuer(tmp_path, _Publisher(), ca_bundle=bundle).issue(
-        _site("cdn.example.com"), "ops@example.com"
+    with pytest.raises(ExecutionError, match="certificate request failed"):
+        _issuer(tmp_path, _Publisher(), ca_bundle=bundle).issue(
+            _site("cdn.example.com"), "ops@example.com"
+        )
+
+    assert sent == [str(bundle)]
+
+
+def test_a_failed_cleanup_keeps_the_issued_certificate(monkeypatch, tmp_path):
+    """The CA has spent an issuance on it; an unreachable edge is no reason to
+    throw it away and spend another."""
+    _Ca().install(monkeypatch)
+    publisher = _Publisher(fail_absent=True)
+
+    chain, _key = _issuer(tmp_path, publisher).issue(
+        _site("cdn.example.com", "www.example.com"), "ops@example.com"
     )
 
-    assert ca.verify == str(bundle)
+    assert chain == _CHAIN.encode()
+    # Each removal is attempted, not just the first.
+    assert [event[:2] for event in publisher.events if event[0] == "absent"] == [
+        ("absent", "cdn.example.com"),
+        ("absent", "www.example.com"),
+    ]
+
+
+def test_a_failed_cleanup_does_not_replace_the_original_error(monkeypatch, tmp_path):
+    def wait_forever(order):
+        raise acme_errors.TimeoutError()
+
+    _Ca(finalize=wait_forever).install(monkeypatch)
+
+    with pytest.raises(ExecutionError, match="timed out"):
+        _issuer(tmp_path, _Publisher(fail_absent=True)).issue(
+            _site("cdn.example.com"), "ops@example.com"
+        )
+
+
+def test_a_spent_budget_stops_before_the_next_challenge(monkeypatch, tmp_path):
+    """Placing a challenge runs a playbook; a slow one cannot stretch the
+    deployment lock past the issuance budget by placing the rest."""
+    _Ca().install(monkeypatch)
+
+    class SlowPublisher(_Publisher):
+        def present(self, domain, token, validation):
+            super().present(domain, token, validation)
+            clock[0] += timedelta(seconds=120)
+
+    clock = [datetime(2026, 1, 1)]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+
+    monkeypatch.setattr(acme_module, "datetime", Clock)
+    publisher = SlowPublisher()
+
+    with pytest.raises(ExecutionError, match="timed out"):
+        _issuer(tmp_path, publisher).issue(
+            _site("cdn.example.com", "www.example.com"), "ops@example.com"
+        )
+
+    assert [event[:2] for event in publisher.events] == [
+        ("present", "cdn.example.com"),
+        ("absent", "cdn.example.com"),
+    ]
