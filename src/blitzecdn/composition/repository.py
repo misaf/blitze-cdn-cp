@@ -3,7 +3,8 @@
 Each capability builds its own stores on this ``database`` in its
 `wiring.py` provider. What stays here is cross-cutting: the engine, the Unit of
 Work every store shares, the audit log every service writes, and the fleet
-settings an operator overrides.
+settings an operator overrides, and the
+idempotency keys every queued API route consults.
 """
 
 from __future__ import annotations
@@ -14,9 +15,10 @@ from pathlib import Path
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.idempotency import IdempotencyKeys
 from blitzecdn.core.ports.clock import Clock, system_clock
 
-__all__ = ["AuditLog", "Database", "Repository"]
+__all__ = ["AuditLog", "Database", "IdempotencyKeys", "Repository"]
 
 
 class Repository:
@@ -39,6 +41,7 @@ class Repository:
             if audit_retention is not None
             else AuditLog(self.database)
         )
+        self.idempotency_keys = IdempotencyKeys(self.database)
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by every store on this database."""
