@@ -8,10 +8,12 @@ maintenance mode answers every request itself.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Annotated
 
 from pydantic import ConfigDict, Field, field_validator
 
 from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.values import HTML_LIMIT, HtmlDocument, NginxValue
 
 #: The statuses a site may brand. The 5xx are what an origin, or the edge on
 #: its behalf, answers when the origin fails; 403 and 429 are what the edge's
@@ -26,23 +28,24 @@ ORIGIN_ERROR_STATUSES = ("500", "502", "503", "504")
 #: configuration release and is served from the edge's own disk, so it is
 #: meant to be self-contained: inline styles and images, nothing fetched from
 #: an origin that may be the thing that is down.
-PAGE_LIMIT = 64 * 1024
+PAGE_LIMIT = HTML_LIMIT
 
 #: The longest Retry-After maintenance mode may advertise: one week.
 RETRY_AFTER_LIMIT = 7 * 24 * 3600
 
 
-def _validated_page(value: str, what: str) -> str:
-    if not value.strip():
-        raise ValueError(f"{what} is empty; clear it instead")
-    if "\x00" in value:
-        raise ValueError(f"{what} contains a NUL character")
-    if len(value.encode("utf-8")) > PAGE_LIMIT:
+def _error_status(value: str) -> str:
+    candidate = str(value).strip()
+    if candidate not in ERROR_PAGE_STATUSES:
         raise ValueError(
-            f"{what} is larger than {PAGE_LIMIT // 1024} KiB; inline only what "
-            "the page needs"
+            f"{value!r} is not a status with an error page; choose one "
+            "of " + ", ".join(ERROR_PAGE_STATUSES)
         )
-    return value
+    return candidate
+
+
+#: One of :data:`ERROR_PAGE_STATUSES`.
+ErrorStatus = Annotated[str, NginxValue("status", _error_status)]
 
 
 class ErrorPagesPolicy(CapabilityPolicy):
@@ -50,7 +53,7 @@ class ErrorPagesPolicy(CapabilityPolicy):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    error_pages: dict[str, str] = Field(
+    error_pages: dict[ErrorStatus, HtmlDocument] = Field(
         default_factory=dict,
         description=(
             "HTML served in place of an error, by status: "
@@ -72,7 +75,7 @@ class ErrorPagesPolicy(CapabilityPolicy):
             "are exempt and reach the origin as usual."
         ),
     )
-    maintenance_page: str | None = Field(
+    maintenance_page: HtmlDocument | None = Field(
         default=None,
         description=(
             "HTML served in maintenance mode. Unset uses error_pages' 503 "
@@ -86,26 +89,24 @@ class ErrorPagesPolicy(CapabilityPolicy):
         description="Seconds sent as Retry-After in maintenance mode.",
     )
 
+    @field_validator("error_pages", mode="before")
+    @classmethod
+    def refuse_repeated_statuses(cls, pages: object) -> object:
+        """``403`` and ``" 403"`` would otherwise collapse silently."""
+        if not isinstance(pages, Mapping):
+            return pages
+        seen: set[str] = set()
+        for status in pages:
+            key = str(status).strip()
+            if key in seen:
+                raise ValueError(f"status {key} is listed twice")
+            seen.add(key)
+        return pages
+
     @field_validator("error_pages")
     @classmethod
-    def validate_error_pages(cls, pages: dict[str, str]) -> dict[str, str]:
-        normalized: dict[str, str] = {}
-        for status, page in pages.items():
-            key = str(status).strip()
-            if key not in ERROR_PAGE_STATUSES:
-                raise ValueError(
-                    f"{status!r} is not a status with an error page; choose one "
-                    "of " + ", ".join(ERROR_PAGE_STATUSES)
-                )
-            if key in normalized:
-                raise ValueError(f"status {key} is listed twice")
-            normalized[key] = _validated_page(page, f"the {key} page")
-        return {status: normalized[status] for status in sorted(normalized)}
-
-    @field_validator("maintenance_page")
-    @classmethod
-    def validate_maintenance_page(cls, page: str | None) -> str | None:
-        return None if page is None else _validated_page(page, "the maintenance page")
+    def sort_statuses(cls, pages: dict[str, str]) -> dict[str, str]:
+        return {status: pages[status] for status in sorted(pages)}
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:

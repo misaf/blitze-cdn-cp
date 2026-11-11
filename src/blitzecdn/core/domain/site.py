@@ -9,11 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from blitzecdn.core.domain.paths import PathLocation
 from blitzecdn.core.domain.site_policy import SitePolicy
-from blitzecdn.core.domain.validation import (
-    HOST_NAME,
-    hostname,
-    refuse_internal_origin,
-)
+from blitzecdn.core.domain.validation import refuse_internal_origin
+from blitzecdn.core.domain.values import Hostname, VirtualHostName, WildcardHostname
 
 
 class CdnSite(BaseModel):
@@ -25,44 +22,29 @@ class CdnSite(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str
+    name: VirtualHostName
     policy: SitePolicy = Field(default_factory=SitePolicy)
     #: The hostnames this host answers on. Empty is legal and renders no server
     #: block.
-    server_names: tuple[str, ...] = Field(default=(), max_length=100)
-    origin_host: str
+    server_names: tuple[WildcardHostname, ...] = Field(default=(), max_length=100)
+    origin_host: Hostname
     #: The path rules this host serves, in the order they are matched: the
     #: first whose path covers a request answers it, and a request no location
     #: covers is served by the host's own policy.
     locations: tuple[PathLocation, ...] = ()
 
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if not HOST_NAME.fullmatch(normalized):
-            raise ValueError(
-                "name must contain only a-z, 0-9, and hyphens, and start with "
-                "a letter or a digit"
-            )
-        return normalized
-
     @field_validator("server_names")
     @classmethod
     def validate_server_names(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = tuple(
-            dict.fromkeys(hostname(item, wildcard=True) for item in values)
-        )
-        if len(normalized) != len(values):
+        if len(set(values)) != len(values):
             raise ValueError("server_names must be unique")
-        return normalized
+        return values
 
     @field_validator("origin_host")
     @classmethod
     def validate_origin(cls, value: str) -> str:
-        normalized = hostname(value)
-        refuse_internal_origin(normalized)
-        return normalized
+        refuse_internal_origin(value)
+        return value
 
     @model_validator(mode="after")
     def validate_locations(self) -> Self:

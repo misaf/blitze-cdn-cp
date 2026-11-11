@@ -167,7 +167,7 @@ def test_allowing_get_also_allows_head():
             "cannot both be set",
         ),
         ({"allowed_methods": ("GET IT",)}, "not an HTTP method"),
-        ({"allowed_paths": ("api/",)}, "allowed path 'api/' must start with '/'"),
+        ({"allowed_paths": ("api/",)}, "path 'api/' must start with '/'"),
         ({"allowed_paths": ('/a"b',)}, "may not contain whitespace"),
         ({"allowed_paths": ("/api/", "/api/")}, "duplicate path"),
         ({"denied_paths": ("/",)}, "list the paths to serve in allowed_paths"),

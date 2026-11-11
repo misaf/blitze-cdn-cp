@@ -5,12 +5,13 @@ because the edges' controller probe, used by certificate preflight, produces
 it too.
 """
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import hostname, is_private_origin
+from blitzecdn.core.domain.validation import is_private_origin
+from blitzecdn.core.domain.values import Hostname
 from blitzecdn.core.features.types import HostView, PolicyView
 
 
@@ -19,18 +20,13 @@ class OriginPolicy(CapabilityPolicy):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    origin_request_host: str | None = None
-    origin_sni: str | None = None
+    origin_request_host: Hostname | None = None
+    origin_sni: Hostname | None = None
     #: Lets a host proxy to a private address (RFC 1918, shared address space,
     #: IPv6 unique local), which is reached from the edge's own network. Off
     #: by default: those are the provider's internal hosts, not a website,
     #: unless the operator says so for this zone or rule.
     allow_private_origin: bool = False
-
-    @field_validator("origin_request_host", "origin_sni")
-    @classmethod
-    def validate_optional_host(cls, value: str | None) -> str | None:
-        return hostname(value) if value is not None else None
 
     def effective_sni(self, origin_host: str) -> str:
         """Explicit SNI, then the request host, then the origin address.

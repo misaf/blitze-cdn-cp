@@ -7,12 +7,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, derive_hosts
-from blitzecdn.core.domain.validation import (
-    IpAddress,
-    IpNetwork,
-    IpNetworkWidened,
-    hostname,
-)
+from blitzecdn.core.domain.validation import hostname
+from blitzecdn.core.domain.values import IpAddress, IpNetwork, IpNetworkWidened
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20

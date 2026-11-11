@@ -451,12 +451,8 @@ def test_site_patch_cannot_redirect_a_managed_certificate():
 
     A deploy writes these paths as root, so it is refused before desired state.
     """
-    site = site_from_settings(_managed_site())
-    patch = DomainPatch(certificate_path="/etc/cron.d/blitzecdn")
-    with pytest.raises(ValidationError):
-        site_from_settings(
-            {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
-        )
+    with pytest.raises(ValidationError, match="certificate paths must live under"):
+        DomainPatch(certificate_path="/etc/cron.d/blitzecdn")
 
 
 def test_site_patch_revalidates_the_whole_site():
