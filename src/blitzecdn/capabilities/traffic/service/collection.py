@@ -204,7 +204,8 @@ class TrafficService:
                     pass_number=pass_number,
                     **result.model_dump(),
                 )
-                if result.more and result.requests and not result.errors:
+                progressed = result.requests or result.skipped
+                if result.more and progressed and not result.errors:
                     pending.append(result.edge)
             if not pending or pass_number == max_passes:
                 break

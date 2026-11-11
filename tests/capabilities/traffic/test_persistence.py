@@ -55,6 +55,22 @@ def test_retries_restarts_and_append_only_progress_count_once(settings):
     reopened.close()
 
 
+def test_a_range_of_only_skipped_records_still_advances(settings):
+    store = Stores(settings.database_path).traffic
+    empty = UsageBatch(
+        end=LogCursor(stream_id="a" * 64, offset=100, anchor="f" * 64),
+        buckets=(),
+        skipped=3,
+    )
+    result = store.apply("edge-a", CollectedUsage(batches=(empty,)))
+    assert (result.requests, result.skipped) == (0, 3)
+    assert store.checkpoints()["edge-a"] == (empty.end,)
+    following = batch(start=empty.end, offset=200).model_copy(update={"skipped": 1})
+    result = store.apply("edge-a", CollectedUsage(batches=(following,)))
+    assert (result.requests, result.skipped) == (1, 1)
+    assert store.checkpoints()["edge-a"] == (following.end,)
+
+
 def test_edges_and_stream_generations_remain_separate(settings):
     store = Stores(settings.database_path).traffic
     store.apply("edge-a", CollectedUsage(batches=(batch("a"), batch("b"))))
