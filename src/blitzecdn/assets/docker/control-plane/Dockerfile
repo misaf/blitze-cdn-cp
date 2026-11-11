@@ -46,7 +46,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # libyaml-0-2 is the shared library PyYAML's C extension was linked against.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-        ca-certificates certbot git libyaml-0-2 openssh-client \
+        ca-certificates git libyaml-0-2 openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/blitzecdn

@@ -207,7 +207,7 @@ def test_an_applied_deployment_is_not_a_drift_report(settings):
 
 
 class _RecordingIssuer:
-    """Stands in for certbot: hands back a fresh pair and remembers the call."""
+    """Stands in for the ACME issuer: hands back a fresh pair and remembers the call."""
 
     def __init__(self, certificate_pair, *, fails: set[str] | None = None) -> None:
         self._pair = certificate_pair

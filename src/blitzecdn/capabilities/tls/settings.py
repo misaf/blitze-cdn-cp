@@ -10,9 +10,16 @@ from pydantic import Field, field_validator, model_validator
 
 from blitzecdn.core.features import ConfigurationModel
 
-__all__ = ["CONFIGURATION", "SETTINGS", "CertificateConfig", "certificate_dir"]
+__all__ = [
+    "CONFIGURATION",
+    "SETTINGS",
+    "CertificateConfig",
+    "acme_account_dir",
+    "certificate_dir",
+]
 
-CERTBOT: Final = "BLITZE_CERTBOT"
+ACME_DIRECTORY_URL: Final = "BLITZE_ACME_DIRECTORY_URL"
+ACME_CA_BUNDLE: Final = "BLITZE_ACME_CA_BUNDLE"
 ACME_DEFAULT_EMAIL: Final = "BLITZE_ACME_DEFAULT_EMAIL"
 ACME_CA_DOMAIN: Final = "BLITZE_ACME_CA_DOMAIN"
 RECONCILE_INTERVAL: Final = "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS"
@@ -28,18 +35,39 @@ PREFLIGHT_DNS_SOURCE: Final = "BLITZE_PREFLIGHT_DNS_SOURCE"
 _CERTIFICATE_DIRECTORY: Final = "certificates"
 
 
+#: The ACME account key. Not configurable, for the same reason.
+_ACME_ACCOUNT_DIRECTORY: Final = "acme"
+
+
 def certificate_dir(state_dir: Path) -> Path:
     """Where installed certificate material lives under the state directory."""
     return state_dir / _CERTIFICATE_DIRECTORY
 
 
+def acme_account_dir(state_dir: Path) -> Path:
+    """Where the ACME account key lives under the state directory."""
+    return state_dir / _ACME_ACCOUNT_DIRECTORY
+
+
 class CertificateConfig(ConfigurationModel):
     """Controller settings only; domain TLS policy remains in canonical state."""
 
-    certbot: str = Field(
-        default="certbot",
-        alias=CERTBOT,
-        description="The certbot executable, by name on PATH or by absolute path.",
+    directory_url: str = Field(
+        default="https://acme-v02.api.letsencrypt.org/directory",
+        alias=ACME_DIRECTORY_URL,
+        pattern=r"^https://\S+$",
+        description=(
+            "The ACME directory certificates are ordered from. Change "
+            "ca_domain with it."
+        ),
+    )
+    ca_bundle: Path | None = Field(
+        default=None,
+        alias=ACME_CA_BUNDLE,
+        description=(
+            "A PEM bundle trusted for the ACME server's own HTTPS certificate, "
+            "for a private CA. Empty uses the system store."
+        ),
     )
     default_email: str | None = Field(
         default=None,
@@ -54,7 +82,7 @@ class CertificateConfig(ConfigurationModel):
         alias=ACME_CA_DOMAIN,
         description=(
             "The CA identity a CAA record has to name for issuance to be "
-            "allowed. Change it with the ACME server certbot is pointed at."
+            "allowed. Change it with directory_url."
         ),
     )
     reconcile_interval_seconds: int = Field(
@@ -144,6 +172,11 @@ class CertificateConfig(ConfigurationModel):
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
         return (value.strip().lower() or None) if value is not None else None
+
+    @field_validator("ca_bundle", mode="before")
+    @classmethod
+    def blank_bundle_is_none(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("ca_domain")
     @classmethod

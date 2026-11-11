@@ -171,12 +171,17 @@ allow_empty_sites = false
 # acme_default_email = "admin@example.com"
 
 # The CA identity a CAA record must name for issuance to be allowed. Change it
-# together with the ACME server certbot is pointed at: a CAA check against the
-# wrong CA is worse than none, because it passes while the real CA is refused.
+# together with acme_directory_url: a CAA check against the wrong CA is worse
+# than none, because it passes while the real CA is refused.
 # acme_ca_domain = "letsencrypt.org"
 
-# The certbot executable, by name on PATH or by absolute path.
-# certbot = "certbot"
+# The ACME directory certificates are ordered from. Default: Let's Encrypt
+# production.
+# acme_directory_url = "https://acme-v02.api.letsencrypt.org/directory"
+
+# A PEM bundle trusted for the ACME server's own HTTPS certificate, for a
+# private CA the system store does not know. Empty uses the system store.
+# acme_ca_bundle = "/etc/blitzecdn/acme-ca.pem"
 
 # Frequency of Automatic SSL/TLS origin scans and safe mode upgrades.
 # Default: 2592000 seconds (30 days). Set to 0 to disable automatic scans.

@@ -41,6 +41,9 @@ dependencies = [
   "sqlalchemy>=2.0.52,<2.1",
   "ansible-runner>=2.4,<3",
   "dishka>=1.10.1,<2",
+  # ACME issuance in-process: no certbot subprocess, no hook re-entering the
+  # CLI, nothing inheriting the controller's environment.
+  "acme>=5.10,<6",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
@@ -202,6 +205,6 @@ ignore_missing_imports = true
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-# The certificate adapter must launch Certbot. It uses a fixed argument array,
-# never a shell, closes stdin, and enforces a timeout.
+# Process helpers and the SSH host-key scan launch fixed argument arrays, never
+# a shell, with stdin closed and a timeout.
 skips = ["B404", "B603"]

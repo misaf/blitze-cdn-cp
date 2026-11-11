@@ -1,6 +1,6 @@
 ---
 - name: Synchronize an ACME HTTP-01 challenge
-  # `cert acme-hook` limits this to the edges the hostname resolves to, so the
+  # The ACME issuer limits this to the edges the hostname resolves to, so the
   # strict failure settings below cover only edges the CA could actually ask;
   # an edge that is down elsewhere in the fleet cannot block the certificate.
   hosts: blitzecdn_edges

@@ -34,7 +34,8 @@ forbidden_modules =
     subprocess
     ansible
     dns
-    certbot
+    acme
+    josepy
     cryptography
     yaml
     sqlalchemy
@@ -68,7 +69,8 @@ forbidden_modules =
     subprocess
     ansible
     dns
-    certbot
+    acme
+    josepy
     cryptography
     yaml
     sqlalchemy
@@ -155,7 +157,8 @@ forbidden_modules =
     subprocess
     ansible
     dns
-    certbot
+    acme
+    josepy
     cryptography
     yaml
     sqlalchemy
@@ -279,7 +282,8 @@ forbidden_modules =
     subprocess
     ansible
     dns
-    certbot
+    acme
+    josepy
     cryptography
     yaml
     sqlalchemy

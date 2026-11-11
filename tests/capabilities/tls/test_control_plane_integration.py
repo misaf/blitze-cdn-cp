@@ -22,7 +22,7 @@ from blitzecdn.core.exceptions import DeploymentBusyError
 
 
 def test_validate_rejects_acme_on_a_reserved_domain(settings):
-    """No public CA issues for .test, so catch it before certbot is invoked."""
+    """No public CA issues for .test, so catch it before the CA is asked."""
     control = certificate_control_plane(settings)
     # Managed paths name the host a certificate was issued for, and a derived host
     # is named after its zone.

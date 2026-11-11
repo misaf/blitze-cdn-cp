@@ -1,17 +1,19 @@
-"""Certbot and the key material on disk (`store`), and DNS checks (`preflight`)."""
+"""ACME issuance (`acme`, `challenges`), key material on disk (`store`), DNS checks."""
 
+from blitzecdn.capabilities.tls.certificates.adapters.acme import AcmeIssuer
+from blitzecdn.capabilities.tls.certificates.adapters.challenges import (
+    PlaybookChallenges,
+)
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,
     check_resolver,
 )
-from blitzecdn.capabilities.tls.certificates.adapters.store import (
-    CertbotIssuer,
-    CertificateStore,
-)
+from blitzecdn.capabilities.tls.certificates.adapters.store import CertificateStore
 
 __all__ = [
-    "CertbotIssuer",
+    "AcmeIssuer",
     "CertificatePreflight",
     "CertificateStore",
+    "PlaybookChallenges",
     "check_resolver",
 ]

@@ -241,7 +241,7 @@ def seed_automatic_ssl_record(
 
 
 class RecordingIssuer:
-    """Stands in for certbot: hands back a fresh pair and remembers the call."""
+    """Stands in for the ACME issuer: hands back a fresh pair and remembers the call."""
 
     def __init__(
         self, certificate_pair: CertificatePair, *, fails: set[str] | None = None

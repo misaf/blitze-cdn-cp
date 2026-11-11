@@ -19,7 +19,7 @@ failure-threshold: warning
 ignored:
   # Pin versions in apt-get install.
   #
-  # The control-plane image installs `ca-certificates`, `certbot`, `git`,
+  # The control-plane image installs `ca-certificates`, `git`,
   # `libyaml-0-2` and `openssh-client` from Debian trixie, and its build stage
   # `gcc`, `libc6-dev` and `libyaml-dev`. Resolve them from the current apt
   # repositories so rebuilds receive security updates without requiring
