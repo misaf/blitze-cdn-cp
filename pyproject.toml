@@ -46,6 +46,9 @@ dependencies = [
   "prometheus-client>=0.22,<1",
   # Backs pydantic's EmailStr for ACME account addresses.
   "email-validator>=2.2,<3",
+  # Our log events carry context as keyword fields, rendered through stdlib
+  # handlers so third-party loggers share one JSON stream.
+  "structlog>=25.4,<27",
   # ACME issuance in-process: no certbot subprocess, no hook re-entering the
   # CLI, nothing inheriting the controller's environment.
   "acme>=5.10,<6",

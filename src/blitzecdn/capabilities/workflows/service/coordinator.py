@@ -7,7 +7,6 @@ operator signs off on one a restart interrupted.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -25,10 +24,11 @@ from blitzecdn.core.exceptions import BlitzeError, ConflictError
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
+from blitzecdn.core.runtime.logging import get_logger
 
 __all__ = ["WorkflowCoordinator", "WorkflowProgress"]
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 #: What the journal says about an exception outside the `BlitzeError` taxonomy.
 _UNEXPECTED = "unexpected failure; the controller log has the details"
@@ -116,11 +116,9 @@ class WorkflowCoordinator:
                 _LOGGER.error(
                     "workflow failed unexpectedly",
                     exc_info=exc,
-                    extra={
-                        "workflow_id": workflow_id,
-                        "workflow_kind": kind,
-                        "resource_id": resource_id,
-                    },
+                    workflow_id=workflow_id,
+                    workflow_kind=kind,
+                    resource_id=resource_id,
                 )
             with self.uow.transaction():
                 self.journal.advance(
@@ -203,13 +201,9 @@ class WorkflowCoordinator:
         for workflow in recovered:
             _LOGGER.warning(
                 "interrupted workflow requires recovery review",
-                extra={
-                    "workflow_id": workflow.id,
-                    "workflow_kind": workflow.kind,
-                    "resource_id": workflow.resource_id,
-                    "last_checkpoint": workflow.steps[-1].name
-                    if workflow.steps
-                    else None,
-                },
+                workflow_id=workflow.id,
+                workflow_kind=workflow.kind,
+                resource_id=workflow.resource_id,
+                last_checkpoint=workflow.steps[-1].name if workflow.steps else None,
             )
         return recovered
