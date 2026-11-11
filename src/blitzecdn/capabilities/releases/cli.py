@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Release
 from blitzecdn.capabilities.releases.service import ReleaseService
@@ -37,22 +38,23 @@ def _summary(release: Release) -> dict[str, object]:
 
 
 @release_app.command("list")
+@common.inject
 def release_list(
+    releases: FromDishka[ReleaseService],
     limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 20,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Recorded releases, newest first."""
     common.emit(
-        [
-            _summary(item)
-            for item in common.service(ReleaseService).list_releases(limit)
-        ],
+        [_summary(item) for item in releases.list_releases(limit)],
         json_output=json_output,
     )
 
 
 @release_app.command("show")
+@common.inject
 def release_show(
+    releases: FromDishka[ReleaseService],
     release_id: Annotated[
         str | None,
         typer.Argument(help="A recorded release id; omitted, compiles current state."),
@@ -65,7 +67,6 @@ def release_show(
     Compiling records nothing, so this is safe to run as often as it takes to
     get a configuration right.
     """
-    releases = common.service(ReleaseService)
     release = (
         releases.get(release_id)
         if release_id is not None
@@ -75,7 +76,9 @@ def release_show(
 
 
 @release_app.command("explain")
+@common.inject
 def release_explain(
+    releases: FromDishka[ReleaseService],
     host: Annotated[
         str | None,
         typer.Option("--host", help="Only this derived host, e.g. 'example-com--api'."),
@@ -90,7 +93,6 @@ def release_explain(
     overriding nothing relevant leaves the zone's value in place — so an
     operator told only the rule's name goes and edits the wrong object.
     """
-    releases = common.service(ReleaseService)
     release = releases.get(release_id) if release_id else releases.compile()
     explanations = [
         {
@@ -116,13 +118,14 @@ def release_explain(
 
 
 @release_app.command("artifact")
+@common.inject
 def release_artifact(
+    releases: FromDishka[ReleaseService],
     release_id: Annotated[str | None, typer.Option("--release")] = None,
     name: Annotated[str, typer.Option("--name")] = DESIRED_STATE_ARTIFACT,
     json_output: common.JsonOutput = False,
 ) -> None:
     """The exact document the edges are converged from, and its digest."""
-    releases = common.service(ReleaseService)
     release = releases.get(release_id) if release_id else releases.compile()
     artifact = release.artifact(name)
     common.emit(
@@ -137,7 +140,9 @@ def release_artifact(
 
 
 @release_app.command("render")
+@common.inject
 def release_render(
+    releases: FromDishka[ReleaseService],
     output: Annotated[
         Path, typer.Option("--output", "-o", help="An empty or missing directory.")
     ],
@@ -152,7 +157,6 @@ def release_render(
     """
     if output.exists() and any(output.iterdir()):
         raise typer.BadParameter(f"{output} is not empty", param_hint="--output")
-    releases = common.service(ReleaseService)
     release = releases.get(release_id) if release_id else releases.compile()
     bundle = releases.render(release)
     for name, content in bundle.files.items():

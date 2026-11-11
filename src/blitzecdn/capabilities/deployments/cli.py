@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
@@ -55,22 +56,26 @@ def _when_free[T](wait: int, attempt: Callable[[], T]) -> T:
 
 
 @deployment_app.command()
-def validate(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def validate(
+    deployments: FromDishka[DeploymentService], json_output: common.JsonOutput = False
+) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
-    errors = common.service(DeploymentService).validate()
+    errors = deployments.validate()
     common.emit({"valid": not errors, "errors": errors}, json_output=json_output)
     if errors:
         raise typer.Exit(ExitCode.CONFIGURATION)
 
 
 @deployment_app.command()
+@common.inject
 def plan(
+    deployments: FromDishka[DeploymentService],
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     wait: Wait = 0,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Run Ansible check mode and show the resulting deployment record."""
-    deployments = common.service(DeploymentService)
     result = _when_free(
         wait, lambda: deployments.deploy("cli", check=True, host_limit=limit)
     )
@@ -80,7 +85,9 @@ def plan(
 
 
 @deployment_app.command()
+@common.inject
 def deploy(
+    deployments: FromDishka[DeploymentService],
     yes: common.Yes = False,
     skip_preflight: common.SkipPreflight = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
@@ -93,7 +100,6 @@ def deploy(
     serving. --yes answers only the confirmation; skipping the checks is
     --skip-preflight.
     """
-    deployments = common.service(DeploymentService)
     if not skip_preflight:
         errors = deployments.validate()
         if errors:
@@ -130,7 +136,9 @@ def deploy(
 
 
 @deployment_app.command()
+@common.inject
 def rollback(
+    deployments: FromDishka[DeploymentService],
     deployment_id: Annotated[
         str | None,
         typer.Argument(
@@ -152,16 +160,16 @@ def rollback(
         )
     ):
         raise typer.Abort()
-    result = common.service(DeploymentService).rollback(
-        "cli", deployment_id, check=check
-    )
+    result = deployments.rollback("cli", deployment_id, check=check)
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 
 @deployment_app.command()
+@common.inject
 def drift(
+    deployments: FromDishka[DeploymentService],
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     wait: Wait = 0,
     json_output: common.JsonOutput = False,
@@ -171,7 +179,6 @@ def drift(
     A check-mode run that changes nothing. Exits 6 when a reachable edge would
     change, so it can be scheduled and alerted on.
     """
-    deployments = common.service(DeploymentService)
     report = _when_free(wait, lambda: deployments.check_drift("cli", host_limit=limit))
     common.emit(
         {
@@ -210,13 +217,14 @@ def drift(
 
 
 @deployment_queries_app.command()
+@common.inject
 def status(
+    deployments: FromDishka[DeploymentService],
     deployment_id: Annotated[str | None, typer.Argument()] = None,
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show one deployment, with how far each edge got, or recent history."""
-    deployments = common.service(DeploymentService)
     if not deployment_id:
         common.emit(deployments.list_deployments(limit), json_output=json_output)
         return

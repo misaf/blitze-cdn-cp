@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.delivery.cli import common
@@ -16,7 +17,9 @@ origin_app = typer.Typer(
 
 
 @origin_app.command("check")
+@common.inject
 def origin_check(
+    origins: FromDishka[OriginCheckService],
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -32,7 +35,7 @@ def origin_check(
     not reach it — an origin no edge can reach is down, while one only some can
     reach is a routing or allow-list problem.
     """
-    report = common.service(OriginCheckService).check_origins("cli", host_limit=limit)
+    report = origins.check_origins("cli", host_limit=limit)
     common.emit(report, json_output=json_output)
     if json_output:
         if report.failing_sites:

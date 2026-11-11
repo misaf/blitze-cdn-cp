@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from dishka import FromDishka
 
 from blitzecdn.capabilities.sites import SiteService
 from blitzecdn.capabilities.sites.cli.app import dns_app, record_app
@@ -16,7 +17,9 @@ from blitzecdn.delivery.cli import common
 
 
 @record_app.command("add")
+@common.inject
 def record_add(
+    sites: FromDishka[SiteService],
     domain: Annotated[str, typer.Argument(help="Zone the record belongs to.")],
     name: Annotated[str, typer.Argument(help="Subdomain label, '@', or '*'.")],
     value: Annotated[
@@ -56,13 +59,15 @@ def record_add(
         proxied=proxied,
     )
     common.emit(
-        common.service(SiteService).create_record(record, "cli"),
+        sites.create_record(record, "cli"),
         json_output=json_output,
     )
 
 
 @record_app.command("list")
+@common.inject
 def record_list(
+    sites: FromDishka[SiteService],
     domain: Annotated[str | None, typer.Argument()] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -73,13 +78,13 @@ def record_list(
     handed out by the DNS system. The policy behind any hostname is
     'blitzecdn domain show', and any exception to that is 'blitzecdn rule list'.
     """
-    common.emit(
-        common.service(SiteService).list_records(domain), json_output=json_output
-    )
+    common.emit(sites.list_records(domain), json_output=json_output)
 
 
 @record_app.command("proxy")
+@common.inject
 def record_proxy(
+    sites: FromDishka[SiteService],
     domain: Annotated[str, typer.Argument()],
     name: Annotated[str, typer.Argument()],
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
@@ -92,7 +97,7 @@ def record_proxy(
     address is left alone — from now on it is where the edge fetches from, not
     what clients resolve to.
     """
-    record = common.service(SiteService).proxy(domain, name, type_, "cli")
+    record = sites.proxy(domain, name, type_, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -104,7 +109,9 @@ def record_proxy(
 
 
 @record_app.command("unproxy")
+@common.inject
 def record_unproxy(
+    sites: FromDishka[SiteService],
     domain: Annotated[str, typer.Argument()],
     name: Annotated[str, typer.Argument()],
     value: Annotated[
@@ -128,7 +135,7 @@ def record_unproxy(
     The zone's policy is left as it is. If nothing else in the zone is proxied,
     it simply stops being served.
     """
-    record = common.service(SiteService).unproxy(domain, name, type_, value, "cli")
+    record = sites.unproxy(domain, name, type_, value, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -142,7 +149,9 @@ def record_unproxy(
 
 
 @record_app.command("remove")
+@common.inject
 def record_remove(
+    sites: FromDishka[SiteService],
     domain: Annotated[str, typer.Argument()],
     name: Annotated[str, typer.Argument()],
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
@@ -157,7 +166,7 @@ def record_remove(
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
         raise typer.Abort()
-    common.service(SiteService).delete_record(domain, name, type_, "cli")
+    sites.delete_record(domain, name, type_, "cli")
     typer.echo(f"Deleted {label}")
 
 
@@ -165,7 +174,10 @@ def record_remove(
 
 
 @dns_app.command("export")
-def dns_export(json_output: common.JsonOutput = False) -> None:
+@common.inject
+def dns_export(
+    sites: FromDishka[SiteService], json_output: common.JsonOutput = False
+) -> None:
     """Emit every record for the system that publishes DNS — which is not this one.
 
     BlitzeCDN holds zones and records and publishes neither. What comes back is
@@ -178,4 +190,4 @@ def dns_export(json_output: common.JsonOutput = False) -> None:
     leaves this side. The record's own value is emitted only when it is
     unproxied, which is the case where the value *is* the public answer.
     """
-    common.emit(common.service(SiteService).dns_export(), json_output=json_output)
+    common.emit(sites.dns_export(), json_output=json_output)
