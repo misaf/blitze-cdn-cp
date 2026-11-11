@@ -1,6 +1,5 @@
 """Collect outside transactions; commit each edge's increments with its progress."""
 
-import logging
 from collections.abc import Callable, Sequence
 from uuid import uuid4
 
@@ -29,8 +28,9 @@ from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundErr
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock
 from blitzecdn.core.ports.operations import EventRecorder
+from blitzecdn.core.runtime.logging import get_logger
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 
 class TrafficService:
@@ -127,7 +127,7 @@ class TrafficService:
                 )
             )
         _LOGGER.info(
-            "traffic retention pass finished", extra=result.model_dump(mode="json")
+            "traffic retention pass finished", **result.model_dump(mode="json")
         )
         if result.more:
             _LOGGER.warning("expired traffic remains until the next retention pass")
@@ -201,7 +201,8 @@ class TrafficService:
                 latest[result.edge] = result
                 _LOGGER.info(
                     "traffic collection pass finished",
-                    extra={"pass_number": pass_number, **result.model_dump()},
+                    pass_number=pass_number,
+                    **result.model_dump(),
                 )
                 if result.more and result.requests and not result.errors:
                     pending.append(result.edge)
@@ -225,7 +226,8 @@ class TrafficService:
         if remaining:
             _LOGGER.warning(
                 "traffic remains pending until the next scheduled collection",
-                extra={"edges": remaining, "max_passes": max_passes},
+                edges=remaining,
+                max_passes=max_passes,
             )
 
     def _edge(self, host: HostRun, operator: str, attempt_id: str) -> EdgeCollection:
