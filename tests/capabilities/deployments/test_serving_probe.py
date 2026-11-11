@@ -151,6 +151,46 @@ def test_a_site_with_no_hostname_is_not_probed(edge_server):
     )
 
 
+def test_a_disabled_site_is_not_probed(edge_server):
+    """It is rendered but not enabled, so the edge has no server block for it."""
+    (result,) = probe_on(edge_server).verify(
+        edge="edge-a",
+        address="127.0.0.1",
+        release_digest="a" * 64,
+        sites=[
+            site(),
+            site(name="off-com", server_names=["off.example.com"], enabled=False),
+        ],
+    )
+
+    assert result.hostname == "cdn.example.com"
+    assert _Recorder.seen == ["cdn.example.com"]
+
+
+def test_a_release_of_only_disabled_sites_probes_the_default_host(edge_server):
+    """A disabled TLS site would meet the default server's rejected handshake.
+
+    The edge must still prove it serves the release, so the default host is asked.
+    """
+    (result,) = probe_on(edge_server).verify(
+        edge="edge-a",
+        address="127.0.0.1",
+        release_digest="a" * 64,
+        sites=[
+            site(
+                ssl_mode="full",
+                certificate_mode="existing",
+                certificate_path="/etc/ssl/edge.pem",
+                certificate_key_path="/etc/ssl/edge.key",
+                enabled=False,
+            )
+        ],
+    )
+
+    assert result.served is True
+    assert _Recorder.seen == ["blitzecdn.invalid"]
+
+
 def test_one_request_per_site_rather_than_one_per_hostname(edge_server):
     """A site's hostnames share one server block, so the rest prove nothing."""
     probe_on(edge_server).verify(
