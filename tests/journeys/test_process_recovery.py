@@ -92,7 +92,7 @@ def practice(tmp_path):
 
     def child_arguments(mode, *extra):
         return [
-            str(REPO_ROOT / "tests/recovery_process.py"),
+            str(REPO_ROOT / "tests/support/recovery_process.py"),
             mode,
             str(port),
             str(served),

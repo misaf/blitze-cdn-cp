@@ -8,7 +8,7 @@
 #
 # The edge is converged by the shipped edge play, from a release: the desired
 # state in tests/integration/http3-edge/ is rendered on this host by the control
-# plane's own renderer (tests/http3_release.py), and the play stages, seals,
+# plane's own renderer (tests/support/http3_release.py), and the play stages, seals,
 # activates and commits it as a rollout does, with the served release checked in
 # between. A copy of the play would pass while the real one drifted.
 #
@@ -32,7 +32,7 @@ readonly EDGE_TAG_BROKEN=blitzecdn-edge:integration-broken
 readonly GEOIP_DIR=/var/lib/blitzecdn/edge-data/geoip
 readonly GEOIP_DB="${GEOIP_DIR}/GeoIP2-Country-Test.mmdb"
 
-project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 suffix=$$
 network="blitzecdn-http3-${suffix}"
 edge="blitzecdn-http3-edge-${suffix}"
@@ -72,7 +72,7 @@ readonly ACTIVE_CONF=/etc/blitzecdn/releases/current/nginx.conf
 # Renders a release from the desired state, with NAME=VALUE overrides, and
 # leaves it where `converge` reads it. Prints the release digest.
 render_release() {
-  uv run --project "${project_dir}" --no-sync python "${project_dir}/tests/http3_release.py" \
+  uv run --project "${project_dir}" --no-sync python "${project_dir}/tests/support/http3_release.py" \
     "${project_dir}/${RELEASE_STATE}" "${project_dir}/${RELEASE_RUNNER}" \
     "${release_dir}" "${EDGE_RELEASE_DIR}" "$@"
 }

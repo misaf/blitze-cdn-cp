@@ -1,7 +1,7 @@
 ---
 # The desired state the HTTP/3 harness's edge is asked to serve: what a control
 # plane would compile from its zones and rules, written down because the harness
-# has no database. tests/http3_release.py renders it into a release with the
+# has no database. tests/support/http3_release.py renders it into a release with the
 # control plane's own renderer, and the shipped edge play stages that release.
 # Everything here is in the release digest, so changing any of it is a new
 # candidate tree on the edge. The runner's variables beside it are not.

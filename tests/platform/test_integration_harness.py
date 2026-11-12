@@ -1,6 +1,6 @@
 """Structural assertions about the container-based integration harnesses.
 
-`tests/http3-edge-integration.sh` provisions a real edge in a privileged
+`tests/integration/http3-edge-integration.sh` provisions a real edge in a privileged
 systemd container. It needs Docker, minutes and an edge image build, so only a
 dedicated CI job runs it, and no pull-request gate does.
 
@@ -14,17 +14,17 @@ from __future__ import annotations
 import re
 import shlex
 
-import http3_release
 import pytest
 import yaml
+from support import http3_release
 from support.edge_render import rendered_upstreams
 from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 PROJECT_DIR = REPO_ROOT
-HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"
-INSTALL_HARNESS = PROJECT_DIR / "tests/container-install.sh"
+HTTP3_HARNESS = PROJECT_DIR / "tests/integration/http3-edge-integration.sh"
+INSTALL_HARNESS = PROJECT_DIR / "tests/integration/container-install.sh"
 # The desired state the harness renders a release from, and what its controller
 # passes beside the release. The edge itself is converged by the shipped play.
 HTTP3_STATE = PROJECT_DIR / "tests/integration/http3-edge/release.yml"
@@ -175,7 +175,7 @@ def test_the_harness_converges_the_shipped_edge_play_from_a_release():
     assert not list((REPO_ROOT / "tests/integration").glob("http3-edge.yml")), (
         "a harness-only edge play is back beside the shipped one"
     )
-    assert "tests/http3_release.py" in commands, (
+    assert "tests/support/http3_release.py" in commands, (
         "the harness no longer renders the release it deploys"
     )
 
