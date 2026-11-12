@@ -12,6 +12,9 @@ import io
 import json
 import os
 import runpy
+import sqlite3
+import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -61,17 +64,43 @@ def _store(
 
 
 def _run(
-    scanner, cache: Path, prefixes, monkeypatch, capsys, *, tags=(), keys=()
+    scanner,
+    cache: Path,
+    prefixes,
+    monkeypatch,
+    capsys,
+    *,
+    tags=(),
+    keys=(),
+    everything=False,
+    keep_read=False,
 ) -> dict:
+    """Run the scanner as the role does, with an index beside the cache.
+
+    How many files were read depends on the index, not on what matched, so it
+    is dropped unless a test is about the index.
+    """
     request = {
         "path": str(cache),
+        "index": str(cache.parent / "index" / "cache-index.sqlite3"),
+        "all": everything,
         "keys": list(keys),
         "prefixes": prefixes,
         "tags": list(tags),
     }
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
     assert scanner["main"]() == 0
-    return json.loads(capsys.readouterr().out)
+    report = json.loads(capsys.readouterr().out)
+    if not keep_read:
+        report.pop("read")
+    return report
+
+
+def _settle(cache: Path) -> None:
+    """Age every directory past the window in which the index distrusts it."""
+    past = time.time_ns() - 3600 * 10**9
+    for directory, _subdirectories, _files in os.walk(cache):
+        os.utime(directory, ns=(past, past))
 
 
 def test_a_prefix_removes_every_variant_under_it_and_nothing_else(
@@ -216,6 +245,10 @@ def test_the_purge_role_runs_the_scanner_it_ships():
     assert "blitzecdn_cache_purge_keys" in tasks
     assert "blitzecdn_cache_purge_prefixes" in tasks
     assert "blitzecdn_cache_purge_tags" in tasks
+    assert "blitzecdn_cache_purge_index_path" in tasks
+    # Emptying the cache goes through the scanner too, so it reports counts.
+    assert "blitzecdn_cache_purge_all | bool" in tasks
+    assert "find " not in tasks
     # An undecided file fails the edge rather than passing as a non-match.
     assert "blitzecdn_report.unchecked | int == 0" in tasks
 
@@ -406,3 +439,216 @@ def test_a_folded_line_of_another_header_is_not_part_of_a_tag(scanner):
     ) == {b"home"}
     # A folded Cache-Tag continues its own value.
     assert tags(b"Cache-Tag: a,\r\n b\r\n", b"cache-tag") == {b"a", b"b"}
+
+
+# ----------------------------------------------------------------------
+# The index
+# ----------------------------------------------------------------------
+
+
+def test_an_unchanged_cache_is_purged_without_reading_a_file(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    cache = tmp_path / "cache"
+    tagged = _store(
+        cache, "https443GETa.example.com/p", headers=b"Cache-Tag: product\r\n"
+    )
+    for number in range(20):
+        _store(cache, f"https443GETa.example.com/{number}")
+    _settle(cache)
+
+    first = _run(scanner, cache, [], monkeypatch, capsys, tags=["none"], keep_read=True)
+    second = _run(
+        scanner, cache, [], monkeypatch, capsys, tags=["product"], keep_read=True
+    )
+
+    assert first == {"scanned": 21, "read": 21, "removed": 0, "unchecked": 0}
+    # Resolved through the index alone: the tag was found without a read.
+    assert second == {"scanned": 21, "read": 0, "removed": 1, "unchecked": 0}
+    assert not tagged.exists()
+
+
+def test_only_entries_stored_since_the_last_purge_are_read(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    cache = tmp_path / "cache"
+    for number in range(20):
+        _store(cache, f"https443GETa.example.com/{number}")
+    _settle(cache)
+    _run(scanner, cache, [], monkeypatch, capsys, tags=["none"])
+
+    new = _store(cache, "https443GETb.example.com/new", headers=b"Cache-Tag: new\r\n")
+    report = _run(scanner, cache, [], monkeypatch, capsys, tags=["new"], keep_read=True)
+
+    assert report == {"scanned": 21, "read": 1, "removed": 1, "unchecked": 0}
+    assert not new.exists()
+
+
+def test_an_entry_replaced_under_its_name_is_read_again(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    """nginx replaces an entry by renaming a new file over it: new tags too."""
+    cache = tmp_path / "cache"
+    key = "https443GETa.example.com/p"
+    path = _store(cache, key, headers=b"Cache-Tag: old\r\n")
+    _settle(cache)
+    _run(scanner, cache, [], monkeypatch, capsys, tags=["none"])
+
+    replacement = path.with_name(path.name + ".0000000001")
+    replacement.write_bytes(path.read_bytes().replace(b"old", b"new"))
+    replacement.rename(path)
+    report = _run(scanner, cache, [], monkeypatch, capsys, tags=["new"], keep_read=True)
+
+    assert report == {"scanned": 1, "read": 1, "removed": 1, "unchecked": 0}
+    assert not path.exists()
+
+
+def test_an_evicted_entry_leaves_the_index(tmp_path, scanner, monkeypatch, capsys):
+    cache = tmp_path / "cache"
+    evicted = _store(cache, "https443GETa.example.com/old")
+    _store(cache, "https443GETa.example.com/kept")
+    _settle(cache)
+    _run(scanner, cache, [], monkeypatch, capsys, tags=["none"])
+
+    evicted.unlink()
+    # nginx's cache manager can remove a whole level directory's last entry.
+    report = _run(
+        scanner, cache, [{"host": "a.example.com"}], monkeypatch, capsys, keep_read=True
+    )
+
+    assert report == {"scanned": 1, "read": 0, "removed": 1, "unchecked": 0}
+
+
+def test_a_directory_changed_too_recently_to_trust_is_listed_again(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    """A store in the same clock tick as a listing leaves the mtime unchanged."""
+    cache = tmp_path / "cache"
+    first = _store(cache, "https443GETa.example.com/1")
+    _run(scanner, cache, [], monkeypatch, capsys, tags=["none"])
+
+    # Same directory, and its mtime is put back as if nothing had happened.
+    status = first.parent.stat()
+    second = first.parent / ("f" * 32)
+    second.write_bytes(first.read_bytes().replace(b"/1\n", b"/2\n"))
+    os.utime(first.parent, ns=(status.st_atime_ns, status.st_mtime_ns))
+    report = _run(scanner, cache, [{"host": "a.example.com"}], monkeypatch, capsys)
+
+    assert report == {"scanned": 2, "removed": 2, "unchecked": 0}
+    assert not second.exists()
+
+
+def test_a_corrupt_index_is_rebuilt_from_the_cache(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    cache = tmp_path / "cache"
+    gone = _store(cache, "https443GETa.example.com/")
+    index = tmp_path / "index" / "cache-index.sqlite3"
+    index.parent.mkdir()
+    index.write_bytes(b"not a database" * 100)
+
+    report = _run(scanner, cache, [{"host": "a.example.com"}], monkeypatch, capsys)
+
+    assert report == {"scanned": 1, "removed": 1, "unchecked": 0}
+    assert not gone.exists()
+    with closing(sqlite3.connect(index)) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_a_lock_held_by_another_purge_keeps_the_index(tmp_path, scanner, monkeypatch):
+    """Only corruption rebuilds the index; a busy one is another purge's."""
+    cache = tmp_path / "cache"
+    _store(cache, "https443GETa.example.com/")
+    index = tmp_path / "index" / "cache-index.sqlite3"
+    scanner["purge"](cache, index=str(index), prefixes=(b"b.example.com/",))
+
+    def busy(location, identity):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setitem(scanner["open_index"].__globals__, "_connect", busy)
+    with pytest.raises(sqlite3.OperationalError):
+        scanner["open_index"](str(index), cache, b"cache-tag")
+    assert index.exists()
+
+
+def test_an_index_of_another_cache_is_not_trusted(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    first = tmp_path / "cache"
+    _store(first, "https443GETa.example.com/")
+    _settle(first)
+    _run(scanner, first, [], monkeypatch, capsys, tags=["none"])
+
+    # The same index, pointed at another directory with the same layout.
+    second = tmp_path / "moved"
+    first.rename(second)
+    gone = _store(second, "https443GETb.example.com/")
+    _settle(second)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "path": str(second),
+                    "index": str(tmp_path / "index" / "cache-index.sqlite3"),
+                    "prefixes": [{"host": "b.example.com"}],
+                }
+            )
+        ),
+    )
+    assert scanner["main"]() == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report == {"scanned": 2, "read": 2, "removed": 1, "unchecked": 0}
+    assert not gone.exists()
+
+
+def test_the_index_is_private(tmp_path, scanner, monkeypatch, capsys):
+    cache = tmp_path / "cache"
+    _store(cache, "https443GETa.example.com/")
+    _run(scanner, cache, [{"host": "b.example.com"}], monkeypatch, capsys)
+
+    index = tmp_path / "index" / "cache-index.sqlite3"
+    assert index.stat().st_mode & 0o077 == 0
+
+
+# ----------------------------------------------------------------------
+# Emptying the cache
+# ----------------------------------------------------------------------
+
+
+def test_emptying_the_cache_reports_what_it_removed_and_keeps_the_levels(
+    tmp_path, scanner, monkeypatch, capsys
+):
+    cache = tmp_path / "cache"
+    stored = [_store(cache, f"https443GETa.example.com/{n}") for n in range(5)]
+    # A temporary file goes too, as find -type f -delete took it.
+    temporary = stored[0].parent / f"{stored[0].name}.0000000001"
+    temporary.write_bytes(b"partial")
+    _run(scanner, cache, [], monkeypatch, capsys, tags=["none"])
+
+    report = _run(scanner, cache, [], monkeypatch, capsys, everything=True)
+
+    assert report == {"scanned": 6, "removed": 6, "unchecked": 0}
+    assert not any(path.exists() for path in [*stored, temporary])
+    assert stored[0].parent.is_dir()
+    # The index went with the cache: a new entry is found by the next purge.
+    gone = _store(cache, "https443GETa.example.com/0")
+    report = _run(scanner, cache, [{"host": "a.example.com"}], monkeypatch, capsys)
+    assert report == {"scanned": 1, "removed": 1, "unchecked": 0}
+    assert not gone.exists()
+
+
+def test_emptying_the_cache_cannot_be_combined_with_a_selection(
+    tmp_path, scanner, monkeypatch
+):
+    (tmp_path / "cache").mkdir()
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            json.dumps(
+                {"path": str(tmp_path / "cache"), "all": True, "tags": ["product"]}
+            )
+        ),
+    )
+    assert scanner["main"]() == 2

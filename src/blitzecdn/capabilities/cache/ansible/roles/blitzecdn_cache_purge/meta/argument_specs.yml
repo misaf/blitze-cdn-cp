@@ -11,7 +11,9 @@ argument_specs:
         nginx open source has no proxy_cache_purge directive, so an entry is
         removed by deleting the files proxy_cache_path stores it in: every file
         whose KEY line matches, which includes each Vary variant nginx filed
-        under its own hash. Named entries are rebuilt into the same cache keys
+        under its own hash. Keys, prefixes and tags are resolved through an
+        index on the edge that only reads files stored since the last purge.
+        Named entries are rebuilt into the same cache keys
         nginx computes, which is why this role has to be told the cache
         settings blitzecdn_nginx used.
       - >-
@@ -23,6 +25,14 @@ argument_specs:
         type: path
         required: true
         description: Must equal blitzecdn_edge_runtime.paths.cache on the same host.
+      blitzecdn_cache_purge_index_path:
+        type: path
+        required: true
+        description: >-
+          Where the edge keeps the purge index, a SQLite file mapping cache keys
+          and tags to the cached files holding them. Outside the cache
+          directory, and must equal blitzecdn_cache_teardown_index_path so
+          a decommission removes it.
       blitzecdn_cache_purge_normalize_accept_encoding:
         type: bool
         required: true

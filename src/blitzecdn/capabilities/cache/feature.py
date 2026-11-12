@@ -49,6 +49,7 @@ FEATURES = (
                 feature="cache",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
+                teardown_roles=ansible.TEARDOWN_ROLES,
             ),
         ),
         nginx=(
