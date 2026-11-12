@@ -81,8 +81,8 @@ def write_variables(
 
 def read_variables(path: Path) -> Any:
     """Load a file :func:`write_variables` wrote, its strings as plain ``str``."""
+    # _UnsafeLoader is a SafeLoader that also reads !unsafe back as a string.
     text = path.read_text(encoding="utf-8")
-    # Safe: a SafeLoader subclass whose only addition reads `!unsafe` as `str`.
     return yaml.load(text, Loader=_UnsafeLoader)  # noqa: S506  # nosec B506
 
 
