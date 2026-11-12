@@ -20,8 +20,8 @@ class HttpScheme(StrEnum):
     HTTPS = "https"
 
 
-# Cloudflare-compatible public proxy ports. These mirror the edge runtime
-# listener contract and are intentionally independent sets rather than pairs.
+# Cloudflare-compatible public proxy ports, intentionally independent sets
+# rather than pairs. Mirrors the edge runtime listener contract.
 HTTP_PROXY_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 HTTPS_PROXY_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}

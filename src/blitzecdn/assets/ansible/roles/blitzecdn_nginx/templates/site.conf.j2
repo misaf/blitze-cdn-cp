@@ -96,8 +96,8 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
 {% macro path_locations(listener_port, visitor_scheme, hostname) %}
 {% for location in item.locations | default([], true) %}
 {% if hostname in location.server_names %}
-{% set pattern = '^' ~ (location.path | regex_escape) ~ ('' if location.path.endswith('/') else '$') %}
-    location ~ "{{ pattern }}" {
+{# location.pattern is built once, by the controller's path_pattern. #}
+    location ~ "{{ location.pattern }}" {
 {% if location.redirect %}
 {% set redirect = location.redirect %}
 {% set query = '$is_args$args' if redirect.preserve_query_string | default(true) else '' %}
@@ -115,8 +115,9 @@ blitzecdn_origin_{{ item.name }}_{{ origin | replace(':', '_') }}
     }
     location @blitzecdn_path_{{ location.rule }}_redirect {
 {% if '$1' in redirect.target %}
-        {# $request_uri, not $uri: a decoded capture could inject CR/LF. #}
-        if ($request_uri ~ "^{{ location.path | regex_escape }}([^?]*)") {
+        {# $request_uri, not $uri: a decoded capture could inject CR/LF. Only a
+           prefix path may name $1, and its pattern is unanchored at the end. #}
+        if ($request_uri ~ "{{ location.pattern }}([^?]*)") {
             return {{ redirect.status }} "{{ redirect.target }}{{ query }}";
         }
 {% endif %}
