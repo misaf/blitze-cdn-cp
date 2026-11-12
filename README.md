@@ -100,6 +100,12 @@ is handled by `install.sh` and the bundled control-plane Ansible roles.
 | `src/blitzecdn/assets/` | Packaged migrations, shared Ansible automation, and Docker build assets |
 | `tests/` | Capability, delivery, architecture, contract, journey, and platform checks |
 
+The [architecture walkthrough](docs/architecture.md) follows a deployment and
+a queued cache purge through these packages, file by file, and says what a
+script or test must import before it touches a site policy. The
+[decision log](docs/decisions/README.md) records why the larger choices were
+made.
+
 Shared site identity lives in `core/domain/site.py`; `SitePolicy` in
 `core/domain/site_policy.py` composes the contracts contributed by features.
 These models import no capability. HTTP owns visitor headers, origins owns
