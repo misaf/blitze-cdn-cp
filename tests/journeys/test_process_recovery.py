@@ -31,6 +31,43 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+#: How long one child step may run before it counts as hung. Not a schedule:
+#: every wait below ends on the child's own exit or checkpoint line, and this only
+#: bounds a child that never produces either on a heavily loaded `-n auto` run.
+_STEP_BOUND = 120
+
+
+def _output(stdout, stderr):
+    def text(stream):
+        if isinstance(stream, bytes):
+            return stream.decode(errors="replace")
+        return stream or ""
+
+    return f"--- stdout ---\n{text(stdout)}\n--- stderr ---\n{text(stderr)}"
+
+
+def _await_checkpoint(worker, log, checkpoint):
+    """The worker's checkpoint line, or a failure naming why it never came."""
+    with selectors.DefaultSelector() as selector:
+        selector.register(worker.stdout, selectors.EVENT_READ)
+        reached = selector.select(timeout=_STEP_BOUND)
+    line = worker.stdout.readline() if reached else ""
+    try:
+        paused = json.loads(line)
+    except ValueError:
+        paused = None
+    if paused != {"paused": checkpoint, "pid": worker.pid}:
+        worker.kill()
+        rest, _ = worker.communicate(timeout=10)
+        pytest.fail(
+            f"crash worker never reached checkpoint {checkpoint!r} "
+            f"({'exited' if reached else f'no line within {_STEP_BOUND}s'}; "
+            f"exit status {worker.returncode})\n"
+            f"{_output(line + rest, log.read_text())}"
+        )
+    return paused
+
+
 @pytest.fixture
 def practice(tmp_path):
     original = tmp_path / "original"
@@ -73,15 +110,28 @@ def practice(tmp_path):
         return env
 
     def run(project, arguments):
-        result = subprocess.run(  # noqa: S603 - fixed interpreter and local test commands
-            [sys.executable, *arguments],
-            cwd=project,
-            env=environment(project),
-            capture_output=True,
-            text=True,
-            timeout=45,
-        )
-        assert result.returncode == 0, result.stderr
+        # `blitzecdn <arguments>` for the CLI, the mode for a recovery child.
+        step = " ".join(arguments[2:]) if arguments[0] == "-c" else arguments[1]
+        try:
+            result = subprocess.run(  # noqa: S603 - fixed interpreter and local test commands
+                [sys.executable, *arguments],
+                cwd=project,
+                env=environment(project),
+                capture_output=True,
+                text=True,
+                # A hang guard, not a pace: each step ends when its process does.
+                timeout=_STEP_BOUND,
+            )
+        except subprocess.TimeoutExpired as expired:
+            pytest.fail(
+                f"recovery step {step!r} still running after {_STEP_BOUND}s\n"
+                f"{_output(expired.stdout, expired.stderr)}"
+            )
+        if result.returncode != 0:
+            pytest.fail(
+                f"recovery step {step!r} exited {result.returncode}\n"
+                f"{_output(result.stdout, result.stderr)}"
+            )
         return result.stdout
 
     def cli(project, *arguments):
@@ -103,15 +153,20 @@ def practice(tmp_path):
         return json.loads(run(project, child_arguments(mode, *extra)))
 
     def start_worker(project):
-        return subprocess.Popen(  # noqa: S603 - owned disposable test worker
-            [sys.executable, *child_arguments("crash")],
-            cwd=project,
-            env=environment(project),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        # A file, not a pipe: nobody drains stderr while the worker is paused, and
+        # a full pipe would block it before it reaches the checkpoint.
+        log = tmp_path / "crash-worker.stderr"
+        with log.open("w") as stderr:
+            worker = subprocess.Popen(  # noqa: S603 - owned disposable test worker
+                [sys.executable, *child_arguments("crash")],
+                cwd=project,
+                env=environment(project),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                text=True,
+            )
+        return worker, log
 
     try:
         cli(original, "setup")
@@ -150,17 +205,9 @@ def test_killed_worker_resumes_its_saved_checkpoint(practice):
     job_id = submitted["jobs"][0]["id"]
     assert submitted["deployments"][0]["status"] == "queued"
 
-    worker = practice.start_worker(original)
+    worker, log = practice.start_worker(original)
     try:
-        with selectors.DefaultSelector() as selector:
-            selector.register(worker.stdout, selectors.EVENT_READ)
-            assert selector.select(timeout=45), (
-                "worker never reached the crash checkpoint"
-            )
-        line = worker.stdout.readline()
-        assert line, worker.stderr.read()
-        paused = json.loads(line)
-        assert paused == {"paused": "before-activate", "pid": worker.pid}
+        paused = _await_checkpoint(worker, log, "before-activate")
         interrupted = child(original, "snapshot")
         assert interrupted["deployments"][0]["status"] == "running"
         assert interrupted["deployments"][0]["targets"][0]["phase"] == "stage"

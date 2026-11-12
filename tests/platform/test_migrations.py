@@ -380,27 +380,64 @@ def test_migration_and_inspection_support_uri_and_interpolation_characters(tmp_p
 
 def test_concurrent_migration_processes_initialize_one_database(tmp_path):
     import os
+    import select
     import subprocess
     import sys
 
     path = tmp_path / "controller.db"
+    # Each child imports, says so, and waits to be released: interpreter start and
+    # the alembic import are what a loaded `-n auto` run slows down, and without
+    # the checkpoint they decide whether the migrators overlap at all.
     code = (
         "from pathlib import Path; "
         "from blitzecdn.core.persistence.schema import DatabaseSchema; "
-        "import sys; DatabaseSchema.migrate(Path(sys.argv[1]))"
+        "import sys; print('ready', flush=True); sys.stdin.readline(); "
+        "DatabaseSchema.migrate(Path(sys.argv[1]))"
     )
     processes = [
         subprocess.Popen(  # noqa: S603 - fixed local interpreter and test database
             [sys.executable, "-c", code, str(path)],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=os.environ.copy(),
         )
         for _ in range(3)
     ]
-    for process in processes:
-        _, error = process.communicate(timeout=30)
-        assert process.returncode == 0, error.decode()
+
+    def report(process, checkpoint):
+        if process.poll() is None:
+            process.kill()
+        out, error = process.communicate(timeout=10)
+        return (
+            f"migrator {process.pid} failed {checkpoint} "
+            f"(exit status {process.returncode})\n"
+            f"--- stdout ---\n{out.decode()}\n--- stderr ---\n{error.decode()}"
+        )
+
+    try:
+        for process in processes:
+            # A hang guard: the line arrives when the import finishes.
+            reached = select.select([process.stdout], [], [], 120)[0]
+            if not reached or process.stdout.readline().strip() != b"ready":
+                pytest.fail(report(process, "before the 'ready' checkpoint"))
+        for process in processes:
+            process.stdin.write(b"go\n")
+            process.stdin.flush()
+        for process in processes:
+            try:
+                _, error = process.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                pytest.fail(report(process, "to finish migrating within 120s"))
+            assert process.returncode == 0, (
+                f"migrator {process.pid} exited {process.returncode} while "
+                f"migrating:\n{error.decode()}"
+            )
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
     Stores(path).close()
 
 

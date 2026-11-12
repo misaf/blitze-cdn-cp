@@ -16,6 +16,7 @@ from support.contracts import (
     role_defaults,
 )
 from support.edge_render import nginx_environment
+from support.pinned_collections import pinned_collections
 from support.role_contracts import render_compose
 
 
@@ -134,7 +135,7 @@ path.write_text(json.dumps(state))
             env={
                 **os.environ,
                 "ANSIBLE_ROLES_PATH": str(roles),
-                "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
+                "ANSIBLE_COLLECTIONS_PATH": str(pinned_collections()),
                 "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-local"),
                 "ANSIBLE_NOCOLOR": "1",
             },
