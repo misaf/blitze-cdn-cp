@@ -14,6 +14,8 @@
 #
 # Proves: a fresh install converges and is idempotent; every listener answers
 # over HTTP/1.1, HTTP/2 and HTTP/3; GeoIP2, Brotli and Under Attack Mode work; a
+# path-rule redirect answers only after the firewall, the rate limit, Under
+# Attack Mode and maintenance mode have; a
 # site change reloads without replacing the container; an image upgrade replaces
 # it and keeps cache and TLS material; a broken image is rolled back; the stack
 # returns after an engine restart; and teardown distinguishes removing the
@@ -62,6 +64,8 @@ readonly EDGE_PLAYBOOK=src/blitzecdn/assets/ansible/playbooks/edge.yml
 readonly EDGE_INVENTORY=tests/integration/edges-local.ini
 readonly RELEASE_STATE=tests/integration/http3-edge/release.yml
 readonly RELEASE_RUNNER=tests/integration/http3-edge/runner.yml
+# Zones whose path rules redirect, compiled into sites by the control plane.
+readonly RELEASE_ZONES=tests/integration/http3-edge/redirects.yml
 # Where the rendered release lands on this host, and where the edge host sees it.
 release_dir="${workdir}/release"
 readonly EDGE_RELEASE_DIR=/harness/release
@@ -73,6 +77,7 @@ readonly ACTIVE_CONF=/etc/blitzecdn/releases/current/nginx.conf
 # leaves it where `converge` reads it. Prints the release digest.
 render_release() {
   uv run --project "${project_dir}" --no-sync python "${project_dir}/tests/support/http3_release.py" \
+    --zones "${project_dir}/${RELEASE_ZONES}" \
     "${project_dir}/${RELEASE_STATE}" "${project_dir}/${RELEASE_RUNNER}" \
     "${release_dir}" "${EDGE_RELEASE_DIR}" "$@"
 }
@@ -405,6 +410,62 @@ for hostname in ('site-one.test', 'site-alias.test'):
 for path in root.glob('*.access.log*'):
     assert b'probe-secret' not in path.read_bytes(), path
 PY
+
+# --------------------------------------------------------------------------
+# Path-rule redirects
+# --------------------------------------------------------------------------
+# A redirect's `return` runs in nginx's rewrite phase, so the locations put it
+# two named hops behind the host's fragments (docs/design/path-rules.md). The
+# rendered configuration says where each directive sits; only a request says
+# that limit_req, allow/deny and auth_request answer before the redirect does.
+redirect_hosts=(redirect-plain redirect-country redirect-sources redirect-rate
+  redirect-attack redirect-maintenance)
+
+# What a failed redirect check needs: the rendered servers, and what each
+# host logged.
+redirect_diagnostics() {
+  local name
+  for name in "${redirect_hosts[@]}"; do
+    printf -- '--- %s: rendered server\n' "${name}"
+    in_edge "cat /etc/blitzecdn/releases/current/nginx/sites-available/${name}-test.conf" || true
+    printf -- '--- %s: access and error logs\n' "${name}"
+    in_edge "tail -n 20 /var/log/nginx/domains/www.${name}.test.access.log /var/log/nginx/domains/www.${name}.test.error.log" || true
+  done
+  in_edge 'docker logs --tail 50 blitzecdn-edge' || true
+}
+
+# A request from the edge host itself: its source is the loopback, which the
+# visitors' network can never be.
+from_loopback() {
+  in_edge "curl -sS -o /dev/null -D - -A blitzecdn-redirect-probe/1 -H 'Host: $1' 'http://127.0.0.1$2'"
+}
+
+# The status line and Location of a response, or a failure naming both.
+expect_redirect() {
+  local response=$1 status=$2 location=$3 what=$4
+  printf '%s\n' "${response}"
+  if ! grep -q "^HTTP/1.1 ${status} " <<<"${response}" ||
+    ! grep -qix "location: ${location}"$'\r' <<<"${response}"; then
+    redirect_diagnostics
+    fail "${what}: expected ${status} to ${location}"
+  fi
+}
+
+say "A redirect answers only after the host's access control"
+# Every request the probe makes is a visitor's, from the outer network.
+if ! docker run --rm --network "${network}" -v "${project_dir}:/workspace:ro" \
+  python:3.14-alpine python -I /workspace/tests/integration/redirect_probe.py "${edge_ip}"; then
+  redirect_diagnostics
+  fail "a path-rule redirect answered before the host's access control"
+fi
+
+say "The exempt and the undenied are still redirected"
+# The same rules refuse a source, not the path: the loopback is not denied,
+# and it is the maintenance host's allow_sources exemption.
+expect_redirect "$(from_loopback www.redirect-sources.test /old/a?x=1)" \
+  301 '/new/a?x=1' "a source the firewall does not deny"
+expect_redirect "$(from_loopback www.redirect-maintenance.test /old/a)" \
+  301 /new/a "a source exempt from maintenance"
 
 # --------------------------------------------------------------------------
 # HTTP-01

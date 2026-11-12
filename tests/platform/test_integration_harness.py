@@ -29,6 +29,9 @@ INSTALL_HARNESS = PROJECT_DIR / "tests/integration/container-install.sh"
 # passes beside the release. The edge itself is converged by the shipped play.
 HTTP3_STATE = PROJECT_DIR / "tests/integration/http3-edge/release.yml"
 HTTP3_RUNNER = PROJECT_DIR / "tests/integration/http3-edge/runner.yml"
+# Zones whose path rules redirect, and the visitor that requests them.
+HTTP3_ZONES = PROJECT_DIR / "tests/integration/http3-edge/redirects.yml"
+REDIRECT_PROBE = PROJECT_DIR / "tests/integration/redirect_probe.py"
 EDGE_PLAYBOOK = "src/blitzecdn/assets/ansible/playbooks/edge.yml"
 # Both harnesses start a privileged systemd host and install a container engine
 # inside it, so both meet the nested-overlay limit below in the same way.
@@ -243,6 +246,51 @@ def test_the_harness_release_renders_and_is_content_addressed(tmp_path):
         assert f"http://{site['origin_host']}:{origin[1]}" in upstreams, (
             "the rendered upstream does not reach the harness origin's port"
         )
+
+
+def test_the_harness_redirects_are_the_ones_the_control_plane_renders(tmp_path):
+    """A hand-written location would prove the copy, not the path rule.
+
+    The redirect hosts come from zones and rules, compiled by the sites
+    capability's own code into the release every deploy stages, and the harness
+    requests each one the probe and its loopback checks name.
+    """
+    commands = _commands()
+    assert re.search(
+        r"^readonly RELEASE_ZONES=tests/integration/http3-edge/redirects\.yml$",
+        commands,
+        re.MULTILINE,
+    ), "the harness names no redirect zones"
+    render = re.search(r"^render_release\(\) \{\n(.*?)\n\}", commands, re.M | re.S)
+    assert render and '--zones "${project_dir}/${RELEASE_ZONES}"' in render.group(1), (
+        "the release the harness deploys does not carry the redirect hosts"
+    )
+    assert "tests/integration/redirect_probe.py" in commands, (
+        "nothing requests the redirect hosts"
+    )
+
+    zones = yaml.safe_load(HTTP3_ZONES.read_text(encoding="utf-8"))["zones"]
+    names = {zone["name"] for zone in zones}
+    listed = re.search(r"^redirect_hosts=\((.*?)\)$", commands, re.M | re.S)
+    assert listed, "the harness lists no redirect hosts for its diagnostics"
+    assert {f"{name}.test" for name in listed.group(1).split()} == names
+    probed = set(re.findall(r'"www\.([a-z.-]+\.test)"', REDIRECT_PROBE.read_text()))
+    probed |= set(re.findall(r"from_loopback www\.([a-z.-]+\.test) ", commands))
+    assert probed == names, "a redirect host is never requested, or is not served"
+
+    output = tmp_path / "release"
+    arguments = ["--zones", str(HTTP3_ZONES), str(HTTP3_STATE), str(HTTP3_RUNNER)]
+    assert http3_release.main([*arguments, str(output), "/harness/release"]) == 0
+    released = yaml.safe_load((output / http3_release.EXECUTION_DOCUMENT).read_text())
+    bundle = ConfigurationBundle.decode((output / http3_release.BUNDLE).read_text())
+    sites = {site["name"]: site for site in released["blitzecdn_nginx_sites"]}
+    for zone in zones:
+        name = zone["name"].replace(".", "-")
+        assert sites[name]["server_names"] == [f"www.{zone['name']}"]
+        rendered = bundle.files[f"nginx/sites-available/{name}.conf"].decode()
+        for rule in zone["rules"]:
+            assert f"location @blitzecdn_path_{rule['name']}_redirect {{" in rendered
+    assert "nginx/pages/redirect-maintenance-test/maintenance.html" in bundle.files
 
 
 def test_the_harness_certificates_live_where_the_runtime_can_read_them():
