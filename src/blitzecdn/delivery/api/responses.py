@@ -1,6 +1,7 @@
-"""The HTTP contract for accepting and polling background work."""
+"""The HTTP contract for created resources and for accepting and polling work."""
 
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import Response
 
@@ -29,6 +30,16 @@ ACCEPTED_RESPONSE: dict[str, Any] = {
     },
 }
 
+CREATED_RESPONSE: dict[str, Any] = {
+    "description": "Created. Location is the new resource's canonical URL.",
+    "headers": {
+        "Location": {
+            "description": "Relative URL of the created resource.",
+            "schema": {"type": "string"},
+        },
+    },
+}
+
 POLL_RESPONSE: dict[str, Any] = {
     "description": "Current status; HTTP 200 does not imply the work succeeded.",
     "headers": _POLL_HEADERS,
@@ -43,3 +54,13 @@ def polling_headers(
     if active:
         response.headers["Retry-After"] = str(POLL_INTERVAL_SECONDS)
     response.headers["Cache-Control"] = "no-store"
+
+
+def created_at(response: Response, path: str, *segments: str) -> None:
+    """Point ``Location`` at a created resource: ``path`` plus quoted ``segments``.
+
+    Each segment is one path component, quoted whole, so a name holding ``/``
+    or ``?`` cannot turn into a different URL.
+    """
+    location = "/".join([path, *(quote(segment, safe="") for segment in segments)])
+    response.headers["Location"] = location

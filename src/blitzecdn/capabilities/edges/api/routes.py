@@ -30,6 +30,8 @@ from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, paginate
 from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
+    CREATED_RESPONSE,
+    created_at,
     polling_headers,
 )
 
@@ -55,13 +57,18 @@ def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
     "/v3/edges",
     response_model=Edge,
     status_code=status.HTTP_201_CREATED,
-    responses={**CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={201: CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def add_edge(
-    edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
+    edge: Edge,
+    response: Response,
+    operator: OperatorDependency,
+    edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
+    created = Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
+    created_at(response, "/v3/edges", created.name)
+    return created
 
 
 @router.patch(
