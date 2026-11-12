@@ -5,9 +5,14 @@ from fastapi import APIRouter, Depends, Response, status
 from blitzecdn.capabilities.jobs import OperationService
 from blitzecdn.capabilities.origins.api.models import OriginCheckRequest
 from blitzecdn.capabilities.origins.service.operations import OriginCheckJob
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
+)
+from blitzecdn.delivery.api.idempotency import (
+    IdempotencyKeyDependency,
+    idempotent,
 )
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.responses import (
@@ -31,11 +36,18 @@ def check_origins(
     request: OriginCheckRequest,
     operator: OperatorDependency,
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue the edges connecting to their origins; the result is an OriginReport."""
     queued = as_queued(
-        queued_operations.submit(
-            OriginCheckJob(operator=operator, host_limit=request.host_limit)
+        idempotent(
+            idempotency,
+            keys,
+            create=lambda: queued_operations.submit(
+                OriginCheckJob(operator=operator, host_limit=request.host_limit)
+            ),
+            replay=queued_operations.get,
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")

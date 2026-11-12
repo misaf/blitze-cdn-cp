@@ -1,0 +1,10 @@
+---
+# The index and the rollback journal SQLite leaves beside it if a purge was
+# interrupted. Nothing is guarded: removing a file that is not there is free.
+- name: Remove the purge index
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ blitzecdn_cache_teardown_index_path }}"
+    - "{{ blitzecdn_cache_teardown_index_path }}-journal"

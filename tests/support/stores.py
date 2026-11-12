@@ -47,6 +47,7 @@ class Stores(Repository):
         stores.database = repository.database
         stores.ansible_settings = repository.ansible_settings
         stores.audit_log = repository.audit_log
+        stores.idempotency_keys = repository.idempotency_keys
         stores._build_stores()
         return stores
 

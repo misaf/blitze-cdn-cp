@@ -1,0 +1,5 @@
+---
+# The purge index blitzecdn_cache_purge keeps on the edge. Must equal
+# blitzecdn_cache_purge_index_path; the control plane's tests assert it does,
+# because a mismatch leaves the index behind and reports success.
+blitzecdn_cache_teardown_index_path: /var/lib/blitzecdn/cache-index.sqlite3
