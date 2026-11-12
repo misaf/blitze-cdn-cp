@@ -2840,6 +2840,40 @@
         "title": "Page[CertificateStatus]",
         "type": "object"
       },
+      "Page_CollectionStatus_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionStatus"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CollectionStatus]",
+        "type": "object"
+      },
       "Page_DeploymentTarget_": {
         "properties": {
           "items": {
@@ -5539,177 +5573,6 @@
           }
         ],
         "summary": "Purge Cache"
-      }
-    },
-    "/v3/cache/stats": {
-      "get": {
-        "description": "Stored hourly cache outcomes, ordered by hour, hostname and edge.\n\nCounted by traffic collection from every log record exactly once; no edge\nis contacted. Empty hours are omitted, and counters may lag while\ncollection is pending. The hit ratio counts only requests that consulted\nthe cache; redirects, errors nginx served itself and sites with caching\ndisabled are NONE, not misses.",
-        "operationId": "cache_stats_v3_cache_stats_get",
-        "parameters": [
-          {
-            "description": "Inclusive UTC hour; timezone required.",
-            "in": "query",
-            "name": "start",
-            "required": true,
-            "schema": {
-              "description": "Inclusive UTC hour; timezone required.",
-              "format": "date-time",
-              "title": "Start",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Exclusive UTC hour; timezone required.",
-            "in": "query",
-            "name": "end",
-            "required": true,
-            "schema": {
-              "description": "Exclusive UTC hour; timezone required.",
-              "format": "date-time",
-              "title": "End",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Exact served hostname.",
-            "in": "query",
-            "name": "hostname",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Exact served hostname.",
-              "title": "Hostname"
-            }
-          },
-          {
-            "description": "Exact edge name, including retired edges.",
-            "in": "query",
-            "name": "edge",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Exact edge name, including retired edges.",
-              "title": "Edge"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 100,
-              "maximum": 500,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "maximum": 9223372036854775807,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_CacheHour_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The X-API-Key header is missing or matches no operator.",
-            "headers": {
-              "WWW-Authenticate": {
-                "description": "Always `ApiKey`.",
-                "schema": {
-                  "enum": [
-                    "ApiKey"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The installation is wrong; retrying will not help."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "No API keys are configured, so no request can authenticate."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Cache Stats"
       }
     },
     "/v3/certificates": {
@@ -11852,6 +11715,306 @@
         "summary": "Operational Status"
       }
     },
+    "/v3/traffic/cache": {
+      "get": {
+        "description": "Stored hourly cache outcomes, ordered by hour, hostname and edge.\n\nCounted by traffic collection from every log record exactly once; no edge\nis contacted. Empty hours are omitted, and counters may lag while\ncollection is pending. The hit ratio counts only requests that consulted\nthe cache; redirects, errors nginx served itself and sites with caching\ndisabled are NONE, not misses.",
+        "operationId": "cache_stats_v3_traffic_cache_get",
+        "parameters": [
+          {
+            "description": "Inclusive UTC hour; timezone required.",
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "description": "Inclusive UTC hour; timezone required.",
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive UTC hour; timezone required.",
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "description": "Exclusive UTC hour; timezone required.",
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact served hostname.",
+            "in": "query",
+            "name": "hostname",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact served hostname.",
+              "title": "Hostname"
+            }
+          },
+          {
+            "description": "Exact edge name, including retired edges.",
+            "in": "query",
+            "name": "edge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact edge name, including retired edges.",
+              "title": "Edge"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CacheHour_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cache Stats"
+      }
+    },
+    "/v3/traffic/collection": {
+      "get": {
+        "description": "Last observed collection state of every edge; this does not trigger collection.\n\nOrdered by edge name: registered edges, and removed edges with collection\nhistory. Current means recently caught up with available logs, not complete\nbilling coverage or proof of zero traffic.",
+        "operationId": "collection_status_v3_traffic_collection_get",
+        "parameters": [
+          {
+            "description": "Exact edge name, including removed edges with history.",
+            "in": "query",
+            "name": "edge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact edge name, including removed edges with history.",
+              "title": "Edge"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CollectionStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Collection Status"
+      }
+    },
     "/v3/traffic/sites/{site}": {
       "get": {
         "description": "A served hostname's requests, bytes, cache hits and status classes.\n\nOne item per UTC hour or day with traffic, oldest first, summed across\nedges from stored hourly rows; no edge is contacted. Empty buckets are\nomitted, and counters may lag while collection is pending. Hours collected\nbefore status classes were counted have no status counts.",
@@ -12205,112 +12368,6 @@
           }
         ],
         "summary": "Site Paths"
-      }
-    },
-    "/v3/traffic/status/{edge}": {
-      "get": {
-        "description": "Last observed collection state; this does not trigger collection.\n\nCurrent means recently caught up with available logs, not complete billing\ncoverage or proof of zero traffic. Unknown edges without history return 404.",
-        "operationId": "collection_status_v3_traffic_status__edge__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "edge",
-            "required": true,
-            "schema": {
-              "title": "Edge",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The X-API-Key header is missing or matches no operator.",
-            "headers": {
-              "WWW-Authenticate": {
-                "description": "Always `ApiKey`.",
-                "schema": {
-                  "enum": [
-                    "ApiKey"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A resource the request names does not exist."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The installation is wrong; retrying will not help."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "No API keys are configured, so no request can authenticate."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Collection Status"
       }
     },
     "/v3/traffic/usage": {
