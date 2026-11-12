@@ -12,6 +12,7 @@ import os
 import re
 import select
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -1232,14 +1233,27 @@ with RestoreJournal(Path(sys.argv[2])).protect([live]):
     with subprocess.Popen(  # noqa: S603 - fixed interpreter, script and test paths
         [sys.executable, "-c", script, str(live), str(journal.root)],
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     ) as child:
         try:
             assert child.stdout is not None
-            assert select.select([child.stdout], [], [], 10)[0]
-            assert child.stdout.readline().strip() == "ready"
+            # The child's own line is the checkpoint. The bound only stops a hung
+            # child hanging the suite: interpreter start and the import are slow
+            # under a loaded `-n auto` run, and the line arrives whenever they end.
+            reached = select.select([child.stdout], [], [], 120)[0]
+            line = child.stdout.readline() if reached else ""
+            if line.strip() != "ready":
+                child.kill()
+                _, stderr = child.communicate(timeout=10)
+                pytest.fail(
+                    "restore child never reached the 'ready' checkpoint "
+                    f"({'timed out' if not reached else 'exited'}; "
+                    f"exit status {child.returncode}; stdout {line!r}):\n{stderr}"
+                )
             child.kill()
             child.wait(timeout=10)
+            assert child.returncode == -signal.SIGKILL
         finally:
             if child.poll() is None:
                 child.kill()
