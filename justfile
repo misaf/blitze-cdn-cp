@@ -208,7 +208,8 @@ shell-lint:
     uv run shellcheck install.sh \
         tests/integration/container-install.sh tests/integration/http3-edge-integration.sh \
         scripts/collect-diagnostics.sh scripts/doctor.sh \
-        scripts/collections-check.sh scripts/clean-stale.sh scripts/fetch-age.sh
+        scripts/collections-check.sh scripts/clean-stale.sh scripts/fetch-age.sh \
+        scripts/ansible-playbook-timing.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -461,6 +462,12 @@ ci-download run="":
 # docs/traffic-accounting.md sizes BLITZE_TRAFFIC_COLLECTION_MAX_BYTES from it.
 bench-traffic records="200000":
     uv run python scripts/traffic_collector_benchmark.py --records {{records}}
+
+# Drive the real rollout over a simulated fleet: run counts, controller cost,
+# and modelled durations per fleet and batch size, including failures and a
+# contended drift check. docs/design/rollout-benchmark.md reads the results.
+bench-rollout *args:
+    uv run python scripts/rollout_benchmark.py {{args}}
 
 # Rewrite the frozen public surfaces under `tests/contract/frozen/`.
 #

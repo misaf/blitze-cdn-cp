@@ -44,9 +44,12 @@ playbook runs for batch size B, instead of `4 × N`, and a drift check about
 `⌈N / B⌉`. Each run gathers facts on its hosts; a run takes about as long as the
 slowest edge in it, bounded by `deployment_timeout_seconds`. Ansible's `forks`
 (20 in `ansible.cfg`) caps how many edges in one run work at once, so batch
-sizes above it add no parallelism. No per-phase timing has been measured yet;
-fact gathering runs in every phase, and a first install also pulls the runtime
-image during stage.
+sizes above it add no parallelism. Fact gathering runs in every phase, and a
+first install also pulls the runtime image during stage.
+[Rollout benchmark](rollout-benchmark.md) measures the run counts, failure
+blast radius and controller cost per batch size, models the durations, and
+explains why the default stays at 10. It also describes how to measure real
+timings on disposable edges.
 
 ### The drift check and the deployment lock
 
