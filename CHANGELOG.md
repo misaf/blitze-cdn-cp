@@ -15,7 +15,7 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - Every `201 Created` response sends `Location` with the new resource's path
   (`POST /v3/domains`, `/v3/domains/{domain}/records`,
   `/v3/domains/{domain}/rules` and `/v3/edges`), as `202` responses already
-  did, and OpenAPI declares the header (#369).
+  did, and OpenAPI declares the header (#383).
 - Every queued resource (`Operation`, `Deployment`, `Workflow`) starts with
   the same fields: `id`, `kind`, `status`, `done`, `created_at`,
   `finished_at`, `error` and `result`. `done` says when to stop polling
