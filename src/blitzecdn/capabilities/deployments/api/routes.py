@@ -18,6 +18,7 @@ from blitzecdn.delivery.api.dependencies import (
 )
 from blitzecdn.delivery.api.errors import (
     BODY_RESPONSES,
+    BUSY_RESPONSES,
     CONFLICT_RESPONSES,
     NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
@@ -45,7 +46,7 @@ router = APIRouter(
     "/v3/deployments",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={202: ACCEPTED_RESPONSE, **BUSY_RESPONSES, **BODY_RESPONSES},
 )
 def deploy(
     response: Response,
@@ -168,7 +169,7 @@ def deployment_diff(
     responses={
         202: ACCEPTED_RESPONSE,
         **NOT_FOUND_RESPONSES,
-        **CONFLICT_RESPONSES,
+        **BUSY_RESPONSES,
         **BODY_RESPONSES,
     },
 )

@@ -101,16 +101,22 @@ Every other error answers `{"detail": "message"}`, published as
 | `400` | Malformed `Content-Length` | Operations with a request body |
 | `401` | `X-API-Key` missing or unknown | Every operation behind an API key |
 | `403` | Client IP not in `allowed_ips` | Every operation |
-| `404` | A named resource does not exist | Operations with a path parameter, and rollback |
+| `404` | A named resource does not exist | Operations with a path parameter; rollback, cache purge and certificate renewal |
 | `409` | The request conflicts with current state, or reuses an `Idempotency-Key` | Every write, and the drift report of a deployment that was not a check |
+| `409` + `Retry-After` | Another deployment holds the deployment lock | `POST /v3/deployments`, `POST /v3/deployments/rollback`, `PUT /v3/sites/{name}/certificate` |
 | `413` | Body over `api_max_body_bytes` | Operations with a request body |
 | `500` | The installation is wrong; retrying will not help | Every operation |
 | `503` | No API keys are configured | Every operation behind an API key |
 
-No operation drives edges or takes the deployment lock while the request is
-open: that work is queued, answers `202`, and reports an edge failure or a
-busy lock on the operation rather than as `502` or `409`. Retry a `409` only
-after changing the request or the state it conflicts with.
+The three with `Retry-After` take the deployment lock while the request is
+open, to queue their work or install the certificate. Only their `409` with `Retry-After`
+clears on its own; retry any other `409` only after changing the request or the
+state it conflicts with. No operation drives edges while the request is open:
+that work is queued, answers `202`, and reports an edge failure on the
+operation rather than as `502`.
+
+`GET /health` answers `503` with `HealthUnavailable`, not `ErrorResponse`:
+`{"status": "unavailable", "check": "<name>", "detail": "<exception type>"}`.
 
 ## Domain policy
 
