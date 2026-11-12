@@ -25,7 +25,6 @@ blitzecdn	command	blitzecdn config unset	<name> type=str required
 blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --wait type=int range default=0 --json type=boolean default=False
 blitzecdn	command	blitzecdn deployment diff	<deployment_id> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn deployment status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
-blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
 blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain always-use-https	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
@@ -34,6 +33,7 @@ blitzecdn	command	blitzecdn domain cache-query-string	<name> type=str required -
 blitzecdn	command	blitzecdn domain compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain error-pages	<name> type=str required --page type=str --clear type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn domain export	<name> type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn domain firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --allow-method type=str --deny-method type=str --allow-path type=str --deny-path type=str --case-insensitive-paths/--case-sensitive-paths type=boolean --clear type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn domain hosts	--json type=boolean default=False
 blitzecdn	command	blitzecdn domain http3	<name> type=str required --on/--off type=boolean required --json type=boolean default=False

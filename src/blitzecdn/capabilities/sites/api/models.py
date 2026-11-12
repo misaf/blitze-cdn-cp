@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal, Self, cast, get_args
 from pydantic import BaseModel, Field, model_validator
 
 from blitzecdn.capabilities.sites import serving_document
+from blitzecdn.capabilities.sites.domain import DnsExport as DomainDnsExport
 from blitzecdn.capabilities.sites.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.sites.domain import Domain as DomainDomain
 from blitzecdn.capabilities.sites.domain import DomainPatch as DomainDomainPatch
@@ -345,8 +346,52 @@ class ResolvedPolicy(Model):
         )
 
 
+class DnsPublication(Model):
+    """Whether this installation publishes DNS. ``publishes`` is false today."""
+
+    mode: Literal["external"] = Field(
+        description="Who publishes the records: something outside BlitzeCDN."
+    )
+    publishes: bool = Field(
+        description="Whether a record written here becomes a public answer unaided."
+    )
+    detail: str
+
+
+class ExportedRecord(Model):
+    """One record as whatever is authoritative for its zone should publish it."""
+
+    fqdn: str
+    domain: str
+    name: str
+    type: Literal["A", "AAAA"]
+    ttl: int
+    proxied: bool
+    answer: str = Field(
+        description="What DNS should answer with: the record's value when "
+        "unproxied, or the literal 'an edge address' when proxied, since the "
+        "edge address is the fleet's to supply."
+    )
+    value: str | None = Field(
+        description="The record's own value when unproxied. Null when proxied: "
+        "a proxied record's value is the origin, which is never exported."
+    )
+
+
+class DnsExport(Model):
+    """Desired DNS state for these zones, and the caveat that nothing publishes it."""
+
+    publication: DnsPublication
+    records: list[ExportedRecord]
+
+    @classmethod
+    def from_domain(cls, value: DomainDnsExport) -> Self:
+        return cls.model_validate(value.model_dump(mode="json"))
+
+
 __all__ = [
     "CdnSite",
+    "DnsExport",
     "DnsRecord",
     "Domain",
     "DomainPatch",

@@ -28,7 +28,6 @@ FEATURES = (
             ),
             CliCommandGroup(feature="sites", name="record", app=cli.record_app),
             CliCommandGroup(feature="sites", name="rule", app=cli.rule_app),
-            CliCommandGroup(feature="sites", name="dns", app=cli.dns_app),
         ),
     ),
 )

@@ -240,9 +240,9 @@ def test_dns_export_omits_addresses_for_proxied_records(
             },
             headers=headers,
         )
-        document = client.get("/v3/dns/export", headers=headers).json()
+        document = client.get("/v3/domains/export", headers=headers).json()
         exported = {row["fqdn"]: row for row in document["records"]}
-        assert "value" not in exported["cdn.example.com"]
+        assert exported["cdn.example.com"]["value"] is None
         assert exported["cdn.example.com"]["proxied"] is True
         assert exported["cdn.example.com"]["answer"] == "an edge address"
         assert exported["db.example.com"]["value"] == "198.51.100.10"
@@ -250,6 +250,44 @@ def test_dns_export_omits_addresses_for_proxied_records(
         # going to publish any of it.
         assert document["publication"]["publishes"] is False
         assert "does not publish DNS" in document["publication"]["detail"]
+
+
+def test_one_zone_exports_only_its_records_and_an_unknown_zone_is_404(settings):
+    headers = {"X-API-Key": "x" * 32}
+    with TestClient(control_plane_app(settings)) as client:
+        seed_site_over_http(client, headers)
+        client.post("/v3/domains", json={"name": "example.org"}, headers=headers)
+        client.post(
+            "/v3/domains/example.org/records",
+            json={"name": "www", "proxied": False, "value": "198.51.100.11"},
+            headers=headers,
+        )
+        everything = client.get("/v3/domains/export", headers=headers).json()
+        one = client.get("/v3/domains/example.org/export", headers=headers)
+        missing = client.get("/v3/domains/example.net/export", headers=headers)
+
+    assert {row["domain"] for row in everything["records"]} == {
+        "example.com",
+        "example.org",
+    }
+    assert one.status_code == 200
+    assert [row["fqdn"] for row in one.json()["records"]] == ["www.example.org"]
+    assert one.json()["publication"]["publishes"] is False
+    assert missing.status_code == 404
+
+
+def test_the_export_response_is_a_named_model_in_openapi(settings):
+    with TestClient(control_plane_app(settings)) as client:
+        schema = client.get("/openapi.json").json()
+
+    for path in ("/v3/domains/export", "/v3/domains/{domain}/export"):
+        response = schema["paths"][path]["get"]["responses"]["200"]
+        ref = response["content"]["application/json"]["schema"]["$ref"]
+        assert ref == "#/components/schemas/DnsExport"
+    assert "/v3/dns/export" not in schema["paths"]
+    export = schema["components"]["schemas"]["DnsExport"]
+    assert export["additionalProperties"] is False
+    assert set(export["properties"]) == {"publication", "records"}
 
 
 def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(

@@ -11,7 +11,7 @@ import typer
 from dishka import FromDishka
 
 from blitzecdn.capabilities.sites import SiteService
-from blitzecdn.capabilities.sites.cli.app import dns_app, record_app
+from blitzecdn.capabilities.sites.cli.app import record_app
 from blitzecdn.capabilities.sites.domain import DnsRecord, RecordType
 from blitzecdn.delivery.cli import common
 
@@ -127,7 +127,7 @@ def record_unproxy(
     Two halves, and BlitzeCDN owns one of them. This stops the edge serving the
     hostname at the next deploy; making DNS answer with ``--value`` is the
     other half and belongs to whatever is authoritative for the zone. Nothing
-    here publishes it — see ``blitzecdn dns export``.
+    here publishes it — see ``blitzecdn domain export``.
 
     The address is required rather than inferred from the origin. That is
     deliberate: answering with the origin address is what publishes an origin
@@ -170,26 +170,3 @@ def record_remove(
         raise typer.Abort()
     sites.delete_record(domain, name, type_, "cli")
     typer.echo(f"Deleted {label}")
-
-
-# -- Export --------------------------------------------------------------
-
-
-@dns_app.command("export")
-@common.inject
-def dns_export(
-    sites: FromDishka[SiteService], json_output: common.JsonOutput = False
-) -> None:
-    """Emit every record for the system that publishes DNS — which is not this one.
-
-    BlitzeCDN holds zones and records and publishes neither. What comes back is
-    desired state for whatever is authoritative: each record says what DNS
-    should answer with, and ``publication`` says plainly that nothing here is
-    going to make it so.
-
-    A proxied record's address is the origin the edge fetches from, and its
-    public answer is an edge address the fleet supplies — so the origin never
-    leaves this side. The record's own value is emitted only when it is
-    unproxied, which is the case where the value *is* the public answer.
-    """
-    common.emit(sites.dns_export(), json_output=json_output)

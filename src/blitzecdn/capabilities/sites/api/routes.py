@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from blitzecdn.capabilities.sites import SiteService
 from blitzecdn.capabilities.sites.api.models import (
     CdnSite,
+    DnsExport,
     DnsRecord,
     Domain,
     DomainPatch,
@@ -42,6 +43,16 @@ def create_domain(
     domain: Domain, operator: OperatorDependency, dns: FromDishka[SiteService]
 ) -> Domain:
     return Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
+
+
+# Declared before ``/v3/domains/{domain}`` so ``export`` is not read as a zone.
+@router.get("/v3/domains/export", response_model=DnsExport)
+def export_domains(dns: FromDishka[SiteService]) -> DnsExport:
+    """Desired DNS state for whatever is authoritative for these zones.
+
+    An envelope, so ``publication`` makes plain that nothing here publishes it.
+    """
+    return DnsExport.from_domain(dns.dns_export())
 
 
 @router.get("/v3/domains/{domain}", response_model=Domain)
@@ -140,13 +151,10 @@ def delete_record(
     dns.delete_record(domain, name, type_.to_domain(), operator)
 
 
-@router.get("/v3/dns/export")
-def dns_export(dns: FromDishka[SiteService]) -> dict[str, Any]:
-    """Desired DNS state for whatever is authoritative for these zones.
-
-    An envelope, so ``publication`` makes plain that nothing here publishes it.
-    """
-    return dns.dns_export()
+@router.get("/v3/domains/{domain}/export", response_model=DnsExport)
+def export_domain(domain: str, dns: FromDishka[SiteService]) -> DnsExport:
+    """One zone's desired DNS state; see ``GET /v3/domains/export``."""
+    return DnsExport.from_domain(dns.dns_export(domain))
 
 
 @router.get("/v3/domains/{domain}/rules", response_model=Page[Rule])
