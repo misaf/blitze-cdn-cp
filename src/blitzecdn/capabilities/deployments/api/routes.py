@@ -36,6 +36,7 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["deployments"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -47,6 +48,7 @@ router = APIRouter(
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **BUSY_RESPONSES, **BODY_RESPONSES},
+    operation_id="deployments_create",
 )
 def deploy(
     response: Response,
@@ -76,7 +78,9 @@ def deploy(
     return queued
 
 
-@router.get("/v3/deployments", response_model=Page[Deployment])
+@router.get(
+    "/v3/deployments", response_model=Page[Deployment], operation_id="deployments_list"
+)
 def deployments(
     deployments: FromDishka[DeploymentService],
     params: PaginationParams,
@@ -92,6 +96,7 @@ def deployments(
     "/v3/deployments/{deployment_id}",
     response_model=Deployment,
     responses={200: POLL_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="deployments_get",
 )
 def deployment(
     response: Response,
@@ -107,6 +112,7 @@ def deployment(
     "/v3/deployments/{deployment_id}/targets",
     response_model=Page[DeploymentTarget],
     responses=NOT_FOUND_RESPONSES,
+    operation_id="deployments_targets",
 )
 def deployment_targets(
     deployment_id: str,
@@ -129,6 +135,7 @@ def deployment_targets(
     "/v3/deployments/{deployment_id}/drift",
     response_model=DriftReport,
     responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    operation_id="deployments_drift",
 )
 def drift_report(
     deployment_id: str,
@@ -141,6 +148,7 @@ def drift_report(
     "/v3/deployments/{deployment_id}/diff",
     response_model=DeploymentDiff,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="deployments_diff",
 )
 def deployment_diff(
     deployment_id: str,
@@ -172,6 +180,7 @@ def deployment_diff(
         **BUSY_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="deployments_rollback",
 )
 def rollback(
     response: Response,

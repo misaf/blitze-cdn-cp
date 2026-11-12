@@ -26,6 +26,7 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["origins"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -37,6 +38,7 @@ router = APIRouter(
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    operation_id="origins_check",
 )
 def check_origins(
     response: Response,

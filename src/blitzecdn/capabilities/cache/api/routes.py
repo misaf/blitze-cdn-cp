@@ -42,6 +42,7 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["cache"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -58,6 +59,7 @@ router = APIRouter(
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="cache_purge",
 )
 def purge_cache(
     response: Response,
@@ -100,7 +102,9 @@ def purge_cache(
     return queued
 
 
-@router.get("/v3/cache/stats", response_model=Page[CacheHour])
+@router.get(
+    "/v3/cache/stats", response_model=Page[CacheHour], operation_id="cache_stats"
+)
 def cache_stats(
     cache: FromDishka[CacheService],
     params: PaginationParams,
@@ -153,6 +157,7 @@ def cache_stats(
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    operation_id="cache_connections",
 )
 def cache_connections(
     response: Response,

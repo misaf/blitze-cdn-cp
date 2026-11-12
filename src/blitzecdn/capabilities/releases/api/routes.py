@@ -11,9 +11,10 @@ from typing import Annotated, Any
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query
 
 from blitzecdn.capabilities.releases.api.models import (
+    Artifact,
     Release,
     ReleaseDetail,
     ReleaseDiff,
@@ -28,6 +29,7 @@ from blitzecdn.delivery.api.models import as_operation
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
+    tags=["releases"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -51,7 +53,7 @@ def _summary(release: Any, *, detail: bool = False) -> dict[str, Any]:
     }
 
 
-@router.get("/v3/releases", response_model=Page[Release])
+@router.get("/v3/releases", response_model=Page[Release], operation_id="releases_list")
 def releases(
     releases: FromDishka[ReleaseService],
     params: PaginationParams,
@@ -63,7 +65,11 @@ def releases(
     )
 
 
-@router.get("/v3/releases/current", response_model=ReleaseDetail)
+@router.get(
+    "/v3/releases/current",
+    response_model=ReleaseDetail,
+    operation_id="releases_current",
+)
 def current_release(
     releases: FromDishka[ReleaseService],
     host_limit: Annotated[str | None, Query(max_length=512)] = None,
@@ -77,7 +83,11 @@ def current_release(
     )
 
 
-@router.get("/v3/releases/current/diff", response_model=ReleaseDiff)
+@router.get(
+    "/v3/releases/current/diff",
+    response_model=ReleaseDiff,
+    operation_id="releases_current_diff",
+)
 def current_release_diff(releases: FromDishka[ReleaseService]) -> ReleaseDiff:
     """What deploying now would change on the edges, as a unified diff per file.
 
@@ -91,6 +101,7 @@ def current_release_diff(releases: FromDishka[ReleaseService]) -> ReleaseDiff:
     "/v3/releases/{release_id}",
     response_model=ReleaseDetail,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="releases_get",
 )
 def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDetail:
     """One recorded release, with the explanation of every host in it."""
@@ -99,16 +110,15 @@ def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDet
 
 @router.get(
     "/v3/releases/{release_id}/artifacts/{name}",
-    status_code=status.HTTP_200_OK,
+    response_model=Artifact,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="releases_artifact",
 )
 def artifact(
     release_id: str, name: str, releases: FromDishka[ReleaseService]
-) -> dict[str, Any]:
-    """One artifact document, exactly as the edges were handed it; unmodelled."""
+) -> Artifact:
+    """One artifact document, exactly as the edges were handed it."""
     document = releases.get(release_id).artifact(name)
-    return {
-        "name": document.name,
-        "digest": document.digest,
-        "document": document.document,
-    }
+    return Artifact(
+        name=document.name, digest=document.digest, document=document.document
+    )
