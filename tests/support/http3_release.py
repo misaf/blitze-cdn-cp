@@ -20,10 +20,17 @@ candidate tree. That is why the harness puts `blitzecdn_edge_image` in the
 document. A sealed candidate records the image it was validated under and reuses
 it, so an image change under the same digest would never reach the container.
 
+Path rules are the exception to a literal document. A location's pattern and
+variable scope are derived from its rule, and the point of serving redirects is
+to prove the locations production renders, so `--zones` names a document of
+zones, rules and records instead. They are compiled into sites by the sites
+capability's own `derive_hosts` and `site_to_ansible`, as `ReleaseService`
+compiles a database's, and appended to `blitzecdn_nginx_sites`.
+
 Run on the outer host, where the workspace is installed:
 
     uv run python tests/support/http3_release.py \
-        STATE RUNNER OUTPUT EDGE_OUTPUT [NAME=VAL...]
+        STATE RUNNER OUTPUT EDGE_OUTPUT [--zones ZONES] [NAME=VAL...]
 
 OUTPUT is written from scratch. EDGE_OUTPUT is the same directory as the edge
 host sees it, because the execution document names the bundle by the path the
@@ -44,6 +51,8 @@ from typing import Any
 import yaml
 
 from blitzecdn.assets import ansible as core_ansible
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.sites.domain import DnsRecord, Domain, Rule, derive_hosts
 from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.rendering import EdgeRenderer
@@ -79,6 +88,29 @@ def contributions(edge_roles: Sequence[str]) -> EdgeContributions:
     )
 
 
+def compile_zones(path: Path) -> list[dict[str, Any]]:
+    """The sites a zones document compiles to, by the control plane's own code.
+
+    The document names one origin address and a list of zones, each with a
+    `policy`, its `rules` and one `www` record pointing at that origin.
+    """
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    domains: list[Domain] = []
+    rules: list[Rule] = []
+    records: list[DnsRecord] = []
+    for zone in document["zones"]:
+        name = zone["name"]
+        defaults = Domain.model_validate({"name": name, "policy": {}})
+        domains.append(
+            Domain(name=name, policy=defaults.policy.applying(zone.get("policy", {})))
+        )
+        rules.extend(
+            Rule.model_validate({"domain": name, **rule}) for rule in zone["rules"]
+        )
+        records.append(DnsRecord(domain=name, name="www", value=document["origin"]))
+    return [site_to_ansible(host) for host in derive_hosts(domains, rules, records)]
+
+
 def digest(document: dict[str, Any]) -> str:
     """The document's identity, independent of key order."""
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
@@ -100,11 +132,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("output", type=Path)
     parser.add_argument("edge_output")
+    parser.add_argument(
+        "--zones",
+        type=Path,
+        help="Zones, rules and records compiled into further sites.",
+    )
     parser.add_argument("overrides", nargs="*", type=_override)
     arguments = parser.parse_args(argv)
 
     document: dict[str, Any] = read_variables(arguments.state)
     document.update(dict(arguments.overrides))
+    if arguments.zones is not None:
+        document["blitzecdn_nginx_sites"] = [
+            *document.get("blitzecdn_nginx_sites", []),
+            *compile_zones(arguments.zones),
+        ]
     runner: dict[str, Any] = read_variables(arguments.runner)
     contributed = contributions(runner["blitzecdn_capability_roles"])
 

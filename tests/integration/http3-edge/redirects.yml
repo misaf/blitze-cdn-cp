@@ -1,0 +1,67 @@
+---
+# Zones whose path rules redirect, each under one policy that must answer
+# before the redirect does. Written as an operator writes them through the API
+# — a zone's policy, its rules, its records — and compiled into
+# `blitzecdn_nginx_sites` by the control plane's own code
+# (tests/support/http3_release.py), so the locations the edge serves are the
+# production-rendered ones, not a hand-written copy of them.
+#
+# tests/integration/redirect_probe.py requests each host and asserts what it
+# answers; the harness asks the loopback-side questions, where a request comes
+# from the edge host itself rather than from the visitors' network.
+#
+# Every record points at a documentation address: a redirect never reaches the
+# origin, and no request the probe makes is meant to.
+origin: 192.0.2.10
+zones:
+  # Suffix and query handling, and the firewall rules a request (not its
+  # client) can trip: a denied method, and a path outside the allowed ones.
+  - name: redirect-plain.test
+    policy:
+      firewall:
+        denied_methods: [DELETE]
+        allowed_paths: [/old/, /gone.html]
+    rules:
+      - {name: old, priority: 10, path: /old/, redirect: {target: /new/$1}}
+      - name: gone
+        priority: 20
+        path: /gone.html
+        redirect: {target: /, status: 302, preserve_query_string: false}
+      - {name: retired, priority: 30, path: /retired/, redirect: {target: /new/}}
+  # No visitor on the harness's network has a country, so an allow-list of
+  # one refuses every one of them.
+  - name: redirect-country.test
+    policy:
+      firewall:
+        allowed_countries: [US]
+    rules:
+      - {name: old, path: /old/, redirect: {target: /new/$1}}
+  # Every private range: the visitors' network is refused, the edge host's own
+  # loopback is not, so the refusal is the source rule's and nothing else's.
+  - name: redirect-sources.test
+    policy:
+      firewall:
+        deny_sources: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+    rules:
+      - {name: old, path: /old/, redirect: {target: /new/$1}}
+  # The slowest rung: a second request inside six seconds is over it.
+  - name: redirect-rate.test
+    policy:
+      rate_limit: {rate: 10r/m}
+    rules:
+      - {name: old, path: /old/, redirect: {target: /new/$1}}
+  - name: redirect-attack.test
+    policy:
+      under_attack_mode: true
+    rules:
+      - {name: old, path: /old/, redirect: {target: /new/$1}}
+  # allow_sources are maintenance's documented exemption: the edge host's
+  # loopback is redirected, the visitors' network gets the maintenance page.
+  - name: redirect-maintenance.test
+    policy:
+      maintenance_mode: true
+      maintenance_retry_after: 120
+      firewall:
+        allow_sources: [127.0.0.1/32]
+    rules:
+      - {name: old, path: /old/, redirect: {target: /new/$1}}
