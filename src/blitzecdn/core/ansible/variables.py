@@ -81,7 +81,9 @@ def write_variables(
 
 def read_variables(path: Path) -> Any:
     """Load a file :func:`write_variables` wrote, its strings as plain ``str``."""
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=_UnsafeLoader)  # noqa: S506
+    # _UnsafeLoader is a SafeLoader that also reads !unsafe back as a string.
+    text = path.read_text(encoding="utf-8")
+    return yaml.load(text, Loader=_UnsafeLoader)  # noqa: S506  # nosec B506
 
 
 @contextmanager
