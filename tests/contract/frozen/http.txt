@@ -5,7 +5,6 @@ blitzecdn	route	DELETE /v3/edges/{name}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
 blitzecdn	route	GET /v3/audit-events
-blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
 blitzecdn	route	GET /v3/deployments
 blitzecdn	route	GET /v3/deployments/{deployment_id}
@@ -34,9 +33,10 @@ blitzecdn	route	GET /v3/sites/{name}
 blitzecdn	route	GET /v3/sites/{name}/certificate
 blitzecdn	route	GET /v3/sites/{name}/certificate/preflight
 blitzecdn	route	GET /v3/status
+blitzecdn	route	GET /v3/traffic/cache
+blitzecdn	route	GET /v3/traffic/collection
 blitzecdn	route	GET /v3/traffic/sites/{site}
 blitzecdn	route	GET /v3/traffic/sites/{site}/paths
-blitzecdn	route	GET /v3/traffic/status/{edge}
 blitzecdn	route	GET /v3/traffic/usage
 blitzecdn	route	GET /v3/workflows
 blitzecdn	route	GET /v3/workflows/{workflow_id}
@@ -385,6 +385,10 @@ blitzecdn	schema	Page_CertificateStatus_.items	array[CertificateStatus] required
 blitzecdn	schema	Page_CertificateStatus_.limit	integer required
 blitzecdn	schema	Page_CertificateStatus_.offset	integer required
 blitzecdn	schema	Page_CertificateStatus_.total	integer required
+blitzecdn	schema	Page_CollectionStatus_.items	array[CollectionStatus] required
+blitzecdn	schema	Page_CollectionStatus_.limit	integer required
+blitzecdn	schema	Page_CollectionStatus_.offset	integer required
+blitzecdn	schema	Page_CollectionStatus_.total	integer required
 blitzecdn	schema	Page_DeploymentTarget_.items	array[DeploymentTarget] required
 blitzecdn	schema	Page_DeploymentTarget_.limit	integer required
 blitzecdn	schema	Page_DeploymentTarget_.offset	integer required

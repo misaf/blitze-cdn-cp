@@ -19,11 +19,13 @@ from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.capabilities.traffic.domain.analytics import Granularity, SiteQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.delivery.api.dependencies import require_operator
-from blitzecdn.delivery.api.errors import (
-    NOT_FOUND_RESPONSES,
-    OPERATOR_RESPONSES,
+from blitzecdn.delivery.api.errors import NOT_FOUND_RESPONSES, OPERATOR_RESPONSES
+from blitzecdn.delivery.api.pagination import (
+    Page,
+    PaginationParams,
+    paginate,
+    stored_page,
 )
-from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
     tags=["traffic"],
@@ -178,18 +180,26 @@ def _validated[Q: BaseModel](model: type[Q], **values: object) -> Q:
 
 
 @router.get(
-    "/v3/traffic/status/{edge}",
-    response_model=CollectionStatus,
-    responses=NOT_FOUND_RESPONSES,
-    operation_id="traffic_collection_status",
+    "/v3/traffic/collection",
+    response_model=Page[CollectionStatus],
+    operation_id="traffic_collection",
 )
 def collection_status(
-    edge: str, response: Response, traffic: FromDishka[TrafficService]
-) -> CollectionStatus:
-    """Last observed collection state; this does not trigger collection.
+    response: Response,
+    traffic: FromDishka[TrafficService],
+    edge: Annotated[
+        str | None,
+        Query(description="Exact edge name, including removed edges with history."),
+    ] = None,
+) -> Page[CollectionStatus]:
+    """Last observed collection state of every edge; this does not trigger collection.
 
-    Current means recently caught up with available logs, not complete billing
-    coverage or proof of zero traffic. Unknown edges without history return 404.
+    Ordered by edge name: registered edges, and removed edges with collection
+    history. Current means recently caught up with available logs, not complete
+    billing coverage or proof of zero traffic.
     """
     response.headers["Cache-Control"] = "no-store"
-    return CollectionStatus.model_validate(traffic.status(edge).model_dump())
+    return paginate(
+        traffic.statuses(edge),
+        lambda item: CollectionStatus.model_validate(item.model_dump()),
+    )

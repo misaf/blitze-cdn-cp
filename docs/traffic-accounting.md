@@ -172,7 +172,7 @@ REVALIDATED, MISS, EXPIRED or BYPASS. An empty value means the cache was never
 consulted (a redirect, an error Nginx served itself, or a site with caching
 disabled) and is counted as NONE; so is any other value, so that a cache label
 can never block traffic collection. The cache capability reads these rows for
-`GET /v3/cache/stats` and `blitzecdn cache stats`, which add hit ratio and
+`GET /v3/traffic/cache` and `blitzecdn cache stats`, which add hit ratio and
 origin offload; see [operations](operations.md#cache-statistics).
 
 ## Site analytics
@@ -261,7 +261,7 @@ none older than that many days; the newest archive stays uncompressed. Keep it
 comfortably above the collection interval: a short retention suits privacy but
 leaves less room to catch up after an outage. Records that are
 rotated away before they are collected are lost for both traffic and cache
-statistics, and `GET /v3/traffic/status/{edge}` reports `backlogged` while a pass
+statistics, and `GET /v3/traffic/collection` reports `backlogged` while a pass
 ends with work remaining. Watch it rather than relying on retention alone.
 
 ## Retention
@@ -310,14 +310,16 @@ edge logs cannot be reconstructed automatically.
 
 ## Collection freshness
 
-Authenticated `GET /v3/traffic/status/{edge}` and
-`blitzecdn traffic status EDGE --json` inspect persisted collection observations.
-Reading status never contacts an edge, starts work, changes counters or adds audit
-history. HTTP responses use `Cache-Control: no-store`. Registered edges without an
-attempt return `never_collected`. Removed edges with history remain queryable and
-show `registered=false`; unknown edges without history return 404.
+Authenticated `GET /v3/traffic/collection` lists every edge's persisted collection
+observations in one page, ordered by edge name; `?edge=NAME` narrows it to one.
+`blitzecdn traffic status EDGE --json` prints one edge's. Reading status never
+contacts an edge, starts work, changes counters or adds audit history. HTTP
+responses use `Cache-Control: no-store`. Registered edges without an attempt are
+`never_collected`. Removed edges with history stay listed with
+`registered=false`; an unknown edge without history is not listed over HTTP, and
+the CLI exits with not found.
 
-Both interfaces return the same fields:
+Each status has the same fields in both interfaces:
 
 - `registered`, `collection_enabled`, `interval_seconds`: current configuration;
   collection is enabled for an edge when it is registered and the interval is nonzero.
