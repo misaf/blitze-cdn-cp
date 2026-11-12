@@ -25,6 +25,7 @@ from blitzecdn.capabilities.sites.ports import (
     ZoneStore,
 )
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.preconditions import IfMatch, require_current
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
@@ -67,7 +68,14 @@ class SiteService:
             )
         return created
 
-    def update_domain(self, name: str, command: PolicyCommand, operator: str) -> Domain:
+    def update_domain(
+        self,
+        name: str,
+        command: PolicyCommand,
+        operator: str,
+        *,
+        if_match: IfMatch | None = None,
+    ) -> Domain:
         """Change the policy every hostname in the zone is served by.
 
         Intent is resolved against the stored zone inside the transaction, and the
@@ -79,11 +87,15 @@ class SiteService:
         rule when it is written; accepting the zone edit instead would make the
         rule's hostnames drop out of ``derive_hosts`` with nothing said until
         ``blitzecdn validate`` ran. The operator changes or removes the rule first.
+
+        ``if_match`` is checked against the zone read here, before anything else,
+        so an edit built from a stale read raises ``PreconditionFailedError``.
         """
         with self.uow.transaction():
             # Read inside the boundary and write against what was read, so a concurrent
             # edit is merged with, not overwritten.
             current = self.zones.get_domain(name)
+            require_current(if_match, current, f"zone {name!r}")
             changes = command.changes(current.policy)
             reject_issuer_owned_certificate(changes)
             updated = Domain(name=current.name, policy=current.policy.applying(changes))
@@ -116,9 +128,13 @@ class SiteService:
                     f"unservable ({reasons}); change or delete the rule first"
                 ) from exc
 
-    def delete_domain(self, name: str, operator: str) -> None:
+    def delete_domain(
+        self, name: str, operator: str, *, if_match: IfMatch | None = None
+    ) -> None:
         """Remove a zone with its records and rules; its hosts go with them."""
         with self.uow.transaction():
+            if if_match is not None:
+                if_match.require(self.zones.get_domain(name), f"zone {name!r}")
             self.zones.delete_domain(name)
             self.events.record(domain_event(operator, "domain.deleted", "domain", name))
 
@@ -160,6 +176,8 @@ class SiteService:
         type_: RecordType,
         patch: RecordPatch,
         operator: str,
+        *,
+        if_match: IfMatch | None = None,
     ) -> DnsRecord:
         """Merge a partial change into a record and record who made it.
 
@@ -169,6 +187,7 @@ class SiteService:
         changes = patch.model_dump(exclude_unset=True)
         with self.uow.transaction():
             current = self.zones.get_record(domain, name, type_)
+            require_current(if_match, current, f"record {current.fqdn} {type_.value}")
             updated = DnsRecord.model_validate({**current.model_dump(), **changes})
             saved = self.zones.replace_record(updated, expected=current)
             self.events.record(
@@ -206,11 +225,18 @@ class SiteService:
         )
 
     def delete_record(
-        self, domain: str, name: str, type_: RecordType, operator: str
+        self,
+        domain: str,
+        name: str,
+        type_: RecordType,
+        operator: str,
+        *,
+        if_match: IfMatch | None = None,
     ) -> None:
         """Remove a record and record who did; ``NotFoundError`` if absent."""
         with self.uow.transaction():
             record = self.zones.get_record(domain, name, type_)
+            require_current(if_match, record, f"record {record.fqdn} {type_.value}")
             self.zones.delete_record(domain, name, type_)
             self.events.record(
                 domain_event(operator, "record.deleted", "record", record.fqdn)

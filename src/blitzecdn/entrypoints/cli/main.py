@@ -109,6 +109,8 @@ __all__ = [
 _EXIT_CODES: dict[FailureKind, ExitCode] = {
     FailureKind.BUSY: ExitCode.BUSY,
     FailureKind.CONFLICT: ExitCode.CONFLICT,
+    # The CLI sends no If-Match; a stale version is a conflict like any other.
+    FailureKind.PRECONDITION_FAILED: ExitCode.CONFLICT,
     FailureKind.NOT_FOUND: ExitCode.NOT_FOUND,
     FailureKind.EXECUTION: ExitCode.DEPLOYMENT_FAILED,
     FailureKind.CONFIGURATION: ExitCode.CONFIGURATION,
