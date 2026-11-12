@@ -61,6 +61,9 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   Compose (#107).
 - The control plane requires Python 3.15.2 (#203).
 - Rollback starts from the release the fleet runs, not desired state (#309).
+- The release diff names its baseline as `baseline_release` (was
+  `live_release`) and reports each edge's recorded release, grouped, with
+  warnings when the fleet is mixed, unverified or empty (#343).
 - `audit_retention` is an operator setting (#304).
 - `/metrics` uses `prometheus-client` (#295), and logs carry structured
   keyword fields (#297).

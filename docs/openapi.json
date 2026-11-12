@@ -2114,6 +2114,102 @@
         "title": "EdgePatch",
         "type": "object"
       },
+      "EdgeRelease": {
+        "additionalProperties": false,
+        "description": "What deployment history records for one registered edge.\n\n``state`` is ``recorded`` when the newest real run to touch the edge verified\n``release`` there; ``unverified`` when a newer run failed or stopped on it\nafter activating, ``release`` then being its last verified one; ``unknown``\nwhen no recorded run ever verified a release on it. ``deployment_id`` is the\nrun that verified ``release``.",
+        "properties": {
+          "deployment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Id"
+          },
+          "edge": {
+            "title": "Edge",
+            "type": "string"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release"
+          },
+          "state": {
+            "$ref": "#/components/schemas/EdgeReleaseState"
+          }
+        },
+        "required": [
+          "edge",
+          "state"
+        ],
+        "title": "EdgeRelease",
+        "type": "object"
+      },
+      "EdgeReleaseState": {
+        "description": "How far deployment history vouches for the release recorded on an edge.",
+        "enum": [
+          "recorded",
+          "unverified",
+          "unknown"
+        ],
+        "title": "EdgeReleaseState",
+        "type": "string"
+      },
+      "FleetReleases": {
+        "additionalProperties": false,
+        "description": "Every registered edge's recorded release, as deployment history has it.\n\n``source`` is always ``deployment_records``: these are what deployments did,\nnot live probes of what the edges serve now. ``mixed`` is true when the\nedges sit in more than one group; ``warnings`` says, in words, every way the\nsingle baseline does not describe the whole fleet, an empty fleet included.",
+        "properties": {
+          "edges": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EdgeRelease"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "mixed": {
+            "title": "Mixed",
+            "type": "boolean"
+          },
+          "releases": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReleaseGroup"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "source": {
+            "const": "deployment_records",
+            "title": "Source",
+            "type": "string"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source",
+          "mixed"
+        ],
+        "title": "FleetReleases",
+        "type": "object"
+      },
       "FreshnessState": {
         "enum": [
           "disabled",
@@ -3437,11 +3533,22 @@
       },
       "ReleaseDiff": {
         "additionalProperties": false,
-        "description": "What deploying ``release`` would change on the edges, file by file.\n\n``live_release`` is what the fleet is running, ``None`` before any deployment\nreached an edge; ``before`` and ``after`` are the two bundles' digests.",
+        "description": "What deploying ``release`` would change on the edges, file by file.\n\n``baseline_release`` is the one release the files are compared against: the\nrelease of the newest real run that reached any edge, ``None`` before any\ndid. It need not be on every edge; ``fleet`` says which edges history places\non which release and whether deploying would change each. ``before`` and\n``after`` are the two bundles' digests.",
         "properties": {
           "after": {
             "title": "After",
             "type": "string"
+          },
+          "baseline_release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Release"
           },
           "before": {
             "anyOf": [
@@ -3466,16 +3573,8 @@
             "title": "Changes",
             "type": "array"
           },
-          "live_release": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Live Release"
+          "fleet": {
+            "$ref": "#/components/schemas/FleetReleases"
           },
           "release": {
             "title": "Release",
@@ -3484,6 +3583,7 @@
         },
         "required": [
           "release",
+          "fleet",
           "changed",
           "after"
         ],
@@ -3518,6 +3618,51 @@
           "message"
         ],
         "title": "ReleaseFinding",
+        "type": "object"
+      },
+      "ReleaseGroup": {
+        "additionalProperties": false,
+        "description": "The edges recorded on one release, and whether deploying would change them.\n\n``release`` of ``None`` groups the edges with no verified release; their\n``changed`` is ``None``, there being nothing on record to compare against.",
+        "properties": {
+          "baseline": {
+            "title": "Baseline",
+            "type": "boolean"
+          },
+          "changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed"
+          },
+          "edges": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release"
+          }
+        },
+        "required": [
+          "baseline"
+        ],
+        "title": "ReleaseGroup",
         "type": "object"
       },
       "RenewRequest": {

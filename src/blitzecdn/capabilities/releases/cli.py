@@ -147,17 +147,37 @@ def release_diff(
 ) -> None:
     """What deploying now would change on the edges, as a unified diff.
 
-    Current desired state, rendered, against the release the fleet is running.
-    Records nothing, so run it after every edit; secrets are never in the diff.
+    Current desired state, rendered, against one baseline: the release of the
+    newest run that reached any edge. When the edges are recorded on different
+    releases, or a run left one unverified, it says so first and names them.
+    Per-edge releases come from deployment records, not live probes. Records
+    nothing, so run it after every edit; secrets are never in the diff.
     """
     diff = releases.diff()
     if json_output:
         common.emit(diff.summary(), json_output=True)
         return
+    fleet = diff.fleet
+    for warning in fleet.warnings():
+        typer.echo(f"Warning: {warning}.", err=True)
+    if fleet.mixed:
+        typer.echo("Recorded releases (from deployment records):", err=True)
+        for group in fleet.groups:
+            label = group.release or "no verified release"
+            marks = ["baseline"] if group.baseline else []
+            if group.changed is not None:
+                marks.append("would change" if group.changed else "unchanged")
+            suffix = f" ({', '.join(marks)})" if marks else ""
+            typer.echo(f"  {label}{suffix}: {', '.join(group.edges)}", err=True)
     configuration = diff.configuration
+    baseline = diff.baseline or "nothing deployed"
     if not configuration.changed:
-        typer.echo(f"No changes: release {diff.release.id} is what the fleet runs.")
+        typer.echo(
+            f"No changes against baseline {baseline}: "
+            f"release {diff.release.id} renders the same."
+        )
         return
+    typer.echo(f"Baseline: {baseline}; desired: {diff.release.id}.", err=True)
     typer.echo(configuration.patch(), nl=False)
     for change in configuration.changes:
         if change.diff is None:

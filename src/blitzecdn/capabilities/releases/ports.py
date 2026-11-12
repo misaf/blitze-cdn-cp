@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from blitzecdn.capabilities.releases.domain import (
     EdgeCapabilities,
+    EdgeRelease,
     Release,
     ReleaseFinding,
     ReleaseInputs,
@@ -113,10 +114,22 @@ class ReleaseStore(Protocol):
 
 
 class LiveRelease(Protocol):
-    """Which release the fleet is running, as deployment history records it."""
+    """Which releases the fleet is running, as deployment history records it.
+
+    Records of what deployments did, not probes of what the edges serve now.
+    """
 
     def live_release(self) -> str | None:
         """The release of the newest real run that reached any edge, or ``None``."""
+        ...
+
+    def edge_releases(self) -> Mapping[str, EdgeRelease]:
+        """What history records for every edge a real run ever touched, by name.
+
+        An edge's release is the one its newest verified run applied; a newer real
+        run that failed or stopped on it after activating makes it ``UNVERIFIED``.
+        Edges no real run ever verified are ``UNKNOWN`` or absent.
+        """
         ...
 
 
