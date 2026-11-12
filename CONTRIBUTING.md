@@ -30,6 +30,7 @@ Docker and what runs only in GitHub Actions.
 | One public surface per capability, imports along the declared graph | [Code map and boundaries](README.md#code-map-and-boundaries) | `tests/architecture/test_layering.py` |
 | Adding a capability, a per-site setting or a migration | [Where a change belongs](README.md#where-a-change-belongs) | `tests/architecture/`, `tests/platform/test_migrations.py` |
 | Transaction boundaries | [docs/transactions.md](docs/transactions.md) | the capability and journey suites |
+| Why a larger design choice was made, and adding a new one | [docs/decisions/](docs/decisions/README.md) | review |
 | Docstrings on service and port methods | `tests/architecture/test_service_and_port_docstrings.py` | `just test` |
 | Strict typing for source, scripts and `tests/support` | `[tool.mypy]` in [pyproject.toml](pyproject.toml) | `just types` |
 
