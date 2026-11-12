@@ -68,7 +68,7 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - Long deployments renew their job lease and are not taken over (#239).
 - A deployment whose job kills its worker on every attempt is finished as
   `abandoned` with the job, not left `running` until a restart re-queues it
-  (#PR).
+  (#334).
   Interrupted convergence and workflows are left to takeover recovery (#324).
 - Old edge configuration releases and deployments are pruned (#104, #135).
 - Superseded TLS keys are removed from edges (#123).
