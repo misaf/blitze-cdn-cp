@@ -406,6 +406,30 @@ def test_a_deployment_whose_job_keeps_killing_its_worker_is_abandoned(settings):
     assert control.job_queue.list_jobs() == [abandoned]
 
 
+def test_abandoning_a_deployment_fences_out_a_worker_that_only_paused(settings):
+    """A worker that outlived its lease must not carry on a finished rollout."""
+    repository = Stores(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
+    fence = repository.deployment_targets.claim_generation(queued.id)
+    repository.deployment_targets.plan(queued.id, ["edge-a"], fence=fence)
+
+    assert control.deployments.abandon(queued.id, "gone") is not None
+
+    assert not repository.deployment_targets.begin(
+        queued.id, "edge-a", fence=fence, now=datetime.now(UTC)
+    )
+    assert not repository.deployment_targets.record_phase(
+        queued.id, "edge-a", PHASE_ORDER[0], fence=fence
+    )
+    assert repository.deployment_targets.generation(queued.id) > fence
+
+
 @pytest.mark.parametrize("failure", [ExecutionError, RuntimeError])
 def test_delivery_errors_before_deployment_execution_remain_retryable(
     settings, monkeypatch, failure
