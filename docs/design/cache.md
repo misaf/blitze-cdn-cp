@@ -135,6 +135,55 @@ stored `Cache-Tag` header. A named, prefix or tag purge is a lookup in it.
 * **Reporting.** Every purge kind reports `scanned`, `read`, `removed` and
   `unchecked` per edge, emptying the cache included. A file the index cannot
   decide, or a matched file that could not be deleted, fails the edge.
-* **Delivery.** The purge is still an SSH play. Once the edge agent proposed
+* **Concurrency.** The index's write transaction serializes purges on an
+  edge. It does not stop nginx storing, replacing or evicting entries while a
+  purge runs; see below.
+* **Delivery.** The purge is still an SSH play.
+
+## Concurrent cache activity
+
+A purge does not pause nginx and does not see the cache as a snapshot. nginx
+keeps storing, replacing and evicting entries while a purge runs. A purge
+takes its view of the cache when it brings its index up to date, then deletes
+what matched. Its guarantee is stated from that point, called *the scan*
+below. A purge queued behind another purge on the same edge scans only once
+the earlier purge has finished.
+
+* **Guarantee.** When an edge reports `unchecked: 0`, every cache file that
+  matched the purge and was already in place when the scan began is gone. That
+  covers every `Vary` representation, named, prefix and tag purges alike, and
+  holds whether the index was cold, warm or rebuilt. nginx then fetches those
+  URLs from the origin again.
+* **Fills that land later.** nginx writes an entry to a temporary file and
+  renames it into place once the origin's response is complete. A purge
+  ignores temporary files, because nothing is served from them. So an entry
+  renamed into place after the scan began can survive the purge, even if its
+  request reached the origin before the purge started and it holds content
+  from before the change. A `Vary` representation that survives this way is
+  served again once nginx stores the URL's primary file. **Purge again** once
+  the origin serves the new content. A repeat purge removes whatever landed
+  since the previous one.
+* **Replacements.** nginx replaces an entry by renaming a new file over the
+  same path. If that happens between the scan and the deletion, the purge
+  deletes the new file too. A purge prefers deleting too much to serving stale
+  content. A replacement that lands after the deletion is a later fill, as
+  above.
+* **Eviction.** A matched file that nginx evicted before the purge reached it
+  counts as neither `removed` nor `unchecked`. `removed` counts only the files
+  this purge deleted. nginx keeps a purged entry's node in shared memory until
+  the entry would expire. When its cache manager then fails to unlink the
+  file, it logs an `unlink() ... failed (2: No such file or directory)` line
+  at `crit`. That line is expected and harmless.
+* **Incomplete purges.** A file the purge could not read, could not decide
+  (no `KEY` line, or a key or header longer than the scanner reads) or could
+  not delete is left in place. It is still served, and it counts as
+  `unchecked`. The role fails that edge, and the purge result marks it as not
+  complete. Every repeat of the purge reports such a file again until it can
+  be read and deleted, or the cache is emptied.
+
+`tests/capabilities/cache/test_cache_purge_nginx.py` holds the scanner to
+these rules against a real nginx. The tests trigger concurrent fills,
+replacements and evictions at a fixed point inside the purge, and also run
+purges against full-speed load with eviction. Once the edge agent proposed
   in issue 269 exists, it can carry the same request and keep the index warm
   between purges.

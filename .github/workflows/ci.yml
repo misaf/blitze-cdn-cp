@@ -80,13 +80,38 @@ jobs:
       # root. Nothing else in this workflow reads it.
       - name: Shell lint
         run: just shell-lint
+      # The cache purge tests start a real nginx as the runner user and purge
+      # its cache while it serves (tests/capabilities/cache/test_cache_purge_nginx.py).
+      # The runner image ships nginx; install it if a future image does not.
+      # The package's own service is stopped at once: the tests start their
+      # own on loopback ports, and nothing else here wants port 80.
+      - name: Make nginx available to the cache purge tests
+        run: |
+          if ! command -v nginx >/dev/null && [ ! -x /usr/sbin/nginx ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends nginx
+            sudo systemctl disable --now nginx
+          fi
       # `just install` fetched the pinned age CLI; without it the
       # interoperability tests would skip, which must not read as a pass.
       - name: Tests and coverage
         env:
           BLITZE_REQUIRE_EDGE_PYTHON: "1"
           BLITZE_REQUIRE_AGE_CLI: "1"
+          # A missing nginx fails those tests instead of skipping them.
+          BLITZE_REQUIRE_NGINX: "1"
+          # A failed real-nginx purge test keeps nginx's configuration and
+          # logs, the purge index and a listing of the cache here.
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/diagnostics
         run: just test --cov-report=xml --junitxml=reports/pytest-junit.xml
+      - name: Keep the cache purge diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: quality-diagnostics
+          path: ${{ runner.temp }}/diagnostics
+          retention-days: 14
+          if-no-files-found: ignore
       # The test gate includes the isolated single-wheel installation contract.
       # The reports were produced and then thrown away with the runner. Kept as
       # an artifact so a coverage or failure question about a specific run can
