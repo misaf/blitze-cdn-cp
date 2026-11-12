@@ -212,3 +212,31 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     assert seen[1]["blitzecdn_scope"] == "every"
     # Nothing is left behind for a later run to pick up.
     assert list((settings.state_dir / "runs").iterdir()) == []
+
+
+def test_a_play_with_a_budget_of_its_own_is_stopped_at_the_sooner_limit(
+    settings, monkeypatch
+):
+    """ACME issuance passes what is left of its budget; it can only shorten the
+    deployment timeout, never extend it."""
+    settings.state_dir.mkdir(parents=True, exist_ok=True)
+    playbook = settings.state_dir / "operation.yml"
+    playbook.write_text("- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8")
+    runner = fleet_runner(settings, EdgeRoster(FakeEdgeStore()), timeout_seconds=300)
+    timeouts: list[int] = []
+
+    def capture(request):
+        timeouts.append(request.timeout)
+        return ansible_run(host_run("edge-a"))
+
+    monkeypatch.setattr(runner._executor, "execute", capture)
+
+    runner.run_playbook(name="operation", playbook=playbook, variables={})
+    runner.run_playbook(
+        name="operation", playbook=playbook, variables={}, timeout_seconds=17
+    )
+    runner.run_playbook(
+        name="operation", playbook=playbook, variables={}, timeout_seconds=10**6
+    )
+
+    assert timeouts == [300, 17, 300]
