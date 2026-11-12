@@ -6,11 +6,14 @@ from support.control_plane import API_HEADERS, control_plane_app
 
 from blitzecdn.capabilities.cache.api.models import PurgeEntry as ApiPurgeEntry
 from blitzecdn.capabilities.cache.domain import PurgeEntry
-from blitzecdn.capabilities.edges.api.models import Edge as ApiEdge
+from blitzecdn.capabilities.edges.api.models import EdgeCreate
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.api.models import DnsRecord as ApiDnsRecord
-from blitzecdn.capabilities.sites.api.models import Domain as ApiDomain
-from blitzecdn.capabilities.sites.api.models import RecordCreate, RuleCreate
+from blitzecdn.capabilities.sites.api.models import (
+    DomainCreate,
+    RecordCreate,
+    RuleCreate,
+)
 from blitzecdn.capabilities.sites.domain import DnsRecord, Rule
 from blitzecdn.capabilities.tls.certificates.api.models import (
     CertificateRequest as ApiCertificateRequest,
@@ -27,7 +30,7 @@ from blitzecdn.core.domain.site_policy import SitePolicy
             DnsRecord,
             {"domain": "example.com", "name": "www", "value": "192.0.2.10"},
         ),
-        (ApiEdge, Edge, {"name": "edge-1", "host": "192.0.2.20"}),
+        (EdgeCreate, Edge, {"name": "edge-1", "host": "192.0.2.20"}),
         (ApiPurgeEntry, PurgeEntry, {"host": "example.com", "uri": "/"}),
         (ApiCertificateRequest, CertificateRequest, {}),
     ],
@@ -39,7 +42,7 @@ def test_creation_defaults_match_domain_contracts(api, domain, required):
 
 
 def test_zone_creation_defaults_match_every_policy_component():
-    assert ApiDomain(name="example.com").model_dump(
+    assert DomainCreate(name="example.com").model_dump(
         mode="json", exclude={"name"}
     ) == SitePolicy().settings(mode="json")
 

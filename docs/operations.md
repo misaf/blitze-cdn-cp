@@ -890,7 +890,7 @@ blitzecdn cache stats \
   --hostname example.com --json
 ```
 
-`GET /v3/cache/stats` takes the same `start`, `end`, `hostname`, `edge`, `limit`
+`GET /v3/traffic/cache` takes the same `start`, `end`, `hostname`, `edge`, `limit`
 and `offset` as `/v3/traffic/usage` and returns one row per edge, hostname and
 UTC hour with:
 
