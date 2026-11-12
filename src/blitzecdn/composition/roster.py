@@ -14,6 +14,9 @@ from typing import Any
 from dishka import Provider
 
 from blitzecdn.capabilities.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.automatic_ssl.service import (
+    operations as automatic_ssl_queued,
+)
 from blitzecdn.capabilities.automatic_ssl.settings import AutomaticSslConfig
 from blitzecdn.capabilities.automatic_ssl.wiring import (
     AutomaticSslProvider,
@@ -257,6 +260,9 @@ ROSTER: tuple[RosterEntry, ...] = (
         "blitzecdn.capabilities.automatic_ssl.feature",
         provider=AutomaticSslProvider,
         operations=_automatic_ssl_operations,
+        queued=lambda inputs: automatic_ssl_queued.queued_operations(
+            inputs.automatic_ssl
+        ),
     ),
     RosterEntry(
         "blitzecdn.capabilities.maintenance.feature", provider=MaintenanceProvider

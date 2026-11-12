@@ -1342,40 +1342,6 @@
         "title": "DeploymentDiff",
         "type": "object"
       },
-      "DeploymentReference": {
-        "description": "The deployment a scan started, as Automatic SSL/TLS reports it.\n\nThis capability owns the representation rather than reusing the\ndeployments API's: a change to how deployments are published must not\nchange this response. Follow ``GET /v3/deployments/{id}`` for the record.",
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "release_id": {
-            "title": "Release Id",
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/DeploymentStatus"
-          }
-        },
-        "required": [
-          "id",
-          "status",
-          "release_id"
-        ],
-        "title": "DeploymentReference",
-        "type": "object"
-      },
       "DeploymentStatus": {
         "enum": [
           "queued",
@@ -4292,45 +4258,6 @@
         ],
         "title": "SslAutomaticMode",
         "type": "string"
-      },
-      "SslAutomaticReconciliation": {
-        "additionalProperties": false,
-        "properties": {
-          "deployment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DeploymentReference"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "scanned": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Scanned",
-            "type": "array"
-          },
-          "skipped": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Skipped",
-            "type": "object"
-          },
-          "upgraded": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/SslMode"
-            },
-            "title": "Upgraded",
-            "type": "object"
-          }
-        },
-        "title": "SslAutomaticReconciliation",
-        "type": "object"
       },
       "SslMode": {
         "description": "How TLS is used on both sides of an edge connection.",
@@ -7933,18 +7860,66 @@
     },
     "/v3/ssl/automatic/reconcile": {
       "post": {
-        "description": "Probe origins from every edge and apply upgrade-only recommendations.",
+        "description": "Queue probing origins from every edge and applying upgrade-only\nrecommendations; the result is an SslAutomaticReconciliation.\n\nOne scan may be queued or running at a time. A result naming a\n``deployment`` ran it: poll ``GET /v3/deployments/{id}`` for the record.",
         "operationId": "reconcile_automatic_ssl_v3_ssl_automatic_reconcile_post",
+        "parameters": [
+          {
+            "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "pattern": "^[\\x21-\\x7e]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SslAutomaticReconciliation"
+                  "$ref": "#/components/schemas/Operation"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Work accepted, not completed. Poll the URL in Location.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Do not cache operation status.",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the authenticated status resource.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Suggested seconds before polling again; absent when finished.",
+                "example": 2,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "422": {
             "content": {
