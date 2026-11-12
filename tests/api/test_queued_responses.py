@@ -36,7 +36,7 @@ SUBMISSIONS = [
     ("POST", "/v3/deployments/rollback", {}, "deployments"),
     ("POST", "/v3/certificates/renew", {}, "operations"),
     ("POST", "/v3/certificates/reconcile", None, "operations"),
-    ("POST", "/v3/ssl/automatic/reconcile", None, "operations"),
+    ("POST", "/v3/certificates/ssl-modes/reconcile", None, "operations"),
     (
         "POST",
         "/v3/sites/{name}/certificate/request",

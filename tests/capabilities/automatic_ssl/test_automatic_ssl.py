@@ -151,12 +151,14 @@ def test_automatic_ssl_reconciliation_is_queued_by_the_api(
     serve(monkeypatch, control)
 
     with TestClient(control_plane_app(settings)) as client:
-        accepted = client.post("/v3/ssl/automatic/reconcile", headers=API_HEADERS)
+        accepted = client.post(
+            "/v3/certificates/ssl-modes/reconcile", headers=API_HEADERS
+        )
         assert accepted.status_code == 202, accepted.text
         operation_id = accepted.json()["id"]
         assert accepted.headers["Location"] == f"/v3/operations/{operation_id}"
 
-        again = client.post("/v3/ssl/automatic/reconcile", headers=API_HEADERS)
+        again = client.post("/v3/certificates/ssl-modes/reconcile", headers=API_HEADERS)
         assert again.status_code == 409
 
         run_queued_operations(control)

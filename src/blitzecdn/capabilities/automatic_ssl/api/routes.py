@@ -33,7 +33,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/v3/ssl/automatic/reconcile",
+    "/v3/certificates/ssl-modes/reconcile",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES},

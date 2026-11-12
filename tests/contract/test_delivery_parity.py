@@ -332,7 +332,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "POST /v3/sites/{name}/certificate/request",
         "",
     ),
-    ("blitzecdn", "ssl reconcile", "POST /v3/ssl/automatic/reconcile", ""),
+    ("blitzecdn", "ssl reconcile", "POST /v3/certificates/ssl-modes/reconcile", ""),
     (
         "blitzecdn",
         None,
