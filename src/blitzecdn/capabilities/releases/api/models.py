@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from blitzecdn.capabilities.releases.domain import SettingOrigin
+from blitzecdn.capabilities.releases.domain import EdgeReleaseState, SettingOrigin
 from blitzecdn.core.domain.configuration import ConfigurationChangeKind
 from blitzecdn.delivery.api.models import Model
 
@@ -63,15 +63,64 @@ class ConfigurationChange(Model):
     diff: str | None = None
 
 
+class EdgeRelease(Model):
+    """What deployment history records for one registered edge.
+
+    ``state`` is ``recorded`` when the newest real run to touch the edge verified
+    ``release`` there; ``unverified`` when a newer run failed or stopped on it
+    after activating, ``release`` then being its last verified one; ``unknown``
+    when no recorded run ever verified a release on it. ``deployment_id`` is the
+    run that verified ``release``.
+    """
+
+    edge: str
+    state: EdgeReleaseState
+    release: str | None = None
+    deployment_id: str | None = None
+
+
+class ReleaseGroup(Model):
+    """The edges recorded on one release, and whether deploying would change them.
+
+    ``release`` of ``None`` groups the edges with no verified release; their
+    ``changed`` is ``None``, there being nothing on record to compare against.
+    """
+
+    release: str | None = None
+    edges: tuple[str, ...] = ()
+    baseline: bool
+    changed: bool | None = None
+
+
+class FleetReleases(Model):
+    """Every registered edge's recorded release, as deployment history has it.
+
+    ``source`` is always ``deployment_records``: these are what deployments did,
+    not live probes of what the edges serve now. ``mixed`` is true when the
+    edges sit in more than one group; ``warnings`` says, in words, every way the
+    single baseline does not describe the whole fleet, an empty fleet included.
+    """
+
+    source: Literal["deployment_records"]
+    mixed: bool
+    edges: tuple[EdgeRelease, ...] = ()
+    releases: tuple[ReleaseGroup, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
 class ReleaseDiff(Model):
     """What deploying ``release`` would change on the edges, file by file.
 
-    ``live_release`` is what the fleet is running, ``None`` before any deployment
-    reached an edge; ``before`` and ``after`` are the two bundles' digests.
+    ``baseline_release`` is the one release the files are compared against: the
+    release of the newest real run that reached any edge, ``None`` before any
+    did. It need not be on every edge; ``fleet`` says which edges history places
+    on which release and whether deploying would change each. ``before`` and
+    ``after`` are the two bundles' digests.
     """
 
-    live_release: str | None = None
+    baseline_release: str | None = None
     release: str
+    fleet: FleetReleases
     changed: bool
     before: str | None = None
     after: str
@@ -81,10 +130,13 @@ class ReleaseDiff(Model):
 __all__ = [
     "ArtifactDigest",
     "ConfigurationChange",
+    "EdgeRelease",
+    "FleetReleases",
     "HostExplanation",
     "Release",
     "ReleaseDetail",
     "ReleaseDiff",
     "ReleaseFinding",
+    "ReleaseGroup",
     "SettingSource",
 ]

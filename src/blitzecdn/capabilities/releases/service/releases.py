@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from blitzecdn.capabilities.releases.domain import (
     EdgeCapabilities,
+    FleetReleases,
     Release,
     ReleaseDiff,
     ReleaseFinding,
@@ -133,15 +134,34 @@ class ReleaseService:
         """What deploying now would change: current state against the live release.
 
         Compiles and renders without recording anything. The live side is what that
-        release first rendered to, which is what the edges were handed.
+        release first rendered to, which is what the edges were handed. Because one
+        baseline can hide a mixed fleet, the diff also places every registered edge
+        on the release deployment history records for it, and says for each such
+        release whether deploying would change it.
         """
         live = self.live.live_release()
+        recorded = self.live.edge_releases()
+        fleet = [target.name for target in self.targets.targets()]
         release = self.compile()
+        after = self.render(release)
         before = self.releases.configuration(live) if live is not None else None
+        observed = {
+            edge.release
+            for name, edge in recorded.items()
+            if name in fleet and edge.release is not None
+        }
+        changed = {
+            other: ConfigurationDiff.between(
+                before if other == live else self.releases.configuration(other),
+                after,
+            ).changed
+            for other in observed
+        }
         return ReleaseDiff(
-            live=live,
+            baseline=live,
             release=release,
-            configuration=ConfigurationDiff.between(before, self.render(release)),
+            configuration=ConfigurationDiff.between(before, after),
+            fleet=FleetReleases.observe(live, fleet, recorded, changed),
         )
 
     def get(self, release_id: str) -> Release:
