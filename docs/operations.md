@@ -533,11 +533,16 @@ anything stored on it with it.
 age-keygen -o backup-key.txt          # on your workstation; prints the public key
 # then on the controller, in /etc/blitzecdn/blitzecdn.env:
 BLITZE_BACKUP_RECIPIENTS=age1...
+# an SSH public key holds a space, so quote the value when it has one:
+BLITZE_BACKUP_RECIPIENTS="age1...,ssh-ed25519 AAAA..."
 ```
 
 Encrypted archives are named `...Z.tar.gz.age` and are plain age files.
 `inspect` and `restore` recognize them and need the matching private key with
-`--identity`: an age identity file or an unencrypted OpenSSH private key.
+`--identity`: an age identity file (`AGE-SECRET-KEY-1...`, as `age-keygen`
+writes it) or an unencrypted SSH private key, either `ssh-ed25519` or
+`ssh-rsa`, in OpenSSH's format or, for RSA, the PEM form `ssh-keygen -m PEM`
+writes. Post-quantum age keys (`age-keygen -pq`) are not supported.
 `--identity -` reads it from standard input, so it never has to be copied onto
 the controller. With standard input taken, `restore` needs `--yes`:
 
@@ -546,9 +551,23 @@ sudo blitzecdn backup inspect /var/backups/blitzecdn/ARCHIVE.tar.gz.age --identi
 sudo blitzecdn backup restore /var/backups/blitzecdn/ARCHIVE.tar.gz.age --identity - --yes < backup-key.txt
 ```
 
-The age payload is authenticated: a truncated or altered archive is refused
-before any of it is read. Where BlitzeCDN will not start, the `age` tool opens
-one directly: `age -d -i backup-key.txt ARCHIVE.tar.gz.age | tar -xz`.
+The age payload is authenticated: a truncated or altered archive, or a key
+that does not open it, is refused before any of it is read and before any
+live state changes.
+
+Where BlitzeCDN will not start, the reference `age` tool opens an archive
+directly, with any of the keys above. The test suite checks this against
+`age` v1.3.2, the version `scripts/fetch-age.sh` pins by digest
+(`just age-cli` puts it in `.state/tools/age`):
+
+```sh
+age --decrypt -i backup-key.txt -o ARCHIVE.tar.gz ARCHIVE.tar.gz.age
+tar -tzf ARCHIVE.tar.gz                    # manifest.json, database/, config/, tls/, acme/, ...
+age --decrypt -i - ARCHIVE.tar.gz.age < backup-key.txt | tar -xz   # key on standard input
+```
+
+A plain archive sealed by hand with `age -r age1... ARCHIVE.tar.gz`, armored
+or not, restores with `--identity` the same way.
 Archives written before recipients were set stay plain and restore as before.
 Clearing the setting goes back to plain archives.
 

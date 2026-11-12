@@ -38,8 +38,9 @@ collections := ".state/collections"
 default:
     @just --list
 
-# Install the application and development tools, then pinned Ansible collections.
-install: && collections
+# Install the application and development tools, then pinned Ansible
+# collections and the pinned age CLI.
+install: && collections age-cli
     uv sync --frozen
 
 # Only git, uv and just are needed on a laptop: Python, Ansible, ShellCheck and
@@ -67,6 +68,13 @@ doctor *tasks:
 # as a broken role rather than a missing dependency.
 collections:
     uv run ansible-galaxy collection install -r src/blitzecdn/assets/ansible/requirements.yml -p {{collections}}
+
+# The reference `age` CLI, at the version and digest `scripts/fetch-age.sh`
+# pins, in `.state/tools/age`. The backup suite checks encrypted archives
+# against it: an operator opens one with this tool when BlitzeCDN will not
+# start, so the application's own library agreeing with itself proves nothing.
+age-cli:
+    @bash scripts/fetch-age.sh >/dev/null
 
 # The complete application without development tools.
 install-prod:
@@ -200,7 +208,7 @@ shell-lint:
     uv run shellcheck install.sh \
         tests/integration/container-install.sh tests/integration/http3-edge-integration.sh \
         scripts/collect-diagnostics.sh scripts/doctor.sh \
-        scripts/collections-check.sh scripts/clean-stale.sh
+        scripts/collections-check.sh scripts/clean-stale.sh scripts/fetch-age.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #

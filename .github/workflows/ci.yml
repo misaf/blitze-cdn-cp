@@ -80,9 +80,12 @@ jobs:
       # root. Nothing else in this workflow reads it.
       - name: Shell lint
         run: just shell-lint
+      # `just install` fetched the pinned age CLI; without it the
+      # interoperability tests would skip, which must not read as a pass.
       - name: Tests and coverage
         env:
           BLITZE_REQUIRE_EDGE_PYTHON: "1"
+          BLITZE_REQUIRE_AGE_CLI: "1"
         run: just test --cov-report=xml --junitxml=reports/pytest-junit.xml
       # The test gate includes the isolated single-wheel installation contract.
       # The reports were produced and then thrown away with the runner. Kept as
