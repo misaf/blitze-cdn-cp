@@ -110,6 +110,24 @@ Content-Type: application/json
   hold its key, so the same key can be sent again.
 - If the work has since been dropped by job retention, the retry is `404`.
 
+### What a key guarantees
+
+The key is recorded in the same database transaction that queues the work. A
+`202` that never reached the client, even because the control plane stopped
+right after queueing, is therefore always found again by a retry with the same
+key: the work is queued at most once per key and request.
+
+- A request still being admitted holds its key for up to 5 minutes. A control
+  plane that stops during admission queued nothing; once the 5 minutes pass, a
+  retry is admitted as a new request.
+- Admission that outlasts those 5 minutes (a deployment compiling a very large
+  configuration, say) can be overtaken by a retry. Only one of them queues
+  work; the other is `409` and queued nothing, and sending it again returns the
+  work that was queued.
+- After 24 hours the key is forgotten and the same key admits new work.
+- The key names the resource; it does not keep it. Job and deployment history
+  retention may remove the resource first, and the retry is then `404`.
+
 ## Certificates
 
 Issuing, renewing and reconciling certificates wait on the CA, DNS and HTTP

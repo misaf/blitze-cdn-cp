@@ -5,9 +5,20 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 from support.control_plane import API_HEADERS, control_plane_app, seed_edge, serve
+from support.stores import Stores
 
+from blitzecdn.capabilities.cache.service.operations import CacheConnectionsJob
+from blitzecdn.capabilities.jobs.domain import Job
+from blitzecdn.capabilities.jobs.service import JobQueue, OperationService
+from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.persistence.idempotency import IdempotencyKeys
-from blitzecdn.delivery.api.idempotency import _fingerprint
+from blitzecdn.core.ports.clock import system_clock
+from blitzecdn.core.ports.idempotency import KeyRecord, Reservation
+from blitzecdn.delivery.api.idempotency import (
+    IdempotentRequest,
+    _fingerprint,
+    idempotent,
+)
 
 #: Every queued route, with a body it admits.
 SUBMISSIONS = [
@@ -118,8 +129,9 @@ def test_a_key_still_being_admitted_answers_conflict(settings, seeded, monkeypat
     serve(monkeypatch, control)
     # Reserved and not yet bound, as by a first try still being admitted.
     fingerprint = _fingerprint("POST", "/v3/cache/connections", "", b"{}")
-    assert (
-        repository.idempotency_keys.reserve("tester", "in-flight", fingerprint) is None
+    assert isinstance(
+        repository.idempotency_keys.reserve("tester", "in-flight", fingerprint),
+        Reservation,
     )
     with TestClient(control_plane_app(settings)) as client:
         busy = client.post(
@@ -157,16 +169,253 @@ def test_expired_keys_and_abandoned_reservations_reserve_afresh(seeded):
     _, repository = seeded()
     database = repository.database
     keys = IdempotencyKeys(database)
-    keys.reserve("tester", "kept", "a")
-    keys.bind("tester", "kept", "job-1")
-    assert keys.reserve("tester", "kept", "a").resource_id == "job-1"
+    reservation = keys.reserve("tester", "kept", "a")
+    assert isinstance(reservation, Reservation)
+    with database.transaction():
+        keys.bind(reservation, "job-1")
+    assert keys.reserve("tester", "kept", "a") == KeyRecord("a", "job-1")
     # Keys are per operator.
-    assert keys.reserve("someone-else", "kept", "a") is None
+    assert isinstance(keys.reserve("someone-else", "kept", "a"), Reservation)
 
     expired = IdempotencyKeys(database, lifetime=timedelta(seconds=-1))
-    assert expired.reserve("tester", "kept", "a") is None
+    assert isinstance(expired.reserve("tester", "kept", "a"), Reservation)
 
     keys.reserve("tester", "stuck", "a")
-    assert keys.reserve("tester", "stuck", "a").resource_id is None
+    assert keys.reserve("tester", "stuck", "a") == KeyRecord("a", None)
     abandoned = IdempotencyKeys(database, reservation_timeout=timedelta(seconds=-1))
-    assert abandoned.reserve("tester", "stuck", "a") is None
+    assert isinstance(abandoned.reserve("tester", "stuck", "a"), Reservation)
+
+
+def test_a_key_is_bound_only_inside_the_transaction_that_queues(seeded):
+    _, repository = seeded()
+    keys = repository.idempotency_keys
+    reservation = keys.reserve("tester", "outside", "a")
+    assert isinstance(reservation, Reservation)
+    with pytest.raises(ValueError, match="Unit of Work"):
+        keys.bind(reservation, "job-1")
+
+
+# -- Durability across a stopped process --------------------------------------
+
+
+class _ProcessDied(BaseException):
+    """The process stopping mid-request: no handler runs, nothing is cleaned up."""
+
+
+class _DeadKeys:
+    """Keys as a process that dies leaves them: it never releases a reservation."""
+
+    def __init__(self, keys: IdempotencyKeys, *, die_on_bind: bool = False) -> None:
+        self._keys = keys
+        self._die_on_bind = die_on_bind
+
+    def reserve(self, operator: str, key: str, fingerprint: str):
+        return self._keys.reserve(operator, key, fingerprint)
+
+    def bind(self, reservation: Reservation, resource_id: str) -> None:
+        self._keys.bind(reservation, resource_id)
+        if self._die_on_bind:
+            raise _ProcessDied
+
+    def release(self, reservation: Reservation) -> None:
+        pass
+
+
+REQUEST = IdempotentRequest(operator="tester", key="durable", fingerprint="f")
+
+
+@pytest.fixture
+def stores(seeded) -> Stores:
+    _, repository = seeded()
+    return repository
+
+
+@pytest.fixture
+def operations(stores: Stores) -> OperationService:
+    queue = JobQueue(
+        jobs=stores.jobs, handlers=(), worker_id="worker-a", clock=system_clock
+    )
+    return OperationService(
+        queue=queue, kinds={"cache.connections"}, uow=stores.database
+    )
+
+
+def _queued(stores: Stores) -> list[Job]:
+    return [
+        job
+        for job in stores.jobs.list_jobs(limit=1000)
+        if job.kind == "cache.connections"
+    ]
+
+
+def _submit(operations: OperationService):
+    return lambda: operations.submit(CacheConnectionsJob(operator="tester"))
+
+
+def _abandoned(stores: Stores) -> IdempotencyKeys:
+    """The keys as a retry sees them once a reservation has timed out."""
+    return IdempotencyKeys(stores.database, reservation_timeout=timedelta(seconds=-1))
+
+
+def test_a_process_stopped_after_queueing_has_already_bound_its_key(stores, operations):
+    """The regression: the job committed, then the process died before replying.
+
+    The key was bound in the job's transaction, so a retry after the reservation
+    timeout replays the job instead of queueing a second.
+    """
+
+    def submit_then_die():
+        _submit(operations)()
+        raise _ProcessDied
+
+    with pytest.raises(_ProcessDied):
+        idempotent(
+            REQUEST,
+            _DeadKeys(stores.idempotency_keys),
+            create=submit_then_die,
+            replay=operations.get,
+        )
+    (first,) = _queued(stores)
+
+    retried = idempotent(
+        REQUEST,
+        _abandoned(stores),
+        create=_submit(operations),
+        replay=operations.get,
+    )
+
+    assert retried.id == first.id
+    assert len(_queued(stores)) == 1
+
+
+def test_a_process_stopped_while_binding_queued_nothing(stores, operations):
+    """Dying inside the transaction rolls the job back with the key's binding.
+
+    Until the reservation times out a retry is told the first is in progress;
+    after, it queues the work exactly once.
+    """
+    with pytest.raises(_ProcessDied):
+        idempotent(
+            REQUEST,
+            _DeadKeys(stores.idempotency_keys, die_on_bind=True),
+            create=_submit(operations),
+            replay=operations.get,
+        )
+    assert _queued(stores) == []
+
+    with pytest.raises(ConflictError, match="still being admitted"):
+        idempotent(
+            REQUEST,
+            stores.idempotency_keys,
+            create=_submit(operations),
+            replay=operations.get,
+        )
+
+    retried = idempotent(
+        REQUEST, _abandoned(stores), create=_submit(operations), replay=operations.get
+    )
+    again = idempotent(
+        REQUEST,
+        _abandoned(stores),
+        create=_submit(operations),
+        replay=operations.get,
+    )
+    assert again.id == retried.id
+    assert [job.id for job in _queued(stores)] == [retried.id]
+
+
+def test_a_retry_during_admission_is_told_to_wait_then_replays(stores, operations):
+    keys = stores.idempotency_keys
+    answers: list[str] = []
+
+    def submit_while_retried():
+        with pytest.raises(ConflictError, match="still being admitted"):
+            idempotent(REQUEST, keys, create=_submit(operations), replay=operations.get)
+        answers.append("in progress")
+        return _submit(operations)()
+
+    first = idempotent(
+        REQUEST, keys, create=submit_while_retried, replay=operations.get
+    )
+    again = idempotent(REQUEST, keys, create=_submit(operations), replay=operations.get)
+
+    assert answers == ["in progress"]
+    assert again.id == first.id
+    assert len(_queued(stores)) == 1
+
+
+def test_a_request_whose_reservation_was_taken_over_queues_nothing(stores, operations):
+    """A first try slower than the reservation timeout loses to its retry.
+
+    Both reach their transaction; only the retry's commits, and the first try's
+    rollback does not release the key the retry now holds.
+    """
+    retry: list[Job] = []
+
+    def submit_after_a_takeover():
+        retry.append(
+            idempotent(
+                REQUEST,
+                _abandoned(stores),
+                create=_submit(operations),
+                replay=operations.get,
+            )
+        )
+        return _submit(operations)()
+
+    with pytest.raises(ConflictError, match="taken over"):
+        idempotent(
+            REQUEST,
+            stores.idempotency_keys,
+            create=submit_after_a_takeover,
+            replay=operations.get,
+        )
+
+    (queued,) = _queued(stores)
+    assert queued.id == retry[0].id
+    replayed = idempotent(
+        REQUEST,
+        stores.idempotency_keys,
+        create=_submit(operations),
+        replay=operations.get,
+    )
+    assert replayed.id == queued.id
+
+
+def test_releasing_a_lost_reservation_keeps_the_one_that_replaced_it(stores):
+    keys = stores.idempotency_keys
+    lost = keys.reserve("tester", "replaced", "f")
+    assert isinstance(lost, Reservation)
+    current = _abandoned(stores).reserve("tester", "replaced", "f")
+    assert isinstance(current, Reservation)
+    assert current != lost
+
+    keys.release(lost)
+
+    assert keys.reserve("tester", "replaced", "f") == KeyRecord("f", None)
+
+
+def test_a_refused_admission_queues_nothing_and_frees_the_key(stores, operations):
+    def refuse() -> Job:
+        raise ConflictError("refused")
+
+    with pytest.raises(ConflictError, match="refused"):
+        idempotent(
+            REQUEST, stores.idempotency_keys, create=refuse, replay=operations.get
+        )
+    assert _queued(stores) == []
+    assert isinstance(
+        stores.idempotency_keys.reserve("tester", "durable", "f"), Reservation
+    )
+
+
+def test_a_queued_resource_that_skips_binding_is_refused(stores, operations):
+    """A service that writes a queued resource must bind the key with it."""
+    unbound = operations.queue.enqueue(CacheConnectionsJob(operator="tester"))
+    with pytest.raises(RuntimeError, match="without binding"):
+        idempotent(
+            REQUEST,
+            stores.idempotency_keys,
+            create=lambda: unbound,
+            replay=operations.get,
+        )

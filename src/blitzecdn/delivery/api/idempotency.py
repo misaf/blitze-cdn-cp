@@ -5,6 +5,10 @@ again with the same key, the request answers with the resource the first one
 created instead of queueing the work twice. The key is checked before any
 admission check, so a retry is answered even when the first request's work has
 since changed the state those checks read.
+
+The key is bound in the transaction that writes the queued resource (see
+``blitzecdn.core.ports.idempotency``), so a process that stops after that
+commit has already recorded which resource the key names.
 """
 
 from __future__ import annotations
@@ -18,7 +22,11 @@ from typing import Annotated, Protocol
 from fastapi import Depends, Header, Request
 
 from blitzecdn.core.exceptions import ConflictError
-from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
+from blitzecdn.core.ports.idempotency import (
+    IdempotencyKeyStore,
+    KeyRecord,
+    claiming_key,
+)
 from blitzecdn.delivery.api.dependencies import OperatorDependency
 
 __all__ = ["IdempotencyKeyDependency", "IdempotentRequest", "idempotent"]
@@ -104,13 +112,16 @@ def idempotent[T: _Identified](
 ) -> T:
     """Run ``create`` once per key, answering a repeat with ``replay`` of its id.
 
-    ``create`` includes the route's admission checks. If it raises, nothing was
-    queued and the key is released, so a retry with it may succeed later.
+    ``create`` includes the route's admission checks, and the service it calls
+    binds the key in the transaction that writes the resource. If it raises,
+    nothing was queued and the reservation is released, so a retry with the key
+    may succeed later. Expensive work ``create`` does before that transaction,
+    such as compiling a release, stays outside it.
     """
     if request is None:
         return create()
     held = keys.reserve(request.operator, request.key, request.fingerprint)
-    if held is not None:
+    if isinstance(held, KeyRecord):
         if held.fingerprint != request.fingerprint:
             raise ConflictError(
                 "this Idempotency-Key was already used for a different request; "
@@ -123,9 +134,15 @@ def idempotent[T: _Identified](
             )
         return replay(held.resource_id)
     try:
-        created = create()
+        with claiming_key(lambda resource_id: keys.bind(held, resource_id)) as claim:
+            created = create()
     except BaseException:
-        keys.release(request.operator, request.key)
+        keys.release(held)
         raise
-    keys.bind(request.operator, request.key, created.id)
+    if claim.resource_id != created.id:
+        # A queued route whose service writes its resource without binding the
+        # key: a retry could queue the work again, so fail where tests see it.
+        raise RuntimeError(
+            f"{created.id!r} was queued without binding its Idempotency-Key"
+        )
     return created
