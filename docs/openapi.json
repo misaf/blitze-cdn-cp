@@ -7397,7 +7397,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -7596,6 +7604,24 @@
               "title": "Domain",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -7652,6 +7678,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "422": {
             "content": {
@@ -7713,7 +7749,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -7805,6 +7849,24 @@
               "title": "Domain",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -7826,7 +7888,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -7888,6 +7958,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "413": {
             "content": {
@@ -8204,7 +8284,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -8345,6 +8433,24 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -8401,6 +8507,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "422": {
             "content": {
@@ -8479,7 +8595,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8588,6 +8712,24 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -8609,7 +8751,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -8671,6 +8821,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "413": {
             "content": {
@@ -9016,7 +9176,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -9149,6 +9317,24 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -9205,6 +9391,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "422": {
             "content": {
@@ -9275,7 +9471,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9376,6 +9580,24 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -9397,7 +9619,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -9459,6 +9689,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "413": {
             "content": {
@@ -9641,7 +9881,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -9782,6 +10030,24 @@
             }
           },
           {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
+          },
+          {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
             "in": "header",
             "name": "Idempotency-Key",
@@ -9890,6 +10156,16 @@
             },
             "description": "The request conflicts with current state."
           },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -9950,7 +10226,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -10042,6 +10326,24 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `ETag` of the version this edit was based on, or `*`. If the resource has changed since, the request answers 412 and writes nothing. Omit it to write whatever the current version is.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -10063,7 +10365,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -10125,6 +10435,16 @@
               }
             },
             "description": "The request conflicts with current state."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The resource changed since the version named in If-Match; nothing was written. Read it again and reapply the edit."
           },
           "413": {
             "content": {

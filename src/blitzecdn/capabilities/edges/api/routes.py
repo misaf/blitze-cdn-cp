@@ -11,6 +11,7 @@ from blitzecdn.capabilities.edges.service.operations import (
     remove_dedupe_key,
 )
 from blitzecdn.capabilities.jobs import Job, OperationService
+from blitzecdn.core.domain.preconditions import require_current
 from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
@@ -21,6 +22,7 @@ from blitzecdn.delivery.api.errors import (
     CONFLICT_RESPONSES,
     NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
+    PRECONDITION_RESPONSES,
 )
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
@@ -28,6 +30,12 @@ from blitzecdn.delivery.api.idempotency import (
 )
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, paginate
+from blitzecdn.delivery.api.preconditions import (
+    ETAG_RESPONSE,
+    IfMatchHeader,
+    if_match,
+    tag,
+)
 from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
     polling_headers,
@@ -46,43 +54,68 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     return paginate(edges.list_edges(), Edge.from_domain)
 
 
-@router.get("/v3/edges/{name}", response_model=Edge, responses=NOT_FOUND_RESPONSES)
-def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
-    return Edge.from_domain(edges.get_edge(name))
+@router.get(
+    "/v3/edges/{name}",
+    response_model=Edge,
+    responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+)
+def get_edge(
+    response: Response, name: str, edges: FromDishka[EdgeOperationsService]
+) -> Edge:
+    return Edge.from_domain(tag(response, edges.get_edge(name)))
 
 
 @router.post(
     "/v3/edges",
     response_model=Edge,
     status_code=status.HTTP_201_CREATED,
-    responses={**CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={201: ETAG_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def add_edge(
-    edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
+    response: Response,
+    edge: Edge,
+    operator: OperatorDependency,
+    edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
+    return Edge.from_domain(tag(response, edges.add_edge(edge.to_domain(), operator)))
 
 
 @router.patch(
     "/v3/edges/{name}",
     response_model=Edge,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        200: ETAG_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def update_edge(
+    response: Response,
     name: str,
     patch: EdgePatch,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
+    precondition: IfMatchHeader = None,
 ) -> Edge:
-    return Edge.from_domain(edges.update_edge(name, patch.to_domain(), operator))
+    updated = edges.update_edge(
+        name, patch.to_domain(), operator, if_match=if_match(precondition)
+    )
+    return Edge.from_domain(tag(response, updated))
 
 
 @router.delete(
     "/v3/edges/{name}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE, **NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+    },
 )
 def remove_edge(
     response: Response,
@@ -111,6 +144,7 @@ def remove_edge(
             ),
         ),
     ] = False,
+    precondition: IfMatchHeader = None,
 ) -> Operation:
     """Queue tearing the host down, then deregistering it, in that order.
 
@@ -119,7 +153,9 @@ def remove_edge(
     """
 
     def submit() -> Job:
-        edges.get_edge(name)
+        # Checked when the removal is queued: the edge the client read is the
+        # one it asks to remove. A replay of the same key answers from the job.
+        require_current(if_match(precondition), edges.get_edge(name), f"edge {name!r}")
         return queued_operations.submit(
             EdgeRemovalJob(
                 operator=operator, name=name, decommission=decommission, force=force

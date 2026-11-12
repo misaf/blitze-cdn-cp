@@ -15,6 +15,10 @@ class ConflictError(BlitzeError):
     """The requested operation conflicts with current state."""
 
 
+class PreconditionFailedError(ConflictError):
+    """The resource changed since the version the client based its edit on."""
+
+
 class NotFoundError(BlitzeError):
     """A requested resource does not exist."""
 
@@ -48,6 +52,9 @@ class FailureKind(StrEnum):
     BUSY = "busy"
     #: The request contradicts current state.
     CONFLICT = "conflict"
+    #: The resource changed since the version the request named (``If-Match``).
+    #: A conflict a client resolves by reading again, not by changing its edit.
+    PRECONDITION_FAILED = "precondition_failed"
     #: The thing asked about does not exist.
     NOT_FOUND = "not_found"
     #: An infrastructure command ran and did not succeed. The controller is
@@ -63,6 +70,7 @@ class FailureKind(StrEnum):
 #: Exception type to kind, most specific first: keep subclasses above their bases.
 _CLASSIFICATION: tuple[tuple[type[BlitzeError], FailureKind], ...] = (
     (DeploymentBusyError, FailureKind.BUSY),
+    (PreconditionFailedError, FailureKind.PRECONDITION_FAILED),
     (ConflictError, FailureKind.CONFLICT),
     (NotFoundError, FailureKind.NOT_FOUND),
     (ExecutionError, FailureKind.EXECUTION),
