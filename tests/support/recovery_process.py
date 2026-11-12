@@ -87,9 +87,14 @@ class LocalRunner:
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> AnsibleRun:
         return self.delegate.run_playbook(
-            name=name, playbook=playbook, variables=variables, host_limit=host_limit
+            name=name,
+            playbook=playbook,
+            variables=variables,
+            host_limit=host_limit,
+            timeout_seconds=timeout_seconds,
         )
 
 

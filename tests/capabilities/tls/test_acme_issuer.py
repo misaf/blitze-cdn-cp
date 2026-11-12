@@ -9,8 +9,8 @@ validates.
 
 from __future__ import annotations
 
+import logging
 import stat
-from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +29,7 @@ from blitzecdn.capabilities.tls.certificates.adapters import acme as acme_module
 from blitzecdn.capabilities.tls.certificates.adapters.acme import AcmeIssuer
 from blitzecdn.capabilities.tls.settings import acme_account_dir, certificate_dir
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
+from blitzecdn.core.runtime.lock import DeploymentLock
 
 _CHAIN = "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n"
 
@@ -36,18 +37,59 @@ _CHAIN = "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n"
 class _Publisher:
     def __init__(self, *, fail_on: str | None = None, fail_absent=False):
         self.events: list[tuple[str, ...]] = []
+        self.timeouts: list[tuple[str, int]] = []
         self.fail_on = fail_on
         self.fail_absent = fail_absent
 
-    def present(self, domain, token, validation):
+    def present(self, domain, token, validation, *, timeout_seconds):
+        self.timeouts.append(("present", timeout_seconds))
         if domain == self.fail_on:
             raise ExecutionError(f"could not present for {domain}")
         self.events.append(("present", domain, token, validation))
 
-    def absent(self, domain, token):
+    def absent(self, domain, token, *, timeout_seconds):
+        self.timeouts.append(("absent", timeout_seconds))
         self.events.append(("absent", domain, token))
         if self.fail_absent:
             raise ExecutionError(f"edge unreachable removing {domain}")
+
+
+class _Clock:
+    """The monotonic clock the budget reads, moved only by the test."""
+
+    def __init__(self, monkeypatch):
+        self.now = 1000.0
+        monkeypatch.setattr(acme_module, "_monotonic", lambda: self.now)
+
+    def elapsed(self) -> float:
+        return self.now - 1000.0
+
+
+class _Transport:
+    """The HTTP layer under the issuer's session: answers at once, except that
+    a request sent during ``stall_at`` never answers, and is cut off by the
+    timeout the session gave it, as `requests` would."""
+
+    def __init__(self, monkeypatch, clock, *, stall_at=None):
+        self.clock = clock
+        self.stall_at = stall_at
+        self.step = None
+        self.sent: list[tuple[str, float]] = []
+        transport = self
+
+        def request(session, method, url, **options):
+            transport.sent.append((transport.step, options["timeout"]))
+            if transport.step == transport.stall_at:
+                clock.now += options["timeout"]
+                raise requests.ReadTimeout(f"no answer from {url}")
+            return SimpleNamespace(status_code=200)
+
+        monkeypatch.setattr(requests.Session, "request", request)
+
+    def send(self, net, step):
+        """What one library call does on the wire: a request on its session."""
+        self.step = step
+        net.session.request("POST", f"https://ca.test/{step}")
 
 
 def _authorization(domain: str, *, status=messages.STATUS_PENDING):
@@ -69,7 +111,10 @@ def _authorization(domain: str, *, status=messages.STATUS_PENDING):
 class _Ca:
     """One scripted CA: what it answers, and what it was asked."""
 
-    def __init__(self, *, existing_account=False, finalize=None, valid=()):
+    def __init__(
+        self, *, existing_account=False, finalize=None, valid=(), transport=None
+    ):
+        self.transport = transport
         self.existing_account = existing_account
         self.finalize = finalize
         self.valid = set(valid)
@@ -79,6 +124,11 @@ class _Ca:
         self.answered: list[str] = []
         self.verify: object = True
         self.directory_url: str | None = None
+        self.deadline = None
+
+    def wire(self, net, step):
+        if self.transport is not None:
+            self.transport.send(net, step)
 
     def install(self, monkeypatch):
         ca = self
@@ -89,6 +139,7 @@ class _Ca:
                 self.key = key
                 self.account = None
                 self.verify_ssl = True
+                self.session = requests.Session()
                 ca.network = self
 
         class Client:
@@ -99,9 +150,11 @@ class _Ca:
             def get_directory(url, net):
                 ca.directory_url = url
                 ca.verify = net.verify_ssl
+                ca.wire(net, "directory discovery")
                 return object()
 
             def new_account(self, registration):
+                ca.wire(self.net, "account registration")
                 ca.accounts.append(registration)
                 if ca.existing_account:
                     raise acme_errors.ConflictError("https://ca.test/acct/1")
@@ -110,6 +163,7 @@ class _Ca:
                 )
 
             def new_order(self, csr_pem):
+                ca.wire(self.net, "new order")
                 ca.csr = csr_pem
                 request = x509.load_pem_x509_csr(csr_pem)
                 names = request.extensions.get_extension_for_class(
@@ -131,9 +185,12 @@ class _Ca:
                 )
 
             def answer_challenge(self, challenge, response):
+                ca.wire(self.net, "answering")
                 ca.answered.append(challenge.uri)
 
             def poll_and_finalize(self, order, deadline=None):
+                ca.deadline = deadline
+                ca.wire(self.net, "polling and finalization")
                 if ca.finalize is not None:
                     ca.finalize(order)
                 return order.update(fullchain_pem=_CHAIN)
@@ -141,7 +198,9 @@ class _Ca:
         monkeypatch.setattr(
             acme_module,
             "client",
-            SimpleNamespace(ClientNetwork=Network, ClientV2=Client),
+            SimpleNamespace(
+                ClientNetwork=Network, ClientV2=Client, DEFAULT_NETWORK_TIMEOUT=45
+            ),
         )
         return self
 
@@ -156,12 +215,12 @@ def _site(*names):
     )
 
 
-def _issuer(tmp_path, publisher, **options):
+def _issuer(tmp_path, publisher, *, timeout_seconds=60, **options):
     return AcmeIssuer(
         directory_url="https://ca.test/directory",
         account_dir=tmp_path / "acme",
         challenges=publisher,
-        timeout_seconds=60,
+        timeout_seconds=timeout_seconds,
         **options,
     )
 
@@ -271,9 +330,11 @@ def test_a_challenge_that_cannot_be_placed_removes_the_ones_that_were(
             _site("cdn.example.com", "www.example.com"), "ops@example.com"
         )
 
+    # A play that failed may have reached some edges, so it is removed too.
     assert [event[:2] for event in publisher.events] == [
         ("present", "cdn.example.com"),
         ("absent", "cdn.example.com"),
+        ("absent", "www.example.com"),
     ]
     assert ca.answered == []
 
@@ -335,23 +396,16 @@ def test_a_spent_budget_stops_before_the_next_challenge(monkeypatch, tmp_path):
     """Placing a challenge runs a playbook; a slow one cannot stretch the
     deployment lock past the issuance budget by placing the rest."""
     _Ca().install(monkeypatch)
+    clock = _Clock(monkeypatch)
 
     class SlowPublisher(_Publisher):
-        def present(self, domain, token, validation):
-            super().present(domain, token, validation)
-            clock[0] += timedelta(seconds=120)
+        def present(self, domain, token, validation, *, timeout_seconds):
+            super().present(domain, token, validation, timeout_seconds=timeout_seconds)
+            clock.now += 120
 
-    clock = [datetime(2026, 1, 1)]
-
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return clock[0]
-
-    monkeypatch.setattr(acme_module, "datetime", Clock)
     publisher = SlowPublisher()
 
-    with pytest.raises(ExecutionError, match="timed out"):
+    with pytest.raises(ExecutionError, match="timed out during placing the challenge"):
         _issuer(tmp_path, publisher).issue(
             _site("cdn.example.com", "www.example.com"), "ops@example.com"
         )
@@ -360,6 +414,146 @@ def test_a_spent_budget_stops_before_the_next_challenge(monkeypatch, tmp_path):
         ("present", "cdn.example.com"),
         ("absent", "cdn.example.com"),
     ]
+
+
+def test_each_play_gets_what_is_left_of_the_budget(monkeypatch, tmp_path):
+    """60 s in all: 15 s are cleanup's, 45 s are issuance's, and each placement
+    is stopped at what the ones before it left."""
+    _Ca().install(monkeypatch)
+    clock = _Clock(monkeypatch)
+
+    class SlowPublisher(_Publisher):
+        def present(self, domain, token, validation, *, timeout_seconds):
+            super().present(domain, token, validation, timeout_seconds=timeout_seconds)
+            clock.now += 10
+
+    publisher = SlowPublisher()
+    _issuer(tmp_path, publisher).issue(
+        _site("cdn.example.com", "www.example.com"), "ops@example.com"
+    )
+
+    assert publisher.timeouts == [
+        ("present", 45),
+        ("present", 35),
+        ("absent", 15),
+        ("absent", 15),
+    ]
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "directory discovery",
+        "account registration",
+        "new order",
+        "answering",
+        "polling and finalization",
+    ],
+)
+def test_a_stalled_ca_is_cut_off_within_the_budget(monkeypatch, tmp_path, step):
+    """However the CA stalls, issuance ends inside the timeout the deployment
+    lock's lease assumes, and says where it stopped."""
+    clock = _Clock(monkeypatch)
+    transport = _Transport(monkeypatch, clock, stall_at=step)
+    _Ca(transport=transport).install(monkeypatch)
+    publisher = _Publisher()
+    issuer = _issuer(tmp_path, publisher, timeout_seconds=600)
+
+    with pytest.raises(ExecutionError, match=f"timed out during {step}"):
+        issuer.issue(_site("cdn.example.com"), "ops@example.com")
+
+    assert clock.elapsed() <= 600
+    # Every request was capped at the library's own default and at the budget.
+    assert all(0 < timeout <= 45 for _step, timeout in transport.sent)
+    # Nothing was sent after the stall.
+    assert transport.sent[-1][0] == step
+    if step in {"answering", "polling and finalization"}:
+        assert publisher.events[-1][0] == "absent"
+
+
+def test_a_request_is_never_given_more_than_the_budget_left(monkeypatch, tmp_path):
+    clock = _Clock(monkeypatch)
+    transport = _Transport(monkeypatch, clock)
+    ca = _Ca(transport=transport).install(monkeypatch)
+
+    class SlowPublisher(_Publisher):
+        def present(self, domain, token, validation, *, timeout_seconds):
+            super().present(domain, token, validation, timeout_seconds=timeout_seconds)
+            clock.now += 40
+
+    # 60 s in all, 45 s of it issuance's; placing took 40 of those.
+    _issuer(tmp_path, SlowPublisher()).issue(
+        _site("cdn.example.com"), "ops@example.com"
+    )
+
+    assert dict(transport.sent)["answering"] == pytest.approx(5)
+    # The library's polling is handed the same budget as a wall-clock deadline.
+    assert ca.deadline is not None
+
+
+def test_a_spent_budget_sends_nothing_more(monkeypatch, tmp_path):
+    clock = _Clock(monkeypatch)
+    transport = _Transport(monkeypatch, clock)
+    _Ca(transport=transport).install(monkeypatch)
+
+    class SpendingPublisher(_Publisher):
+        def present(self, domain, token, validation, *, timeout_seconds):
+            super().present(domain, token, validation, timeout_seconds=timeout_seconds)
+            clock.now += timeout_seconds
+
+    with pytest.raises(ExecutionError, match="timed out during answering"):
+        _issuer(tmp_path, SpendingPublisher()).issue(
+            _site("cdn.example.com"), "ops@example.com"
+        )
+
+    assert [step for step, _timeout in transport.sent] == [
+        "directory discovery",
+        "account registration",
+        "new order",
+    ]
+
+
+def test_cleanup_is_bounded_and_never_replaces_the_original_error(
+    monkeypatch, tmp_path, caplog
+):
+    """An edge that never answers: the first removal is stopped at the cleanup
+    allowance, the rest are logged and left, and the timeout is what is raised."""
+    clock = _Clock(monkeypatch)
+
+    def wait_forever(order):
+        clock.now += 45
+        raise acme_errors.TimeoutError()
+
+    _Ca(finalize=wait_forever).install(monkeypatch)
+
+    class StalledPublisher(_Publisher):
+        def absent(self, domain, token, *, timeout_seconds):
+            clock.now += timeout_seconds
+            super().absent(domain, token, timeout_seconds=timeout_seconds)
+
+    publisher = StalledPublisher(fail_absent=True)
+    lock = DeploymentLock(tmp_path / "deployment.lock")
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            ExecutionError, match="timed out during polling and finalization"
+        ),
+        lock,
+    ):
+        _issuer(tmp_path, publisher).issue(
+            _site("a.example.com", "b.example.com", "c.example.com"),
+            "ops@example.com",
+        )
+
+    assert clock.elapsed() <= 60
+    assert [event[1] for event in publisher.events if event[0] == "absent"] == [
+        "a.example.com"
+    ]
+    assert "b.example.com, c.example.com" in caplog.text
+    # The deployment lock is free again; a held one raises DeploymentBusyError.
+    with DeploymentLock(tmp_path / "deployment.lock"):
+        pass
 
 
 def test_the_account_directory_is_not_a_path_an_edge_writes():
