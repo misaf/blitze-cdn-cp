@@ -297,13 +297,9 @@ def _parity(
             f"{ACCESS} spells {access_rule[0]!r}, python {python_rule[0]!r}"
         )
 
-    # A firewall holding only the case flag counts as empty and is not
-    # rendered, so the flag would never reach the map. A deny_sources entry
-    # keeps the firewall present without changing the map key, which only
-    # allow_sources does.
     limited = _site(
         rate_limit={"rate": "1r/s", "paths": list(paths)},
-        firewall={"case_insensitive_paths": caseless, "deny_sources": ["192.0.2.1"]},
+        firewall={"case_insensitive_paths": caseless},
     )
     rendered = _fragment(HTTP, source=http, blitzecdn_nginx_sites=[limited])
     if problem := _map_divergence(
