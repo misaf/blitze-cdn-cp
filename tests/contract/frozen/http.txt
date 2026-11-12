@@ -305,11 +305,15 @@ blitzecdn	schema	EdgeRelease.deployment_id	string|null optional
 blitzecdn	schema	EdgeRelease.edge	string required
 blitzecdn	schema	EdgeRelease.release	string|null optional
 blitzecdn	schema	EdgeRelease.state	EdgeReleaseState required
+blitzecdn	schema	ErrorResponse.detail	string required
 blitzecdn	schema	FleetReleases.edges	array[EdgeRelease] optional
 blitzecdn	schema	FleetReleases.mixed	boolean required
 blitzecdn	schema	FleetReleases.releases	array[ReleaseGroup] optional
 blitzecdn	schema	FleetReleases.source	string required
 blitzecdn	schema	FleetReleases.warnings	array[string] optional
+blitzecdn	schema	HealthUnavailable.check	string required
+blitzecdn	schema	HealthUnavailable.detail	string required
+blitzecdn	schema	HealthUnavailable.status	string required
 blitzecdn	schema	HostExplanation.host	string required
 blitzecdn	schema	HostExplanation.origin_host	string required
 blitzecdn	schema	HostExplanation.rule	string|null optional

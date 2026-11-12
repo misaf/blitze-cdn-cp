@@ -20,11 +20,17 @@ from blitzecdn.capabilities.releases.api.models import (
 )
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.errors import (
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.models import as_operation
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -81,7 +87,11 @@ def current_release_diff(releases: FromDishka[ReleaseService]) -> ReleaseDiff:
     return as_operation(releases.diff().summary(), ReleaseDiff)
 
 
-@router.get("/v3/releases/{release_id}", response_model=ReleaseDetail)
+@router.get(
+    "/v3/releases/{release_id}",
+    response_model=ReleaseDetail,
+    responses=NOT_FOUND_RESPONSES,
+)
 def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDetail:
     """One recorded release, with the explanation of every host in it."""
     return as_operation(_summary(releases.get(release_id), detail=True), ReleaseDetail)
@@ -90,6 +100,7 @@ def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDet
 @router.get(
     "/v3/releases/{release_id}/artifacts/{name}",
     status_code=status.HTTP_200_OK,
+    responses=NOT_FOUND_RESPONSES,
 )
 def artifact(
     release_id: str, name: str, releases: FromDishka[ReleaseService]
