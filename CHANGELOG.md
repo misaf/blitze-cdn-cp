@@ -31,7 +31,7 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - Per-site error pages and maintenance mode (#241).
 - Per-site analytics in the API and CLI (#210).
 - Alerts for failing deployments and drift checks (#140).
-- Canary-first rollouts that continue in batches (#321). `just bench-rollout`
+- Canary-first rollouts that continue in batches (#321). `just bench-rollout` (#357)
   measures run counts, failure blast radius and controller cost per batch size
   and models durations, and a timing shim measures real disposable edges; the
   default batch size stays 10 (`docs/design/rollout-benchmark.md`).
