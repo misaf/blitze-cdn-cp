@@ -196,6 +196,44 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
+    def abandon(self, deployment_id: str, reason: str) -> Deployment | None:
+        """Finish one unfinished deployment as abandoned; ``None`` if it was not.
+
+        Takes the rollout over as a claim does, so a worker that only paused past
+        its lease is fenced out at its next target write instead of carrying the
+        rollout on under a deployment already reported finished.
+        """
+        now = self._db.now()
+        with self._db.writer() as session:
+            row = session.execute(
+                update(DeploymentRow)
+                .where(
+                    DeploymentRow.id == deployment_id,
+                    DeploymentRow.status.in_(
+                        (
+                            DeploymentStatus.QUEUED.value,
+                            DeploymentStatus.RUNNING.value,
+                        )
+                    ),
+                )
+                .values(
+                    status=DeploymentStatus.ABANDONED.value,
+                    finished_at=now,
+                    result=abandoned_run(reason, now=now).model_dump(mode="json"),
+                    error=reason,
+                    generation=DeploymentRow.generation + 1,
+                )
+                .returning(DeploymentRow)
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            session.execute(
+                update(DeploymentTargetRow)
+                .where(DeploymentTargetRow.deployment_id == deployment_id)
+                .values(fence=row.generation)
+            )
+            return self._deployment(row)
+
     def abandon_running(self) -> int:
         """Close out deployments a dead controller process left running."""
         now = self._db.now()
