@@ -130,6 +130,7 @@ separate machines over a real network.
 | Rolling back to a backup through a reinstall | install job, rollback suite | Full backup, uninstall, `standalone` again, restore, then `standalone` once more to authorize the restored controller key; configuration, credentials, zones, edges and fleet settings compared before and after, and SSH to the local edge checked |
 | Fresh edge convergence and idempotence | HTTP/3 job | The shipped edge play, from a rendered release |
 | HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli, Under Attack Mode | HTTP/3 job | A real client on the outer Docker network |
+| Path-rule redirects answer only after maintenance, the firewall's country, method, path and source rules, the rate limit and Under Attack Mode (challenge, then a cleared redirect) | HTTP/3 job | Zones and rules compiled by the control plane, requested by `tests/integration/redirect_probe.py` from the outer network and by `curl` from the edge host's loopback |
 | Configuration reload, invalid configuration rollback | HTTP/3 job | |
 | Edge image upgrade, broken-image rollback, engine restart | HTTP/3 job | |
 | Runtime teardown and destructive teardown | HTTP/3 job | |
