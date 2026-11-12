@@ -45,6 +45,12 @@ MIRRORS = (
             "::test_the_allowed_paths_rule_is_the_contracts_pattern",
             "tests/contract/edge/test_edge_rate_limit.py"
             "::test_the_limited_paths_rule_is_the_contracts_pattern",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_allowed_path_boundaries_mean_the_same_on_both_sides",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_generated_allowed_paths_mean_the_same_on_both_sides",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_a_template_that_drops_the_prefix_rule_is_caught",
         ),
     ),
     Mirror(
@@ -57,6 +63,12 @@ MIRRORS = (
         pinned_by=(
             "tests/contract/edge/test_edge_rate_limit.py"
             "::test_every_zone_a_site_reads_is_declared",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_every_rung_names_its_own_zone_on_both_sides",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_generated_sites_declare_exactly_the_zones_they_read",
+            "tests/contract/edge/test_edge_security_parity.py"
+            "::test_a_template_that_names_zones_differently_is_caught",
         ),
     ),
     Mirror(
