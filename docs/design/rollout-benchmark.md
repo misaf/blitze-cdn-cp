@@ -207,8 +207,10 @@ VMs. Production is out of scope.
    - failure: stop nginx on one edge in the first full batch after its stage
      and before activation. Activation or verification then fails, and the
      batch is withdrawn;
-   - drift check: `blitzecdn plan`. Start `blitzecdn deploy --wait 600`
-     partway through, and time how long it waits;
+   - drift check: `blitzecdn drift`. Start `blitzecdn deploy --wait 600`
+     partway through, and time how long it waits. Use `drift`, not `plan`:
+     only the drift check stands aside for a waiter, and `plan` holds the lock
+     until it finishes;
    - controller memory: wrap the CLI in `/usr/bin/time -v`.
 3. Summarize each log:
 
