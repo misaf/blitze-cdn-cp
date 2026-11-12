@@ -221,7 +221,7 @@ def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
         )
         schema = client.get("/openapi.json").json()
         assert set(schema["paths"]["/v3/sites"]) == {"get"}
-        assert set(schema["paths"]["/v3/sites/{name}"]) == {"get"}
+        assert set(schema["paths"]["/v3/sites/{site}"]) == {"get"}
 
 
 def test_dns_export_omits_addresses_for_proxied_records(

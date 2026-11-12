@@ -214,7 +214,7 @@
         "title": "BackupStatistics",
         "type": "object"
       },
-      "Body_upload_certificate_v3_sites__name__certificate_put": {
+      "Body_upload_certificate_v3_sites__site__certificate_put": {
         "properties": {
           "certificate": {
             "contentMediaType": "application/octet-stream",
@@ -231,7 +231,7 @@
           "certificate",
           "private_key"
         ],
-        "title": "Body_upload_certificate_v3_sites__name__certificate_put",
+        "title": "Body_upload_certificate_v3_sites__site__certificate_put",
         "type": "object"
       },
       "CacheCounters": {
@@ -8316,9 +8316,9 @@
         "summary": "Create Record"
       }
     },
-    "/v3/domains/{domain}/records/{type}/{name}": {
+    "/v3/domains/{domain}/records/{type}/{record}": {
       "delete": {
-        "operationId": "delete_record_v3_domains__domain__records__type___name__delete",
+        "operationId": "delete_record_v3_domains__domain__records__type___record__delete",
         "parameters": [
           {
             "in": "path",
@@ -8339,10 +8339,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           }
@@ -8441,7 +8441,7 @@
         "summary": "Delete Record"
       },
       "get": {
-        "operationId": "get_record_v3_domains__domain__records__type___name__get",
+        "operationId": "get_record_v3_domains__domain__records__type___record__get",
         "parameters": [
           {
             "in": "path",
@@ -8462,10 +8462,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           }
@@ -8561,7 +8561,7 @@
         "summary": "Get Record"
       },
       "patch": {
-        "operationId": "update_record_v3_domains__domain__records__type___name__patch",
+        "operationId": "update_record_v3_domains__domain__records__type___record__patch",
         "parameters": [
           {
             "in": "path",
@@ -8582,10 +8582,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           }
@@ -9128,9 +9128,9 @@
         "summary": "Create Rule"
       }
     },
-    "/v3/domains/{domain}/rules/{name}": {
+    "/v3/domains/{domain}/rules/{rule}": {
       "delete": {
-        "operationId": "delete_rule_v3_domains__domain__rules__name__delete",
+        "operationId": "delete_rule_v3_domains__domain__rules__rule__delete",
         "parameters": [
           {
             "in": "path",
@@ -9143,10 +9143,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           }
@@ -9245,7 +9245,7 @@
         "summary": "Delete Rule"
       },
       "get": {
-        "operationId": "get_rule_v3_domains__domain__rules__name__get",
+        "operationId": "get_rule_v3_domains__domain__rules__rule__get",
         "parameters": [
           {
             "in": "path",
@@ -9258,10 +9258,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           }
@@ -9357,7 +9357,7 @@
         "summary": "Get Rule"
       },
       "patch": {
-        "operationId": "update_rule_v3_domains__domain__rules__name__patch",
+        "operationId": "update_rule_v3_domains__domain__rules__rule__patch",
         "parameters": [
           {
             "in": "path",
@@ -9370,10 +9370,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           }
@@ -9743,17 +9743,17 @@
         "summary": "Add Edge"
       }
     },
-    "/v3/edges/{name}": {
+    "/v3/edges/{edge}": {
       "delete": {
         "description": "Queue tearing the host down, then deregistering it, in that order.\n\nThe result is ``{name, decommissioned, hosts}``. A failed teardown fails the\noperation and keeps the edge registered unless ``force`` was given.",
-        "operationId": "remove_edge_v3_edges__name__delete",
+        "operationId": "remove_edge_v3_edges__edge__delete",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           },
@@ -9929,14 +9929,14 @@
         "summary": "Remove Edge"
       },
       "get": {
-        "operationId": "get_edge_v3_edges__name__get",
+        "operationId": "get_edge_v3_edges__edge__get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           }
@@ -10032,14 +10032,14 @@
         "summary": "Get Edge"
       },
       "patch": {
-        "operationId": "update_edge_v3_edges__name__patch",
+        "operationId": "update_edge_v3_edges__edge__patch",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           }
@@ -10589,6 +10589,7 @@
         "operationId": "current_release_v3_releases_current_get",
         "parameters": [
           {
+            "description": "Edges to validate against, as on POST /v3/deployments; omitted means every registered edge. A selector, not a page.",
             "in": "query",
             "name": "host_limit",
             "required": false,
@@ -10602,6 +10603,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Edges to validate against, as on POST /v3/deployments; omitted means every registered edge. A selector, not a page.",
               "title": "Host Limit"
             }
           }
@@ -10878,10 +10880,10 @@
         "summary": "Release"
       }
     },
-    "/v3/releases/{release_id}/artifacts/{name}": {
+    "/v3/releases/{release_id}/artifacts/{artifact}": {
       "get": {
         "description": "One artifact document, exactly as the edges were handed it; unmodelled.",
-        "operationId": "artifact_v3_releases__release_id__artifacts__name__get",
+        "operationId": "artifact_v3_releases__release_id__artifacts__artifact__get",
         "parameters": [
           {
             "in": "path",
@@ -10894,10 +10896,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "artifact",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Artifact",
               "type": "string"
             }
           }
@@ -10908,7 +10910,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Artifact V3 Releases  Release Id  Artifacts  Name  Get",
+                  "title": "Response Artifact V3 Releases  Release Id  Artifacts  Artifact  Get",
                   "type": "object"
                 }
               }
@@ -11106,16 +11108,16 @@
         "summary": "List Sites"
       }
     },
-    "/v3/sites/{name}": {
+    "/v3/sites/{site}": {
       "get": {
-        "operationId": "get_site_v3_sites__name__get",
+        "operationId": "get_site_v3_sites__site__get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11211,16 +11213,16 @@
         "summary": "Get Site"
       }
     },
-    "/v3/sites/{name}/certificate": {
+    "/v3/sites/{site}/certificate": {
       "get": {
-        "operationId": "certificate_v3_sites__name__certificate_get",
+        "operationId": "certificate_v3_sites__site__certificate_get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11317,14 +11319,14 @@
       },
       "put": {
         "description": "Install an operator's certificate for this site and activate it.\n\nSynchronous, unlike the certificate actions: it writes controller state\nonly, contacting neither ACME nor an edge. Edges pick it up on the next\ndeployment.",
-        "operationId": "upload_certificate_v3_sites__name__certificate_put",
+        "operationId": "upload_certificate_v3_sites__site__certificate_put",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11333,7 +11335,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_certificate_v3_sites__name__certificate_put"
+                "$ref": "#/components/schemas/Body_upload_certificate_v3_sites__site__certificate_put"
               }
             }
           },
@@ -11469,17 +11471,17 @@
         "summary": "Upload Certificate"
       }
     },
-    "/v3/sites/{name}/certificate/preflight": {
+    "/v3/sites/{site}/certificate/preflight": {
       "get": {
         "description": "Whether HTTP-01 could validate this site right now.",
-        "operationId": "certificate_preflight_v3_sites__name__certificate_preflight_get",
+        "operationId": "certificate_preflight_v3_sites__site__certificate_preflight_get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11575,17 +11577,17 @@
         "summary": "Certificate Preflight"
       }
     },
-    "/v3/sites/{name}/certificate/request": {
+    "/v3/sites/{site}/certificate/request": {
       "post": {
         "description": "Queue issuing this site's certificate; the result is a CertificateInfo.\n\nPreflight runs in the job: a blocked check fails the operation, with the\nreason in ``error``. One request per site runs at a time.",
-        "operationId": "request_certificate_v3_sites__name__certificate_request_post",
+        "operationId": "request_certificate_v3_sites__site__certificate_request_post",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           },

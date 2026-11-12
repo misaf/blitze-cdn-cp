@@ -223,7 +223,7 @@ def cert_upload(
 ) -> None:
     """Install a certificate you already hold for one site.
 
-    The counterpart of ``PUT /v3/sites/{name}/certificate``, which
+    The counterpart of ``PUT /v3/sites/{site}/certificate``, which
     takes the same two files as a multipart body. Paths rather than a body
     because that is the shape the material is already in on an operator's
     machine, and reading it here keeps a private key out of the argument

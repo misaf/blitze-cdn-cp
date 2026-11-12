@@ -49,6 +49,14 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Changed
 
+- Path parameters are named after their resource, and one resource has one name
+  in every path: `/v3/sites/{site}`, `/v3/edges/{edge}`,
+  `/v3/domains/{domain}/rules/{rule}`,
+  `/v3/domains/{domain}/records/{type}/{record}` and
+  `/v3/releases/{release_id}/artifacts/{artifact}` replace `{name}`. URLs are
+  unchanged; generated clients rename their arguments. `host_limit` on
+  `GET /v3/releases/current` is documented as the edge selector it is
+  everywhere, not pagination (#PR).
 - `GET /v3/dns/export` is now `GET /v3/domains/export`, with
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
