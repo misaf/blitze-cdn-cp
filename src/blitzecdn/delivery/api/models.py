@@ -9,9 +9,9 @@ own even when another returns it.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from blitzecdn.core.domain.runs import RunStatus, TaskOutcome
 
@@ -67,7 +67,39 @@ class AuditEvent(Model):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class Operation(Model):
+class QueuedWork(Model):
+    """The fields every resource a ``202`` points at starts with.
+
+    ``Operation``, ``Deployment`` and ``Workflow`` each extend it, so a client
+    waiting on any accepted request reads the same names: ``done`` says whether
+    to keep polling without knowing that resource's ``status`` values, and
+    ``error`` and ``result`` say how it ended. ``status`` and ``result`` are
+    narrowed by each resource; ``kind`` names what the work is.
+    """
+
+    #: The statuses in which the work has not finished; every other one has.
+    ACTIVE_STATUSES: ClassVar[frozenset[str]] = frozenset({"pending", "running"})
+
+    id: str
+    kind: str
+    status: str
+    #: ``False`` while the work is still to run or running; poll until ``True``.
+    done: bool
+    created_at: datetime
+    finished_at: datetime | None = None
+    error: str | None = None
+    result: Any = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_done(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "done" not in data and "status" in data:
+            status = data["status"]
+            return {**data, "done": str(status) not in cls.ACTIVE_STATUSES}
+        return data
+
+
+class Operation(QueuedWork):
     """Work queued for the worker; poll ``GET /v3/operations/{id}`` for it.
 
     ``succeeded`` means the operation ran; ``result`` is the report the
@@ -75,12 +107,7 @@ class Operation(Model):
     outcome. ``failed`` carries ``error`` and no result.
     """
 
-    id: str
-    kind: str
     status: Literal["pending", "running", "succeeded", "failed"]
-    created_at: datetime
-    finished_at: datetime | None = None
-    error: str | None = None
     result: dict[str, Any] | None = None
 
 
@@ -90,6 +117,7 @@ def as_queued(job: Any) -> Operation:
         id=job.id,
         kind=job.kind,
         status=job.status,
+        done=job.status not in Operation.ACTIVE_STATUSES,
         created_at=job.created_at,
         finished_at=job.finished_at,
         error=job.last_error,
@@ -110,6 +138,7 @@ __all__ = [
     "HostRun",
     "Model",
     "Operation",
+    "QueuedWork",
     "TaskResult",
     "as_operation",
     "as_queued",

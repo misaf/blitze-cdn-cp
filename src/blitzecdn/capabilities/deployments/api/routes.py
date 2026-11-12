@@ -98,7 +98,7 @@ def deployment(
     deployments: FromDishka[DeploymentService],
 ) -> Deployment:
     current = as_operation(deployments.get_deployment(deployment_id), Deployment)
-    polling_headers(response, active=current.status in {"queued", "running"})
+    polling_headers(response, active=not current.done)
     return current
 
 

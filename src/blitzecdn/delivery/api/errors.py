@@ -64,28 +64,8 @@ CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: _error("The request conflicts with current state."),
 }
 
-#: A conflict that clears on its own: the operation takes the deployment lock
-#: while the request is open, and another deployment holds it.
-BUSY_RESPONSES: dict[int | str, dict[str, Any]] = {
-    409: _error(
-        "The request conflicts with current state, or another deployment holds "
-        "the deployment lock. Only the latter carries Retry-After; retry then.",
-        **{
-            "Retry-After": {
-                "description": "Seconds before retrying; sent only while busy.",
-                "schema": {"type": "integer", "minimum": 1},
-            }
-        },
-    ),
-}
-
 #: An operation that reads a request body, which the body limit bounds.
 BODY_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: _error("The Content-Length header is not a valid length."),
     413: _error("The request body exceeds `api_max_body_bytes`."),
-}
-
-#: An operation that drives edges while the request is open, not from a queue.
-GATEWAY_RESPONSES: dict[int | str, dict[str, Any]] = {
-    502: _error("A command against the edges did not succeed."),
 }

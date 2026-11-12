@@ -60,8 +60,29 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/sites/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
 | `POST /v3/certificates/renew` | `/v3/operations/{id}` | `Operation`; result is a renewal report |
 | `POST /v3/certificates/reconcile` | `/v3/operations/{id}` | `Operation`; result is a reconciliation report |
+| `POST /v3/ssl/automatic/reconcile` | `/v3/operations/{id}` | `Operation`; result is an Automatic SSL/TLS reconciliation |
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |
 | `POST /v3/deployments/rollback` | `/v3/deployments/{id}` | Rollback `Deployment` |
+
+## One shape to wait on
+
+`Operation`, `Deployment` and `Workflow` all start with the same fields, in
+this order, so a client that waits on any accepted request reads one shape:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable across reads |
+| `kind` | What the work is: the operation's job kind, `deployment` or `rollback`, or the workflow's kind |
+| `status` | The resource's own lifecycle state; values are listed below |
+| `done` | `false` while the work is still to run or running; poll until it is `true` |
+| `created_at` | When the work was accepted |
+| `finished_at` | When it stopped, or `null` while it has not |
+| `error` | Why it failed, or `null` |
+| `result` | What it produced, or `null`; its shape depends on the resource |
+
+`done` is enough to stop polling without knowing any resource's status values;
+read `status`, `error` and `result` to learn how it ended. Each resource adds
+its own fields after these.
 
 Operations use `pending`, `running`, `succeeded`, and `failed`. On success,
 inspect the operation-specific `result`: a completed purge can still report
@@ -148,3 +169,19 @@ Issuing and renewing never deploy.
 
 The CLI (`blitzecdn cert request`, `cert renew`, `cert reconcile`) runs the same
 work in-process and waits for it.
+
+## Automatic SSL/TLS
+
+An Automatic SSL/TLS reconciliation probes every enrolled site's origin from
+every edge twice, once as served and once as Full (strict), so it runs on the
+worker. One reconciliation may be queued or running at a time; another
+submission while one is in flight is `409`.
+
+The result is the scan: the sites `scanned`, the modes they were `upgraded`
+to, why the rest were `skipped`, and the `deployment` that shipped the
+upgrades, if any. That deployment has already run when the operation
+succeeds; a deployment already holding the lock fails the operation with the
+reason in `error`.
+
+The CLI (`blitzecdn ssl reconcile`) runs the same work in-process and waits
+for it.
