@@ -184,10 +184,12 @@ blitzecdn	schema	DeployRequest.host_limit	string|null optional
 blitzecdn	schema	Deployment.canonical_digest	string|null optional
 blitzecdn	schema	Deployment.check_mode	boolean required
 blitzecdn	schema	Deployment.created_at	string required
+blitzecdn	schema	Deployment.done	boolean required
 blitzecdn	schema	Deployment.error	string|null optional
 blitzecdn	schema	Deployment.finished_at	string|null optional
 blitzecdn	schema	Deployment.host_limit	string|null optional
 blitzecdn	schema	Deployment.id	string required
+blitzecdn	schema	Deployment.kind	enum[deployment,rollback] required
 blitzecdn	schema	Deployment.operator	string required
 blitzecdn	schema	Deployment.previous_release_id	string|null optional
 blitzecdn	schema	Deployment.release_id	string required
@@ -330,6 +332,7 @@ blitzecdn	schema	HostRun.rescued	integer optional
 blitzecdn	schema	HostRun.skipped	integer optional
 blitzecdn	schema	HostRun.unreachable	integer optional
 blitzecdn	schema	Operation.created_at	string required
+blitzecdn	schema	Operation.done	boolean required
 blitzecdn	schema	Operation.error	string|null optional
 blitzecdn	schema	Operation.finished_at	string|null optional
 blitzecdn	schema	Operation.id	string required
@@ -571,11 +574,14 @@ blitzecdn	schema	WorkerStatus.last_finished_at	string|null optional
 blitzecdn	schema	WorkerStatus.state	enum[idle,busy,stale] required
 blitzecdn	schema	WorkerStatus.worker_id	string required
 blitzecdn	schema	Workflow.created_at	string required
+blitzecdn	schema	Workflow.done	boolean required
 blitzecdn	schema	Workflow.error	string|null optional
+blitzecdn	schema	Workflow.finished_at	string|null optional
 blitzecdn	schema	Workflow.id	string required
 blitzecdn	schema	Workflow.kind	string required
 blitzecdn	schema	Workflow.operator	string required
 blitzecdn	schema	Workflow.resource_id	string|null optional
+blitzecdn	schema	Workflow.result	null optional
 blitzecdn	schema	Workflow.status	WorkflowStatus required
 blitzecdn	schema	Workflow.steps	array[WorkflowStep] optional
 blitzecdn	schema	Workflow.updated_at	string required

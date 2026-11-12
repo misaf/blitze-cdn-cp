@@ -12,6 +12,11 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Added
 
+- Every queued resource (`Operation`, `Deployment`, `Workflow`) starts with
+  the same fields: `id`, `kind`, `status`, `done`, `created_at`,
+  `finished_at`, `error` and `result`. `done` says when to stop polling
+  without knowing the resource's status values; deployments gain `kind`
+  (`deployment` or `rollback`) and workflows gain `finished_at` (#362).
 - Daily scheduled backups with retention and freshness metrics (#86), encrypted
   to age recipients when written (#313). `--identity` also takes an RSA key in
   the PEM form `ssh-keygen -m PEM` writes, as the `age` tool does, and the
