@@ -53,6 +53,7 @@ from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock, system_clock
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.core.ports.operations import (
     AuditTrail,
     EventRecorder,
@@ -166,6 +167,10 @@ class InfrastructureProvider(Provider):
     @provide
     def events(self, repository: Repository) -> EventRecorder:
         return repository.audit_log
+
+    @provide
+    def idempotency_keys(self, repository: Repository) -> IdempotencyKeyStore:
+        return repository.idempotency_keys
 
     @provide
     def ansible_settings(self, repository: Repository) -> AnsibleSettingStore:

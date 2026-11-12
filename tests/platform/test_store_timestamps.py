@@ -77,6 +77,7 @@ def repository(tmp_path):
 def _write_through_every_store(repository: Stores) -> None:
     repository.ansible_settings.set_setting("blitzecdn_timestamp_probe", 1)
     repository.audit_log.audit("operator", "probe", "test")
+    repository.idempotency_keys.reserve("operator", "probe", "fingerprint")
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", value="203.0.113.10")

@@ -2,6 +2,7 @@ blitzecdn	role	blitzecdn_base
 blitzecdn	role	blitzecdn_cache_config
 blitzecdn	role	blitzecdn_cache_purge
 blitzecdn	role	blitzecdn_cache_stats
+blitzecdn	role	blitzecdn_cache_teardown
 blitzecdn	role	blitzecdn_capabilities
 blitzecdn	role	blitzecdn_compression
 blitzecdn	role	blitzecdn_config_release
@@ -40,6 +41,7 @@ blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_entries.scheme	ty
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_entries.uri	type=str required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_http_ports	type=list elements=int required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_https_ports	type=list elements=int required
+blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_index_path	type=path required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_methods	type=list elements=str required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_normalize_accept_encoding	type=bool required
 blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_path	type=path required
@@ -50,6 +52,7 @@ blitzecdn	variable	blitzecdn_cache_purge.blitzecdn_cache_purge_tags	type=list el
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_address	type=str required
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_path	type=str required
 blitzecdn	variable	blitzecdn_cache_stats.blitzecdn_cache_stats_status_port	type=int required
+blitzecdn	variable	blitzecdn_cache_teardown.blitzecdn_cache_teardown_index_path	type=path required
 blitzecdn	variable	blitzecdn_capabilities.blitzecdn_capabilities_roles	type=list elements=str required
 blitzecdn	variable	blitzecdn_compression.blitzecdn_compression_brotli_level	type=int required
 blitzecdn	variable	blitzecdn_compression.blitzecdn_compression_gzip_level	type=int required
