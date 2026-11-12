@@ -15,6 +15,7 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
+from blitzecdn.core.domain.configuration import ConfigurationChangeKind
 from blitzecdn.delivery.api.models import AnsibleRun, HostRun, Model
 from blitzecdn.delivery.api.requests import FleetRequest, RequestModel
 
@@ -26,6 +27,8 @@ class Deployment(Model):
     check_mode: bool
     #: The converged release; follow ``GET /v3/releases/{id}`` for its artifacts.
     release_id: str
+    #: What the fleet ran when this was queued; ``GET .../diff`` compares the two.
+    previous_release_id: str | None = None
     host_limit: str | None = None
     rollback_of: str | None = None
     canonical_digest: str | None = None
@@ -56,6 +59,31 @@ class DriftReport(Model):
     unattempted: tuple[str, ...] = ()
 
 
+class DeploymentChange(Model):
+    """One rendered path that differs; ``diff`` is ``None`` for non-text content."""
+
+    path: str
+    change: ConfigurationChangeKind
+    diff: str | None = None
+
+
+class DeploymentDiff(Model):
+    """What a deployment changed on the edges, file by file.
+
+    ``before`` and ``after`` are the digests of the configuration the fleet ran
+    when it was queued and the one it converges; ``before`` is ``None`` when
+    nothing had reached an edge yet, so every file is added.
+    """
+
+    deployment_id: str
+    previous_release_id: str | None = None
+    release_id: str
+    changed: bool
+    before: str | None = None
+    after: str
+    changes: tuple[DeploymentChange, ...] = ()
+
+
 class DeployRequest(FleetRequest):
     check: bool = Field(
         default=False,
@@ -71,6 +99,8 @@ class RollbackRequest(RequestModel):
 __all__ = [
     "DeployRequest",
     "Deployment",
+    "DeploymentChange",
+    "DeploymentDiff",
     "DeploymentTarget",
     "DriftReport",
     "RollbackRequest",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.releases.domain.diff import ReleaseDiff
 from blitzecdn.capabilities.releases.domain.explanation import (
     HostExplanation,
     SettingOrigin,
@@ -32,6 +33,7 @@ __all__ = [
     "EdgeCapabilities",
     "HostExplanation",
     "Release",
+    "ReleaseDiff",
     "ReleaseFinding",
     "ReleaseInputs",
     "SettingOrigin",

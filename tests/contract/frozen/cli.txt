@@ -23,6 +23,7 @@ blitzecdn	command	blitzecdn config list	--json type=boolean default=False
 blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
 blitzecdn	command	blitzecdn config unset	<name> type=str required
 blitzecdn	command	blitzecdn deploy	--yes/-y type=boolean default=False --skip-preflight type=boolean default=False --limit type=str --wait type=int range default=0 --json type=boolean default=False
+blitzecdn	command	blitzecdn deployment diff	<deployment_id> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn deployment status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
@@ -70,6 +71,7 @@ blitzecdn	command	blitzecdn record proxy	<domain> type=str required <name> type=
 blitzecdn	command	blitzecdn record remove	<domain> type=str required <name> type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --yes/-y type=boolean default=False
 blitzecdn	command	blitzecdn record unproxy	<domain> type=str required <name> type=str required --value type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
 blitzecdn	command	blitzecdn release artifact	--release type=str --name type=str default='desired-state' --json type=boolean default=False
+blitzecdn	command	blitzecdn release diff	--json type=boolean default=False
 blitzecdn	command	blitzecdn release explain	--host type=str --release type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn release list	--limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn release render	--output/-o type=path required --release type=str --json type=boolean default=False
