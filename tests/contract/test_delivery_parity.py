@@ -89,7 +89,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "writes. `record list` prints the zone's few records, which is what "
         "an operator reads.",
     ),
-    ("blitzecdn", "dns export", "GET /v3/dns/export", ""),
+    ("blitzecdn", "domain export", "GET /v3/domains/export", ""),
+    ("blitzecdn", "domain export", "GET /v3/domains/{domain}/export", ""),
     # -- Rules -------------------------------------------------------------
     ("blitzecdn", "rule add", "POST /v3/domains/{domain}/rules", ""),
     ("blitzecdn", "rule list", "GET /v3/domains/{domain}/rules", ""),

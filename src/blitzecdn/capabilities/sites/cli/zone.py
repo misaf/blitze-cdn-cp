@@ -60,6 +60,30 @@ def domain_hosts(
     )
 
 
+@domain_app.command("export")
+@common.inject
+def domain_export(
+    sites: FromDishka[SiteService],
+    name: Annotated[
+        str | None, typer.Argument(help="One zone; every zone when omitted.")
+    ] = None,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Emit the records for the system that publishes DNS — which is not this one.
+
+    BlitzeCDN holds zones and records and publishes neither. What comes back is
+    desired state for whatever is authoritative: each record says what DNS
+    should answer with, and ``publication`` says plainly that nothing here is
+    going to make it so.
+
+    A proxied record's address is the origin the edge fetches from, and its
+    public answer is an edge address the fleet supplies — so the origin never
+    leaves this side. The record's own value is emitted only when it is
+    unproxied, which is the case where the value *is* the public answer.
+    """
+    common.emit(sites.dns_export(name), json_output=json_output)
+
+
 @domain_app.command("show")
 @common.inject
 def domain_show(
