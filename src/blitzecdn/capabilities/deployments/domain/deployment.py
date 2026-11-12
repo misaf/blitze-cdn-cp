@@ -24,6 +24,10 @@ class DeploymentRequirementKind(StrEnum):
     CERTIFICATES = "certificates"
     #: The controller holds a GeoIP database no release has shipped yet.
     GEOIP_DATABASE = "geoip_database"
+    #: A rollback converged the edges to an older release but could not adopt it,
+    #: because desired state changed while it ran. The fleet serves a release that
+    #: is not desired state until a forward deployment brings it back.
+    DESIRED_STATE = "desired_state"
 
 
 class DeploymentStatus(StrEnum):

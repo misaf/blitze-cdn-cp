@@ -20,7 +20,12 @@ from blitzecdn.capabilities.deployments.ports import (
 from blitzecdn.capabilities.releases import ReleaseInputs
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
-__all__ = ["adopt_inputs", "require_unchanged_canonical", "select_target"]
+__all__ = [
+    "CANONICAL_CHANGED",
+    "adopt_inputs",
+    "canonical_changed",
+    "select_target",
+]
 
 
 def select_target(
@@ -50,23 +55,28 @@ def select_target(
     return target
 
 
-def require_unchanged_canonical(releases: Releases, deployment: Deployment) -> None:
-    """Refuse to restore wholesale over a change made while we converged.
+#: Why a rollback that converged the edges was not adopted.
+CANONICAL_CHANGED = (
+    "desired state changed while this rollback was converging, so adopting "
+    "the older release would delete whatever was written. The edges were "
+    "converged to it; canonical records were left alone, and a fleet "
+    "deployment of current desired state is now owed. Review the change and "
+    "roll back again if it should go."
+)
+
+
+def canonical_changed(releases: Releases, deployment: Deployment) -> bool:
+    """Whether desired state moved while this rollback converged.
 
     Record writes take no deployment lock, so a ``blitzecdn record add`` during
-    the rollback would otherwise be silently deleted. Read inside the
-    ``BEGIN IMMEDIATE`` adoption transaction; raising leaves canonical state
-    untouched and the deployment FAILED, for a deliberate retry.
+    the rollback would otherwise be silently deleted by adoption. Read inside the
+    ``BEGIN IMMEDIATE`` adoption transaction; when it moved, the caller leaves
+    canonical state untouched, records the deployment FAILED with its real run
+    result, and owes the fleet a convergence of current desired state.
     """
     if deployment.canonical_digest is None:
-        return
-    if releases.inputs().digest != deployment.canonical_digest:
-        raise ConflictError(
-            "desired state changed while this rollback was converging, so "
-            "adopting the older release would delete whatever was written. "
-            "The edges were converged to it; canonical records were left "
-            "alone. Review the change and roll back again if it should go."
-        )
+        return False
+    return releases.inputs().digest != deployment.canonical_digest
 
 
 def adopt_inputs(
@@ -79,7 +89,7 @@ def adopt_inputs(
 
     Rules go back after the zones, which ``replace_all_records`` rewrites and
     rules cascade from. Called only inside the caller's transaction, after
-    :func:`require_unchanged_canonical`.
+    :func:`canonical_changed`.
     """
     zones.replace_all_records(list(inputs.domains), list(inputs.records))
     rules.replace_all_rules(list(inputs.rules))

@@ -66,6 +66,9 @@ from blitzecdn.core.ports.clock import Clock
 
 _LOGGER = logging.getLogger(__name__)
 
+#: Owed when a rollback converged the edges but could not be adopted.
+_OWED_ON_REFUSAL = DeploymentRequirementKind.DESIRED_STATE
+
 
 @dataclass(frozen=True)
 class DeploymentPolicy:
@@ -560,7 +563,9 @@ class DeploymentService:
         """Commit a rollout's result and atomically adopt a successful rollback.
 
         Status comes from the rollout, not any one Ansible result: an unattempted edge
-        makes an otherwise clean run a failure.
+        makes an otherwise clean run a failure. A rollback that converged but cannot
+        be adopted, because desired state moved under it, is FAILED with its real run
+        result and leaves a ``DESIRED_STATE`` requirement so the fleet is redeployed.
         """
         # No Ansible result means either a failure before anything ran, or an empty
         # fleet; the second is a success with an explanation.
@@ -587,9 +592,22 @@ class DeploymentService:
             and target_status is DeploymentStatus.SUCCEEDED
             and not check
         )
+        error = outcome.error
         with self.persistence.uow.transaction():
+            # Decided under the adoption transaction's write lock, so no record
+            # write can slip in between the check and the restore.
+            refused = adopts_rollback and rollback_policy.canonical_changed(
+                self.releases, deployment
+            )
+            if refused:
+                # The edges already serve the older release, so keep the real run
+                # result and owe the fleet current desired state rather than leave
+                # it on a release nothing records as wanted.
+                adopts_rollback = False
+                target_status = DeploymentStatus.FAILED
+                error = rollback_policy.CANONICAL_CHANGED
+                self.persistence.requirements.require(_OWED_ON_REFUSAL)
             if adopts_rollback:
-                rollback_policy.require_unchanged_canonical(self.releases, deployment)
                 rollback_policy.adopt_inputs(
                     self.persistence.zones,
                     self.persistence.rules,
@@ -599,7 +617,7 @@ class DeploymentService:
             deployment = self.persistence.deployments.save(
                 deployment,
                 deployment.finish(
-                    target_status, now=self.clock(), result=run, error=outcome.error
+                    target_status, now=self.clock(), result=run, error=error
                 ),
             )
             if target_status is DeploymentStatus.SUCCEEDED:
@@ -619,11 +637,24 @@ class DeploymentService:
                         "release_id": release.id,
                         "converged": list(outcome.converged),
                         "unattempted": list(outcome.unattempted),
-                        "error": outcome.error,
+                        "error": error,
                         "yielded": outcome.yielded,
                     },
                 )
             )
+            if refused:
+                self.events.record(
+                    domain_event(
+                        operator,
+                        "rollback.not_adopted",
+                        "deployment",
+                        deployment.id,
+                        {
+                            "target": deployment.rollback_of,
+                            "requirement": _OWED_ON_REFUSAL.value,
+                        },
+                    )
+                )
             if adopts_rollback:
                 self.events.record(
                     domain_event(
