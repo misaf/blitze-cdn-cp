@@ -56,7 +56,7 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   `/v3/releases/{release_id}/artifacts/{artifact}` replace `{name}`. URLs are
   unchanged; generated clients rename their arguments. `host_limit` on
   `GET /v3/releases/current` is documented as the edge selector it is
-  everywhere, not pagination (#PR).
+  everywhere, not pagination (#382).
 - `GET /v3/dns/export` is now `GET /v3/domains/export`, with
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
