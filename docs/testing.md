@@ -45,6 +45,7 @@ reports that prerequisite as missing. It never reports it as ok.
 | `just ansible-check` (syntax and lint, against project-managed Ansible) | The same, plus Ansible *executing* roles on disposable hosts (install, HTTP/3 jobs) |
 | `just check-quick`, the inner-loop gate | `just check`, the full gate, including `docker-lint`, `audit` and `build` |
 | `just serve` for local API development | The edge-script contract under Python 3.12, the edge Python floor (quality job; skipped locally when uv has no 3.12) |
+| The cache purge against a real nginx, when `nginx` is on PATH | The same, always (quality job; `BLITZE_REQUIRE_NGINX` turns a missing nginx into a failure) |
 | Not on a laptop without Docker | `tests/integration/container-install.sh` (install jobs, one per suite) and `tests/integration/http3-edge-integration.sh` (HTTP/3 job) |
 
 The CI workflow calls the recipes and does not repeat their commands, so a gate
@@ -87,6 +88,7 @@ The run keeps these artifacts for 14 days:
 | Artifact | Contents |
 | --- | --- |
 | `quality-reports` | `coverage.xml` and a JUnit report of the full suite |
+| `quality-diagnostics` | Failure only: for each failed real-nginx cache purge test, nginx's configuration and logs, the purge index, and a listing of the cache |
 | `install-diagnostics-N` | Failure only, one per install suite: the install host's journal, failed units, listeners, the BlitzeCDN file tree, and the state and logs of every container |
 | `http3-integration-diagnostics` | Failure only: the same for the edge host, plus the origin container |
 
@@ -134,6 +136,7 @@ separate machines over a real network.
 | Edge image upgrade, broken-image rollback, engine restart | HTTP/3 job | |
 | Runtime teardown and destructive teardown | HTTP/3 job | |
 | The whole operator path: zone, release, deploy, verify, recover | `tests/journeys/` | Production objects with Ansible as a double, so this says nothing about an edge |
+| Named, prefix and tag purges while nginx fills, replaces and evicts | quality job, `tests/capabilities/cache/test_cache_purge_nginx.py` | A real nginx with the shipped cache key, purged by the shipped scanner; see [concurrent cache activity](design/cache.md#concurrent-cache-activity) |
 
 ### Gaps
 

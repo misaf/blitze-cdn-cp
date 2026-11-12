@@ -82,6 +82,15 @@ Files that cannot be decided
     purge cannot report success while an entry it should have removed is
     still being served.
 
+While nginx keeps serving
+    Nothing here pauses nginx. A purge removes every matching file already in
+    place when its index refresh lists the file's directory. An entry nginx
+    renames into place after that may survive until the next purge, and a
+    file nginx evicts first is simply gone. docs/design/cache.md
+    ("Concurrent cache activity") states the guarantee, and
+    tests/capabilities/cache/test_cache_purge_nginx.py checks it against a
+    real nginx.
+
 Emptying the cache
     ``"all": true`` removes every regular file under the cache directory,
     temporary files included, and empties the index, reporting how many went.

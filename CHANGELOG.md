@@ -22,7 +22,9 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   ignored origin headers (#236), and hourly cache statistics stored with
   traffic accounting (#137).
 - Cache purge by hostname, path prefix (#220) and tag (#222); purging a named
-  entry removes its Vary variants (#301).
+  entry removes its Vary variants (#301). What a purge guarantees about entries
+  nginx stores, replaces or evicts while it runs is documented and tested
+  against a real nginx (#344).
 - Path-based rules that match by hostname and path (#238).
 - Per-site error pages and maintenance mode (#241).
 - Per-site analytics in the API and CLI (#210).
