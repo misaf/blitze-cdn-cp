@@ -32,9 +32,16 @@ from blitzecdn.delivery.api.errors import (
     CONFLICT_RESPONSES,
     NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
+    PRECONDITION_RESPONSES,
 )
 from blitzecdn.delivery.api.pagination import Page, paginate
-from blitzecdn.delivery.api.responses import CREATED_RESPONSE, created_at
+from blitzecdn.delivery.api.preconditions import (
+    ETAG_RESPONSE,
+    IfMatchHeader,
+    if_match,
+    tag,
+)
+from blitzecdn.delivery.api.responses import TAGGED_CREATED_RESPONSE, created_at
 
 router = APIRouter(
     route_class=DishkaSyncRoute,
@@ -52,15 +59,21 @@ def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
     "/v3/domains",
     response_model=Domain,
     status_code=status.HTTP_201_CREATED,
-    responses={201: CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        201: TAGGED_CREATED_RESPONSE,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def create_domain(
-    domain: DomainCreate,
     response: Response,
+    domain: DomainCreate,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> Domain:
-    created = Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
+    created = Domain.from_domain(
+        tag(response, dns.create_domain(domain.to_domain(), operator))
+    )
     created_at(response, "/v3/domains", created.name)
     return created
 
@@ -76,37 +89,58 @@ def export_domains(dns: FromDishka[SiteService]) -> DnsExport:
 
 
 @router.get(
-    "/v3/domains/{domain}", response_model=Domain, responses=NOT_FOUND_RESPONSES
+    "/v3/domains/{domain}",
+    response_model=Domain,
+    responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
 )
-def get_domain(domain: str, dns: FromDishka[SiteService]) -> Domain:
-    return Domain.from_domain(dns.get_domain(domain))
+def get_domain(response: Response, domain: str, dns: FromDishka[SiteService]) -> Domain:
+    return Domain.from_domain(tag(response, dns.get_domain(domain)))
 
 
 @router.patch(
     "/v3/domains/{domain}",
     response_model=Domain,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        200: ETAG_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def update_domain(
+    response: Response,
     domain: str,
     patch: DomainPatch,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
+    precondition: IfMatchHeader = None,
 ) -> Domain:
-    return Domain.from_domain(
-        dns.update_domain(domain, PatchPolicy.from_patch(patch.to_domain()), operator)
+    updated = dns.update_domain(
+        domain,
+        PatchPolicy.from_patch(patch.to_domain()),
+        operator,
+        if_match=if_match(precondition),
     )
+    return Domain.from_domain(tag(response, updated))
 
 
 @router.delete(
     "/v3/domains/{domain}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    responses={
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+    },
 )
 def delete_domain(
-    domain: str, operator: OperatorDependency, dns: FromDishka[SiteService]
+    domain: str,
+    operator: OperatorDependency,
+    dns: FromDishka[SiteService],
+    precondition: IfMatchHeader = None,
 ) -> None:
-    dns.delete_domain(domain, operator)
+    dns.delete_domain(domain, operator, if_match=if_match(precondition))
 
 
 @router.get("/v3/sites", response_model=Page[CdnSite])
@@ -138,21 +172,21 @@ def list_records(domain: str, dns: FromDishka[SiteService]) -> Page[DnsRecord]:
     response_model=DnsRecord,
     status_code=status.HTTP_201_CREATED,
     responses={
-        201: CREATED_RESPONSE,
+        201: TAGGED_CREATED_RESPONSE,
         **NOT_FOUND_RESPONSES,
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
 )
 def create_record(
+    response: Response,
     domain: str,
     record: RecordCreate,
-    response: Response,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> DnsRecord:
     created = DnsRecord.from_domain(
-        dns.create_record(record.to_domain(domain), operator)
+        tag(response, dns.create_record(record.to_domain(domain), operator))
     )
     created_at(
         response, "/v3/domains", created.domain, "records", created.type, created.name
@@ -166,35 +200,63 @@ RECORD_PATH = "/v3/domains/{domain}/records/{type}/{name}"
 RecordTypePath = Annotated[RecordType, Path(alias="type")]
 
 
-@router.get(RECORD_PATH, response_model=DnsRecord, responses=NOT_FOUND_RESPONSES)
+@router.get(
+    RECORD_PATH,
+    response_model=DnsRecord,
+    responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+)
 def get_record(
-    domain: str, type_: RecordTypePath, name: str, dns: FromDishka[SiteService]
+    response: Response,
+    domain: str,
+    type_: RecordTypePath,
+    name: str,
+    dns: FromDishka[SiteService],
 ) -> DnsRecord:
-    return DnsRecord.from_domain(dns.get_record(domain, name, type_.to_domain()))
+    return DnsRecord.from_domain(
+        tag(response, dns.get_record(domain, name, type_.to_domain()))
+    )
 
 
 @router.patch(
     RECORD_PATH,
     response_model=DnsRecord,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        200: ETAG_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def update_record(
+    response: Response,
     domain: str,
     type_: RecordTypePath,
     name: str,
     patch: RecordPatch,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
+    precondition: IfMatchHeader = None,
 ) -> DnsRecord:
-    return DnsRecord.from_domain(
-        dns.update_record(domain, name, type_.to_domain(), patch.to_domain(), operator)
+    updated = dns.update_record(
+        domain,
+        name,
+        type_.to_domain(),
+        patch.to_domain(),
+        operator,
+        if_match=if_match(precondition),
     )
+    return DnsRecord.from_domain(tag(response, updated))
 
 
 @router.delete(
     RECORD_PATH,
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    responses={
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+    },
 )
 def delete_record(
     domain: str,
@@ -202,8 +264,11 @@ def delete_record(
     name: str,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
+    precondition: IfMatchHeader = None,
 ) -> None:
-    dns.delete_record(domain, name, type_.to_domain(), operator)
+    dns.delete_record(
+        domain, name, type_.to_domain(), operator, if_match=if_match(precondition)
+    )
 
 
 @router.get(
@@ -230,20 +295,22 @@ def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
     response_model=Rule,
     status_code=status.HTTP_201_CREATED,
     responses={
-        201: CREATED_RESPONSE,
+        201: TAGGED_CREATED_RESPONSE,
         **NOT_FOUND_RESPONSES,
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
 )
 def create_rule(
+    response: Response,
     domain: str,
     rule: RuleCreate,
-    response: Response,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
 ) -> Rule:
-    created = Rule.from_domain(rules.create_rule(rule.to_domain(domain), operator))
+    created = Rule.from_domain(
+        tag(response, rules.create_rule(rule.to_domain(domain), operator))
+    )
     created_at(response, "/v3/domains", created.domain, "rules", created.name)
     return created
 
@@ -251,41 +318,57 @@ def create_rule(
 @router.get(
     "/v3/domains/{domain}/rules/{name}",
     response_model=Rule,
-    responses=NOT_FOUND_RESPONSES,
+    responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
 )
-def get_rule(domain: str, name: str, rules: FromDishka[RuleService]) -> Rule:
-    return Rule.from_domain(rules.get_rule(domain, name))
+def get_rule(
+    response: Response, domain: str, name: str, rules: FromDishka[RuleService]
+) -> Rule:
+    return Rule.from_domain(tag(response, rules.get_rule(domain, name)))
 
 
 @router.patch(
     "/v3/domains/{domain}/rules/{name}",
     response_model=Rule,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        200: ETAG_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def update_rule(
+    response: Response,
     domain: str,
     name: str,
     patch: RulePatch,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
+    precondition: IfMatchHeader = None,
 ) -> Rule:
-    return Rule.from_domain(
-        rules.update_rule(domain, name, patch.to_domain(), operator)
+    updated = rules.update_rule(
+        domain, name, patch.to_domain(), operator, if_match=if_match(precondition)
     )
+    return Rule.from_domain(tag(response, updated))
 
 
 @router.delete(
     "/v3/domains/{domain}/rules/{name}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    responses={
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+    },
 )
 def delete_rule(
     domain: str,
     name: str,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
+    precondition: IfMatchHeader = None,
 ) -> None:
-    rules.delete_rule(domain, name, operator)
+    rules.delete_rule(domain, name, operator, if_match=if_match(precondition))
 
 
 @router.get(
