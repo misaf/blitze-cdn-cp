@@ -48,6 +48,11 @@ reports that prerequisite as missing. It never reports it as ok.
 | The cache purge against a real nginx, when `nginx` is on PATH | The same, always (quality job; `BLITZE_REQUIRE_NGINX` turns a missing nginx into a failure) |
 | Not on a laptop without Docker | `tests/integration/container-install.sh` (install jobs, one per suite) and `tests/integration/http3-edge-integration.sh` (HTTP/3 job) |
 
+`just install` also fetches the reference `age` CLI that `scripts/fetch-age.sh`
+pins by version and digest. The backup suite checks encrypted archives against
+it and skips those tests when it is missing; CI sets `BLITZE_REQUIRE_AGE_CLI`
+so a missing tool fails instead.
+
 The CI workflow calls the recipes and does not repeat their commands, so a gate
 added to the justfile is a gate CI runs. `just check` runs exactly the quality
 job. Without hadolint or Docker it stops at `docker-lint`. That is deliberate:
@@ -129,9 +134,11 @@ separate machines over a real network.
 | ACME issue and renewal | install job | Pebble and challenge DNS inside the host |
 | Refusing an update outside the release line | install job | `blitzecdn-install update` named at `0.0.1` |
 | Recovering from an update that fails health | install job, rollback suite | `update` to a newer-tagged image whose API cannot start; the host is back on the installed image, healthy, with its Compose project and installer, and the state unchanged |
-| Rolling back to a backup through a reinstall | install job, rollback suite | Full backup, uninstall, `standalone` again, restore, then `standalone` once more to authorize the restored controller key; configuration, credentials, zones, edges and fleet settings compared before and after, and SSH to the local edge checked |
+| Rolling back to a backup through a reinstall | install job, rollback suite | Full backup, uninstall, `standalone` again, restore, then `standalone` once more to authorize the restored controller key; configuration, credentials, zones, edges, fleet settings, an uploaded certificate and an ACME account key compared before and after, and SSH to the local edge checked |
+| Encrypted backups opened by the independent `age` CLI | install job, rollback suite; quality job | The rollback backup is sealed to an `age-keygen` key and `ssh-ed25519`/`ssh-rsa` keys made off the controller. The pinned `age` CLI opens it with each and the members are checked. On the reinstalled controller, an unrelated key, a tampered and a truncated copy, and no key at all are refused with the state unchanged; the real restore takes the key on standard input, and the key is then searched for on the host's disks, journal and container logs. The backup suite runs the same CLI against every key type, both directions, armored and binary |
 | Fresh edge convergence and idempotence | HTTP/3 job | The shipped edge play, from a rendered release |
 | HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli, Under Attack Mode | HTTP/3 job | A real client on the outer Docker network |
+| Path-rule redirects answer only after maintenance, the firewall's country, method, path and source rules, the rate limit and Under Attack Mode (challenge, then a cleared redirect) | HTTP/3 job | Zones and rules compiled by the control plane, requested by `tests/integration/redirect_probe.py` from the outer network and by `curl` from the edge host's loopback |
 | Configuration reload, invalid configuration rollback | HTTP/3 job | |
 | Edge image upgrade, broken-image rollback, engine restart | HTTP/3 job | |
 | Runtime teardown and destructive teardown | HTTP/3 job | |

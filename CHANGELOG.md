@@ -13,7 +13,9 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 ### Added
 
 - Daily scheduled backups with retention and freshness metrics (#86), encrypted
-  to age recipients when written (#313).
+  to age recipients when written (#313). `--identity` also takes an RSA key in
+  the PEM form `ssh-keygen -m PEM` writes, as the `age` tool does, and the
+  archives are checked against the pinned reference `age` CLI.
 - Per-site firewall `allowed_methods` and `allowed_paths` (#129), per-site rate
   limiting (#208), and a configurable Under Attack proof-of-work difficulty
   (#133).

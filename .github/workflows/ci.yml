@@ -92,9 +92,12 @@ jobs:
             sudo apt-get install -y --no-install-recommends nginx
             sudo systemctl disable --now nginx
           fi
+      # `just install` fetched the pinned age CLI; without it the
+      # interoperability tests would skip, which must not read as a pass.
       - name: Tests and coverage
         env:
           BLITZE_REQUIRE_EDGE_PYTHON: "1"
+          BLITZE_REQUIRE_AGE_CLI: "1"
           # A missing nginx fails those tests instead of skipping them.
           BLITZE_REQUIRE_NGINX: "1"
           # A failed real-nginx purge test keeps nginx's configuration and
