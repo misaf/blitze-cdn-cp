@@ -983,6 +983,46 @@
         "title": "CompressionMode",
         "type": "string"
       },
+      "ConfigurationChange": {
+        "additionalProperties": false,
+        "description": "One rendered path that differs; ``diff`` is ``None`` for non-text content.",
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ConfigurationChangeKind"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "change"
+        ],
+        "title": "ConfigurationChange",
+        "type": "object"
+      },
+      "ConfigurationChangeKind": {
+        "description": "How one path differs between two rendered trees.",
+        "enum": [
+          "added",
+          "removed",
+          "modified"
+        ],
+        "title": "ConfigurationChangeKind",
+        "type": "string"
+      },
       "ConnectionsRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1149,6 +1189,17 @@
             "title": "Operator",
             "type": "string"
           },
+          "previous_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Release Id"
+          },
           "release_id": {
             "title": "Release Id",
             "type": "string"
@@ -1199,6 +1250,96 @@
           "created_at"
         ],
         "title": "Deployment",
+        "type": "object"
+      },
+      "DeploymentChange": {
+        "additionalProperties": false,
+        "description": "One rendered path that differs; ``diff`` is ``None`` for non-text content.",
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ConfigurationChangeKind"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "change"
+        ],
+        "title": "DeploymentChange",
+        "type": "object"
+      },
+      "DeploymentDiff": {
+        "additionalProperties": false,
+        "description": "What a deployment changed on the edges, file by file.\n\n``before`` and ``after`` are the digests of the configuration the fleet ran\nwhen it was queued and the one it converges; ``before`` is ``None`` when\nnothing had reached an edge yet, so every file is added.",
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "changes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DeploymentChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "deployment_id": {
+            "title": "Deployment Id",
+            "type": "string"
+          },
+          "previous_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Release Id"
+          },
+          "release_id": {
+            "title": "Release Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployment_id",
+          "release_id",
+          "changed",
+          "after"
+        ],
+        "title": "DeploymentDiff",
         "type": "object"
       },
       "DeploymentReference": {
@@ -3292,6 +3433,61 @@
           "servable"
         ],
         "title": "ReleaseDetail",
+        "type": "object"
+      },
+      "ReleaseDiff": {
+        "additionalProperties": false,
+        "description": "What deploying ``release`` would change on the edges, file by file.\n\n``live_release`` is what the fleet is running, ``None`` before any deployment\nreached an edge; ``before`` and ``after`` are the two bundles' digests.",
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "changes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConfigurationChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "live_release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Release"
+          },
+          "release": {
+            "title": "Release",
+            "type": "string"
+          }
+        },
+        "required": [
+          "release",
+          "changed",
+          "after"
+        ],
+        "title": "ReleaseDiff",
         "type": "object"
       },
       "ReleaseFinding": {
@@ -5450,6 +5646,51 @@
         "summary": "Deployment"
       }
     },
+    "/v3/deployments/{deployment_id}/diff": {
+      "get": {
+        "description": "What this deployment changed on the edges, as a unified diff per file.\n\nAgainst the release the fleet was running when it was queued.",
+        "operationId": "deployment_diff_v3_deployments__deployment_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentDiff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Deployment Diff"
+      }
+    },
     "/v3/deployments/{deployment_id}/drift": {
       "get": {
         "operationId": "drift_report_v3_deployments__deployment_id__drift_get",
@@ -7061,6 +7302,40 @@
           }
         ],
         "summary": "Current Release"
+      }
+    },
+    "/v3/releases/current/diff": {
+      "get": {
+        "description": "What deploying now would change on the edges, as a unified diff per file.\n\nThe rendered tree current state compiles to, against the one the fleet is\nrunning. Records nothing; secrets are never in a bundle, so never in a diff.",
+        "operationId": "current_release_diff_v3_releases_current_diff_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDiff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Current Release Diff"
       }
     },
     "/v3/releases/{release_id}": {
