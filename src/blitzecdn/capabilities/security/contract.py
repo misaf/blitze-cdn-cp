@@ -390,16 +390,12 @@ class SiteFirewall(OmittedWhenEmpty):
     )
 
     @property
-    def empty(self) -> bool:
-        """No rule lists: the matching flag alone filters nothing."""
-        return not any(
-            getattr(self, field)
-            for field in type(self).model_fields
-            if field != "case_insensitive_paths"
-        )
-
-    @property
     def rule_count(self) -> int:
+        """Rules the firewall holds; the matching flag alone filters nothing.
+
+        Not ``empty``: a firewall holding only ``case_insensitive_paths`` is
+        still rendered, since ``rate_limit.paths`` match through it too.
+        """
         return sum(
             len(getattr(self, field))
             for field in type(self).model_fields
@@ -642,7 +638,7 @@ class SecurityPolicy(CapabilityPolicy):
             name
             for name, asked in (
                 ("under_attack_mode", self.under_attack_mode),
-                ("firewall", not self.firewall.empty),
+                ("firewall", self.firewall.rule_count > 0),
                 ("rate_limit", not self.rate_limit.empty),
             )
             if asked

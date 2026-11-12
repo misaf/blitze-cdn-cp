@@ -97,6 +97,8 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - `allow_sources` is exempt from country and method rules (#131), and
   firewall path rules match regardless of letter case (#206).
 - The firewall and rate limit apply before a path-rule redirect (#300).
+- `firewall.case_insensitive_paths` on its own makes `rate_limit.paths` match
+  regardless of letter case (#372).
 - A proxied hostname may have both an A and an AAAA record (#311).
 - Nginx name hashes are sized for the longest names (#216).
 - Disabled sites are skipped in serving verification (#307).
