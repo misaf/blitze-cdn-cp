@@ -82,11 +82,29 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
-def redirected(response: Response, status: int, location: str, what: str) -> None:
+def on_host(location: str | None, host: str) -> str | None:
+    """A Location as a request path, if it stays on ``host`` over plain HTTP.
+
+    Nginx's `absolute_redirect` is on, so a relative target is answered as
+    `http://HOST/...`. Anything else — another host, another scheme — comes
+    back unchanged and so never equals the path it is compared with.
+    """
+    if location is None or location.startswith("/"):
+        return location
+    parts = urlsplit(location)
+    if parts.scheme != "http" or parts.netloc != host:
+        return location
+    return parts.path + (f"?{parts.query}" if parts.query else "")
+
+
+def redirected(
+    response: Response, host: str, status: int, location: str, what: str
+) -> None:
+    answered = on_host(response.header("location"), host)
     check(
-        response.status == status and response.header("location") == location,
-        f"{what}: expected {status} to {location!r}, got {response.status} "
-        f"to {response.header('location')!r}",
+        response.status == status and answered == location,
+        f"{what}: expected {status} to {location!r} on {host}, got "
+        f"{response.status} to {response.header('location')!r}",
     )
 
 
@@ -106,13 +124,15 @@ def suffix_and_query(edge: str) -> None:
     host = "www.redirect-plain.test"
     redirected(
         request(edge, host, "/old/a%20b/c?x=1&y=2"),
+        host,
         301,
         "/new/a%20b/c?x=1&y=2",
         "the suffix, still percent-encoded, and the query string",
     )
-    redirected(request(edge, host, "/old/"), 301, "/new/", "an empty suffix")
+    redirected(request(edge, host, "/old/"), host, 301, "/new/", "an empty suffix")
     redirected(
         request(edge, host, "/gone.html?drop=1"),
+        host,
         302,
         "/",
         "a rule that drops the query string",
@@ -148,7 +168,7 @@ def client_rules(edge: str) -> None:
 
 def rate_limit(edge: str) -> None:
     host = "www.redirect-rate.test"
-    redirected(request(edge, host, "/old/a"), 301, "/new/a", "the first request")
+    redirected(request(edge, host, "/old/a"), host, 301, "/new/a", "the first request")
     refused(
         request(edge, host, "/old/a"),
         429,
@@ -184,7 +204,7 @@ def under_attack(edge: str) -> None:
     host = "www.redirect-attack.test"
     target = "/old/a?x=1"
     challenge = request(edge, host, target)
-    location = challenge.header("location") or ""
+    location = on_host(challenge.header("location"), host) or ""
     challenged = (
         challenge.status == 302
         and challenge.header("x-blitzecdn-mitigation") == "challenge"
@@ -228,6 +248,7 @@ def under_attack(edge: str) -> None:
     )
     redirected(
         request(edge, host, target, headers={"Cookie": cookie}),
+        host,
         301,
         "/new/a?x=1",
         "a cleared visitor",
