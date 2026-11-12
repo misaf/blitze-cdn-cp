@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the whole installer lifecycle against a throwaway container.
 #
-#   tests/container-install.sh ubuntu:26.04 [all|lifecycle|rollback]
+#   tests/integration/container-install.sh ubuntu:26.04 [all|lifecycle|rollback]
 #
 # The only test that runs `install.sh standalone` for real: systemd as PID 1,
 # real apt, real accounts. A standalone host is also an edge, so it must meet
@@ -55,7 +55,7 @@ readonly CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
 readonly ACME_SITE=example-com
 readonly ACME_DOMAIN=cdn.example.com
 
-project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
 image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json

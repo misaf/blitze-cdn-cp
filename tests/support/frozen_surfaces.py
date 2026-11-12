@@ -16,6 +16,7 @@ Ownership is derived from callbacks, route endpoints and resource paths.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,7 +24,7 @@ import click
 import yaml
 from sqlalchemy import CheckConstraint
 
-from support.paths import SOURCE
+from support.paths import REPO_ROOT, SOURCE
 
 #: The import package that owns every shipped interface.
 ROOT = "blitzecdn"
@@ -33,6 +34,10 @@ FROZEN = Path(__file__).resolve().parent.parent / "contract" / "frozen"
 
 #: The four surfaces, in the order `just refreeze` writes them.
 SURFACES = ("cli", "http", "ansible", "schema")
+
+#: The full OpenAPI document, committed so the API can be read without
+#: installing the controller. `http.txt` pins the names; this is the reference.
+OPENAPI = REPO_ROOT / "docs" / "openapi.json"
 
 
 def _owner(module: str | None) -> str:
@@ -178,6 +183,17 @@ def http_surface(settings: Any) -> str:
             flag = "required" if field in required else "optional"
             lines.append(_line(owner, "schema", f"{name}.{field}\t{shape} {flag}"))
     return _render(lines)
+
+
+def openapi_document(settings: Any) -> str:
+    """The document the running controller serves at `/openapi.json`.
+
+    Indented and key-sorted so a change reads as a small diff.
+    """
+    from blitzecdn.entrypoints.api import create_app
+
+    document = create_app(settings).openapi()
+    return json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def _schema_owners(

@@ -17,19 +17,18 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from support.control_plane import (
-    ControlPlane,
-    FakeRunner,
-    build_application,
-    deployment_lock,
-)
-
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.ansible.variables import read_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.runtime.lock import DeploymentLock
+from support.control_plane import (
+    ControlPlane,
+    FakeRunner,
+    build_application,
+    deployment_lock,
+)
 
 
 class LoopbackProbe(ServingProbe):
