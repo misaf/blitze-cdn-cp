@@ -62,6 +62,9 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   (#224).
 - `POST /v3/ssl/automatic/reconcile` is queued and answers `202` with an
   `Operation`; the scan is its `result` (#361).
+- Automatic SSL/TLS reconciliation moves to
+  `POST /v3/certificates/ssl-modes/reconcile`, so the fleet's TLS work has one
+  prefix; `/v3/ssl/...` is gone, with no alias (#376).
 - Certificate DNS preflight resolves at the authoritative nameservers (#142)
   and blocks a hostname that also resolves off-edge (#141). HTTP-01 challenges
   are placed only on edges the hostname resolves to (#233).
