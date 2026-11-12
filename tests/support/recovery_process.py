@@ -118,6 +118,18 @@ def snapshot(control: ControlPlane, runner: LocalRunner) -> dict[str, Any]:
             }
             for item in control.deployments.list_deployments()
         ],
+        "workflows": [
+            {
+                "id": workflow.id,
+                "resource_id": workflow.resource_id,
+                "status": workflow.status.value,
+                "steps": [step.name for step in workflow.steps],
+            }
+            for workflow in sorted(
+                control.repository.workflows.list_workflows(),
+                key=lambda workflow: workflow.created_at,
+            )
+        ],
         "jobs": [
             {
                 "id": job.id,
