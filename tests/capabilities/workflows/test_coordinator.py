@@ -7,7 +7,7 @@ exercised.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -250,6 +250,36 @@ def test_an_interrupt_is_left_to_restart_recovery(coordinator, journal, interrup
 
     [recovered] = coordinator.reconcile_interrupted()
     assert recovered.status is WorkflowStatus.NEEDS_REVIEW
+
+
+@pytest.mark.parametrize("outcome", ["succeeds", "reports failure", "raises"])
+def test_a_workflow_recovery_took_over_keeps_its_review(coordinator, journal, outcome):
+    """A stalled worker finishing late must not hide the review recovery asked for."""
+    with (
+        suppress(RuntimeError),
+        coordinator.run("deployment", "alice", "example-com") as progress,
+    ):
+        [taken] = coordinator.reconcile_interrupted(resource_id="example-com")
+        if outcome == "reports failure":
+            progress.fail("late")
+        elif outcome == "raises":
+            raise RuntimeError("late")
+
+    assert journal.get(taken.id) == taken
+    assert taken.status is WorkflowStatus.NEEDS_REVIEW
+    assert journal.pruned_to == []
+
+
+def test_a_checkpoint_after_recovery_took_over_stops_the_worker(coordinator, journal):
+    """It raises rather than reopen a workflow that is waiting for review."""
+    with (
+        pytest.raises(ConflictError, match="needs_review"),
+        coordinator.run("deployment", "alice", "example-com") as progress,
+    ):
+        [taken] = coordinator.reconcile_interrupted(resource_id="example-com")
+        progress.checkpoint("converged")
+
+    assert journal.get(taken.id) == taken
 
 
 def test_retention_is_applied_when_a_workflow_closes(coordinator, journal):
