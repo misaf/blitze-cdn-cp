@@ -237,10 +237,15 @@ So:
   `api_container` already imports it.
 - **Tests** get this from `tests/conftest.py`, which imports
   `blitzecdn.composition` for the whole suite. A test that needs an extra
-  policy contribution calls `compose_registry` with the built-in features plus
-  its own. That reseals `SitePolicy` for the whole process, so save
-  `SitePolicy._schema` first and restore it afterwards, as the `registry`
-  fixture in `tests/journeys/test_contributed_policy.py` does.
+  policy contribution recomposes through `tests/support/composition.py`: the
+  `policy_composition` fixture, or `temporary_policy_composition()` around
+  part of a test. Its `features(...)` composes the built-in features plus
+  yours, `contributions(...)` seals policy contributions directly, and
+  `uncompose()` leaves the policy uncomposed. Resealing is process-wide and
+  changes more than `SitePolicy._schema` (every `ComposedModel` caches a
+  generated model per schema), so the helper snapshots all of it and restores
+  it in a `finally`, whether the test passes, fails or composition raises.
+  Never assign `SitePolicy._schema` or call `compose_registry` from a test.
 - **Capability code** never imports composition (the import rules forbid it).
   It only receives already-composed values, so it never needs this.
 
