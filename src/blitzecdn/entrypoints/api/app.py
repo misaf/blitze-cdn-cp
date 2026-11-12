@@ -110,6 +110,7 @@ _HTTP_STATUS: dict[FailureKind, int] = {
     # between this and a plain conflict and is meaningless off it.
     FailureKind.BUSY: status.HTTP_409_CONFLICT,
     FailureKind.CONFLICT: status.HTTP_409_CONFLICT,
+    FailureKind.PRECONDITION_FAILED: status.HTTP_412_PRECONDITION_FAILED,
     FailureKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
     # The controller is fine; what it was driving is not. A gateway error says
     # that, where a 500 would blame this service for its dependency.
