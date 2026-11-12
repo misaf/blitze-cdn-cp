@@ -11,7 +11,6 @@ from blitzecdn.capabilities.edges.service.operations import (
     remove_dedupe_key,
 )
 from blitzecdn.capabilities.jobs import Job, OperationService
-from blitzecdn.core.domain.preconditions import require_current
 from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
@@ -153,14 +152,17 @@ def remove_edge(
     """
 
     def submit() -> Job:
-        # Checked when the removal is queued: the edge the client read is the
-        # one it asks to remove. A replay of the same key answers from the job.
-        require_current(if_match(precondition), edges.get_edge(name), f"edge {name!r}")
-        return queued_operations.submit(
-            EdgeRemovalJob(
-                operator=operator, name=name, decommission=decommission, force=force
+        # Checked when the removal is queued, in the transaction that queues it.
+        # A replay of the same key answers from the job.
+        return edges.admit_removal(
+            name,
+            lambda: queued_operations.submit(
+                EdgeRemovalJob(
+                    operator=operator, name=name, decommission=decommission, force=force
+                ),
+                dedupe_key=remove_dedupe_key(name),
             ),
-            dedupe_key=remove_dedupe_key(name),
+            if_match=if_match(precondition),
         )
 
     queued = as_queued(
