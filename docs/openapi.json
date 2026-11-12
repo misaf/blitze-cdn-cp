@@ -1126,6 +1126,7 @@
       },
       "Deployment": {
         "additionalProperties": false,
+        "description": "A convergence, or a rollback when ``rollback_of`` names the one it repeats.\n\n``kind`` is ``rollback`` for a rollback and ``deployment`` otherwise; with\n``check_mode`` either is a drift check.",
         "properties": {
           "canonical_digest": {
             "anyOf": [
@@ -1146,6 +1147,10 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -1183,6 +1188,14 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "deployment",
+              "rollback"
+            ],
+            "title": "Kind",
             "type": "string"
           },
           "operator": {
@@ -1243,11 +1256,13 @@
         },
         "required": [
           "id",
+          "kind",
           "status",
+          "done",
+          "created_at",
           "operator",
           "check_mode",
-          "release_id",
-          "created_at"
+          "release_id"
         ],
         "title": "Deployment",
         "type": "object"
@@ -2371,6 +2386,10 @@
             "title": "Created At",
             "type": "string"
           },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
           "error": {
             "anyOf": [
               {
@@ -2429,6 +2448,7 @@
           "id",
           "kind",
           "status",
+          "done",
           "created_at"
         ],
         "title": "Operation",
@@ -4582,11 +4602,16 @@
       },
       "Workflow": {
         "additionalProperties": false,
+        "description": "Crash-visible progress for work that crosses transaction systems.\n\n``needs_review`` and ``reviewed`` are finished too: nothing runs until an\noperator looks. ``finished_at`` is when it stopped, and a workflow keeps\nits progress in ``steps`` rather than a ``result``.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -4598,6 +4623,18 @@
               }
             ],
             "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           },
           "id": {
             "title": "Id",
@@ -4624,6 +4661,10 @@
             ],
             "title": "Resource Id"
           },
+          "result": {
+            "title": "Result",
+            "type": "null"
+          },
           "status": {
             "$ref": "#/components/schemas/WorkflowStatus"
           },
@@ -4645,8 +4686,9 @@
           "id",
           "kind",
           "status",
-          "operator",
+          "done",
           "created_at",
+          "operator",
           "updated_at"
         ],
         "title": "Workflow",
