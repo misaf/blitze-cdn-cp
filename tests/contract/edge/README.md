@@ -10,6 +10,7 @@ about the boundary between the two, not either side alone.
 | `test_edge_keys.py` | Every emitted key is declared, every required key emitted, choices cover the enums |
 | `test_edge_listeners.py` | Public ports, the default server, HTTP/3 on UDP/443 |
 | `test_edge_firewall.py` | Firewall rules reaching the rendered configuration |
+| `test_edge_security_parity.py` | The Python and Jinja copies of the security rules, compared by behaviour over generated and boundary inputs |
 | `test_edge_headers.py` | The trusted `BZ-*` visitor headers on the origin leg |
 | `test_edge_tls.py` | SSL modes, the origin leg, and each listener's upstream |
 | `test_edge_upstreams.py` | Origin upstream groups, connection pooling, and runtime resolution |
