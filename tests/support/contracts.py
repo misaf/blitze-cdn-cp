@@ -25,6 +25,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 from support.control_plane import build_application
 from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
+from support.pinned_collections import pinned_collections
 from support.policy import domain_from_settings
 from support.stores import Stores
 
@@ -253,7 +254,7 @@ def run_role_tasks(
             "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-local"),
             "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
             # Capability roles use the same collections as core's.
-            "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
+            "ANSIBLE_COLLECTIONS_PATH": str(pinned_collections()),
         },
     )
 
