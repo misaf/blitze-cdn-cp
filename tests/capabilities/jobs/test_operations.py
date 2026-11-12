@@ -15,14 +15,22 @@ from blitzecdn.core.ports.clock import system_clock
 
 
 @pytest.fixture
-def queue(settings) -> JobQueue:
-    jobs = Stores(settings.database_path).jobs
-    return JobQueue(jobs=jobs, handlers=(), worker_id="worker-a", clock=system_clock)
+def stores(settings) -> Stores:
+    return Stores(settings.database_path)
 
 
-def test_an_operation_runs_once_and_keeps_its_result(queue: JobQueue):
+@pytest.fixture
+def queue(stores: Stores) -> JobQueue:
+    return JobQueue(
+        jobs=stores.jobs, handlers=(), worker_id="worker-a", clock=system_clock
+    )
+
+
+def test_an_operation_runs_once_and_keeps_its_result(queue: JobQueue, stores: Stores):
     """No automatic retry: the operator asked for one run and reads its outcome."""
-    operations = OperationService(queue=queue, kinds={"cache.connections"})
+    operations = OperationService(
+        queue=queue, kinds={"cache.connections"}, uow=stores.database
+    )
     submitted = operations.submit(CacheConnectionsJob(operator="ops"))
     assert submitted.max_attempts == 1
 
@@ -36,8 +44,12 @@ def test_an_operation_runs_once_and_keeps_its_result(queue: JobQueue):
     assert finished.result == {"edges": []}
 
 
-def test_an_undeclared_kind_is_neither_submitted_nor_read(queue: JobQueue):
-    operations = OperationService(queue=queue, kinds={"cache.connections"})
+def test_an_undeclared_kind_is_neither_submitted_nor_read(
+    queue: JobQueue, stores: Stores
+):
+    operations = OperationService(
+        queue=queue, kinds={"cache.connections"}, uow=stores.database
+    )
     with pytest.raises(NotFoundError):
         operations.submit(DeploymentJob(deployment_id="d-1"))
 
@@ -47,9 +59,13 @@ def test_an_undeclared_kind_is_neither_submitted_nor_read(queue: JobQueue):
         operations.get(internal.id)
 
 
-def test_a_second_operation_on_a_busy_target_is_refused(queue: JobQueue):
+def test_a_second_operation_on_a_busy_target_is_refused(
+    queue: JobQueue, stores: Stores
+):
     """Two removals of one edge would race each other's teardown."""
-    operations = OperationService(queue=queue, kinds={"edges.remove"})
+    operations = OperationService(
+        queue=queue, kinds={"edges.remove"}, uow=stores.database
+    )
     removal = EdgeRemovalJob(operator="ops", name="edge-a", decommission=False)
     operations.submit(removal, dedupe_key="edge-a")
     with pytest.raises(ConflictError, match="already queued or running"):

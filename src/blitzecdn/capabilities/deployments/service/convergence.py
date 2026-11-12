@@ -63,6 +63,7 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
 )
 from blitzecdn.core.ports.clock import Clock
+from blitzecdn.core.ports.idempotency import bind_claimed_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -447,8 +448,8 @@ class DeploymentService:
 
         A forward deploy compiles current state here, under the lock, so the release
         named is the state when admitted. ``release_id`` is given only by a rollback.
-        The job, deployment and targets are written in one transaction, so a refused
-        enqueue leaves nothing stranded.
+        The job, deployment, targets and the request's ``Idempotency-Key`` are
+        written in one transaction, so a refused enqueue leaves nothing stranded.
         """
         # Normalised before storing, so a malformed limit is refused before any row.
         limit = validate_edge_limit(host_limit)
@@ -502,6 +503,9 @@ class DeploymentService:
             )
             if enqueue:
                 self.execution.background.enqueue(deployment.id)
+                # In this transaction, so a queued deployment and the key that
+                # names it commit together.
+                bind_claimed_key(deployment.id)
         return deployment
 
     def _queue_rollback(
