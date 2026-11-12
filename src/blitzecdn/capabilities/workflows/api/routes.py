@@ -11,11 +11,18 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import (
+    CONFLICT_RESPONSES,
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.models import as_operation
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -31,7 +38,11 @@ def list_workflows(
     )
 
 
-@router.get("/v3/workflows/{workflow_id}", response_model=Workflow)
+@router.get(
+    "/v3/workflows/{workflow_id}",
+    response_model=Workflow,
+    responses=NOT_FOUND_RESPONSES,
+)
 def get_workflow(
     workflow_id: str,
     workflow_history: FromDishka[WorkflowHistory],
@@ -39,7 +50,11 @@ def get_workflow(
     return as_operation(workflow_history.get(workflow_id), Workflow)
 
 
-@router.post("/v3/workflows/{workflow_id}/acknowledge", response_model=Workflow)
+@router.post(
+    "/v3/workflows/{workflow_id}/acknowledge",
+    response_model=Workflow,
+    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+)
 def acknowledge_workflow(
     workflow_id: str,
     operator: OperatorDependency,

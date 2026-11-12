@@ -15,6 +15,7 @@ from blitzecdn.composition import BUILTIN_REGISTRY, Adapters, ApiNode, api_conta
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
+from blitzecdn.delivery.api.errors import GLOBAL_RESPONSES, ErrorResponse
 from blitzecdn.delivery.api.validation import (
     VALIDATION_RESPONSE,
     ValidationErrorResponse,
@@ -55,11 +56,17 @@ def create_app(
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        # Every operation's own errors are declared on its router or route
+        # (`delivery.api.errors`); these few reach any of them.
         responses={
             422: {
                 "model": ValidationErrorResponse,
                 **VALIDATION_RESPONSE,
-            }
+            },
+            **{
+                code: {"model": ErrorResponse, **response}
+                for code, response in GLOBAL_RESPONSES.items()
+            },
         },
         telemetry={
             "exclude": lambda scope: scope["path"] in {"/health", "/metrics"},
