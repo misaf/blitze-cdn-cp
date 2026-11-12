@@ -31,7 +31,11 @@ What this module does instead:
   capped at the library's 45 s, and none is sent once the budget is spent
   (``_BudgetedSession``). It is a connect and per-read timeout, as ``requests``
   offers no other: a stall is cut off, a CA that trickles bytes is not.
-* Every challenge play is stopped by Ansible Runner at the budget left.
+* Every challenge call is given the budget left. The A/AAAA lookups that pick
+  its edges come out of it, and the play is stopped by Ansible Runner at what
+  they leave, or not started when they leave nothing. A lookup already running
+  finishes on its own DNS timeout, so a call can end at most one lookup round
+  past its share.
 * Polling gets a wall-clock deadline computed from the monotonic budget at the
   moment it starts, as the library compares against ``datetime.now()``; the
   session above still refuses requests if the wall clock moves.

@@ -6,9 +6,19 @@ import pytest
 from support.control_plane import ansible_run, host_run
 
 from blitzecdn.capabilities.tls.certificates.adapters import PlaybookChallenges
+from blitzecdn.capabilities.tls.certificates.adapters import (
+    challenges as challenges_module,
+)
 from blitzecdn.capabilities.tls.certificates.domain import ChallengeEdges
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError
+
+
+@pytest.fixture(autouse=True)
+def _still_clock(monkeypatch):
+    """No time passes unless a test says so: the play's timeout is what is
+    left of the caller's after edge resolution, in whole seconds."""
+    monkeypatch.setattr(challenges_module, "_monotonic", lambda: 0.0)
 
 
 class _Fleet:
@@ -21,12 +31,16 @@ class _Fleet:
         return self.run
 
 
-def _challenges(run, edges=None):
+def _challenges(run, edges=None, *, resolve=None):
     fleet = _Fleet(run)
     resolved = edges or ChallengeEdges(hostname="cdn.example.com")
-    publisher = PlaybookChallenges(
-        playbooks=fleet, challenge_edges=lambda hostname: resolved
-    )
+
+    def challenge_edges(hostname):
+        if resolve is not None:
+            resolve()
+        return resolved
+
+    publisher = PlaybookChallenges(playbooks=fleet, challenge_edges=challenge_edges)
     return publisher, fleet
 
 
@@ -119,3 +133,38 @@ def test_a_play_stopped_at_its_timeout_says_so():
         )
 
     assert fleet.calls[0]["timeout_seconds"] == 7
+
+
+class _SlowDns:
+    """Edge resolution that takes ``seconds`` on the clock the publisher reads."""
+
+    def __init__(self, monkeypatch, seconds):
+        self.now = 0.0
+        self.seconds = seconds
+        monkeypatch.setattr(challenges_module, "_monotonic", lambda: self.now)
+
+    def __call__(self):
+        self.now += self.seconds
+
+
+def test_the_play_gets_only_what_edge_resolution_left(monkeypatch):
+    """The lookups that pick the edges have DNS timeouts of their own; the
+    caller's allowance covers them and the play together."""
+    publisher, fleet = _challenges(
+        ansible_run(host_run("edge-a")), resolve=_SlowDns(monkeypatch, 12.5)
+    )
+
+    publisher.absent("cdn.example.com", "safe_token", timeout_seconds=30)
+
+    assert fleet.calls[0]["timeout_seconds"] == 17
+
+
+def test_no_play_starts_once_edge_resolution_spent_the_allowance(monkeypatch):
+    publisher, fleet = _challenges(
+        ansible_run(host_run("edge-a")), resolve=_SlowDns(monkeypatch, 30)
+    )
+
+    with pytest.raises(ExecutionError, match="timed out after 30s finding the edges"):
+        publisher.absent("cdn.example.com", "safe_token", timeout_seconds=30)
+
+    assert fleet.calls == []
