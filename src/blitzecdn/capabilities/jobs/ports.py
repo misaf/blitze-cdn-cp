@@ -70,9 +70,19 @@ class JobStore(Protocol):
         """Record one job, or ``None`` when its dedupe key is already in flight."""
 
     def claim(
-        self, *, worker: str, now: datetime, lease_seconds: int
+        self,
+        *,
+        worker: str,
+        now: datetime,
+        lease_seconds: int,
+        on_abandon: Callable[[Job], None] | None = None,
     ) -> JobClaim | None:
-        """Take the oldest runnable job, including lapsed leases, or ``None``."""
+        """Take the oldest runnable job, including lapsed leases, or ``None``.
+
+        A lapsed job with no attempts left is failed instead, and ``on_abandon`` is
+        called with it inside the same transaction, so whatever the job was driving
+        can be closed out atomically with it.
+        """
 
     def complete(
         self,
@@ -183,6 +193,11 @@ class JobHandler[P: JobPayload]:
 
     payload: type[P]
     handle: Callable[[P], JobOutcome]
+    #: Called when a job of this kind is abandoned: every attempt ended with its
+    #: worker gone, so ``handle`` never got to record an outcome. It runs inside
+    #: the transaction that fails the job, with the payload and the job's error,
+    #: and must only write state; it must not do external work.
+    abandon: Callable[[P, str], None] | None = None
 
     @property
     def kind(self) -> str:

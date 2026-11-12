@@ -370,6 +370,66 @@ def test_redelivered_job_reports_the_saved_terminal_deployment(settings, termina
     assert not control.job_runner.tick()
 
 
+def test_a_deployment_whose_job_keeps_killing_its_worker_is_abandoned(settings):
+    """Retiring the job finishes its deployment too, instead of leaving it running.
+
+    Otherwise it stays ``running`` until a restart, which re-queues it to crash again.
+    """
+    repository = Stores(settings.database_path)
+    runner = FakeRunner()
+    control = build_application(settings=settings, repository=repository, runner=runner)
+    install_worker(control)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    now = datetime.now(UTC)
+    control.job_queue.clock = lambda: now
+    (job,) = control.job_queue.list_jobs()
+    for attempt in range(job.max_attempts):
+        # Each worker takes the job, starts converging, and dies.
+        assert control.job_queue.claim(lease_seconds=1) is not None
+        if attempt == 0:
+            advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
+        now += timedelta(seconds=5)
+
+    assert not control.job_runner.tick()
+
+    abandoned = control.job_queue.get(job.id)
+    assert abandoned.status is JobStatus.FAILED
+    deployment = control.deployments.get_deployment(queued.id)
+    assert deployment.status is DeploymentStatus.ABANDONED
+    assert deployment.finished_at is not None
+    assert "abandoned after 3 attempt(s)" in (deployment.detail or "")
+    assert runner.host_limits == []
+    # A restart has nothing left to re-queue.
+    assert control.deployments.initialize() == 0
+    assert control.job_queue.list_jobs() == [abandoned]
+
+
+def test_abandoning_a_deployment_fences_out_a_worker_that_only_paused(settings):
+    """A worker that outlived its lease must not carry on a finished rollout."""
+    repository = Stores(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    advance(repository.deployments, queued.id, DeploymentStatus.RUNNING)
+    fence = repository.deployment_targets.claim_generation(queued.id)
+    repository.deployment_targets.plan(queued.id, ["edge-a"], fence=fence)
+
+    assert control.deployments.abandon(queued.id, "gone") is not None
+
+    assert not repository.deployment_targets.begin(
+        queued.id, "edge-a", fence=fence, now=datetime.now(UTC)
+    )
+    assert not repository.deployment_targets.record_phase(
+        queued.id, "edge-a", PHASE_ORDER[0], fence=fence
+    )
+    assert repository.deployment_targets.generation(queued.id) > fence
+
+
 @pytest.mark.parametrize("failure", [ExecutionError, RuntimeError])
 def test_delivery_errors_before_deployment_execution_remain_retryable(
     settings, monkeypatch, failure
