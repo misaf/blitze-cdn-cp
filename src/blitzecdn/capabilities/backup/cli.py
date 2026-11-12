@@ -44,7 +44,7 @@ _IDENTITY = typer.Option(
     "-i",
     help=(
         "Private key that opens an encrypted archive: an age identity file or "
-        "an unencrypted OpenSSH private key. '-' reads it from standard input, "
+        "an unencrypted SSH private key. '-' reads it from standard input, "
         "so it never has to be copied onto the controller."
     ),
 )
