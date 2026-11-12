@@ -56,6 +56,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   release artifact route publish response models, `expiring_in` on
   `GET /v3/certificates` says it counts days, and operations that read no
   input no longer declare a `422` (#370).
+- `POST /v3/domains` takes a `DomainCreate` body and `POST /v3/edges` an
+  `EdgeCreate` body, so every resource is created with `XCreate`, updated
+  with `XPatch` and read back as `X`. The fields are unchanged; `Domain` and
+  `Edge` are now only response models (#381).
 - `GET /v3/dns/export` is now `GET /v3/domains/export`, with
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
