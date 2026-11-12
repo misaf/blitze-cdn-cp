@@ -281,10 +281,10 @@ def test_stored_cache_stats_are_read_without_queueing(settings, seeded, monkeypa
     params = {"start": "2026-10-27T09:00:00Z", "end": "2026-10-27T10:00:00Z"}
 
     with TestClient(create_app(settings)) as client:
-        assert client.get("/v3/cache/stats", params=params).status_code == 401
-        response = client.get("/v3/cache/stats", params=params, headers=_HEADERS)
+        assert client.get("/v3/traffic/cache", params=params).status_code == 401
+        response = client.get("/v3/traffic/cache", params=params, headers=_HEADERS)
         invalid = client.get(
-            "/v3/cache/stats",
+            "/v3/traffic/cache",
             params={**params, "end": params["start"]},
             headers=_HEADERS,
         )
