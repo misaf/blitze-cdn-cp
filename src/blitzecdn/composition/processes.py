@@ -185,12 +185,16 @@ def _job_handlers(
             )
         return DONE
 
+    def abandoned_deployment(job: DeploymentJob, reason: str) -> None:
+        # Otherwise the deployment stays running until a restart re-queues it.
+        deployments.abandon(job.deployment_id, reason)
+
     def scheduled(firing: ScheduledFiring) -> JobOutcome:
         maintenance.run(firing.job)
         return DONE
 
     return (
-        JobHandler(DeploymentJob, deployment),
+        JobHandler(DeploymentJob, deployment, abandon=abandoned_deployment),
         JobHandler(ScheduledFiring, scheduled),
     )
 

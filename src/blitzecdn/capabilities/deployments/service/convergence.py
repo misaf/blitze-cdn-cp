@@ -178,6 +178,34 @@ class DeploymentService:
             )
             return 0
 
+    def abandon(self, deployment_id: str, reason: str) -> Deployment | None:
+        """Close out a deployment whose job ran out of workers to kill.
+
+        Called by the queue in the transaction that fails the job, so the deployment
+        cannot stay ``running`` until a restart re-queues it to crash again. Takes
+        no lock and runs nothing: it only records. The journal it left is marked
+        for review, as a restart would.
+        """
+        deployment = self.persistence.deployments.abandon(
+            deployment_id,
+            f"its worker stopped on every attempt without an outcome: {reason}",
+        )
+        if deployment is None:
+            return None
+        self.workflows.reconcile_interrupted(resource_id=deployment.id)
+        self.events.record(
+            domain_event(
+                deployment.operator,
+                "deployment.abandoned",
+                "deployment",
+                deployment.id,
+            )
+        )
+        _LOGGER.warning(
+            "deployment %s abandoned: its job exhausted its attempts", deployment.id
+        )
+        return deployment
+
     # -- Validation ----------------------------------------------------
 
     def validate(self, *, host_limit: str | None = None) -> list[str]:

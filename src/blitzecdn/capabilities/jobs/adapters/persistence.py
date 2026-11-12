@@ -6,7 +6,7 @@ expects, so a race's loser updates zero rows. A claim updates by id and fence.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -20,8 +20,11 @@ from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedul
 from blitzecdn.capabilities.jobs.domain.observability import QueueStatistics
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.runtime.logging import get_logger
 
 __all__ = ["JobStore", "ScheduleStore"]
+
+_LOGGER = get_logger(__name__)
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -98,7 +101,12 @@ class JobStore:
             return _job(row)
 
     def claim(
-        self, *, worker: str, now: datetime, lease_seconds: int
+        self,
+        *,
+        worker: str,
+        now: datetime,
+        lease_seconds: int,
+        on_abandon: Callable[[Job], None] | None = None,
     ) -> JobClaim | None:
         # BEGIN IMMEDIATE, so an enqueue committing between the claim's read and
         # write waits instead of raising snapshot-busy.
@@ -129,7 +137,8 @@ class JobStore:
                     # Retired here: `max_attempts` is otherwise checked only when a
                     # handler raises, so a job that kills its worker would be re-leased
                     # forever.
-                    self._abandon(session, row, now=now)
+                    if self._abandon(session, row, now=now) and on_abandon:
+                        _notify_abandoned(session, row.id, on_abandon)
                     continue
                 break
             fence = row.fence + 1
@@ -159,7 +168,7 @@ class JobStore:
             return JobClaim(job=_job(claimed), fence=fence)
 
     @staticmethod
-    def _abandon(session: Session, row: JobRow, *, now: datetime) -> None:
+    def _abandon(session: Session, row: JobRow, *, now: datetime) -> bool:
         """Fail a job whose every attempt ended with its worker gone.
 
         Under the fence it was read at, then moved, so a paused worker cannot later
@@ -171,20 +180,24 @@ class JobStore:
         )
         if row.last_error:
             error += f"; an earlier attempt failed with {row.last_error}"
-        session.execute(
-            update(JobRow)
-            .where(
-                JobRow.id == row.id,
-                JobRow.fence == row.fence,
-            )
-            .values(
-                status=JobStatus.FAILED.value,
-                fence=row.fence + 1,
-                finished_at=now,
-                leased_until=None,
-                leased_by=None,
-                dedupe_key=None,
-                last_error=error,
+        return bool(
+            _rows_affected(
+                session.execute(
+                    update(JobRow)
+                    .where(
+                        JobRow.id == row.id,
+                        JobRow.fence == row.fence,
+                    )
+                    .values(
+                        status=JobStatus.FAILED.value,
+                        fence=row.fence + 1,
+                        finished_at=now,
+                        leased_until=None,
+                        leased_by=None,
+                        dedupe_key=None,
+                        last_error=error,
+                    )
+                )
             )
         )
 
@@ -411,6 +424,29 @@ class ScheduleStore:
         with self._db.reader() as session:
             rows = session.scalars(select(ScheduleRow).order_by(ScheduleRow.name)).all()
             return [_schedule(row) for row in rows]
+
+
+def _notify_abandoned(
+    session: Session, job_id: str, on_abandon: Callable[[Job], None]
+) -> None:
+    """Hand the abandoned job to its kind's hook, in this transaction.
+
+    Under a savepoint: a hook that fails undoes only its own writes and is logged,
+    so one broken hook cannot pin an exhausted job in place and stall the queue.
+    """
+    row = session.get(JobRow, job_id, populate_existing=True)
+    if row is None:  # pragma: no cover - the row was just updated
+        return
+    job = _job(row)
+    try:
+        with session.begin_nested():
+            on_abandon(job)
+    except Exception:
+        _LOGGER.exception(
+            "abandoned job's hook failed; what it was driving was left as it was",
+            job_id=job.id,
+            job_kind=job.kind,
+        )
 
 
 def _seconds(value: int) -> timedelta:

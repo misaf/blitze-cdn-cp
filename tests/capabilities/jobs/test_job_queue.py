@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import event
-from support.jobs import handling
+from support.jobs import FreeFormPayload, handling
 from support.stores import Stores
 
 from blitzecdn.capabilities.jobs.domain import (
@@ -270,6 +270,63 @@ def test_a_job_that_keeps_killing_its_worker_fails_once_its_attempts_are_spent(
     assert abandoned.attempts == 2
     assert abandoned.finished_at == clock()
     assert "abandoned after 2 attempt(s)" in (abandoned.last_error or "")
+
+
+class _Work(FreeFormPayload):
+    kind = "work"
+
+
+def test_an_abandoned_job_is_handed_to_its_kinds_abandon_hook(repository):
+    """So whatever it was driving is closed out with it, not left in flight."""
+    clock = Clock()
+    seen: list[tuple[dict, str]] = []
+    in_transaction: list[bool] = []
+
+    def abandon(payload, reason):
+        in_transaction.append(repository.database.current_session() is not None)
+        seen.append((dict(payload.model_extra or {}), reason))
+
+    queue = JobQueue(
+        jobs=repository.jobs,
+        handlers=[JobHandler(_Work, lambda _payload: DONE, abandon=abandon)],
+        worker_id="worker-a",
+        clock=clock,
+    )
+    queue.jobs.enqueue(
+        kind="work", payload={"id": "1"}, available_at=_START, max_attempts=1
+    )
+    assert queue.claim(lease_seconds=30) is not None
+    clock.advance(31)
+
+    assert queue.claim() is None
+
+    ((payload, reason),) = seen
+    assert payload == {"id": "1"}
+    assert "abandoned after 1 attempt(s)" in reason
+    assert in_transaction == [True]
+
+
+def test_a_failing_abandon_hook_still_retires_the_job(repository):
+    """A broken hook must not pin an exhausted job and stall the queue."""
+    clock = Clock()
+
+    def abandon(_payload, _reason):
+        raise RuntimeError("hook is broken")
+
+    queue = JobQueue(
+        jobs=repository.jobs,
+        handlers=[JobHandler(_Work, lambda _payload: DONE, abandon=abandon)],
+        worker_id="worker-a",
+        clock=clock,
+    )
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=1
+    )
+    assert queue.claim(lease_seconds=30) is not None
+    clock.advance(31)
+
+    assert queue.claim() is None
+    assert queue.get(job.id).status is JobStatus.FAILED
 
 
 def test_abandoning_an_exhausted_job_does_not_hold_up_the_next(repository):
