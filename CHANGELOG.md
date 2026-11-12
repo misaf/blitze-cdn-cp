@@ -12,6 +12,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Added
 
+- Optimistic concurrency for zones, records, rules and edges. Single-resource
+  reads and writes return a strong `ETag`; `PATCH` and `DELETE` accept
+  `If-Match` and answer `412` without writing when the resource has changed
+  since that version. Without `If-Match`, writes behave as before (#380).
 - Every queued resource (`Operation`, `Deployment`, `Workflow`) starts with
   the same fields: `id`, `kind`, `status`, `done`, `created_at`,
   `finished_at`, `error` and `result`. `done` says when to stop polling
