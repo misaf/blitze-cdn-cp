@@ -4,7 +4,7 @@ from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 
-from blitzecdn.capabilities.jobs import OperationService
+from blitzecdn.capabilities.jobs import Job, OperationService
 from blitzecdn.capabilities.tls.certificates.api.models import (
     CertificateInfo,
     CertificateRequest,
@@ -21,9 +21,14 @@ from blitzecdn.capabilities.tls.certificates.service.operations import (
     CertificateRequestJob,
     request_dedupe_key,
 )
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
+)
+from blitzecdn.delivery.api.idempotency import (
+    IdempotencyKeyDependency,
+    idempotent,
 )
 from blitzecdn.delivery.api.models import Operation, as_operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, paginate
@@ -69,16 +74,18 @@ def renew_certificates(
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue reissuing ACME certificates due renewal; the result is a RenewalResult.
 
     The sweep stops between sites once the configured renewal budget is spent
     and reports the rest as skipped. One sweep runs at a time.
     """
-    certificates.admit_renewal(sites=request.sites)
-    return _accepted(
-        response,
-        queued_operations.submit(
+
+    def submit() -> Job:
+        certificates.admit_renewal(sites=request.sites)
+        return queued_operations.submit(
             CertificateRenewalJob(
                 operator=operator,
                 within_days=request.within_days,
@@ -86,7 +93,11 @@ def renew_certificates(
                 sites=None if request.sites is None else tuple(request.sites),
             ),
             dedupe_key=RENEW_DEDUPE_KEY,
-        ),
+        )
+
+    return _accepted(
+        response,
+        idempotent(idempotency, keys, create=submit, replay=queued_operations.get),
     )
 
 
@@ -100,6 +111,8 @@ def reconcile_certificates(
     response: Response,
     operator: OperatorDependency,
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue issuing ready first certificates; the result is a ReconciliationResult.
 
@@ -109,9 +122,14 @@ def reconcile_certificates(
     """
     return _accepted(
         response,
-        queued_operations.submit(
-            CertificateReconcileJob(operator=operator),
-            dedupe_key=RECONCILE_DEDUPE_KEY,
+        idempotent(
+            idempotency,
+            keys,
+            create=lambda: queued_operations.submit(
+                CertificateReconcileJob(operator=operator),
+                dedupe_key=RECONCILE_DEDUPE_KEY,
+            ),
+            replay=queued_operations.get,
         ),
     )
 
@@ -154,16 +172,18 @@ def request_certificate(
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue issuing this site's certificate; the result is a CertificateInfo.
 
     Preflight runs in the job: a blocked check fails the operation, with the
     reason in ``error``. One request per site runs at a time.
     """
-    certificates.admit_request(name, request.email)
-    return _accepted(
-        response,
-        queued_operations.submit(
+
+    def submit() -> Job:
+        certificates.admit_request(name, request.email)
+        return queued_operations.submit(
             CertificateRequestJob(
                 operator=operator,
                 name=name,
@@ -171,7 +191,11 @@ def request_certificate(
                 skip_preflight=request.skip_preflight,
             ),
             dedupe_key=request_dedupe_key(name),
-        ),
+        )
+
+    return _accepted(
+        response,
+        idempotent(idempotency, keys, create=submit, replay=queued_operations.get),
     )
 
 

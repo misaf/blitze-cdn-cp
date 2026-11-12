@@ -84,3 +84,20 @@ class AuditEventRow(Base):
     resource_type: Mapped[str] = mapped_column()
     resource_id: Mapped[str | None] = mapped_column()
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class IdempotencyKeyRow(Base):
+    """A client's ``Idempotency-Key``, and the queued resource it created.
+
+    ``resource_id`` is null while the request that reserved the key is still
+    creating its resource.
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    operator: Mapped[str] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(primary_key=True)
+    #: The method, path and body the key was first sent with, hashed.
+    fingerprint: Mapped[str] = mapped_column()
+    resource_id: Mapped[str | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
