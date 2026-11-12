@@ -5,7 +5,9 @@ It prepares the process before any test module is imported:
 - it switches off Typer's forced colour terminal, so CLI error messages are
   plain text on CI as well as locally;
 - it registers `support.control_plane` — the shared `settings`, fake runner and
-  fake store fixtures — as a plugin for the whole run;
+  fake store fixtures — and `support.composition` — the `policy_composition`
+  fixture that recomposes the site policy for one test — as plugins for the
+  whole run;
 - it imports the composition root, which composes the site policy, because a
   test module may build a site at import time.
 """
@@ -25,4 +27,4 @@ os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 
 import blitzecdn.composition  # noqa: F401  # composes the site policy on import
 
-pytest_plugins = ["support.control_plane"]
+pytest_plugins = ["support.control_plane", "support.composition"]

@@ -41,4 +41,6 @@ seals `SitePolicy`, so there is no call to remember (#315).
   `FeatureError: the site policy is not composed yet`. See
   [writing a script or a test](../architecture.md#writing-a-script-or-a-test).
 - The composed schema is process-global. A test that composes extra
-  contributions must restore the built-in schema afterwards.
+  contributions does so through the `policy_composition` fixture in
+  `tests/support/composition.py`, which restores the built-in schema and the
+  generated-model caches afterwards.

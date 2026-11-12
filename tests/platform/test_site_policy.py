@@ -2,6 +2,7 @@
 
 import pytest
 from pydantic import ValidationError
+from support.composition import composition_state, temporary_policy_composition
 
 from blitzecdn.capabilities.cache.contract import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.compression.contract import CompressionMode
@@ -18,13 +19,12 @@ from blitzecdn.capabilities.tls.contract import (
     TlsPolicy,
     http3_requires_edge_tls,
 )
-from blitzecdn.composition import BUILTIN_REGISTRY, compose_registry
+from blitzecdn.composition import BUILTIN_REGISTRY
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features import PolicyContribution
-from blitzecdn.core.features.resolution import resolve_policy_schema
 
 
 def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
@@ -213,21 +213,10 @@ class _FeaturePolicy(CapabilityPolicy):
         return {"feature": ("feature_enabled",)} if self.feature_enabled else {}
 
 
-@pytest.fixture
-def compose():
-    """Compose the policy with extra contributions, then restore the real one."""
-    saved = SitePolicy._schema
-    builtin = BUILTIN_REGISTRY.policy_contributions()
-
-    def with_extra(*extra: PolicyContribution) -> None:
-        SitePolicy.seal(resolve_policy_schema((*builtin, *extra)))
-
-    yield with_extra
-    SitePolicy._schema = saved
-
-
-def test_a_contributed_contract_joins_every_site_policy(compose):
-    compose(PolicyContribution(feature="toy", group="feature", contract=_FeaturePolicy))
+def test_a_contributed_contract_joins_every_site_policy(policy_composition):
+    policy_composition.contributions(
+        PolicyContribution(feature="toy", group="feature", contract=_FeaturePolicy)
+    )
 
     policy = SitePolicy.from_settings({"feature_enabled": True})
     assert policy[_FeaturePolicy].feature_enabled
@@ -241,16 +230,18 @@ def test_a_contributed_contract_joins_every_site_policy(compose):
     assert CdnSite.model_validate_json(site.model_dump_json()) == site
 
 
-def test_a_flat_setting_cannot_be_owned_by_two_contracts(compose):
+def test_a_flat_setting_cannot_be_owned_by_two_contracts(policy_composition):
     class SecondCache(CachePolicy):
         pass
 
     with pytest.raises(FeatureError, match=r"'cache_enabled'.*'cache'.*'second'"):
-        compose(PolicyContribution(feature="toy", group="second", contract=SecondCache))
+        policy_composition.contributions(
+            PolicyContribution(feature="toy", group="second", contract=SecondCache)
+        )
 
 
-def test_a_policy_cannot_be_validated_before_it_is_composed(compose):
-    SitePolicy._schema = None
+def test_a_policy_cannot_be_validated_before_it_is_composed(policy_composition):
+    policy_composition.uncompose()
 
     with pytest.raises(FeatureError, match="not composed yet"):
         SitePolicy()
@@ -258,10 +249,10 @@ def test_a_policy_cannot_be_validated_before_it_is_composed(compose):
         CdnSite(name="early", origin_host="origin.example.com")
 
 
-def test_composing_the_same_contributions_again_keeps_the_model():
+def test_composing_the_same_contributions_again_keeps_the_model(policy_composition):
     composed = SitePolicy.composed()
 
-    compose_registry(BUILTIN_REGISTRY.features)
+    policy_composition.features()
 
     assert SitePolicy.composed() is composed
 
@@ -277,18 +268,104 @@ def test_features_contribute_only_the_policy_they_own():
     assert all(item.feature != "sites" for item in contributions.values())
 
 
-def test_a_site_can_use_a_policy_without_http_tls_or_origin_contracts(compose):
+def test_a_site_can_use_a_policy_without_http_tls_or_origin_contracts(
+    policy_composition,
+):
     # Core identity and policy remain usable with an unrelated contribution.
-    SitePolicy.seal(
-        resolve_policy_schema(
-            (
-                PolicyContribution(
-                    feature="toy", group="feature", contract=_FeaturePolicy
-                ),
-            )
-        )
+    policy_composition.contributions(
+        PolicyContribution(feature="toy", group="feature", contract=_FeaturePolicy),
+        builtin=False,
     )
     site = CdnSite(name="toy", origin_host="origin.example.com")
     assert site.policy[_FeaturePolicy].feature_enabled
     assert site.policy.required_capabilities == frozenset({"feature"})
     assert CdnSite.model_validate_json(site.model_dump_json()) == site
+
+
+# --- temporary composition -------------------------------------------------
+
+
+def _toy() -> PolicyContribution:
+    return PolicyContribution(feature="toy", group="feature", contract=_FeaturePolicy)
+
+
+def _assert_builtin_restored(before) -> None:
+    assert composition_state() == before
+    assert "feature" not in SitePolicy.component_types()
+    with pytest.raises(ValueError, match="unknown serving settings: feature_enabled"):
+        SitePolicy.from_settings({"feature_enabled": True})
+
+
+def test_a_temporary_composition_restores_the_builtin_policy_after_it_passes():
+    builtin = SitePolicy.composed()
+    before = composition_state()
+
+    with temporary_policy_composition() as composer:
+        composer.contributions(_toy())
+        assert SitePolicy.from_settings({"feature_enabled": False})
+        # Every model nesting the policy grows a model for the temporary schema.
+        CdnSite(name="toy", origin_host="origin.example.com")
+
+    _assert_builtin_restored(before)
+    assert SitePolicy.composed() is builtin
+
+
+def test_a_temporary_composition_restores_the_policy_after_a_failed_assertion():
+    before = composition_state()
+
+    with (
+        pytest.raises(AssertionError, match="deliberate"),
+        temporary_policy_composition() as composer,
+    ):
+        composer.features()
+        composer.contributions(_toy())
+        raise AssertionError("deliberate")
+
+    _assert_builtin_restored(before)
+
+
+def test_a_temporary_composition_restores_the_policy_when_composing_raises():
+    before = composition_state()
+
+    class SecondCache(CachePolicy):
+        pass
+
+    with (
+        pytest.raises(FeatureError, match="cache_enabled"),
+        temporary_policy_composition() as composer,
+    ):
+        composer.contributions(_toy())
+        composer.contributions(
+            PolicyContribution(feature="toy", group="second", contract=SecondCache)
+        )
+
+    _assert_builtin_restored(before)
+
+
+def test_an_uncomposed_policy_is_composed_again_afterwards():
+    before = composition_state()
+
+    with temporary_policy_composition() as composer:
+        composer.uncompose()
+        with pytest.raises(FeatureError, match="not composed yet"):
+            SitePolicy()
+
+    _assert_builtin_restored(before)
+    assert SitePolicy().enabled
+
+
+def test_sequential_temporary_compositions_do_not_see_each_others_contributions():
+    class OtherPolicy(CapabilityPolicy):
+        other_enabled: bool = False
+
+    before = composition_state()
+    with temporary_policy_composition() as composer:
+        composer.contributions(_toy())
+    with temporary_policy_composition() as composer:
+        composer.contributions(
+            PolicyContribution(feature="other", group="other", contract=OtherPolicy)
+        )
+        assert set(SitePolicy.component_types()) >= {"other"}
+        assert "feature" not in SitePolicy.component_types()
+
+    _assert_builtin_restored(before)
