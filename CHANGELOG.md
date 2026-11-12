@@ -53,6 +53,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   `403`, `404`, `409`, `413` and the rest, with an `ErrorResponse`
   schema for their `{"detail": "message"}` body, so generated clients expect
   them (#375).
+- Cache statistics and collection freshness moved under `/v3/traffic`:
+  `GET /v3/cache/stats` is now `GET /v3/traffic/cache`, and
+  `GET /v3/traffic/status/{edge}` is now `GET /v3/traffic/collection`, a page
+  of every edge's status that `?edge=` narrows to one (#PR).
 - The API has one noun per resource and one prefix per area (#289).
 - The `dns` capability is now `sites` (#302), and Automatic SSL is its own
   capability (#227).
