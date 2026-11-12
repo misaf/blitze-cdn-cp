@@ -5,7 +5,7 @@ from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
+from blitzecdn.capabilities.edges.api.models import Edge, EdgeCreate, EdgePatch
 from blitzecdn.capabilities.edges.service.operations import (
     EdgeRemovalJob,
     remove_dedupe_key,
@@ -65,7 +65,9 @@ def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
     operation_id="edges_create",
 )
 def add_edge(
-    edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
+    edge: EdgeCreate,
+    operator: OperatorDependency,
+    edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
     """Register an edge without converging or contacting it."""
     return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))

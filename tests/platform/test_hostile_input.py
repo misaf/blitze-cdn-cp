@@ -85,7 +85,7 @@ BENIGN = (
 #: names a creation needs unused. A request schema missing here fails
 #: `test_every_request_body_has_a_baseline`.
 BASELINES: dict[str, Callable[[int], dict[str, Any]]] = {
-    "Domain": lambda n: {"name": f"zone-{n}.example.org"},
+    "DomainCreate": lambda n: {"name": f"zone-{n}.example.org"},
     "DomainPatch": lambda n: {},
     "RecordCreate": lambda n: {"name": f"r{n}", "value": "198.51.100.20"},
     "RecordPatch": lambda n: {},
@@ -96,7 +96,7 @@ BASELINES: dict[str, Callable[[int], dict[str, Any]]] = {
         "overrides": {"cache_enabled": False},
     },
     "RulePatch": lambda n: {},
-    "Edge": lambda n: {"name": f"edge-{n}", "host": f"edge-{n}.example.com"},
+    "EdgeCreate": lambda n: {"name": f"edge-{n}", "host": f"edge-{n}.example.com"},
     "EdgePatch": lambda n: {},
     "DeployRequest": lambda n: {},
     "RollbackRequest": lambda n: {},
@@ -314,7 +314,7 @@ class Api:
         # What `PARAMETERS` names: rule `rule` and edge `edge-1`.
         for route, body in (
             ("/v3/domains/example.com/rules", BASELINES["RuleCreate"](0)),
-            ("/v3/edges", BASELINES["Edge"](1)),
+            ("/v3/edges", BASELINES["EdgeCreate"](1)),
         ):
             name = PARAMETERS[f"{route.replace('example.com', '{domain}')}/{{name}}"]
             response = client.post(
@@ -394,7 +394,7 @@ def test_the_walk_reaches_the_fields_that_reach_an_edge():
         "RuleCreate.overrides.firewall.denied_paths.[]",
         "RuleCreate.redirect.target",
         "RecordCreate.value",
-        "Edge.host",
+        "EdgeCreate.host",
         "EdgePatch.host",
     } <= labels
 
