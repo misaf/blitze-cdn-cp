@@ -364,7 +364,9 @@ EOF
     chmod 0600 /var/lib/blitzecdn/acme-account/account-key.pem &&
     chown -R --reference=/var/lib/blitzecdn /var/lib/blitzecdn/acme-account' ||
     fail "could not seed an ACME account key"
-  in_container "printf '\nBLITZE_BACKUP_RECIPIENTS=%s\n' '${backup_recipients}' >> /etc/blitzecdn/blitzecdn.env" ||
+  # Quoted: an SSH public key holds a space, which the environment file refuses
+  # unquoted.
+  in_container "printf '\nBLITZE_BACKUP_RECIPIENTS=\"%s\"\n' '${backup_recipients}' >> /etc/blitzecdn/blitzecdn.env" ||
     fail "could not configure the backup recipients"
   in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"192.0.2.53\"|" \
     /etc/blitzecdn/blitzecdn.toml' ||

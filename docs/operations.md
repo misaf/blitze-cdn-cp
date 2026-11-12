@@ -533,6 +533,8 @@ anything stored on it with it.
 age-keygen -o backup-key.txt          # on your workstation; prints the public key
 # then on the controller, in /etc/blitzecdn/blitzecdn.env:
 BLITZE_BACKUP_RECIPIENTS=age1...
+# an SSH public key holds a space, so quote the value when it has one:
+BLITZE_BACKUP_RECIPIENTS="age1...,ssh-ed25519 AAAA..."
 ```
 
 Encrypted archives are named `...Z.tar.gz.age` and are plain age files.
