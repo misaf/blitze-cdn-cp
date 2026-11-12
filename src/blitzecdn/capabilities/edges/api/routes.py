@@ -21,6 +21,7 @@ from blitzecdn.delivery.api.errors import (
     CONFLICT_RESPONSES,
     NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
+    PRECONDITION_RESPONSES,
 )
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
@@ -28,9 +29,15 @@ from blitzecdn.delivery.api.idempotency import (
 )
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, paginate
+from blitzecdn.delivery.api.preconditions import (
+    ETAG_RESPONSE,
+    IfMatchHeader,
+    if_match,
+    tag,
+)
 from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
-    CREATED_RESPONSE,
+    TAGGED_CREATED_RESPONSE,
     created_at,
     polling_headers,
 )
@@ -48,25 +55,33 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     return paginate(edges.list_edges(), Edge.from_domain)
 
 
-@router.get("/v3/edges/{name}", response_model=Edge, responses=NOT_FOUND_RESPONSES)
-def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
-    return Edge.from_domain(edges.get_edge(name))
+@router.get(
+    "/v3/edges/{name}",
+    response_model=Edge,
+    responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+)
+def get_edge(
+    response: Response, name: str, edges: FromDishka[EdgeOperationsService]
+) -> Edge:
+    return Edge.from_domain(tag(response, edges.get_edge(name)))
 
 
 @router.post(
     "/v3/edges",
     response_model=Edge,
     status_code=status.HTTP_201_CREATED,
-    responses={201: CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={201: TAGGED_CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def add_edge(
-    edge: EdgeCreate,
     response: Response,
+    edge: EdgeCreate,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    created = Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
+    created = Edge.from_domain(
+        tag(response, edges.add_edge(edge.to_domain(), operator))
+    )
     created_at(response, "/v3/edges", created.name)
     return created
 
@@ -74,22 +89,38 @@ def add_edge(
 @router.patch(
     "/v3/edges/{name}",
     response_model=Edge,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        200: ETAG_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def update_edge(
+    response: Response,
     name: str,
     patch: EdgePatch,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
+    precondition: IfMatchHeader = None,
 ) -> Edge:
-    return Edge.from_domain(edges.update_edge(name, patch.to_domain(), operator))
+    updated = edges.update_edge(
+        name, patch.to_domain(), operator, if_match=if_match(precondition)
+    )
+    return Edge.from_domain(tag(response, updated))
 
 
 @router.delete(
     "/v3/edges/{name}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE, **NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **PRECONDITION_RESPONSES,
+    },
 )
 def remove_edge(
     response: Response,
@@ -118,6 +149,7 @@ def remove_edge(
             ),
         ),
     ] = False,
+    precondition: IfMatchHeader = None,
 ) -> Operation:
     """Queue tearing the host down, then deregistering it, in that order.
 
@@ -126,12 +158,17 @@ def remove_edge(
     """
 
     def submit() -> Job:
-        edges.get_edge(name)
-        return queued_operations.submit(
-            EdgeRemovalJob(
-                operator=operator, name=name, decommission=decommission, force=force
+        # Checked when the removal is queued, in the transaction that queues it.
+        # A replay of the same key answers from the job.
+        return edges.admit_removal(
+            name,
+            lambda: queued_operations.submit(
+                EdgeRemovalJob(
+                    operator=operator, name=name, decommission=decommission, force=force
+                ),
+                dedupe_key=remove_dedupe_key(name),
             ),
-            dedupe_key=remove_dedupe_key(name),
+            if_match=if_match(precondition),
         )
 
     queued = as_queued(

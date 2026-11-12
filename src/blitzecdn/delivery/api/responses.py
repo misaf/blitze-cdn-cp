@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 from fastapi import Response
 
+from blitzecdn.delivery.api.preconditions import ETAG_RESPONSE
+
 POLL_INTERVAL_SECONDS = 2
 
 _POLL_HEADERS: dict[str, Any] = {
@@ -38,6 +40,12 @@ CREATED_RESPONSE: dict[str, Any] = {
             "schema": {"type": "string"},
         },
     },
+}
+
+#: A 201 for a versioned resource: its Location and the ETag of what was stored.
+TAGGED_CREATED_RESPONSE: dict[str, Any] = {
+    **CREATED_RESPONSE,
+    "headers": {**CREATED_RESPONSE["headers"], **ETAG_RESPONSE["headers"]},
 }
 
 POLL_RESPONSE: dict[str, Any] = {

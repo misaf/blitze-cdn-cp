@@ -44,6 +44,8 @@ def _required(route: APIRoute) -> set[str]:
         codes |= {"400", "413"}
     if route.methods - {"GET", "HEAD"}:
         codes.add("409")
+    if any(param.alias == "If-Match" for param in route.dependant.header_params):
+        codes.add("412")
     return codes
 
 

@@ -16,6 +16,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   (`POST /v3/domains`, `/v3/domains/{domain}/records`,
   `/v3/domains/{domain}/rules` and `/v3/edges`), as `202` responses already
   did, and OpenAPI declares the header (#383).
+- Optimistic concurrency for zones, records, rules and edges. Single-resource
+  reads and writes return a strong `ETag`; `PATCH` and `DELETE` accept
+  `If-Match` and answer `412` without writing when the resource has changed
+  since that version. Without `If-Match`, writes behave as before (#380).
 - Every queued resource (`Operation`, `Deployment`, `Workflow`) starts with
   the same fields: `id`, `kind`, `status`, `done`, `created_at`,
   `finished_at`, `error` and `result`. `done` says when to stop polling
