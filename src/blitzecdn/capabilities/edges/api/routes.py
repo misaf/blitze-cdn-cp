@@ -10,10 +10,15 @@ from blitzecdn.capabilities.edges.service.operations import (
     EdgeRemovalJob,
     remove_dedupe_key,
 )
-from blitzecdn.capabilities.jobs import OperationService
+from blitzecdn.capabilities.jobs import Job, OperationService
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
+)
+from blitzecdn.delivery.api.idempotency import (
+    IdempotencyKeyDependency,
+    idempotent,
 )
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, paginate
@@ -68,6 +73,8 @@ def remove_edge(
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
     decommission: Annotated[
         bool,
         Query(
@@ -93,14 +100,18 @@ def remove_edge(
     The result is ``{name, decommissioned, hosts}``. A failed teardown fails the
     operation and keeps the edge registered unless ``force`` was given.
     """
-    edges.get_edge(name)
-    queued = as_queued(
-        queued_operations.submit(
+
+    def submit() -> Job:
+        edges.get_edge(name)
+        return queued_operations.submit(
             EdgeRemovalJob(
                 operator=operator, name=name, decommission=decommission, force=force
             ),
             dedupe_key=remove_dedupe_key(name),
         )
+
+    queued = as_queued(
+        idempotent(idempotency, keys, create=submit, replay=queued_operations.get)
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
     return queued

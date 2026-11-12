@@ -10,6 +10,13 @@
 blitzecdn_cache_purge_path: /var/cache/nginx/blitzecdn
 blitzecdn_cache_purge_normalize_accept_encoding: true
 
+# The edge's index of what each cached file holds, which a purge resolves keys,
+# prefixes and tags through and brings up to date as it starts. Derived data:
+# losing it costs the next purge one read of every cached file. It sits outside
+# the cache directory, which nginx's cache loader and an emptied cache would
+# both sweep. blitzecdn_cache_teardown removes it when the edge is decommissioned.
+blitzecdn_cache_purge_index_path: /var/lib/blitzecdn/cache-index.sqlite3
+
 # Entries to remove, each a mapping of host + uri (+ optional scheme). The
 # control plane builds these; it owns which hostnames are purgeable.
 blitzecdn_cache_purge_entries: []
