@@ -24,6 +24,11 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import (
+    BODY_RESPONSES,
+    CONFLICT_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
     idempotent,
@@ -36,7 +41,9 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -44,7 +51,7 @@ router = APIRouter(
     "/v3/cache/purge",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def purge_cache(
     response: Response,
@@ -139,7 +146,7 @@ def cache_stats(
     "/v3/cache/connections",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def cache_connections(
     response: Response,

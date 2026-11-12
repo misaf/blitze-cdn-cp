@@ -18,6 +18,7 @@ from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.core.features import Operations
 from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.errors import GLOBAL_RESPONSES, OPERATOR_RESPONSES
 from blitzecdn.delivery.api.validation import VALIDATION_RESPONSE
 
 router = APIRouter(route_class=DishkaSyncRoute)
@@ -49,7 +50,9 @@ def health(response: Response, operations: FromDishka[Operations]) -> dict[str, 
 @router.get(
     "/metrics",
     response_class=PlainTextResponse,
-    responses={422: VALIDATION_RESPONSE},
+    # Restated without a model, so a text route documents its errors as JSON
+    # rather than as `text/plain`.
+    responses={422: VALIDATION_RESPONSE, **GLOBAL_RESPONSES, **OPERATOR_RESPONSES},
     dependencies=[Depends(require_operator)],
 )
 def metrics(

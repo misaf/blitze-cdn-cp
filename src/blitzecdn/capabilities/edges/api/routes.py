@@ -16,6 +16,12 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import (
+    BODY_RESPONSES,
+    CONFLICT_RESPONSES,
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
     idempotent,
@@ -28,7 +34,9 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -38,12 +46,17 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     return paginate(edges.list_edges(), Edge.from_domain)
 
 
-@router.get("/v3/edges/{name}", response_model=Edge)
+@router.get("/v3/edges/{name}", response_model=Edge, responses=NOT_FOUND_RESPONSES)
 def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
     return Edge.from_domain(edges.get_edge(name))
 
 
-@router.post("/v3/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/v3/edges",
+    response_model=Edge,
+    status_code=status.HTTP_201_CREATED,
+    responses={**CONFLICT_RESPONSES, **BODY_RESPONSES},
+)
 def add_edge(
     edge: Edge, operator: OperatorDependency, edges: FromDishka[EdgeOperationsService]
 ) -> Edge:
@@ -51,7 +64,11 @@ def add_edge(
     return Edge.from_domain(edges.add_edge(edge.to_domain(), operator))
 
 
-@router.patch("/v3/edges/{name}", response_model=Edge)
+@router.patch(
+    "/v3/edges/{name}",
+    response_model=Edge,
+    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+)
 def update_edge(
     name: str,
     patch: EdgePatch,
@@ -65,7 +82,7 @@ def update_edge(
     "/v3/edges/{name}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
 )
 def remove_edge(
     response: Response,

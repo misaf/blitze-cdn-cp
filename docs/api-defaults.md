@@ -89,9 +89,29 @@ field names or array indexes. Cross-field errors can identify a whole model
 rather than a single field. For malformed JSON, the body location includes the
 parser position. Clients should use `type` and `loc` rather than parsing `msg`.
 
-OpenAPI publishes this response as `ValidationErrorResponse`. Authentication,
-missing-resource, conflict, and execution errors retain their own status codes
-and `{"detail": "message"}` format. Invalid server responses remain server errors.
+OpenAPI publishes this response as `ValidationErrorResponse`.
+
+## Other errors
+
+Every other error answers `{"detail": "message"}`, published as
+`ErrorResponse`. Each operation declares the statuses it can return:
+
+| Status | When | Declared on |
+| --- | --- | --- |
+| `400` | Malformed `Content-Length` | Operations with a request body |
+| `401` | `X-API-Key` missing or unknown | Every operation behind an API key |
+| `403` | Client IP not in `allowed_ips` | Every operation |
+| `404` | A named resource does not exist | Operations with a path parameter, and rollback |
+| `409` | The request conflicts with current state, or reuses an `Idempotency-Key` | Every write, and the drift report of a deployment that was not a check |
+| `409` + `Retry-After` | Another deployment holds the deployment lock | `POST /v3/ssl/automatic/reconcile` |
+| `413` | Body over `api_max_body_bytes` | Operations with a request body |
+| `500` | The installation is wrong; retrying will not help | Every operation |
+| `502` | A command against the edges failed while the request was open | `POST /v3/ssl/automatic/reconcile` |
+| `503` | No API keys are configured | Every operation behind an API key |
+
+Queued operations answer `202` and report what the edges did on the operation,
+not as `502`. Only a `409` with `Retry-After` clears on its own; retry the
+others only after changing the request or the state it conflicts with.
 
 ## Domain policy
 

@@ -44,6 +44,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Changed
 
+- `docs/openapi.json` declares each operation's error responses, `401`,
+  `403`, `404`, `409`, `413`, `502` and the rest, with an `ErrorResponse`
+  schema for their `{"detail": "message"}` body, so generated clients expect
+  them (#363).
 - The API has one noun per resource and one prefix per area (#289).
 - The `dns` capability is now `sites` (#302), and Automatic SSL is its own
   capability (#227).
