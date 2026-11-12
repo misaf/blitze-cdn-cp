@@ -99,11 +99,13 @@ class DeploymentStore(Protocol):
         rollback_of: str | None = None,
         host_limit: str | None = None,
         canonical_digest: str | None = None,
+        previous_release_id: str | None = None,
     ) -> Deployment:
         """Record a new QUEUED deployment of ``release_id`` and return it.
 
         ``rollback_of`` names the deployment being rolled back from; ``host_limit``
-        makes it a canary; ``canonical_digest`` is the state a rollback adopts.
+        makes it a canary; ``canonical_digest`` is the state a rollback adopts;
+        ``previous_release_id`` is what the fleet ran when it was queued.
         """
         ...
 

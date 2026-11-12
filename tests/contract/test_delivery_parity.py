@@ -155,6 +155,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "release list", "GET /v3/releases", ""),
     ("blitzecdn", "release show", "GET /v3/releases/{release_id}", ""),
     ("blitzecdn", "release show", "GET /v3/releases/current", ""),
+    ("blitzecdn", "release diff", "GET /v3/releases/current/diff", ""),
     (
         "blitzecdn",
         "release artifact",
@@ -194,6 +195,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "wants to fetch just the progress without re-reading the deployment "
         "each time.",
     ),
+    ("blitzecdn", "deployment diff", "GET /v3/deployments/{deployment_id}/diff", ""),
     ("blitzecdn", "rollback", "POST /v3/deployments/rollback", ""),
     ("blitzecdn", "drift", "POST /v3/deployments", ""),
     (

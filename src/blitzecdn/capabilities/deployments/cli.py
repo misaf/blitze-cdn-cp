@@ -245,3 +245,37 @@ def status(
     ]
     if targets:
         common.emit(targets, json_output=json_output)
+
+
+@deployment_queries_app.command("diff")
+@common.inject
+def diff(
+    deployments: FromDishka[DeploymentService],
+    deployment_id: Annotated[str, typer.Argument()],
+    json_output: common.JsonOutput = False,
+) -> None:
+    """What a deployment changed on the edges, as a unified diff.
+
+    Against the release the fleet was running when it was queued. For what
+    deploying now would change, see 'blitzecdn release diff'.
+    """
+    deployment = deployments.get_deployment(deployment_id)
+    changes = deployments.diff(deployment.id)
+    if json_output:
+        common.emit(
+            {
+                "deployment_id": deployment.id,
+                "previous_release_id": deployment.previous_release_id,
+                "release_id": deployment.release_id,
+                **changes.summary(),
+            },
+            json_output=True,
+        )
+        return
+    if not changes.changed:
+        typer.echo(f"No changes: deployment {deployment.id} rendered the same files.")
+        return
+    typer.echo(changes.patch(), nl=False)
+    for change in changes.changes:
+        if change.diff is None:
+            typer.echo(f"Binary {change.change.value}: {change.path}")

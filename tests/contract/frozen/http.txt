@@ -9,6 +9,7 @@ blitzecdn	route	GET /v3/cache/stats
 blitzecdn	route	GET /v3/certificates
 blitzecdn	route	GET /v3/deployments
 blitzecdn	route	GET /v3/deployments/{deployment_id}
+blitzecdn	route	GET /v3/deployments/{deployment_id}/diff
 blitzecdn	route	GET /v3/deployments/{deployment_id}/drift
 blitzecdn	route	GET /v3/deployments/{deployment_id}/targets
 blitzecdn	route	GET /v3/dns/export
@@ -24,6 +25,7 @@ blitzecdn	route	GET /v3/edges/{name}
 blitzecdn	route	GET /v3/operations/{operation_id}
 blitzecdn	route	GET /v3/releases
 blitzecdn	route	GET /v3/releases/current
+blitzecdn	route	GET /v3/releases/current/diff
 blitzecdn	route	GET /v3/releases/{release_id}
 blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
 blitzecdn	route	GET /v3/sites
@@ -169,6 +171,9 @@ blitzecdn	schema	CollectionStatus.registered	boolean required
 blitzecdn	schema	CollectionStatus.stale	boolean required
 blitzecdn	schema	CollectionStatus.stale_after_seconds	integer required
 blitzecdn	schema	CollectionStatus.state	FreshnessState required
+blitzecdn	schema	ConfigurationChange.change	ConfigurationChangeKind required
+blitzecdn	schema	ConfigurationChange.diff	string|null optional
+blitzecdn	schema	ConfigurationChange.path	string required
 blitzecdn	schema	ConnectionsRequest.host_limit	string|null optional
 blitzecdn	schema	ConvergenceHealth.consecutive_failures	integer optional
 blitzecdn	schema	ConvergenceHealth.kind	ConvergenceKind required
@@ -184,11 +189,22 @@ blitzecdn	schema	Deployment.finished_at	string|null optional
 blitzecdn	schema	Deployment.host_limit	string|null optional
 blitzecdn	schema	Deployment.id	string required
 blitzecdn	schema	Deployment.operator	string required
+blitzecdn	schema	Deployment.previous_release_id	string|null optional
 blitzecdn	schema	Deployment.release_id	string required
 blitzecdn	schema	Deployment.result	AnsibleRun|null optional
 blitzecdn	schema	Deployment.rollback_of	string|null optional
 blitzecdn	schema	Deployment.started_at	string|null optional
 blitzecdn	schema	Deployment.status	DeploymentStatus required
+blitzecdn	schema	DeploymentChange.change	ConfigurationChangeKind required
+blitzecdn	schema	DeploymentChange.diff	string|null optional
+blitzecdn	schema	DeploymentChange.path	string required
+blitzecdn	schema	DeploymentDiff.after	string required
+blitzecdn	schema	DeploymentDiff.before	string|null optional
+blitzecdn	schema	DeploymentDiff.changed	boolean required
+blitzecdn	schema	DeploymentDiff.changes	array[DeploymentChange] optional
+blitzecdn	schema	DeploymentDiff.deployment_id	string required
+blitzecdn	schema	DeploymentDiff.previous_release_id	string|null optional
+blitzecdn	schema	DeploymentDiff.release_id	string required
 blitzecdn	schema	DeploymentReference.error	string|null optional
 blitzecdn	schema	DeploymentReference.id	string required
 blitzecdn	schema	DeploymentReference.release_id	string required
@@ -436,6 +452,12 @@ blitzecdn	schema	ReleaseDetail.findings	array[ReleaseFinding] optional
 blitzecdn	schema	ReleaseDetail.id	string required
 blitzecdn	schema	ReleaseDetail.inputs_digest	string required
 blitzecdn	schema	ReleaseDetail.servable	boolean required
+blitzecdn	schema	ReleaseDiff.after	string required
+blitzecdn	schema	ReleaseDiff.before	string|null optional
+blitzecdn	schema	ReleaseDiff.changed	boolean required
+blitzecdn	schema	ReleaseDiff.changes	array[ConfigurationChange] optional
+blitzecdn	schema	ReleaseDiff.live_release	string|null optional
+blitzecdn	schema	ReleaseDiff.release	string required
 blitzecdn	schema	ReleaseFinding.host	string|null optional
 blitzecdn	schema	ReleaseFinding.message	string required
 blitzecdn	schema	ReleaseFinding.source	string required

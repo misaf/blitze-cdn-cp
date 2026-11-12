@@ -13,7 +13,11 @@ from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.capabilities.releases.api.models import Release, ReleaseDetail
+from blitzecdn.capabilities.releases.api.models import (
+    Release,
+    ReleaseDetail,
+    ReleaseDiff,
+)
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.delivery.api.dependencies import require_operator
 from blitzecdn.delivery.api.models import as_operation
@@ -65,6 +69,16 @@ def current_release(
     return as_operation(
         _summary(releases.compile(host_limit=host_limit), detail=True), ReleaseDetail
     )
+
+
+@router.get("/v3/releases/current/diff", response_model=ReleaseDiff)
+def current_release_diff(releases: FromDishka[ReleaseService]) -> ReleaseDiff:
+    """What deploying now would change on the edges, as a unified diff per file.
+
+    The rendered tree current state compiles to, against the one the fleet is
+    running. Records nothing; secrets are never in a bundle, so never in a diff.
+    """
+    return as_operation(releases.diff().summary(), ReleaseDiff)
 
 
 @router.get("/v3/releases/{release_id}", response_model=ReleaseDetail)

@@ -10,13 +10,20 @@ from __future__ import annotations
 
 import base64
 import binascii
+import difflib
 import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import PurePosixPath
 
-__all__ = ["ConfigurationBundle"]
+__all__ = [
+    "ConfigurationBundle",
+    "ConfigurationChange",
+    "ConfigurationChangeKind",
+    "ConfigurationDiff",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,3 +94,122 @@ class ConfigurationBundle:
         if bundle.manifest() != data["manifest"]:
             raise ValueError("configuration bundle content does not match its manifest")
         return bundle
+
+
+class ConfigurationChangeKind(StrEnum):
+    """How one path differs between two rendered trees."""
+
+    ADDED = "added"
+    REMOVED = "removed"
+    MODIFIED = "modified"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationChange:
+    """One path that differs between two bundles, with its unified diff.
+
+    A link reads as the line ``-> <target>``, so a file replaced by a link (or a
+    retargeted link) diffs like any edit. ``diff`` is ``None`` when either side
+    is not UTF-8 text; the change is still reported, by path.
+    """
+
+    path: str
+    change: ConfigurationChangeKind
+    diff: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationDiff:
+    """What changes on an edge going from ``before`` to ``after``, path by path.
+
+    ``before`` is ``None`` when nothing was there yet, so every path is added.
+    Only paths that differ are listed, sorted; unchanged ones are left out.
+    """
+
+    before: str | None
+    after: str
+    changes: tuple[ConfigurationChange, ...]
+
+    @classmethod
+    def between(
+        cls, before: ConfigurationBundle | None, after: ConfigurationBundle
+    ) -> ConfigurationDiff:
+        """Compare two rendered trees by content, never by their digests alone."""
+        old = _entries(before) if before is not None else {}
+        new = _entries(after)
+        changes: list[ConfigurationChange] = []
+        for path in sorted(old.keys() | new.keys()):
+            previous, current = old.get(path), new.get(path)
+            if previous == current:
+                continue
+            if previous is None:
+                kind = ConfigurationChangeKind.ADDED
+            elif current is None:
+                kind = ConfigurationChangeKind.REMOVED
+            else:
+                kind = ConfigurationChangeKind.MODIFIED
+            changes.append(
+                ConfigurationChange(
+                    path=path, change=kind, diff=_unified(path, previous, current)
+                )
+            )
+        return cls(
+            before=before.digest if before is not None else None,
+            after=after.digest,
+            changes=tuple(changes),
+        )
+
+    @property
+    def changed(self) -> bool:
+        """Whether deploying ``after`` over ``before`` changes anything at all."""
+        return bool(self.changes)
+
+    def summary(self) -> dict[str, object]:
+        """The diff as a JSON-ready document, for a surface to add its ids to."""
+        return {
+            "changed": self.changed,
+            "before": self.before,
+            "after": self.after,
+            "changes": [
+                {
+                    "path": change.path,
+                    "change": change.change.value,
+                    "diff": change.diff,
+                }
+                for change in self.changes
+            ],
+        }
+
+    def patch(self) -> str:
+        """Every text change as one unified diff, ready for ``patch`` or a pager."""
+        return "".join(change.diff for change in self.changes if change.diff)
+
+
+def _entries(bundle: ConfigurationBundle) -> dict[str, bytes]:
+    """Each path's content as bytes, a link standing in as its target line."""
+    entries = dict(bundle.files)
+    entries.update(
+        {path: f"-> {target}\n".encode() for path, target in bundle.links.items()}
+    )
+    return entries
+
+
+def _unified(path: str, before: bytes | None, after: bytes | None) -> str | None:
+    """The unified diff of one path, or ``None`` if either side is not text."""
+    try:
+        old = before.decode("utf-8") if before is not None else ""
+        new = after.decode("utf-8") if after is not None else ""
+    except UnicodeDecodeError:
+        return None
+    lines = difflib.unified_diff(
+        old.splitlines(keepends=True),
+        new.splitlines(keepends=True),
+        fromfile="/dev/null" if before is None else f"a/{path}",
+        tofile="/dev/null" if after is None else f"b/{path}",
+    )
+    # A content line without a newline is the side's last; mark it as `diff` does,
+    # so the change stays visible and the patch still applies byte for byte.
+    return "".join(
+        line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+        for line in lines
+    )
