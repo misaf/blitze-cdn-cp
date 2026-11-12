@@ -169,7 +169,7 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
         assert {host["request_quota"] for host in hosts} == {30}
 
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
-        for name in ("Domain", "DomainPatch", "CdnSite"):
+        for name in ("Domain", "DomainCreate", "DomainPatch", "CdnSite"):
             assert schemas[name]["properties"]["request_quota"]["minimum"] == 0, name
 
 
