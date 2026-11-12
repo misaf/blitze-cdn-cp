@@ -441,11 +441,15 @@ from_loopback() {
 }
 
 # The status line and Location of a response, or a failure naming both.
+# absolute_redirect is on, so Nginx answers a relative target as
+# http://HOST/...; the path alone is accepted too, and no other host.
 expect_redirect() {
-  local response=$1 status=$2 location=$3 what=$4
+  local response=$1 host=$2 status=$3 location=$4 what=$5 answered
   printf '%s\n' "${response}"
+  answered=$(sed -n 's/^[Ll]ocation: \(.*\)\r$/\1/p' <<<"${response}")
+  answered=${answered#"http://${host}"}
   if ! grep -q "^HTTP/1.1 ${status} " <<<"${response}" ||
-    ! grep -qix "location: ${location}"$'\r' <<<"${response}"; then
+    [[ ${answered} != "${location}" ]]; then
     redirect_diagnostics
     fail "${what}: expected ${status} to ${location}"
   fi
@@ -463,9 +467,9 @@ say "The exempt and the undenied are still redirected"
 # The same rules refuse a source, not the path: the loopback is not denied,
 # and it is the maintenance host's allow_sources exemption.
 expect_redirect "$(from_loopback www.redirect-sources.test /old/a?x=1)" \
-  301 '/new/a?x=1' "a source the firewall does not deny"
+  www.redirect-sources.test 301 '/new/a?x=1' "a source the firewall does not deny"
 expect_redirect "$(from_loopback www.redirect-maintenance.test /old/a)" \
-  301 /new/a "a source exempt from maintenance"
+  www.redirect-maintenance.test 301 /new/a "a source exempt from maintenance"
 
 # --------------------------------------------------------------------------
 # HTTP-01
