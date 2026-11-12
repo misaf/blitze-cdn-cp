@@ -27,6 +27,7 @@ from blitzecdn.delivery.api.dependencies import (
 from blitzecdn.delivery.api.errors import (
     BODY_RESPONSES,
     CONFLICT_RESPONSES,
+    NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
 )
 from blitzecdn.delivery.api.idempotency import (
@@ -51,7 +52,12 @@ router = APIRouter(
     "/v3/cache/purge",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def purge_cache(
     response: Response,

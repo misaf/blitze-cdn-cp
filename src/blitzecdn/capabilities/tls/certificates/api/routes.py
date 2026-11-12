@@ -28,6 +28,7 @@ from blitzecdn.delivery.api.dependencies import (
 )
 from blitzecdn.delivery.api.errors import (
     BODY_RESPONSES,
+    BUSY_RESPONSES,
     CONFLICT_RESPONSES,
     NOT_FOUND_RESPONSES,
     OPERATOR_RESPONSES,
@@ -78,7 +79,12 @@ def list_certificates(
     "/v3/certificates/renew",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def renew_certificates(
     response: Response,
@@ -149,7 +155,7 @@ def reconcile_certificates(
 @router.put(
     "/v3/sites/{name}/certificate",
     response_model=CertificateInfo,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={**NOT_FOUND_RESPONSES, **BUSY_RESPONSES, **BODY_RESPONSES},
 )
 def upload_certificate(
     name: str,

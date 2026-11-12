@@ -64,6 +64,22 @@ CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: _error("The request conflicts with current state."),
 }
 
+#: A write that takes the deployment lock while the request is open. Besides
+#: the ordinary conflicts, it answers 409 with Retry-After while another
+#: deployment holds the lock: the one conflict that clears on its own.
+BUSY_RESPONSES: dict[int | str, dict[str, Any]] = {
+    409: _error(
+        "The request conflicts with current state, or another deployment holds "
+        "the deployment lock. Only the latter carries Retry-After; retry then.",
+        **{
+            "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {"type": "integer", "minimum": 1},
+            }
+        },
+    ),
+}
+
 #: An operation that reads a request body, which the body limit bounds.
 BODY_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: _error("The Content-Length header is not a valid length."),

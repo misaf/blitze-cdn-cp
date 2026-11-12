@@ -2226,6 +2226,32 @@
         "title": "Granularity",
         "type": "string"
       },
+      "HealthUnavailable": {
+        "additionalProperties": false,
+        "description": "A failed health check: not an error message, so not `ErrorResponse`.",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "status": {
+            "const": "unavailable",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "check",
+          "detail"
+        ],
+        "title": "HealthUnavailable",
+        "type": "object"
+      },
       "HostExplanation": {
         "additionalProperties": false,
         "properties": {
@@ -4836,6 +4862,16 @@
               }
             },
             "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthUnavailable"
+                }
+              }
+            },
+            "description": "A health check failed; `check` names the first."
           }
         },
         "summary": "Health"
@@ -5322,6 +5358,16 @@
               }
             },
             "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
           },
           "409": {
             "content": {
@@ -5939,6 +5985,16 @@
             },
             "description": "The client's IP address is not in `allowed_ips`."
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "409": {
             "content": {
               "application/json": {
@@ -6228,7 +6284,16 @@
                 }
               }
             },
-            "description": "The request conflicts with current state."
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "413": {
             "content": {
@@ -6411,7 +6476,16 @@
                 }
               }
             },
-            "description": "The request conflicts with current state."
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "413": {
             "content": {
@@ -10975,7 +11049,16 @@
                 }
               }
             },
-            "description": "The request conflicts with current state."
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "413": {
             "content": {
