@@ -64,7 +64,9 @@ each compile.
 `DeploymentService.submit_deployment` in
 `capabilities/deployments/service/convergence.py`, inside `idempotent(...)` so
 a retried request with the same `Idempotency-Key` returns the first
-deployment.
+deployment. The key is reserved before admission and bound, through
+`bind_claimed_key` (`core/ports/idempotency.py`), in the same transaction that
+writes the deployment.
 
 `submit_deployment` takes the deployment lock and calls `_queue`, which:
 
@@ -74,7 +76,8 @@ deployment.
    edges, prunes old history, records a `deployment.queued` event and enqueues
    a `DeploymentJob` through the `QueueBackgroundRunner` port.
    `composition/infrastructure.py` binds that port to the job queue
-   (`_QueuePublisher` → `JobQueue.enqueue_deployment`).
+   (`_QueuePublisher` → `JobQueue.enqueue_deployment`). The request's
+   `Idempotency-Key`, if any, is bound to the deployment here too.
 
 The route answers `202` with the deployment and a `Location` to poll; see
 [queued API work](queued-operations.md).

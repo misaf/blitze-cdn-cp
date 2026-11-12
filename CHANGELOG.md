@@ -74,6 +74,9 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   `abandoned` with the job, not left `running` until a restart re-queues it
   (#334).
   Interrupted convergence and workflows are left to takeover recovery (#324).
+- A queued request's `Idempotency-Key` is bound in the transaction that queues
+  its work, so a control plane that stops before answering cannot let a retry
+  queue the work twice (#336).
 - Old edge configuration releases and deployments are pruned (#104, #135).
 - Superseded TLS keys are removed from edges (#123).
 - Edge SSH host keys survive control-plane updates (#136).

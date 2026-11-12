@@ -12,6 +12,8 @@ from collections.abc import Iterable
 from blitzecdn.capabilities.jobs.domain import Job, JobPayload
 from blitzecdn.capabilities.jobs.service.queue import JobQueue
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.idempotency import bind_claimed_key
 
 __all__ = ["OperationService"]
 
@@ -19,21 +21,30 @@ __all__ = ["OperationService"]
 class OperationService:
     """Submit an operation to the worker, and look one up by id."""
 
-    def __init__(self, *, queue: JobQueue, kinds: Iterable[str]) -> None:
+    def __init__(
+        self, *, queue: JobQueue, kinds: Iterable[str], uow: UnitOfWork
+    ) -> None:
         self.queue = queue
         self.kinds = frozenset(kinds)
+        self.uow = uow
 
     def submit(self, operation: JobPayload, *, dedupe_key: str | None = None) -> Job:
-        """Queue one run; refuse a second while ``dedupe_key`` is busy."""
+        """Queue one run; refuse a second while ``dedupe_key`` is busy.
+
+        The request's ``Idempotency-Key``, if it sent one, is bound in the same
+        transaction as the job.
+        """
         kind = operation.kind
         if kind not in self.kinds:
             raise NotFoundError(f"no operation kind {kind!r} is declared")
-        job = self.queue.enqueue(operation, dedupe_key=dedupe_key, max_attempts=1)
-        if job is None:
-            raise ConflictError(
-                f"a {kind} operation for the same target is already queued or "
-                "running; wait for it to finish"
-            )
+        with self.uow.transaction():
+            job = self.queue.enqueue(operation, dedupe_key=dedupe_key, max_attempts=1)
+            if job is None:
+                raise ConflictError(
+                    f"a {kind} operation for the same target is already queued or "
+                    "running; wait for it to finish"
+                )
+            bind_claimed_key(job.id)
         return job
 
     def get(self, operation_id: str) -> Job:

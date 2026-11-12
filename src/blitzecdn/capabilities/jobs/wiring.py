@@ -162,9 +162,9 @@ class JobsProvider(Provider):
 
     @provide
     def queued_operations(
-        self, queue: JobQueue, runs: OperationRuns
+        self, queue: JobQueue, runs: OperationRuns, uow: UnitOfWork
     ) -> OperationService:
-        return OperationService(queue=queue, kinds=runs)
+        return OperationService(queue=queue, kinds=runs, uow=uow)
 
     @provide
     def runner(
