@@ -10,6 +10,7 @@ from blitzecdn.capabilities.sites.api.models import (
     DnsExport,
     DnsRecord,
     Domain,
+    DomainCreate,
     DomainPatch,
     RecordCreate,
     RecordPatch,
@@ -53,7 +54,7 @@ def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
     responses={**CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def create_domain(
-    domain: Domain, operator: OperatorDependency, dns: FromDishka[SiteService]
+    domain: DomainCreate, operator: OperatorDependency, dns: FromDishka[SiteService]
 ) -> Domain:
     return Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
 

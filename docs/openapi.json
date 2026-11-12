@@ -1536,7 +1536,7 @@
       },
       "Domain": {
         "additionalProperties": false,
-        "description": "A delegated zone and its serving policy.\n\nOn creation, omitted policy fields use the documented defaults. Records\ninherit this policy unless a matching rule overrides it.",
+        "description": "A delegated zone and its serving policy, as it is read back.",
         "properties": {
           "allow_private_origin": {
             "default": false,
@@ -1764,6 +1764,238 @@
           "name"
         ],
         "title": "Domain",
+        "type": "object"
+      },
+      "DomainCreate": {
+        "additionalProperties": false,
+        "description": "The body that delegates a zone.\n\nOmitted policy fields use the documented defaults. Records inherit this\npolicy unless a matching rule overrides it.",
+        "properties": {
+          "allow_private_origin": {
+            "default": false,
+            "title": "Allow Private Origin",
+            "type": "boolean"
+          },
+          "always_use_https": {
+            "default": false,
+            "description": "Redirect visitor HTTP requests to HTTPS while TLS is active.",
+            "title": "Always Use Https",
+            "type": "boolean"
+          },
+          "cache_bypass_cookies": {
+            "default": [],
+            "description": "Cookie names whose presence skips the cache: neither served from nor stored in it. '*' matches any run of name characters, so 'wordpress_logged_in_*' covers the suffixed variants. Empty means any cookie under 'standard' and none under 'everything'. Under 'standard' static file URLs are cached whatever the cookies.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cache Bypass Cookies",
+            "type": "array"
+          },
+          "cache_enabled": {
+            "default": true,
+            "title": "Cache Enabled",
+            "type": "boolean"
+          },
+          "cache_ignore_origin_headers": {
+            "default": [],
+            "description": "URL extensions, content types or type families whose origin Cache-Control, Expires and X-Accel-Expires the edge disregards when deciding how long to store them, for an origin that marks static assets no-cache by mistake. They are stored for their cache_ttl_overrides entry, else cache_valid_success (404: cache_valid_not_found; other statuses: not at all). Set-Cookie still keeps a response out. Visitors receive the origin's headers unchanged. Empty, the default, respects the origin.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cache Ignore Origin Headers",
+            "type": "array"
+          },
+          "cache_level": {
+            "$ref": "#/components/schemas/CacheLevel",
+            "default": "standard",
+            "description": "'standard' stores only static file types (by URL extension or response Content-Type) unless the origin sends Cache-Control, Expires or X-Accel-Expires, and skips the cache for any other request carrying a bypass cookie. 'everything' stores every 200, 301, 302 and 404 whatever its type."
+          },
+          "cache_query_string_mode": {
+            "$ref": "#/components/schemas/CacheQueryStringMode",
+            "default": "include"
+          },
+          "cache_ttl_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Edge TTL by URL extension ('.css'), content type ('text/html') or type family ('image/*'), e.g. {'image/*': '7d', 'text/html': '0'}. Applies to 200, 301, 302 and 304 responses whose origin sent no Cache-Control, Expires or X-Accel-Expires, or to any of a type listed in cache_ignore_origin_headers. '0' stores nothing of that type. An extension wins over a type, and an exact type over a family. Units: s, m, h, d, w.",
+            "maxProperties": 50,
+            "title": "Cache Ttl Overrides",
+            "type": "object"
+          },
+          "cache_valid_not_found": {
+            "default": "1m",
+            "title": "Cache Valid Not Found",
+            "type": "string"
+          },
+          "cache_valid_success": {
+            "default": "10m",
+            "title": "Cache Valid Success",
+            "type": "string"
+          },
+          "certificate_key_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Key Path"
+          },
+          "certificate_mode": {
+            "$ref": "#/components/schemas/CertificateMode",
+            "default": "disabled"
+          },
+          "certificate_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Path"
+          },
+          "compression": {
+            "$ref": "#/components/schemas/CompressionMode",
+            "default": "brotli",
+            "description": "Encodings this edge produces itself. brotli offers Brotli to clients that accept it and gzip to the rest; off stops the edge compressing. Origin-encoded bodies pass through every mode."
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_pages": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "HTML served in place of an error, by status: 403, 429, 500, 502, 503, 504. A 5xx page replaces the origin's own 5xx as well as the edge's when the origin cannot be reached; 403 and 429 replace only the edge's firewall and rate-limit answers. With under_attack_mode, an origin's own 5xx passes through and only the edge's 502 and 504 are replaced. The status is kept. At most 64 KiB each, and self-contained: the origin may be what is down.",
+            "title": "Error Pages",
+            "type": "object"
+          },
+          "firewall": {
+            "$ref": "#/components/schemas/SiteFirewall",
+            "default": {
+              "allow_sources": [],
+              "allowed_countries": [],
+              "allowed_methods": [],
+              "allowed_paths": [],
+              "case_insensitive_paths": false,
+              "denied_countries": [],
+              "denied_methods": [],
+              "denied_paths": [],
+              "deny_sources": []
+            },
+            "description": "Per-hostname request filtering. Empty serves everyone. Never applied to /.well-known/acme-challenge/, so no rule can block renewal."
+          },
+          "http3_enabled": {
+            "default": false,
+            "description": "Offer visitor HTTP/3 over QUIC on UDP/443.",
+            "title": "Http3 Enabled",
+            "type": "boolean"
+          },
+          "maintenance_mode": {
+            "default": false,
+            "description": "Answer every request with the maintenance page, status 503 and Retry-After, without contacting the origin. firewall.allow_sources are exempt and reach the origin as usual.",
+            "title": "Maintenance Mode",
+            "type": "boolean"
+          },
+          "maintenance_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HTML served in maintenance mode. Unset uses error_pages' 503 page, else a plain built-in one. At most 64 KiB.",
+            "title": "Maintenance Page"
+          },
+          "maintenance_retry_after": {
+            "default": 300,
+            "description": "Seconds sent as Retry-After in maintenance mode.",
+            "maximum": 604800.0,
+            "minimum": 1.0,
+            "title": "Maintenance Retry After",
+            "type": "integer"
+          },
+          "max_upload_size": {
+            "$ref": "#/components/schemas/MaxUploadSize",
+            "default": "100m",
+            "description": "Largest visitor request body this site accepts. A larger body is refused at the edge with 413 before the origin is contacted."
+          },
+          "minimum_tls_version": {
+            "$ref": "#/components/schemas/MinimumTlsVersion",
+            "default": "1.2"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin_request_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Request Host"
+          },
+          "origin_sni": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Sni"
+          },
+          "rate_limit": {
+            "$ref": "#/components/schemas/SiteRateLimit",
+            "default": {
+              "burst": 0,
+              "paths": [],
+              "status": 429
+            },
+            "description": "Per-client request rate for the site. Empty serves everyone unlimited. Never applied to /.well-known/acme-challenge/."
+          },
+          "ssl_automatic_mode": {
+            "$ref": "#/components/schemas/SslAutomaticMode",
+            "default": "auto"
+          },
+          "ssl_mode": {
+            "$ref": "#/components/schemas/SslMode",
+            "default": "off"
+          },
+          "under_attack_mode": {
+            "default": false,
+            "description": "Require a signed BlitzeCDN browser clearance before cache or origin processing.",
+            "title": "Under Attack Mode",
+            "type": "boolean"
+          },
+          "visitor_headers": {
+            "$ref": "#/components/schemas/SiteVisitorHeaders",
+            "default": {
+              "connecting_ip": true,
+              "ip_country": false
+            },
+            "description": "The BZ-* request headers the edge writes to the origin. Each overwrites what the visitor sent under that name, and one turned off is cleared, so the BZ- namespace never carries client input."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DomainCreate",
         "type": "object"
       },
       "DomainPatch": {
@@ -2011,6 +2243,7 @@
       },
       "Edge": {
         "additionalProperties": false,
+        "description": "One registered edge, as it is read back.",
         "properties": {
           "capabilities": {
             "anyOf": [
@@ -2082,6 +2315,82 @@
           "host"
         ],
         "title": "Edge",
+        "type": "object"
+      },
+      "EdgeCreate": {
+        "additionalProperties": false,
+        "description": "The body that registers an edge.",
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          },
+          "private_key_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private Key File"
+          },
+          "public_addresses": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Public Addresses",
+            "type": "array"
+          },
+          "ssh_sources": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Ssh Sources",
+            "type": "array"
+          },
+          "user": {
+            "default": "deploy",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "host"
+        ],
+        "title": "EdgeCreate",
         "type": "object"
       },
       "EdgePatch": {
@@ -7382,7 +7691,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Domain"
+                "$ref": "#/components/schemas/DomainCreate"
               }
             }
           },
@@ -9626,7 +9935,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Edge"
+                "$ref": "#/components/schemas/EdgeCreate"
               }
             }
           },
