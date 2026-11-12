@@ -511,13 +511,13 @@ PY
     <"${backup_keys}/age" ||
     fail "restoring the backup after the reinstall failed"
   # The key was only ever on standard input: it is not on the host's disks,
-  # in its journal, or in a container's log. grep's 1 is "not found"; 0 is a
-  # hit and anything else means the search itself failed.
-  status=0
-  into_container 'grep -rsIqF -D skip -f /dev/stdin /etc/blitzecdn /var/lib/blitzecdn \
-    /var/backups/blitzecdn /var/lib/docker/containers /root /tmp /run' \
-    <"${backup_keys}/secret-lines" || status=$?
-  [[ ${status} == 1 ]] || fail "a backup private key was left on the controller (grep ${status})"
+  # in its journal, or in a container's log. The files that hold a key are
+  # listed rather than the exit status read: an unreadable path under /run
+  # makes grep exit 2 with nothing found.
+  leaked=$(into_container 'grep -rlIF -D skip -f /dev/stdin /etc/blitzecdn /var/lib/blitzecdn \
+    /var/backups/blitzecdn /var/lib/docker/containers /root /tmp /run 2>/dev/null || true' \
+    <"${backup_keys}/secret-lines")
+  [[ -z ${leaked} ]] || fail "a backup private key was left on the controller: ${leaked}"
   status=0
   into_container 'exec 3<&0; journalctl --no-pager --output cat </dev/null | grep -qF -f /dev/fd/3' \
     <"${backup_keys}/secret-lines" || status=$?
