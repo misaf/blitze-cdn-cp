@@ -12,6 +12,8 @@ carries a one- or two-line comment that points here.
   overrides and revalidation.
 * [Edge playbook](edge-playbook.md): phases, role order, the two capability
   slots and how a rollout is paced.
+* [Rollout benchmark](rollout-benchmark.md): what `deployment_batch_size`
+  trades, measured and simulated, and how to measure it on disposable edges.
 * [Edge container](edge-container.md): the runtime container's networking,
   privileges, shutdown and mounts.
 
