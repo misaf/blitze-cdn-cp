@@ -366,7 +366,10 @@ EOF
     fail "could not seed an ACME account key"
   # Quoted: an SSH public key holds a space, which the environment file refuses
   # unquoted.
-  in_container "printf '\nBLITZE_BACKUP_RECIPIENTS=\"%s\"\n' '${backup_recipients}' >> /etc/blitzecdn/blitzecdn.env" ||
+  # The CLI wrapper renders the environment Compose reads, so run it before
+  # the recreate below for the services to see the recipients.
+  in_container "printf '\nBLITZE_BACKUP_RECIPIENTS=\"%s\"\n' '${backup_recipients}' >> /etc/blitzecdn/blitzecdn.env &&
+    blitzecdn --version >/dev/null" ||
     fail "could not configure the backup recipients"
   in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"192.0.2.53\"|" \
     /etc/blitzecdn/blitzecdn.toml' ||
