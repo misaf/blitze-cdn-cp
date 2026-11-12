@@ -4,18 +4,24 @@ from fastapi import APIRouter, Depends, Response
 
 from blitzecdn.capabilities.jobs.service import OperationService
 from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.errors import (
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.responses import POLL_RESPONSE, polling_headers
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
 @router.get(
     "/v3/operations/{operation_id}",
     response_model=Operation,
-    responses={200: POLL_RESPONSE},
+    responses={200: POLL_RESPONSE, **NOT_FOUND_RESPONSES},
 )
 def operation(
     response: Response,

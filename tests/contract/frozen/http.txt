@@ -307,6 +307,7 @@ blitzecdn	schema	EdgeRelease.deployment_id	string|null optional
 blitzecdn	schema	EdgeRelease.edge	string required
 blitzecdn	schema	EdgeRelease.release	string|null optional
 blitzecdn	schema	EdgeRelease.state	EdgeReleaseState required
+blitzecdn	schema	ErrorResponse.detail	string required
 blitzecdn	schema	FleetReleases.edges	array[EdgeRelease] optional
 blitzecdn	schema	FleetReleases.mixed	boolean required
 blitzecdn	schema	FleetReleases.releases	array[ReleaseGroup] optional

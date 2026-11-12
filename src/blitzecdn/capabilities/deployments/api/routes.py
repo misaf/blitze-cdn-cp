@@ -16,6 +16,12 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import (
+    BODY_RESPONSES,
+    CONFLICT_RESPONSES,
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
     idempotent,
@@ -29,7 +35,9 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -37,7 +45,7 @@ router = APIRouter(
     "/v3/deployments",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def deploy(
     response: Response,
@@ -82,7 +90,7 @@ def deployments(
 @router.get(
     "/v3/deployments/{deployment_id}",
     response_model=Deployment,
-    responses={200: POLL_RESPONSE},
+    responses={200: POLL_RESPONSE, **NOT_FOUND_RESPONSES},
 )
 def deployment(
     response: Response,
@@ -97,6 +105,7 @@ def deployment(
 @router.get(
     "/v3/deployments/{deployment_id}/targets",
     response_model=Page[DeploymentTarget],
+    responses=NOT_FOUND_RESPONSES,
 )
 def deployment_targets(
     deployment_id: str,
@@ -115,7 +124,11 @@ def deployment_targets(
     )
 
 
-@router.get("/v3/deployments/{deployment_id}/drift", response_model=DriftReport)
+@router.get(
+    "/v3/deployments/{deployment_id}/drift",
+    response_model=DriftReport,
+    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+)
 def drift_report(
     deployment_id: str,
     deployments: FromDishka[DeploymentService],
@@ -123,7 +136,11 @@ def drift_report(
     return as_operation(deployments.drift_report(deployment_id), DriftReport)
 
 
-@router.get("/v3/deployments/{deployment_id}/diff", response_model=DeploymentDiff)
+@router.get(
+    "/v3/deployments/{deployment_id}/diff",
+    response_model=DeploymentDiff,
+    responses=NOT_FOUND_RESPONSES,
+)
 def deployment_diff(
     deployment_id: str,
     deployments: FromDishka[DeploymentService],
@@ -148,7 +165,12 @@ def deployment_diff(
     "/v3/deployments/rollback",
     response_model=Deployment,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def rollback(
     response: Response,
