@@ -61,17 +61,14 @@ class TrafficStore:
     def collection_status(self, edge: str) -> CollectionRecord | None:
         with self._db.reader() as session:
             row = session.get(TrafficCollectionRow, edge)
-            if row is None:
-                return None
-            return CollectionRecord(
-                edge=row.edge,
-                started_at=row.started_at,
-                finished_at=row.finished_at,
-                last_success_at=row.last_success_at,
-                last_caught_up_at=row.last_caught_up_at,
-                pending=row.pending,
-                last_error=row.last_error,
+            return None if row is None else _collection_record(row)
+
+    def collection_statuses(self) -> Sequence[CollectionRecord]:
+        with self._db.reader() as session:
+            rows = session.scalars(
+                select(TrafficCollectionRow).order_by(TrafficCollectionRow.edge)
             )
+            return [_collection_record(row) for row in rows]
 
     def start_collection(
         self, edges: Sequence[str], attempt_id: str, started_at: datetime
@@ -574,3 +571,15 @@ def _increase(
     if total > 2**63 - 1:
         raise ConflictError("hourly traffic counter exceeds the database integer range")
     setattr(row, name, total)
+
+
+def _collection_record(row: TrafficCollectionRow) -> CollectionRecord:
+    return CollectionRecord(
+        edge=row.edge,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        last_success_at=row.last_success_at,
+        last_caught_up_at=row.last_caught_up_at,
+        pending=row.pending,
+        last_error=row.last_error,
+    )

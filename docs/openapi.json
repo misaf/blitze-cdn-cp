@@ -1536,7 +1536,7 @@
       },
       "Domain": {
         "additionalProperties": false,
-        "description": "A delegated zone and its serving policy.\n\nOn creation, omitted policy fields use the documented defaults. Records\ninherit this policy unless a matching rule overrides it.",
+        "description": "A delegated zone and its serving policy, as it is read back.",
         "properties": {
           "allow_private_origin": {
             "default": false,
@@ -1764,6 +1764,238 @@
           "name"
         ],
         "title": "Domain",
+        "type": "object"
+      },
+      "DomainCreate": {
+        "additionalProperties": false,
+        "description": "The body that delegates a zone.\n\nOmitted policy fields use the documented defaults. Records inherit this\npolicy unless a matching rule overrides it.",
+        "properties": {
+          "allow_private_origin": {
+            "default": false,
+            "title": "Allow Private Origin",
+            "type": "boolean"
+          },
+          "always_use_https": {
+            "default": false,
+            "description": "Redirect visitor HTTP requests to HTTPS while TLS is active.",
+            "title": "Always Use Https",
+            "type": "boolean"
+          },
+          "cache_bypass_cookies": {
+            "default": [],
+            "description": "Cookie names whose presence skips the cache: neither served from nor stored in it. '*' matches any run of name characters, so 'wordpress_logged_in_*' covers the suffixed variants. Empty means any cookie under 'standard' and none under 'everything'. Under 'standard' static file URLs are cached whatever the cookies.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cache Bypass Cookies",
+            "type": "array"
+          },
+          "cache_enabled": {
+            "default": true,
+            "title": "Cache Enabled",
+            "type": "boolean"
+          },
+          "cache_ignore_origin_headers": {
+            "default": [],
+            "description": "URL extensions, content types or type families whose origin Cache-Control, Expires and X-Accel-Expires the edge disregards when deciding how long to store them, for an origin that marks static assets no-cache by mistake. They are stored for their cache_ttl_overrides entry, else cache_valid_success (404: cache_valid_not_found; other statuses: not at all). Set-Cookie still keeps a response out. Visitors receive the origin's headers unchanged. Empty, the default, respects the origin.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cache Ignore Origin Headers",
+            "type": "array"
+          },
+          "cache_level": {
+            "$ref": "#/components/schemas/CacheLevel",
+            "default": "standard",
+            "description": "'standard' stores only static file types (by URL extension or response Content-Type) unless the origin sends Cache-Control, Expires or X-Accel-Expires, and skips the cache for any other request carrying a bypass cookie. 'everything' stores every 200, 301, 302 and 404 whatever its type."
+          },
+          "cache_query_string_mode": {
+            "$ref": "#/components/schemas/CacheQueryStringMode",
+            "default": "include"
+          },
+          "cache_ttl_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Edge TTL by URL extension ('.css'), content type ('text/html') or type family ('image/*'), e.g. {'image/*': '7d', 'text/html': '0'}. Applies to 200, 301, 302 and 304 responses whose origin sent no Cache-Control, Expires or X-Accel-Expires, or to any of a type listed in cache_ignore_origin_headers. '0' stores nothing of that type. An extension wins over a type, and an exact type over a family. Units: s, m, h, d, w.",
+            "maxProperties": 50,
+            "title": "Cache Ttl Overrides",
+            "type": "object"
+          },
+          "cache_valid_not_found": {
+            "default": "1m",
+            "title": "Cache Valid Not Found",
+            "type": "string"
+          },
+          "cache_valid_success": {
+            "default": "10m",
+            "title": "Cache Valid Success",
+            "type": "string"
+          },
+          "certificate_key_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Key Path"
+          },
+          "certificate_mode": {
+            "$ref": "#/components/schemas/CertificateMode",
+            "default": "disabled"
+          },
+          "certificate_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Path"
+          },
+          "compression": {
+            "$ref": "#/components/schemas/CompressionMode",
+            "default": "brotli",
+            "description": "Encodings this edge produces itself. brotli offers Brotli to clients that accept it and gzip to the rest; off stops the edge compressing. Origin-encoded bodies pass through every mode."
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_pages": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "HTML served in place of an error, by status: 403, 429, 500, 502, 503, 504. A 5xx page replaces the origin's own 5xx as well as the edge's when the origin cannot be reached; 403 and 429 replace only the edge's firewall and rate-limit answers. With under_attack_mode, an origin's own 5xx passes through and only the edge's 502 and 504 are replaced. The status is kept. At most 64 KiB each, and self-contained: the origin may be what is down.",
+            "title": "Error Pages",
+            "type": "object"
+          },
+          "firewall": {
+            "$ref": "#/components/schemas/SiteFirewall",
+            "default": {
+              "allow_sources": [],
+              "allowed_countries": [],
+              "allowed_methods": [],
+              "allowed_paths": [],
+              "case_insensitive_paths": false,
+              "denied_countries": [],
+              "denied_methods": [],
+              "denied_paths": [],
+              "deny_sources": []
+            },
+            "description": "Per-hostname request filtering. Empty serves everyone. Never applied to /.well-known/acme-challenge/, so no rule can block renewal."
+          },
+          "http3_enabled": {
+            "default": false,
+            "description": "Offer visitor HTTP/3 over QUIC on UDP/443.",
+            "title": "Http3 Enabled",
+            "type": "boolean"
+          },
+          "maintenance_mode": {
+            "default": false,
+            "description": "Answer every request with the maintenance page, status 503 and Retry-After, without contacting the origin. firewall.allow_sources are exempt and reach the origin as usual.",
+            "title": "Maintenance Mode",
+            "type": "boolean"
+          },
+          "maintenance_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HTML served in maintenance mode. Unset uses error_pages' 503 page, else a plain built-in one. At most 64 KiB.",
+            "title": "Maintenance Page"
+          },
+          "maintenance_retry_after": {
+            "default": 300,
+            "description": "Seconds sent as Retry-After in maintenance mode.",
+            "maximum": 604800.0,
+            "minimum": 1.0,
+            "title": "Maintenance Retry After",
+            "type": "integer"
+          },
+          "max_upload_size": {
+            "$ref": "#/components/schemas/MaxUploadSize",
+            "default": "100m",
+            "description": "Largest visitor request body this site accepts. A larger body is refused at the edge with 413 before the origin is contacted."
+          },
+          "minimum_tls_version": {
+            "$ref": "#/components/schemas/MinimumTlsVersion",
+            "default": "1.2"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin_request_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Request Host"
+          },
+          "origin_sni": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Sni"
+          },
+          "rate_limit": {
+            "$ref": "#/components/schemas/SiteRateLimit",
+            "default": {
+              "burst": 0,
+              "paths": [],
+              "status": 429
+            },
+            "description": "Per-client request rate for the site. Empty serves everyone unlimited. Never applied to /.well-known/acme-challenge/."
+          },
+          "ssl_automatic_mode": {
+            "$ref": "#/components/schemas/SslAutomaticMode",
+            "default": "auto"
+          },
+          "ssl_mode": {
+            "$ref": "#/components/schemas/SslMode",
+            "default": "off"
+          },
+          "under_attack_mode": {
+            "default": false,
+            "description": "Require a signed BlitzeCDN browser clearance before cache or origin processing.",
+            "title": "Under Attack Mode",
+            "type": "boolean"
+          },
+          "visitor_headers": {
+            "$ref": "#/components/schemas/SiteVisitorHeaders",
+            "default": {
+              "connecting_ip": true,
+              "ip_country": false
+            },
+            "description": "The BZ-* request headers the edge writes to the origin. Each overwrites what the visitor sent under that name, and one turned off is cleared, so the BZ- namespace never carries client input."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DomainCreate",
         "type": "object"
       },
       "DomainPatch": {
@@ -2011,6 +2243,7 @@
       },
       "Edge": {
         "additionalProperties": false,
+        "description": "One registered edge, as it is read back.",
         "properties": {
           "capabilities": {
             "anyOf": [
@@ -2082,6 +2315,82 @@
           "host"
         ],
         "title": "Edge",
+        "type": "object"
+      },
+      "EdgeCreate": {
+        "additionalProperties": false,
+        "description": "The body that registers an edge.",
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          },
+          "private_key_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private Key File"
+          },
+          "public_addresses": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Public Addresses",
+            "type": "array"
+          },
+          "ssh_sources": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Ssh Sources",
+            "type": "array"
+          },
+          "user": {
+            "default": "deploy",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "host"
+        ],
+        "title": "EdgeCreate",
         "type": "object"
       },
       "EdgePatch": {
@@ -2838,6 +3147,40 @@
           "offset"
         ],
         "title": "Page[CertificateStatus]",
+        "type": "object"
+      },
+      "Page_CollectionStatus_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionStatus"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CollectionStatus]",
         "type": "object"
       },
       "Page_DeploymentTarget_": {
@@ -5541,177 +5884,6 @@
         "summary": "Purge Cache"
       }
     },
-    "/v3/cache/stats": {
-      "get": {
-        "description": "Stored hourly cache outcomes, ordered by hour, hostname and edge.\n\nCounted by traffic collection from every log record exactly once; no edge\nis contacted. Empty hours are omitted, and counters may lag while\ncollection is pending. The hit ratio counts only requests that consulted\nthe cache; redirects, errors nginx served itself and sites with caching\ndisabled are NONE, not misses.",
-        "operationId": "cache_stats_v3_cache_stats_get",
-        "parameters": [
-          {
-            "description": "Inclusive UTC hour; timezone required.",
-            "in": "query",
-            "name": "start",
-            "required": true,
-            "schema": {
-              "description": "Inclusive UTC hour; timezone required.",
-              "format": "date-time",
-              "title": "Start",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Exclusive UTC hour; timezone required.",
-            "in": "query",
-            "name": "end",
-            "required": true,
-            "schema": {
-              "description": "Exclusive UTC hour; timezone required.",
-              "format": "date-time",
-              "title": "End",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Exact served hostname.",
-            "in": "query",
-            "name": "hostname",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Exact served hostname.",
-              "title": "Hostname"
-            }
-          },
-          {
-            "description": "Exact edge name, including retired edges.",
-            "in": "query",
-            "name": "edge",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Exact edge name, including retired edges.",
-              "title": "Edge"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 100,
-              "maximum": 500,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "maximum": 9223372036854775807,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_CacheHour_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The X-API-Key header is missing or matches no operator.",
-            "headers": {
-              "WWW-Authenticate": {
-                "description": "Always `ApiKey`.",
-                "schema": {
-                  "enum": [
-                    "ApiKey"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The installation is wrong; retrying will not help."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "No API keys are configured, so no request can authenticate."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Cache Stats"
-      }
-    },
     "/v3/certificates": {
       "get": {
         "description": "Managed certificates against the clock, soonest expiry first.",
@@ -7382,7 +7554,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Domain"
+                "$ref": "#/components/schemas/DomainCreate"
               }
             }
           },
@@ -9650,7 +9822,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Edge"
+                "$ref": "#/components/schemas/EdgeCreate"
               }
             }
           },
@@ -11884,6 +12056,306 @@
         "summary": "Operational Status"
       }
     },
+    "/v3/traffic/cache": {
+      "get": {
+        "description": "Stored hourly cache outcomes, ordered by hour, hostname and edge.\n\nCounted by traffic collection from every log record exactly once; no edge\nis contacted. Empty hours are omitted, and counters may lag while\ncollection is pending. The hit ratio counts only requests that consulted\nthe cache; redirects, errors nginx served itself and sites with caching\ndisabled are NONE, not misses.",
+        "operationId": "cache_stats_v3_traffic_cache_get",
+        "parameters": [
+          {
+            "description": "Inclusive UTC hour; timezone required.",
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "description": "Inclusive UTC hour; timezone required.",
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive UTC hour; timezone required.",
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "description": "Exclusive UTC hour; timezone required.",
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact served hostname.",
+            "in": "query",
+            "name": "hostname",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact served hostname.",
+              "title": "Hostname"
+            }
+          },
+          {
+            "description": "Exact edge name, including retired edges.",
+            "in": "query",
+            "name": "edge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact edge name, including retired edges.",
+              "title": "Edge"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CacheHour_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cache Stats"
+      }
+    },
+    "/v3/traffic/collection": {
+      "get": {
+        "description": "Last observed collection state of every edge; this does not trigger collection.\n\nOrdered by edge name: registered edges, and removed edges with collection\nhistory. Current means recently caught up with available logs, not complete\nbilling coverage or proof of zero traffic.",
+        "operationId": "collection_status_v3_traffic_collection_get",
+        "parameters": [
+          {
+            "description": "Exact edge name, including removed edges with history.",
+            "in": "query",
+            "name": "edge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact edge name, including removed edges with history.",
+              "title": "Edge"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CollectionStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Collection Status"
+      }
+    },
     "/v3/traffic/sites/{site}": {
       "get": {
         "description": "A served hostname's requests, bytes, cache hits and status classes.\n\nOne item per UTC hour or day with traffic, oldest first, summed across\nedges from stored hourly rows; no edge is contacted. Empty buckets are\nomitted, and counters may lag while collection is pending. Hours collected\nbefore status classes were counted have no status counts.",
@@ -12237,112 +12709,6 @@
           }
         ],
         "summary": "Site Paths"
-      }
-    },
-    "/v3/traffic/status/{edge}": {
-      "get": {
-        "description": "Last observed collection state; this does not trigger collection.\n\nCurrent means recently caught up with available logs, not complete billing\ncoverage or proof of zero traffic. Unknown edges without history return 404.",
-        "operationId": "collection_status_v3_traffic_status__edge__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "edge",
-            "required": true,
-            "schema": {
-              "title": "Edge",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The X-API-Key header is missing or matches no operator.",
-            "headers": {
-              "WWW-Authenticate": {
-                "description": "Always `ApiKey`.",
-                "schema": {
-                  "enum": [
-                    "ApiKey"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A resource the request names does not exist."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The installation is wrong; retrying will not help."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "No API keys are configured, so no request can authenticate."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Collection Status"
       }
     },
     "/v3/traffic/usage": {
