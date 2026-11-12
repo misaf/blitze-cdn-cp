@@ -16,6 +16,4 @@ rule_app = typer.Typer(
     no_args_is_help=True,
     help="Override a zone's policy for some of its hostnames.",
 )
-dns_app = typer.Typer(no_args_is_help=True, help="Export DNS state.")
-
-__all__ = ["dns_app", "domain_app", "record_app", "rule_app"]
+__all__ = ["domain_app", "record_app", "rule_app"]

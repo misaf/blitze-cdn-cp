@@ -1438,6 +1438,56 @@
         "title": "DeploymentTarget",
         "type": "object"
       },
+      "DnsExport": {
+        "additionalProperties": false,
+        "description": "Desired DNS state for these zones, and the caveat that nothing publishes it.",
+        "properties": {
+          "publication": {
+            "$ref": "#/components/schemas/DnsPublication"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ExportedRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "publication",
+          "records"
+        ],
+        "title": "DnsExport",
+        "type": "object"
+      },
+      "DnsPublication": {
+        "additionalProperties": false,
+        "description": "Whether this installation publishes DNS. ``publishes`` is false today.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "mode": {
+            "const": "external",
+            "description": "Who publishes the records: something outside BlitzeCDN.",
+            "title": "Mode",
+            "type": "string"
+          },
+          "publishes": {
+            "description": "Whether a record written here becomes a public answer unaided.",
+            "title": "Publishes",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "publishes",
+          "detail"
+        ],
+        "title": "DnsPublication",
+        "type": "object"
+      },
       "DnsRecord": {
         "additionalProperties": false,
         "description": "A record response, including the domain that owns it.",
@@ -2158,6 +2208,69 @@
           "detail"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "ExportedRecord": {
+        "additionalProperties": false,
+        "description": "One record as whatever is authoritative for its zone should publish it.",
+        "properties": {
+          "answer": {
+            "description": "What DNS should answer with: the record's value when unproxied, or the literal 'an edge address' when proxied, since the edge address is the fleet's to supply.",
+            "title": "Answer",
+            "type": "string"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "fqdn": {
+            "title": "Fqdn",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "proxied": {
+            "title": "Proxied",
+            "type": "boolean"
+          },
+          "ttl": {
+            "title": "Ttl",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "A",
+              "AAAA"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's own value when unproxied. Null when proxied: a proxied record's value is the origin, which is never exported.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "fqdn",
+          "domain",
+          "name",
+          "type",
+          "ttl",
+          "proxied",
+          "answer",
+          "value"
+        ],
+        "title": "ExportedRecord",
         "type": "object"
       },
       "FleetReleases": {
@@ -7154,93 +7267,6 @@
         "summary": "Deployment Targets"
       }
     },
-    "/v3/dns/export": {
-      "get": {
-        "description": "Desired DNS state for whatever is authoritative for these zones.\n\nAn envelope, so ``publication`` makes plain that nothing here publishes it.",
-        "operationId": "dns_export_v3_dns_export_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Dns Export V3 Dns Export Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The X-API-Key header is missing or matches no operator.",
-            "headers": {
-              "WWW-Authenticate": {
-                "description": "Always `ApiKey`.",
-                "schema": {
-                  "enum": [
-                    "ApiKey"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The installation is wrong; retrying will not help."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "No API keys are configured, so no request can authenticate."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Dns Export"
-      }
-    },
     "/v3/domains": {
       "get": {
         "operationId": "list_domains_v3_domains_get",
@@ -7471,6 +7497,91 @@
           }
         ],
         "summary": "Create Domain"
+      }
+    },
+    "/v3/domains/export": {
+      "get": {
+        "description": "Desired DNS state for whatever is authoritative for these zones.\n\nAn envelope, so ``publication`` makes plain that nothing here publishes it.",
+        "operationId": "export_domains_v3_domains_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Export Domains"
       }
     },
     "/v3/domains/{domain}": {
@@ -7825,6 +7936,112 @@
           }
         ],
         "summary": "Update Domain"
+      }
+    },
+    "/v3/domains/{domain}/export": {
+      "get": {
+        "description": "One zone's desired DNS state; see ``GET /v3/domains/export``.",
+        "operationId": "export_domain_v3_domains__domain__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Export Domain"
       }
     },
     "/v3/domains/{domain}/records": {
