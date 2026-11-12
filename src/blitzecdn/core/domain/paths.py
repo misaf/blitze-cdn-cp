@@ -45,7 +45,8 @@ def path_is_prefix(path: str) -> bool:
 def path_pattern(path: str) -> str:
     """The anchored regex the edge renders for ``path``.
 
-    Mirrors ``site.conf.j2``, whose ``regex_escape`` is :func:`regex`.
+    The only spelling of it: the sites adapter hands it to ``site.conf.j2`` as
+    each location's ``pattern``.
     """
     return "^" + regex(path) + ("" if path_is_prefix(path) else "$")
 

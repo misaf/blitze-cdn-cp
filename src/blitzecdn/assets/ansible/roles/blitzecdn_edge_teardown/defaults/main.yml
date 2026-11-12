@@ -3,8 +3,8 @@
 # or blitzecdn_nginx converged with on the same host, or teardown leaves the
 # real files behind and reports success. This role runs in the decommission
 # playbook, on a host that is no longer being converged, so it carries its own
-# copies rather than reading the contract. Unlike blitzecdn_cache and
-# blitzecdn_cache_stats, nothing holds these against it yet.
+# copies rather than reading the contract. test_edge_runtime.py holds each
+# against the value the converging role writes.
 blitzecdn_edge_teardown_cache_path: /var/cache/nginx/blitzecdn
 blitzecdn_edge_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
 blitzecdn_edge_teardown_acme_root: /var/lib/blitzecdn/acme

@@ -20,8 +20,11 @@ from support.contracts import (
     ROLE_DIR,
     ROLES_DIR,
     STACK_ROLE_DIR,
+    ansible_jinja,
+    resolve,
     role_defaults,
     role_path,
+    runtime_defaults,
 )
 from support.paths import SOURCE
 from support.role_contracts import (
@@ -452,3 +455,52 @@ def test_nginx_logs_requests_to_files_and_errors_to_docker():
     assert site.count("\n    access_log off;") == 3
     assert 'max-size: "32m"' in COMPOSE_TEMPLATE
     assert 'max-file: "3"' in COMPOSE_TEMPLATE
+
+
+def test_teardown_removes_the_paths_the_converging_roles_wrote():
+    """Teardown carries its own copies; each must be the converged value.
+
+    A copy that drifted leaves the real file behind while the decommission
+    reports success, so every copy is held against the role that writes it.
+    """
+    runtime = runtime_defaults()
+    paths = runtime["blitzecdn_edge_runtime"]["paths"]
+    environment = ansible_jinja()
+
+    def converged(role: str) -> dict[str, Any]:
+        return resolve(defaults_of(role_path(role)), runtime, environment)
+
+    teardown = defaults_of(role_path("blitzecdn_edge_teardown"))
+    stack = converged("blitzecdn_edge_stack")
+    assert teardown["blitzecdn_edge_teardown_cache_path"] == paths["cache"]
+    assert teardown["blitzecdn_edge_teardown_acme_root"] == paths["acme"]
+    assert teardown["blitzecdn_edge_teardown_state_path"] == paths["state"]
+    assert teardown["blitzecdn_edge_teardown_data_path"] == paths["data"]
+    assert (
+        teardown["blitzecdn_edge_teardown_managed_sites_file"]
+        == role_defaults()["blitzecdn_nginx_managed_sites_file"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_firewall_registry"]
+        == converged("blitzecdn_firewall")["blitzecdn_firewall_registry_file"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_sysctl_file"]
+        == defaults_of(role_path("blitzecdn_kernel"))["blitzecdn_kernel_sysctl_file"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_container"]
+        == runtime["blitzecdn_edge_runtime"]["container"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_compose_file"]
+        == stack["blitzecdn_edge_stack_compose_file"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_project"]
+        == stack["blitzecdn_edge_stack_project"]
+    )
+    assert (
+        teardown["blitzecdn_edge_teardown_runtime_path"]
+        == stack["blitzecdn_edge_stack_runtime_path"]
+    )

@@ -12,7 +12,10 @@ from support.edge_render import (
 )
 from support.policy import site_from_settings
 
-from blitzecdn.capabilities.security.contract import rate_limit_zone
+from blitzecdn.capabilities.security.contract import (
+    allowed_paths_pattern,
+    rate_limit_zone,
+)
 from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 
 REQUIRES_CAPABILITIES = {
@@ -24,6 +27,7 @@ REQUIRES_CAPABILITIES = {
     "test_the_acme_challenge_path_is_never_rate_limited": ("security",),
     "test_sites_on_one_rate_share_one_zone": ("security",),
     "test_every_zone_a_site_reads_is_declared": ("security",),
+    "test_the_limited_paths_rule_is_the_contracts_pattern": ("security",),
     "test_the_key_of_the_longest_site_name_fits_nginx": ("security",),
 }
 
@@ -188,3 +192,14 @@ def test_the_key_of_the_longest_site_name_fits_nginx():
     bucket = nginx_hash_bucket_size("variables_hash_bucket_size")
     assert max(nginx_hash_entry_size(variable) for variable in declared) <= bucket
     assert nginx_hash_entry_size("blitzecdn_rate_limit_key_" + suffix) > 64
+
+
+def test_the_limited_paths_rule_is_the_contracts_pattern():
+    """The map spells the alternation the contract sizes and validates."""
+    paths = ["/login", "/api/", "/a+b(c)/"]
+
+    snippet = render_http_fragment(
+        "security-http.conf.j2", [_site(rate_limit={"rate": "1r/s", "paths": paths})]
+    )
+
+    assert f'"~^0:({allowed_paths_pattern(paths)})"' in snippet

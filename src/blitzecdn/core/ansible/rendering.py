@@ -25,7 +25,8 @@ from blitzecdn.core.exceptions import ConfigurationError
 
 __all__ = ["EdgeRenderer"]
 
-#: The edge play's group, whose shipped variables apply to every edge.
+#: The edge play's group, whose shipped variables apply to every edge. Mirrors
+#: ``capabilities.edges.domain.EDGE_GROUP``, which core cannot import.
 _EDGE_GROUP = "blitzecdn_edges"
 
 #: Roles whose defaults the edge play has loaded before `blitzecdn_nginx`
