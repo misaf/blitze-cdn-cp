@@ -112,6 +112,9 @@ markers = [
   # not milliseconds, so it is deselectable: `just test-fast` skips it and
   # `just check` does not.
   "packaging: exercises real distribution build, install and uninstall",
+  # Starts a real nginx and purges its cache while it serves. Skips without
+  # nginx on PATH unless BLITZE_REQUIRE_NGINX is set, as it is in CI.
+  "nginx: runs the cache purge against a real nginx cache",
 ]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = [
