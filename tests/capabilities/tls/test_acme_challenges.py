@@ -33,7 +33,9 @@ def _challenges(run, edges=None):
 def test_present_runs_the_challenge_play_with_the_values():
     publisher, fleet = _challenges(ansible_run(host_run("edge-a")))
 
-    publisher.present("cdn.example.com", "safe_token", "safe.validation")
+    publisher.present(
+        "cdn.example.com", "safe_token", "safe.validation", timeout_seconds=30
+    )
 
     (call,) = fleet.calls
     assert call["name"] == "acme-challenge"
@@ -43,6 +45,8 @@ def test_present_runs_the_challenge_play_with_the_values():
         "blitzecdn_acme_token": "safe_token",
         "blitzecdn_acme_validation": "safe.validation",
     }
+    # The play is stopped at what the issuance budget has left.
+    assert call["timeout_seconds"] == 30
     # The hostname points at no edge we can see, so only the CA knows which it
     # will ask: every edge gets the token.
     assert call["host_limit"] is None
@@ -51,7 +55,7 @@ def test_present_runs_the_challenge_play_with_the_values():
 def test_absent_removes_it_again():
     publisher, fleet = _challenges(ansible_run(host_run("edge-a")))
 
-    publisher.absent("cdn.example.com", "safe_token")
+    publisher.absent("cdn.example.com", "safe_token", timeout_seconds=30)
 
     assert fleet.calls[0]["variables"]["blitzecdn_acme_action"] == "absent"
 
@@ -65,7 +69,9 @@ def test_edges_the_hostname_does_not_resolve_to_are_skipped_and_named(caplog):
     )
 
     with caplog.at_level(logging.INFO):
-        publisher.present("cdn.example.com", "safe_token", "safe.validation")
+        publisher.present(
+            "cdn.example.com", "safe_token", "safe.validation", timeout_seconds=30
+        )
 
     assert fleet.calls[0]["host_limit"] == "edge-a"
     assert "not on edge-b" in caplog.text
@@ -86,7 +92,7 @@ def test_a_value_outside_the_acme_alphabet_never_reaches_a_play(
     publisher, fleet = _challenges(ansible_run(host_run("edge-a")))
 
     with pytest.raises(ExecutionError, match="invalid HTTP-01"):
-        publisher.present(domain, token, validation)
+        publisher.present(domain, token, validation, timeout_seconds=30)
 
     assert fleet.calls == []
 
@@ -99,4 +105,17 @@ def test_a_failed_play_names_its_log():
     )
 
     with pytest.raises(ExecutionError, match="full output:"):
-        publisher.absent("cdn.example.com", "safe_token")
+        publisher.absent("cdn.example.com", "safe_token", timeout_seconds=30)
+
+
+def test_a_play_stopped_at_its_timeout_says_so():
+    publisher, fleet = _challenges(
+        ansible_run(host_run("edge-a"), status=RunStatus.TIMED_OUT, return_code=254)
+    )
+
+    with pytest.raises(ExecutionError, match=r"timed out after 7s .* present"):
+        publisher.present(
+            "cdn.example.com", "safe_token", "safe.validation", timeout_seconds=7
+        )
+
+    assert fleet.calls[0]["timeout_seconds"] == 7

@@ -106,19 +106,27 @@ class AnsibleRunner:
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> AnsibleRun:
         """Run one capability play with the caller's variables, staged and time-limited.
+
+        ``timeout_seconds`` can only shorten the deployment timeout: a caller
+        with a budget of its own (ACME issuance) passes what is left of it.
 
         Takes no deployment lock: these are operations that write no desired state,
         and they are most needed exactly when a deploy is running.
         """
         with run_variables(self._settings.run_dir, name, dict(variables)) as staged:
-            return self._playbook_run(playbook, staged, host_limit)
+            return self._playbook_run(playbook, staged, host_limit, timeout_seconds)
 
     # -- Command construction ------------------------------------------
 
     def _playbook_run(
-        self, playbook: Path, variables: Path, host_limit: str | None
+        self,
+        playbook: Path,
+        variables: Path,
+        host_limit: str | None,
+        timeout_seconds: int | None = None,
     ) -> AnsibleRun:
         self._validate_paths()
         if not playbook.is_file():
@@ -129,7 +137,11 @@ class AnsibleRunner:
                 playbook=playbook,
                 variables=variables,
                 limit=limit,
-                timeout=self._timeout_seconds,
+                timeout=(
+                    self._timeout_seconds
+                    if timeout_seconds is None
+                    else min(self._timeout_seconds, timeout_seconds)
+                ),
                 targeted=targeted_hosts(self._fleet, limit),
             )
         )

@@ -79,6 +79,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   queue the work twice (#336).
 - Old edge configuration releases and deployments are pruned (#104, #135).
 - Superseded TLS keys are removed from edges (#123).
+- Every step of ACME issuance (CA requests and challenge plays) is stopped at
+  what is left of the issuance budget, and challenge cleanup has a bounded
+  allowance inside it, so a stalled CA or edge cannot hold the deployment lock
+  past the deployment timeout (#347).
 - Edge SSH host keys survive control-plane updates (#136).
 - The origin's `Accept-Encoding` is normalised without the cache (#128).
 - `allow_sources` is exempt from country and method rules (#131), and
