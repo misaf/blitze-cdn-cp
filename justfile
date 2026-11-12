@@ -200,7 +200,7 @@ shell-lint:
     uv run shellcheck install.sh \
         tests/integration/container-install.sh tests/integration/http3-edge-integration.sh \
         scripts/collect-diagnostics.sh scripts/doctor.sh \
-        scripts/collections-check.sh
+        scripts/collections-check.sh scripts/clean-stale.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.
 #
@@ -489,9 +489,30 @@ serve port="8000":
     uv run blitzecdn serve --port {{port}}
 
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
-clean:
+clean: clean-stale
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# A pull or branch switch that moves a module leaves its ignored bytecode
+# behind, and the old package directory with it. This removes untracked
+# `__pycache__` and `*.pyc` under src, tests and scripts, then any directory
+# that removal left empty. Tracked files, directories that were already empty,
+# `.env`, `.venv`, `.state` and worktrees are left alone. Pass `--dry-run` to
+# see what would go.
+#
+# Remove stale Python bytecode and the directories it alone was keeping.
+clean-stale *args:
+    @bash scripts/clean-stale.sh {{args}}
+
+# Opt-in. Refuses to replace a post-merge or post-checkout hook it did not
+# write, and does nothing while `core.hooksPath` points elsewhere.
+#
+# Run `clean-stale` automatically after every pull, merge and branch switch.
+hooks-install:
+    @bash scripts/clean-stale.sh --install-hooks
+
+# Remove the hooks `hooks-install` wrote, and no others.
+hooks-uninstall:
+    @bash scripts/clean-stale.sh --uninstall-hooks
 
 # Build and install the single wheel in a fresh environment outside the checkout.
 test-installation *args:
