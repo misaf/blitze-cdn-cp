@@ -49,6 +49,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Changed
 
+- `GET /v3/dns/export` is now `GET /v3/domains/export`, with
+  `GET /v3/domains/{domain}/export` for one zone, and both return the named
+  `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
+  `blitzecdn dns export` is now `blitzecdn domain export [NAME]` (#377).
 - The API has one noun per resource and one prefix per area (#289).
 - The `dns` capability is now `sites` (#302), and Automatic SSL is its own
   capability (#227).
