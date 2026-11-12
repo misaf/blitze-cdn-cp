@@ -46,9 +46,9 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     return paginate(edges.list_edges(), Edge.from_domain)
 
 
-@router.get("/v3/edges/{name}", response_model=Edge, responses=NOT_FOUND_RESPONSES)
-def get_edge(name: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
-    return Edge.from_domain(edges.get_edge(name))
+@router.get("/v3/edges/{edge}", response_model=Edge, responses=NOT_FOUND_RESPONSES)
+def get_edge(edge: str, edges: FromDishka[EdgeOperationsService]) -> Edge:
+    return Edge.from_domain(edges.get_edge(edge))
 
 
 @router.post(
@@ -65,28 +65,28 @@ def add_edge(
 
 
 @router.patch(
-    "/v3/edges/{name}",
+    "/v3/edges/{edge}",
     response_model=Edge,
     responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def update_edge(
-    name: str,
+    edge: str,
     patch: EdgePatch,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
-    return Edge.from_domain(edges.update_edge(name, patch.to_domain(), operator))
+    return Edge.from_domain(edges.update_edge(edge, patch.to_domain(), operator))
 
 
 @router.delete(
-    "/v3/edges/{name}",
+    "/v3/edges/{edge}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
 )
 def remove_edge(
     response: Response,
-    name: str,
+    edge: str,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
     queued_operations: FromDishka[OperationService],
@@ -119,12 +119,12 @@ def remove_edge(
     """
 
     def submit() -> Job:
-        edges.get_edge(name)
+        edges.get_edge(edge)
         return queued_operations.submit(
             EdgeRemovalJob(
-                operator=operator, name=name, decommission=decommission, force=force
+                operator=operator, name=edge, decommission=decommission, force=force
             ),
-            dedupe_key=remove_dedupe_key(name),
+            dedupe_key=remove_dedupe_key(edge),
         )
 
     queued = as_queued(

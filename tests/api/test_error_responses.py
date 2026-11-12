@@ -203,5 +203,5 @@ def test_only_routes_that_take_the_deployment_lock_advertise_retry_after(app):
     assert retrying == {
         "POST /v3/deployments",
         "POST /v3/deployments/rollback",
-        "PUT /v3/sites/{name}/certificate",
+        "PUT /v3/sites/{site}/certificate",
     }

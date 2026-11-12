@@ -45,6 +45,12 @@ GET /v3/certificates?expiring_in=30&limit=100&offset=100
 The DNS export endpoint returns a complete export document. Nested collections
 inside detail reports are part of that report and are not separately paginated.
 
+`host_limit` is not a page size. On `GET /v3/releases/current`, as on
+`POST /v3/deployments` and the cache and origin requests, it selects edges by
+name or comma-separated glob: there, the edges the compiled release is validated
+against, such as a canary. It changes which edges are checked, never how much of
+a list comes back, so it has no `limit` or `offset` of its own.
+
 ## Storage and concurrent changes
 
 Deployment history, deployment targets, releases, audit events and workflows use

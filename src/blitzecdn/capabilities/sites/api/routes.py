@@ -112,9 +112,9 @@ def list_sites(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
-@router.get("/v3/sites/{name}", response_model=CdnSite, responses=NOT_FOUND_RESPONSES)
-def get_site(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
-    return CdnSite.from_domain(sites.get_site(name))
+@router.get("/v3/sites/{site}", response_model=CdnSite, responses=NOT_FOUND_RESPONSES)
+def get_site(site: str, sites: FromDishka[SiteReader]) -> CdnSite:
+    return CdnSite.from_domain(sites.get_site(site))
 
 
 @router.get(
@@ -141,17 +141,17 @@ def create_record(
     return DnsRecord.from_domain(dns.create_record(record.to_domain(domain), operator))
 
 
-#: One record is addressed by its type as well as its name: an A and an AAAA
-#: record share a name, and no type is assumed.
-RECORD_PATH = "/v3/domains/{domain}/records/{type}/{name}"
+#: One record is addressed by its type as well as its name, ``{record}``: an A
+#: and an AAAA record share a name, and no type is assumed.
+RECORD_PATH = "/v3/domains/{domain}/records/{type}/{record}"
 RecordTypePath = Annotated[RecordType, Path(alias="type")]
 
 
 @router.get(RECORD_PATH, response_model=DnsRecord, responses=NOT_FOUND_RESPONSES)
 def get_record(
-    domain: str, type_: RecordTypePath, name: str, dns: FromDishka[SiteService]
+    domain: str, type_: RecordTypePath, record: str, dns: FromDishka[SiteService]
 ) -> DnsRecord:
-    return DnsRecord.from_domain(dns.get_record(domain, name, type_.to_domain()))
+    return DnsRecord.from_domain(dns.get_record(domain, record, type_.to_domain()))
 
 
 @router.patch(
@@ -162,13 +162,15 @@ def get_record(
 def update_record(
     domain: str,
     type_: RecordTypePath,
-    name: str,
+    record: str,
     patch: RecordPatch,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> DnsRecord:
     return DnsRecord.from_domain(
-        dns.update_record(domain, name, type_.to_domain(), patch.to_domain(), operator)
+        dns.update_record(
+            domain, record, type_.to_domain(), patch.to_domain(), operator
+        )
     )
 
 
@@ -180,11 +182,11 @@ def update_record(
 def delete_record(
     domain: str,
     type_: RecordTypePath,
-    name: str,
+    record: str,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> None:
-    dns.delete_record(domain, name, type_.to_domain(), operator)
+    dns.delete_record(domain, record, type_.to_domain(), operator)
 
 
 @router.get(
@@ -222,43 +224,43 @@ def create_rule(
 
 
 @router.get(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     response_model=Rule,
     responses=NOT_FOUND_RESPONSES,
 )
-def get_rule(domain: str, name: str, rules: FromDishka[RuleService]) -> Rule:
-    return Rule.from_domain(rules.get_rule(domain, name))
+def get_rule(domain: str, rule: str, rules: FromDishka[RuleService]) -> Rule:
+    return Rule.from_domain(rules.get_rule(domain, rule))
 
 
 @router.patch(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     response_model=Rule,
     responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def update_rule(
     domain: str,
-    name: str,
+    rule: str,
     patch: RulePatch,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
 ) -> Rule:
     return Rule.from_domain(
-        rules.update_rule(domain, name, patch.to_domain(), operator)
+        rules.update_rule(domain, rule, patch.to_domain(), operator)
     )
 
 
 @router.delete(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
 )
 def delete_rule(
     domain: str,
-    name: str,
+    rule: str,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
 ) -> None:
-    rules.delete_rule(domain, name, operator)
+    rules.delete_rule(domain, rule, operator)
 
 
 @router.get(
