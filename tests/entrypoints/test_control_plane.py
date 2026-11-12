@@ -20,7 +20,11 @@ from support.control_plane import (
 from support.stores import Stores
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
+from blitzecdn.capabilities.deployments.domain import (
+    DeploymentRequirementKind,
+    DeploymentStatus,
+    TargetStatus,
+)
 from blitzecdn.capabilities.jobs import DeploymentJob, JobQueue, ScheduledFiring
 from blitzecdn.capabilities.sites.adapters.persistence import ZoneStore
 from blitzecdn.capabilities.sites.domain import (
@@ -743,6 +747,64 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     assert rolled_back.status is DeploymentStatus.FAILED
     assert "changed while this rollback was converging" in (rolled_back.detail or "")
     # The whole point: the record that arrived late is still there.
+    assert (
+        repository.zones.get_record("example.com", "late", RecordType.A) == concurrent
+    )
+
+
+def test_a_refused_rollback_keeps_its_run_and_owes_the_fleet_desired_state(settings):
+    """The edges already serve the older release, so the refusal must not hide it.
+
+    The real Ansible result is recorded rather than a generic abort, and a
+    requirement makes the next convergence bring the fleet back to desired state.
+    """
+    repository = Stores(settings.database_path)
+    control = build_application(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+    )
+    seed_edge(control)
+    _seed_proxied_record(control)
+    successful = control.deployments.deploy("alice")
+    kind = DeploymentRequirementKind.DESIRED_STATE
+    requirements = repository.deployment_requirements
+    assert not requirements.pending(kind)
+
+    concurrent = DnsRecord(
+        domain="example.com", name="late", proxied=False, value="198.51.100.77"
+    )
+
+    class WritingRunner(FakeRunner):
+        def run(self, *, check, host_limit=None, tags=()):
+            with suppress(ConflictError):
+                control.dns.create_record(concurrent, "bob")
+            return super().run(check=check, host_limit=host_limit, tags=tags)
+
+    writing = WritingRunner([ansible_run(host_run("edge-a"))])
+    control.deployments.execution = replace(
+        control.deployments.execution, runner=writing
+    )
+    control.deployments.execution.rollout.runner = writing
+
+    rolled_back = control.deployments.rollback("alice", successful.id)
+
+    assert rolled_back.status is DeploymentStatus.FAILED
+    assert rolled_back.result is not None
+    assert rolled_back.result.status is RunStatus.SUCCEEDED
+    assert [
+        target.status for target in control.deployments.targets(rolled_back.id)
+    ] == [TargetStatus.SUCCEEDED]
+    assert requirements.pending(kind)
+
+    # The owed convergence is a forward fleet deployment of current state.
+    owed = control.deployments.converge_requirements("scheduler")
+    assert owed is not None
+    assert owed.rollback_of is None and owed.host_limit is None
+    redeployed = control.deployments.run_queued(owed.id)
+
+    assert redeployed.status is DeploymentStatus.SUCCEEDED
+    assert not requirements.pending(kind)
     assert (
         repository.zones.get_record("example.com", "late", RecordType.A) == concurrent
     )
