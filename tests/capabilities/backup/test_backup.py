@@ -6,14 +6,18 @@ it must contain, and what a restore must refuse before writing anything.
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import select
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tarfile
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +30,7 @@ from support.control_plane import (
     seed_record,
     with_capability_settings,
 )
+from support.paths import REPO_ROOT
 from support.stores import Stores
 from typer.testing import CliRunner
 
@@ -44,6 +49,7 @@ from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 from blitzecdn.capabilities.backup.domain import (
     BACKUP_FORMAT_VERSION,
+    MANIFEST_NAME,
     BackupComponent,
     BackupRecord,
     backup_filename,
@@ -1937,6 +1943,28 @@ def test_any_one_of_several_recipients_opens_the_archive(populated):
         assert manifest.components == (BackupComponent.TLS,)
 
 
+def test_a_pem_encoded_rsa_key_opens_the_archive_as_age_reads_it(populated):
+    """`ssh-keygen -m PEM` writes RSA keys in the PKCS#1 form, which age accepts."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public = key.public_key().public_bytes(
+        serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH
+    )
+    private = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    assert private.startswith("-----BEGIN RSA PRIVATE KEY-----")
+    _, service = _sealing_service(populated, public.decode("ascii"))
+    archive = service.create(only=(BackupComponent.TLS,))
+    assert service.inspect(archive, identity=private).components == (
+        BackupComponent.TLS,
+    )
+
+
 def test_an_encrypted_archive_restores_with_its_key(populated):
     public, secret = _age_key()
     _, service = _sealing_service(populated, public)
@@ -2048,3 +2076,251 @@ def test_cli_reads_the_identity_from_a_file(populated, monkeypatch, tmp_path):
         cli.app, ["backup", "inspect", archive, "-i", str(tmp_path / "absent")]
     )
     assert isinstance(missing.exception, ConfigurationError)
+
+
+# --- interoperability with the reference age CLI ----------------------
+#
+# pyrage wraps the age Rust crate; these check the archives against the
+# independent Go implementation an operator would reach for when BlitzeCDN
+# will not start. `just install` fetches the version `scripts/fetch-age.sh`
+# pins; CI sets BLITZE_REQUIRE_AGE_CLI so a missing tool fails instead of
+# skipping.
+
+
+def _pinned_age_version() -> str:
+    script = (REPO_ROOT / "scripts" / "fetch-age.sh").read_text(encoding="utf-8")
+    found = re.search(r"^readonly AGE_VERSION=(\S+)$", script, re.MULTILINE)
+    assert found is not None
+    return found.group(1)
+
+
+def _unavailable(reason: str) -> None:
+    if os.environ.get("BLITZE_REQUIRE_AGE_CLI"):
+        pytest.fail(reason)
+    pytest.skip(reason)
+
+
+@pytest.fixture(scope="module")
+def age_cli() -> Path:
+    """The directory holding the pinned `age` and `age-keygen`."""
+    directory = REPO_ROOT / ".state" / "tools" / "age"
+    pinned = _pinned_age_version()
+    if not (directory / "age").is_file():
+        _unavailable(f"the age CLI {pinned} is not installed (run `just age-cli`)")
+    version = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [directory / "age", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if version != pinned:
+        _unavailable(f"the age CLI is {version}, not the pinned {pinned}")
+    if shutil.which("ssh-keygen") is None:
+        _unavailable("ssh-keygen is not installed")
+    return directory
+
+
+@dataclass(frozen=True)
+class _ExternalKey:
+    """A key pair made by a tool other than the application."""
+
+    kind: str
+    recipient: str
+    identity_file: Path
+
+    @property
+    def identity(self) -> str:
+        return self.identity_file.read_text(encoding="utf-8")
+
+    @property
+    def secret_line(self) -> str:
+        """One line of the private key that nothing else would contain."""
+        lines = [
+            line
+            for line in self.identity.splitlines()
+            if line and not line.startswith(("#", "-----"))
+        ]
+        return lines[len(lines) // 2]
+
+
+def _external_key(age_cli: Path, directory: Path, kind: str) -> _ExternalKey:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / kind
+    if kind == "age":
+        subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [age_cli / "age-keygen", "-o", path], capture_output=True, check=True
+        )
+        recipient = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [age_cli / "age-keygen", "-y", path],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return _ExternalKey(kind, recipient, path)
+    arguments = {
+        "ssh-ed25519": ["-t", "ed25519"],
+        "ssh-rsa": ["-t", "rsa", "-b", "3072"],
+        "ssh-rsa-pem": ["-t", "rsa", "-b", "3072", "-m", "PEM"],
+    }[kind]
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["ssh-keygen", "-q", *arguments, "-N", "", "-C", "", "-f", path],  # noqa: S607
+        check=True,
+    )
+    recipient = path.with_suffix(".pub").read_text(encoding="ascii").strip()
+    return _ExternalKey(kind, recipient, path)
+
+
+def _age(age_cli: Path, *arguments, stdin: bytes | None = None):
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [age_cli / "age", *arguments], input=stdin, capture_output=True, check=False
+    )
+
+
+def _tar_members(payload: bytes) -> dict[str, bytes]:
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as handle:
+        return {
+            member.name: (handle.extractfile(member) or io.BytesIO()).read()
+            for member in handle.getmembers()
+            if member.isfile()
+        }
+
+
+_IDENTITY_KINDS = ("age", "ssh-ed25519", "ssh-rsa", "ssh-rsa-pem")
+
+
+@pytest.mark.parametrize("kind", _IDENTITY_KINDS)
+def test_the_age_cli_opens_an_application_archive(populated, age_cli, tmp_path, kind):
+    key = _external_key(age_cli, tmp_path / "keys", kind)
+    plain = build_backup_service(
+        populated,
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
+        clock=system_clock,
+    ).create(destination=tmp_path / "plain.tar.gz")
+    _, service = _sealing_service(populated, key.recipient)
+    sealed = service.create(destination=tmp_path / "sealed.tar.gz.age")
+
+    opened = _age(age_cli, "--decrypt", "-i", key.identity_file, sealed)
+    assert opened.returncode == 0, opened.stderr
+    members = _tar_members(opened.stdout)
+
+    # The same archive the application writes unencrypted, byte for byte in
+    # everything but the manifest's moment.
+    expected = _tar_members(plain.read_bytes())
+    assert sorted(members) == sorted(expected)
+    for name, content in expected.items():
+        if name != MANIFEST_NAME:
+            assert members[name] == content, name
+    manifest = json.loads(members[MANIFEST_NAME])
+    assert set(manifest["components"]) == {
+        component.value for component in BackupComponent
+    }
+    assert members["tls/example-com/privkey-aa.pem"] == b"PRIVATE KEY"
+    assert members["acme/account-key.pem"] == b"ACCOUNT KEY"
+    assert members["config/env"] == (populated.project_dir / ".env").read_bytes()
+    # The key that opens it is nowhere inside it.
+    secret = key.secret_line.encode("ascii")
+    assert not any(secret in content for content in members.values())
+
+    # And what age decrypted is an archive the application accepts.
+    decrypted = tmp_path / "decrypted.tar.gz"
+    decrypted.write_bytes(opened.stdout)
+    assert set(service.inspect(decrypted).components) == set(BackupComponent)
+    # The application opens it with the same externally made key.
+    reopened = service.inspect(sealed, identity=key.identity)
+    assert set(reopened.components) == set(BackupComponent)
+
+
+def test_every_configured_recipient_opens_the_archive_with_the_age_cli(
+    populated, age_cli, tmp_path
+):
+    keys = [_external_key(age_cli, tmp_path / "keys", kind) for kind in _IDENTITY_KINDS]
+    _, service = _sealing_service(populated, *(key.recipient for key in keys))
+    sealed = service.create(only=(BackupComponent.TLS, BackupComponent.ACME))
+    for key in keys:
+        # The identity on standard input, as `--identity -` takes it.
+        opened = _age(
+            age_cli, "-d", "-i", "-", sealed, stdin=key.identity_file.read_bytes()
+        )
+        assert opened.returncode == 0, (key.kind, opened.stderr)
+        manifest = json.loads(_tar_members(opened.stdout)[MANIFEST_NAME])
+        assert sorted(manifest["components"]) == ["acme", "tls"]
+
+
+@pytest.mark.parametrize("armor", [False, True], ids=["binary", "armored"])
+def test_the_application_restores_an_archive_the_age_cli_sealed(
+    populated, age_cli, tmp_path, armor
+):
+    """An operator who encrypts a plain archive by hand can still restore it."""
+    key = _external_key(age_cli, tmp_path / "keys", "age")
+    service = build_backup_service(
+        populated,
+        configuration=BUILTIN_REGISTRY.configuration_contributions(),
+        clock=system_clock,
+    )
+    plain = service.create(
+        only=(BackupComponent.TLS,), destination=tmp_path / "p.tar.gz"
+    )
+    sealed = tmp_path / "by-hand.tar.gz.age"
+    encrypted = _age(
+        age_cli,
+        "-r",
+        key.recipient,
+        *(["--armor"] if armor else []),
+        "-o",
+        sealed,
+        plain,
+    )
+    assert encrypted.returncode == 0, encrypted.stderr
+
+    private_key = certificate_dir(populated) / "example-com/privkey-aa.pem"
+    private_key.write_text("REPLACED", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="is encrypted"):
+        service.restore(sealed)
+    service.restore(sealed, identity=key.identity)
+    assert private_key.read_text(encoding="utf-8") == "PRIVATE KEY"
+
+
+def test_the_age_cli_and_the_application_refuse_the_same_damage(
+    populated, age_cli, tmp_path
+):
+    key = _external_key(age_cli, tmp_path / "keys", "age")
+    stranger = _external_key(age_cli, tmp_path / "other", "age")
+    _, service = _sealing_service(populated, key.recipient)
+    sealed = service.create(only=(BackupComponent.TLS,))
+    payload = bytearray(sealed.read_bytes())
+    tampered = tmp_path / "tampered.tar.gz.age"
+    tampered.write_bytes(
+        bytes(payload[:-20]) + bytes([payload[-20] ^ 1]) + payload[-19:]
+    )
+    truncated = tmp_path / "truncated.tar.gz.age"
+    truncated.write_bytes(bytes(payload[: len(payload) // 2]))
+
+    private_key = certificate_dir(populated) / "example-com/privkey-aa.pem"
+    private_key.write_text("LIVE", encoding="utf-8")
+    for archive, identity in (
+        (sealed, stranger),
+        (tampered, key),
+        (truncated, key),
+    ):
+        refused = _age(
+            age_cli, "-d", "-i", identity.identity_file, "-o", tmp_path / "out", archive
+        )
+        assert refused.returncode != 0, archive.name
+        with pytest.raises(ConfigurationError) as raised:
+            service.restore(archive, identity=identity.identity)
+        assert identity.secret_line not in str(raised.value)
+        assert private_key.read_text(encoding="utf-8") == "LIVE"
+    assert not any((populated.state_dir / "backup-work").iterdir())
+
+
+def test_a_post_quantum_age_key_is_refused_as_a_recipient(age_cli, tmp_path):
+    """age-keygen -pq makes a hybrid key the application cannot seal to yet."""
+    path = tmp_path / "pq"
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [age_cli / "age-keygen", "-pq", "-o", path], capture_output=True, check=True
+    )
+    recipient = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [age_cli / "age-keygen", "-y", path], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    with pytest.raises(ValidationError, match="backup recipient"):
+        BackupConfig.model_validate({"BLITZE_BACKUP_RECIPIENTS": recipient})
