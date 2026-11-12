@@ -78,7 +78,7 @@ def test_case_insensitive_matching_alone_filters_nothing():
     """The flag only changes how path rules match; without them it is a no-op."""
     assert not SiteFirewall().case_insensitive_paths
     flag_only = SiteFirewall(case_insensitive_paths=True)
-    assert flag_only.empty
+    assert not flag_only.empty, "kept, so rate_limit.paths match through it"
     assert flag_only.rule_count == 0
     assert SecurityPolicy(firewall=flag_only).required_capabilities == frozenset()
     with_paths = SiteFirewall(denied_paths=("/admin",), case_insensitive_paths=True)
