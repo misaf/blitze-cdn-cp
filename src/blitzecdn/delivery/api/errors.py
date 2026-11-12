@@ -64,6 +64,15 @@ CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: _error("The request conflicts with current state."),
 }
 
+#: An edit that accepts `If-Match` (see `delivery.api.preconditions`): the
+#: resource changed since the version the client named.
+PRECONDITION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    412: _error(
+        "The resource changed since the version named in If-Match; nothing was "
+        "written. Read it again and reapply the edit."
+    ),
+}
+
 #: A write that takes the deployment lock while the request is open. Besides
 #: the ordinary conflicts, it answers 409 with Retry-After while another
 #: deployment holds the lock: the one conflict that clears on its own.

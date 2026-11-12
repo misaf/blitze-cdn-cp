@@ -6,6 +6,8 @@ Decommissioning writes no deployment and takes no deployment lock.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from blitzecdn.capabilities.edges.domain import (
     LOOPBACK_HOSTS,
     Edge,
@@ -14,6 +16,7 @@ from blitzecdn.capabilities.edges.domain import (
 )
 from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore, HostKeyStore
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.preconditions import IfMatch, require_current
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.ports import UnitOfWork
@@ -69,16 +72,26 @@ class EdgeOperationsService:
             )
         return created
 
-    def update_edge(self, name: str, patch: EdgePatch, operator: str) -> Edge:
+    def update_edge(
+        self,
+        name: str,
+        patch: EdgePatch,
+        operator: str,
+        *,
+        if_match: IfMatch | None = None,
+    ) -> Edge:
         """Change an edge's connection or public details; renaming is not possible.
 
         Certificates, ``--limit`` and audit events refer to the name. Remove and re-add.
         """
-        current = self.edges.get_edge(name)
-        updated = Edge.model_validate(
-            {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
-        )
         with self.uow.transaction():
+            # Read inside the boundary, so ``if_match`` is checked against the
+            # version the swap below is made against.
+            current = self.edges.get_edge(name)
+            require_current(if_match, current, f"edge {name!r}")
+            updated = Edge.model_validate(
+                {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
+            )
             saved = self.edges.replace_edge(updated, expected=current)
             self.events.record(
                 domain_event(
@@ -90,6 +103,19 @@ class EdgeOperationsService:
                 )
             )
         return saved
+
+    def admit_removal[T](
+        self, name: str, enqueue: Callable[[], T], *, if_match: IfMatch | None = None
+    ) -> T:
+        """Queue an edge's removal only if it exists, at the version ``if_match`` names.
+
+        The read, the check and ``enqueue`` share one transaction (nested
+        transactions join the outer one), so an edit committed in between cannot
+        slip past a stale ``If-Match``.
+        """
+        with self.uow.transaction():
+            require_current(if_match, self.edges.get_edge(name), f"edge {name!r}")
+            return enqueue()
 
     def remove_edge(self, name: str, operator: str) -> None:
         """Stop managing an edge without touching the host, whose keys stay in place."""
