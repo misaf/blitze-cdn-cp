@@ -26,6 +26,13 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import (
+    BODY_RESPONSES,
+    BUSY_RESPONSES,
+    CONFLICT_RESPONSES,
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
     idempotent,
@@ -38,11 +45,17 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
-@router.get("/v3/sites/{name}/certificate", response_model=CertificateInfo)
+@router.get(
+    "/v3/sites/{name}/certificate",
+    response_model=CertificateInfo,
+    responses=NOT_FOUND_RESPONSES,
+)
 def certificate(
     name: str, certificates: FromDishka[CertificateService]
 ) -> CertificateInfo:
@@ -66,7 +79,12 @@ def list_certificates(
     "/v3/certificates/renew",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def renew_certificates(
     response: Response,
@@ -105,7 +123,7 @@ def renew_certificates(
     "/v3/certificates/reconcile",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES},
 )
 def reconcile_certificates(
     response: Response,
@@ -134,7 +152,11 @@ def reconcile_certificates(
     )
 
 
-@router.put("/v3/sites/{name}/certificate", response_model=CertificateInfo)
+@router.put(
+    "/v3/sites/{name}/certificate",
+    response_model=CertificateInfo,
+    responses={**NOT_FOUND_RESPONSES, **BUSY_RESPONSES, **BODY_RESPONSES},
+)
 def upload_certificate(
     name: str,
     operator: OperatorDependency,
@@ -163,7 +185,12 @@ def upload_certificate(
     "/v3/sites/{name}/certificate/request",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={
+        202: ACCEPTED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def request_certificate(
     response: Response,
@@ -199,7 +226,11 @@ def request_certificate(
     )
 
 
-@router.get("/v3/sites/{name}/certificate/preflight", response_model=PreflightReport)
+@router.get(
+    "/v3/sites/{name}/certificate/preflight",
+    response_model=PreflightReport,
+    responses=NOT_FOUND_RESPONSES,
+)
 def certificate_preflight(
     name: str, certificates: FromDishka[CertificateService]
 ) -> PreflightReport:
