@@ -6,6 +6,8 @@ Decommissioning writes no deployment and takes no deployment lock.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from blitzecdn.capabilities.edges.domain import (
     LOOPBACK_HOSTS,
     Edge,
@@ -101,6 +103,19 @@ class EdgeOperationsService:
                 )
             )
         return saved
+
+    def admit_removal[T](
+        self, name: str, enqueue: Callable[[], T], *, if_match: IfMatch | None = None
+    ) -> T:
+        """Queue an edge's removal only if it exists, at the version ``if_match`` names.
+
+        The read, the check and ``enqueue`` share one transaction (nested
+        transactions join the outer one), so an edit committed in between cannot
+        slip past a stale ``If-Match``.
+        """
+        with self.uow.transaction():
+            require_current(if_match, self.edges.get_edge(name), f"edge {name!r}")
+            return enqueue()
 
     def remove_edge(self, name: str, operator: str) -> None:
         """Stop managing an edge without touching the host, whose keys stay in place."""
