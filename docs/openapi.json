@@ -7397,7 +7397,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Created. Location is the new resource's canonical URL.",
+            "headers": {
+              "Location": {
+                "description": "Relative URL of the created resource.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -8204,7 +8212,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Created. Location is the new resource's canonical URL.",
+            "headers": {
+              "Location": {
+                "description": "Relative URL of the created resource.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -9016,7 +9032,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Created. Location is the new resource's canonical URL.",
+            "headers": {
+              "Location": {
+                "description": "Relative URL of the created resource.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -9641,7 +9665,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Created. Location is the new resource's canonical URL.",
+            "headers": {
+              "Location": {
+                "description": "Relative URL of the created resource.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {

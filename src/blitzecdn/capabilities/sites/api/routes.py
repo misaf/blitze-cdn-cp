@@ -2,7 +2,7 @@ from typing import Annotated
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 
 from blitzecdn.capabilities.sites import SiteService
 from blitzecdn.capabilities.sites.api.models import (
@@ -33,6 +33,7 @@ from blitzecdn.delivery.api.errors import (
     OPERATOR_RESPONSES,
 )
 from blitzecdn.delivery.api.pagination import Page, paginate
+from blitzecdn.delivery.api.responses import CREATED_RESPONSE, created_at
 
 router = APIRouter(
     route_class=DishkaSyncRoute,
@@ -50,12 +51,17 @@ def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
     "/v3/domains",
     response_model=Domain,
     status_code=status.HTTP_201_CREATED,
-    responses={**CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={201: CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
 )
 def create_domain(
-    domain: Domain, operator: OperatorDependency, dns: FromDishka[SiteService]
+    domain: Domain,
+    response: Response,
+    operator: OperatorDependency,
+    dns: FromDishka[SiteService],
 ) -> Domain:
-    return Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
+    created = Domain.from_domain(dns.create_domain(domain.to_domain(), operator))
+    created_at(response, "/v3/domains", created.name)
+    return created
 
 
 # Declared before ``/v3/domains/{domain}`` so ``export`` is not read as a zone.
@@ -130,15 +136,27 @@ def list_records(domain: str, dns: FromDishka[SiteService]) -> Page[DnsRecord]:
     "/v3/domains/{domain}/records",
     response_model=DnsRecord,
     status_code=status.HTTP_201_CREATED,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        201: CREATED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def create_record(
     domain: str,
     record: RecordCreate,
+    response: Response,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> DnsRecord:
-    return DnsRecord.from_domain(dns.create_record(record.to_domain(domain), operator))
+    created = DnsRecord.from_domain(
+        dns.create_record(record.to_domain(domain), operator)
+    )
+    created_at(
+        response, "/v3/domains", created.domain, "records", created.type, created.name
+    )
+    return created
 
 
 #: One record is addressed by its type as well as its name: an A and an AAAA
@@ -210,15 +228,23 @@ def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
     "/v3/domains/{domain}/rules",
     response_model=Rule,
     status_code=status.HTTP_201_CREATED,
-    responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        201: CREATED_RESPONSE,
+        **NOT_FOUND_RESPONSES,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def create_rule(
     domain: str,
     rule: RuleCreate,
+    response: Response,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
 ) -> Rule:
-    return Rule.from_domain(rules.create_rule(rule.to_domain(domain), operator))
+    created = Rule.from_domain(rules.create_rule(rule.to_domain(domain), operator))
+    created_at(response, "/v3/domains", created.domain, "rules", created.name)
+    return created
 
 
 @router.get(
