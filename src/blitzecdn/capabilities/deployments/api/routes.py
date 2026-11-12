@@ -10,9 +10,14 @@ from blitzecdn.capabilities.deployments.api.models import (
     RollbackRequest,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
+)
+from blitzecdn.delivery.api.idempotency import (
+    IdempotencyKeyDependency,
+    idempotent,
 )
 from blitzecdn.delivery.api.models import as_operation
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
@@ -38,6 +43,8 @@ def deploy(
     request: DeployRequest,
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Deployment:
     """Queue a convergence; poll GET /v3/deployments/{id} for the outcome.
 
@@ -45,8 +52,13 @@ def deploy(
     ``GET /v3/deployments/{id}/drift`` reports what would have.
     """
     queued = as_operation(
-        deployments.submit_deployment(
-            operator, check=request.check, host_limit=request.host_limit
+        idempotent(
+            idempotency,
+            keys,
+            create=lambda: deployments.submit_deployment(
+                operator, check=request.check, host_limit=request.host_limit
+            ),
+            replay=deployments.get_deployment,
         ),
         Deployment,
     )
@@ -121,6 +133,8 @@ def rollback(
     request: RollbackRequest,
     operator: OperatorDependency,
     deployments: FromDishka[DeploymentService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Deployment:
     """Queue reapplying an earlier deployment's release; it is a deployment too.
 
@@ -130,8 +144,13 @@ def rollback(
     release as desired state, discarding undeployed changes.
     """
     queued = as_operation(
-        deployments.submit_rollback(
-            operator, request.deployment_id, check=request.check
+        idempotent(
+            idempotency,
+            keys,
+            create=lambda: deployments.submit_rollback(
+                operator, request.deployment_id, check=request.check
+            ),
+            replay=deployments.get_deployment,
         ),
         Deployment,
     )

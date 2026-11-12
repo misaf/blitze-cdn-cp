@@ -181,6 +181,7 @@ LATER = (
     ("0011_traffic_analytics", {"traffic_path_hours"}),
     # Columns on zone_rules, not a table.
     ("0012_path_rules", set()),
+    ("0013_idempotency_keys", {"idempotency_keys"}),
 )
 LATER_TABLES = {table for _, tables in LATER for table in tables}
 
