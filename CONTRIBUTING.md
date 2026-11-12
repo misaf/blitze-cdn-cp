@@ -17,6 +17,31 @@ just setup     # install everything, then report what this machine can run
 just doctor    # the same report again, with a fix for each missing prerequisite
 ```
 
+### Stale bytecode after a pull or branch switch
+
+When a module moves or is deleted, its ignored `__pycache__` stays behind, so
+the old package directory remains on disk with nothing but bytecode in it.
+`just clean-stale` removes untracked bytecode under `src`, `tests` and
+`scripts`, then every directory that removal left empty. It keeps tracked
+files, directories that were empty before it ran, and everything outside those
+three trees, including `.env`, `.venv`, `.state` and worktrees. Add
+`--dry-run` to list what would go. Do not use `git clean -fdX` for this, since
+it also deletes ignored configuration and operational state.
+
+To run it after every pull, merge and branch switch:
+
+```sh
+just hooks-install     # writes post-merge and post-checkout hooks
+just hooks-uninstall   # removes them again
+```
+
+The hooks go in the clone's shared git directory, so every worktree runs them.
+Installation stops without changing anything if a post-merge or post-checkout
+hook that it did not write already exists (pre-commit's, for example), or if
+`core.hooksPath` is set. In that case, call `scripts/clean-stale.sh --quiet`
+from your own hook. A rebase, `git pull --rebase` included, does not run
+post-merge, so run `just clean-stale` yourself after one.
+
 [Local development](README.md#local-development) covers running the API and
 worker. [Testing without local infrastructure](docs/testing.md) says what needs
 Docker and what runs only in GitHub Actions.
