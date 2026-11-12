@@ -17,11 +17,16 @@ from blitzecdn.capabilities.cache.service.operations import (
     CacheConnectionsJob,
     CachePurgeJob,
 )
-from blitzecdn.capabilities.jobs import OperationService
+from blitzecdn.capabilities.jobs import Job, OperationService
 from blitzecdn.capabilities.traffic import UsageQuery
+from blitzecdn.core.ports.idempotency import IdempotencyKeyStore
 from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
+)
+from blitzecdn.delivery.api.idempotency import (
+    IdempotencyKeyDependency,
+    idempotent,
 )
 from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
@@ -47,6 +52,8 @@ def purge_cache(
     operator: OperatorDependency,
     cache: FromDishka[CacheService],
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue a purge on the edges; the operation's result is a PurgeResult.
 
@@ -54,14 +61,15 @@ def purge_cache(
     The result's ``complete`` and ``failed_hosts`` name edges that may still
     serve the cached copy.
     """
-    targets = cache.check_purge(
-        entries=[entry.to_domain() for entry in request.entries],
-        prefixes=[prefix.to_domain() for prefix in request.prefixes],
-        tags=request.tags,
-        purge_all=request.purge_all,
-    )
-    queued = as_queued(
-        queued_operations.submit(
+
+    def submit() -> Job:
+        targets = cache.check_purge(
+            entries=[entry.to_domain() for entry in request.entries],
+            prefixes=[prefix.to_domain() for prefix in request.prefixes],
+            tags=request.tags,
+            purge_all=request.purge_all,
+        )
+        return queued_operations.submit(
             CachePurgeJob(
                 operator=operator,
                 entries=tuple(targets.entries),
@@ -71,6 +79,9 @@ def purge_cache(
                 host_limit=request.host_limit,
             )
         )
+
+    queued = as_queued(
+        idempotent(idempotency, keys, create=submit, replay=queued_operations.get)
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")
     return queued
@@ -135,11 +146,18 @@ def cache_connections(
     request: ConnectionsRequest,
     operator: OperatorDependency,
     queued_operations: FromDishka[OperationService],
+    idempotency: IdempotencyKeyDependency,
+    keys: FromDishka[IdempotencyKeyStore],
 ) -> Operation:
     """Queue a live read of nginx's connection counters; the result is a report."""
     queued = as_queued(
-        queued_operations.submit(
-            CacheConnectionsJob(operator=operator, host_limit=request.host_limit)
+        idempotent(
+            idempotency,
+            keys,
+            create=lambda: queued_operations.submit(
+                CacheConnectionsJob(operator=operator, host_limit=request.host_limit)
+            ),
+            replay=queued_operations.get,
         )
     )
     polling_headers(response, active=True, location=f"/v3/operations/{queued.id}")

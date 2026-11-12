@@ -95,6 +95,11 @@ blitzecdn	column	edges.public_addresses	type=JSON not-null
 blitzecdn	column	edges.ssh_sources	type=JSON not-null
 blitzecdn	column	edges.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	edges.user	type=VARCHAR not-null
+blitzecdn	column	idempotency_keys.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	idempotency_keys.fingerprint	type=VARCHAR not-null
+blitzecdn	column	idempotency_keys.key	type=VARCHAR not-null pk
+blitzecdn	column	idempotency_keys.operator	type=VARCHAR not-null pk
+blitzecdn	column	idempotency_keys.resource_id	type=VARCHAR null
 blitzecdn	column	job_schedules.interval_seconds	type=INTEGER not-null
 blitzecdn	column	job_schedules.jitter_seconds	type=INTEGER not-null
 blitzecdn	column	job_schedules.last_run_at	type=UtcDateTime(VARCHAR) null
@@ -191,6 +196,7 @@ blitzecdn	index	deployments.ix_deployments_previous_release_id	(previous_release
 blitzecdn	index	deployments.ix_deployments_release_id	(release_id)
 blitzecdn	index	deployments.ix_deployments_rollback_of	(rollback_of)
 blitzecdn	index	deployments.ix_deployments_status_created_at	(status,created_at)
+blitzecdn	index	idempotency_keys.ix_idempotency_keys_created_at	(created_at)
 blitzecdn	index	job_schedules.ix_job_schedules_next_run_at	(next_run_at)
 blitzecdn	index	jobs.ix_jobs_created_at	(created_at)
 blitzecdn	index	jobs.ix_jobs_dedupe_key_unfinished	(dedupe_key) unique
@@ -202,4 +208,4 @@ blitzecdn	index	traffic_hours.ix_traffic_hours_hour_hostname_edge	(hour,hostname
 blitzecdn	index	traffic_path_hours.ix_traffic_path_hours_hostname_hour	(hostname,hour)
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
-blitzecdn	revision	0013_deployment_previous_release
+blitzecdn	revision	0014_deployment_previous_release
