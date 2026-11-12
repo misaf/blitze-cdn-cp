@@ -12,9 +12,10 @@ blitzecdn	route	GET /v3/deployments/{deployment_id}
 blitzecdn	route	GET /v3/deployments/{deployment_id}/diff
 blitzecdn	route	GET /v3/deployments/{deployment_id}/drift
 blitzecdn	route	GET /v3/deployments/{deployment_id}/targets
-blitzecdn	route	GET /v3/dns/export
 blitzecdn	route	GET /v3/domains
+blitzecdn	route	GET /v3/domains/export
 blitzecdn	route	GET /v3/domains/{domain}
+blitzecdn	route	GET /v3/domains/{domain}/export
 blitzecdn	route	GET /v3/domains/{domain}/records
 blitzecdn	route	GET /v3/domains/{domain}/records/{type}/{name}
 blitzecdn	route	GET /v3/domains/{domain}/resolve
@@ -214,6 +215,11 @@ blitzecdn	schema	DeploymentTarget.last_error	string|null optional
 blitzecdn	schema	DeploymentTarget.phase	TargetPhase|null optional
 blitzecdn	schema	DeploymentTarget.started_at	string|null optional
 blitzecdn	schema	DeploymentTarget.status	TargetStatus required
+blitzecdn	schema	DnsExport.publication	DnsPublication required
+blitzecdn	schema	DnsExport.records	array[ExportedRecord] required
+blitzecdn	schema	DnsPublication.detail	string required
+blitzecdn	schema	DnsPublication.mode	string required
+blitzecdn	schema	DnsPublication.publishes	boolean required
 blitzecdn	schema	DnsRecord.domain	string required
 blitzecdn	schema	DnsRecord.name	string required
 blitzecdn	schema	DnsRecord.proxied	boolean optional
@@ -306,6 +312,14 @@ blitzecdn	schema	EdgeRelease.edge	string required
 blitzecdn	schema	EdgeRelease.release	string|null optional
 blitzecdn	schema	EdgeRelease.state	EdgeReleaseState required
 blitzecdn	schema	ErrorResponse.detail	string required
+blitzecdn	schema	ExportedRecord.answer	string required
+blitzecdn	schema	ExportedRecord.domain	string required
+blitzecdn	schema	ExportedRecord.fqdn	string required
+blitzecdn	schema	ExportedRecord.name	string required
+blitzecdn	schema	ExportedRecord.proxied	boolean required
+blitzecdn	schema	ExportedRecord.ttl	integer required
+blitzecdn	schema	ExportedRecord.type	enum[A,AAAA] required
+blitzecdn	schema	ExportedRecord.value	string|null required
 blitzecdn	schema	FleetReleases.edges	array[EdgeRelease] optional
 blitzecdn	schema	FleetReleases.mixed	boolean required
 blitzecdn	schema	FleetReleases.releases	array[ReleaseGroup] optional

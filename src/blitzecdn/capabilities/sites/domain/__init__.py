@@ -20,7 +20,9 @@ from blitzecdn.capabilities.sites.domain.patch import (
 )
 from blitzecdn.capabilities.sites.domain.publication import (
     PUBLICATION,
+    DnsExport,
     DnsPublication,
+    ExportedRecord,
     PublicationMode,
 )
 from blitzecdn.capabilities.sites.domain.record import (
@@ -38,10 +40,12 @@ from blitzecdn.capabilities.sites.domain.zone import Domain
 
 __all__ = [
     "PUBLICATION",
+    "DnsExport",
     "DnsPublication",
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "ExportedRecord",
     "PatchPolicy",
     "PolicyCommand",
     "PublicationMode",

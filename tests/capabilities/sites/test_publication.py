@@ -45,8 +45,8 @@ def test_the_export_carries_the_limitation_beside_the_records(settings, monkeypa
 
     exported = control.dns.dns_export()
 
-    assert exported["publication"]["publishes"] is False
-    assert [record["fqdn"] for record in exported["records"]] == ["cdn.example.com"]
+    assert exported.publication.publishes is False
+    assert [record.fqdn for record in exported.records] == ["cdn.example.com"]
 
 
 def test_a_proxied_record_asks_for_an_edge_address_rather_than_naming_one(
@@ -56,10 +56,10 @@ def test_a_proxied_record_asks_for_an_edge_address_rather_than_naming_one(
     control = control_for(settings, monkeypatch)
     seed_record(control, name="cdn", value="198.51.100.10")
 
-    (record,) = control.dns.dns_export()["records"]
+    (record,) = control.dns.dns_export().records
 
-    assert record["answer"] == "an edge address"
-    assert "value" not in record
+    assert record.answer == "an edge address"
+    assert record.value is None
 
 
 def test_unproxying_does_not_claim_that_dns_now_answers(settings, monkeypatch):

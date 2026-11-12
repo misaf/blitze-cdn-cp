@@ -6,9 +6,11 @@ from pydantic import ValidationError
 
 from blitzecdn.capabilities.sites.domain import (
     PUBLICATION,
+    DnsExport,
     DnsPublication,
     DnsRecord,
     Domain,
+    ExportedRecord,
     PolicyCommand,
     RecordPatch,
     RecordType,
@@ -226,30 +228,22 @@ class SiteService:
 
     # -- Reporting -----------------------------------------------------
 
-    def dns_export(self) -> dict[str, object]:
-        """Every record, for the system that publishes DNS, with who that is.
+    def dns_export(self, domain: str | None = None) -> DnsExport:
+        """Every record, or one zone's, for the system that publishes DNS.
 
         ``publication`` travels with the records. A proxied record's origin is never
-        exported; its public answer is the fleet's address.
+        exported; its public answer is the fleet's address. ``NotFoundError`` for
+        an unknown zone, rather than an empty export that looks like one.
         """
-        return {
-            "publication": PUBLICATION.model_dump(mode="json"),
-            "records": [
-                {
-                    "fqdn": record.fqdn,
-                    "domain": record.domain,
-                    "name": record.name,
-                    "type": record.type.value,
-                    "ttl": record.ttl,
-                    "proxied": record.proxied,
-                    # A proxied hostname needs an edge address only the fleet
-                    # knows; an unproxied one needs exactly this value.
-                    "answer": ("an edge address" if record.proxied else record.value),
-                    **({} if record.proxied else {"value": record.value}),
-                }
-                for record in self.zones.list_records()
-            ],
-        }
+        if domain is not None:
+            self.zones.get_domain(domain)
+        return DnsExport(
+            publication=PUBLICATION,
+            records=tuple(
+                ExportedRecord.from_record(record)
+                for record in self.zones.list_records(domain)
+            ),
+        )
 
     @staticmethod
     def publication() -> DnsPublication:
