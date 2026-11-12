@@ -10,7 +10,8 @@ Each area has one prefix, and a resource one name:
 | --- | --- |
 | Zones, records, rules | `/v3/domains/...` |
 | Sites (what zones and rules resolve to; read-only) | `/v3/sites`, `/v3/sites/{name}` |
-| A site's certificate | `/v3/sites/{name}/certificate/...`; the fleet's under `/v3/certificates/...` |
+| A site's certificate | `/v3/sites/{name}/certificate/...` |
+| The fleet's certificates and SSL modes | `/v3/certificates/...`, including `/v3/certificates/ssl-modes/reconcile` |
 | Traffic and analytics | `/v3/traffic/...`, a site's under `/v3/traffic/sites/{site}` |
 | Deployments, drift checks, rollbacks | `/v3/deployments/...` |
 

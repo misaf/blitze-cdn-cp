@@ -47,6 +47,7 @@ blitzecdn	route	POST /v3/cache/connections
 blitzecdn	route	POST /v3/cache/purge
 blitzecdn	route	POST /v3/certificates/reconcile
 blitzecdn	route	POST /v3/certificates/renew
+blitzecdn	route	POST /v3/certificates/ssl-modes/reconcile
 blitzecdn	route	POST /v3/deployments
 blitzecdn	route	POST /v3/deployments/rollback
 blitzecdn	route	POST /v3/domains
@@ -55,7 +56,6 @@ blitzecdn	route	POST /v3/domains/{domain}/rules
 blitzecdn	route	POST /v3/edges
 blitzecdn	route	POST /v3/origins/check
 blitzecdn	route	POST /v3/sites/{name}/certificate/request
-blitzecdn	route	POST /v3/ssl/automatic/reconcile
 blitzecdn	route	POST /v3/workflows/{workflow_id}/acknowledge
 blitzecdn	route	PUT /v3/sites/{name}/certificate
 blitzecdn	schema	AnsibleRun.error	string|null optional

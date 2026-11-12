@@ -60,7 +60,7 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/sites/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
 | `POST /v3/certificates/renew` | `/v3/operations/{id}` | `Operation`; result is a renewal report |
 | `POST /v3/certificates/reconcile` | `/v3/operations/{id}` | `Operation`; result is a reconciliation report |
-| `POST /v3/ssl/automatic/reconcile` | `/v3/operations/{id}` | `Operation`; result is an Automatic SSL/TLS reconciliation |
+| `POST /v3/certificates/ssl-modes/reconcile` | `/v3/operations/{id}` | `Operation`; result is an Automatic SSL/TLS reconciliation |
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |
 | `POST /v3/deployments/rollback` | `/v3/deployments/{id}` | Rollback `Deployment` |
 
