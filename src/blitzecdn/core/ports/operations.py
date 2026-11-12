@@ -44,10 +44,13 @@ class PlaybookRunner(Protocol):
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> AnsibleRun:
         """Run ``playbook`` across the edges ``host_limit`` selects, or all of them.
 
         ``variables`` are staged for this run alone and ``name`` labels its log.
+        The run is stopped at ``timeout_seconds`` or the deployment timeout,
+        whichever is sooner.
         """
         ...
 

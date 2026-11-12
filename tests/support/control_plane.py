@@ -483,6 +483,7 @@ class FakeRunner:
         playbook: Path,
         variables: Mapping[str, object],
         host_limit: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> AnsibleRun:
         # The edges capability's teardown is a named play like any other.
         if name == "decommission" and host_limit is not None:

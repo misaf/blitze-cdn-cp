@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import ChallengeEdges
+from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.core.ports.operations import PlaybookRunner
 
@@ -27,7 +28,8 @@ class PlaybookChallenges:
     """Runs the ``acme-challenge`` play on the edges a hostname resolves to.
 
     Only those edges are targeted, so one edge that is down cannot block every
-    certificate in the fleet; the ones left out are logged by name.
+    certificate in the fleet; the ones left out are logged by name. Each play is
+    stopped by Ansible Runner at the caller's ``timeout_seconds``.
     """
 
     def __init__(
@@ -39,15 +41,24 @@ class PlaybookChallenges:
         self._playbooks = playbooks
         self._challenge_edges = challenge_edges
 
-    def present(self, domain: str, token: str, validation: str) -> None:
+    def present(
+        self, domain: str, token: str, validation: str, *, timeout_seconds: int
+    ) -> None:
         if not _VALIDATION.fullmatch(validation):
             raise ExecutionError("the CA sent an invalid HTTP-01 validation value")
-        self._run("present", domain, token, validation)
+        self._run("present", domain, token, validation, timeout_seconds)
 
-    def absent(self, domain: str, token: str) -> None:
-        self._run("absent", domain, token, "")
+    def absent(self, domain: str, token: str, *, timeout_seconds: int) -> None:
+        self._run("absent", domain, token, "", timeout_seconds)
 
-    def _run(self, action: str, domain: str, token: str, validation: str) -> None:
+    def _run(
+        self,
+        action: str,
+        domain: str,
+        token: str,
+        validation: str,
+        timeout_seconds: int,
+    ) -> None:
         if not _DOMAIN.fullmatch(domain) or not _TOKEN.fullmatch(token):
             raise ExecutionError("the CA sent an invalid HTTP-01 challenge")
         edges = self._challenge_edges(domain)
@@ -71,7 +82,13 @@ class PlaybookChallenges:
                 "blitzecdn_acme_token": token,
                 "blitzecdn_acme_validation": validation,
             },
+            timeout_seconds=timeout_seconds,
         )
+        if run.status is RunStatus.TIMED_OUT:
+            raise ExecutionError(
+                f"timed out after {timeout_seconds}s trying to {action} the HTTP-01 "
+                f"challenge for {domain} (full output: {run.log_path})"
+            )
         if not run.succeeded:
             raise ExecutionError(
                 f"could not {action} the HTTP-01 challenge for {domain}: "
