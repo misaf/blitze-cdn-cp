@@ -94,6 +94,11 @@ class WorkflowCoordinator:
         and propagates, leaving the workflow RUNNING. Restart recovery
         (`reconcile_interrupted`) then turns it into NEEDS_REVIEW, the same as
         after a SIGKILL or a crash, so every way a worker can stop ends one way.
+
+        Every write after the first requires the workflow to still be RUNNING. A
+        worker that stalled while recovery marked its workflow for review cannot
+        then hide that review: a checkpoint raises `ConflictError`, and closing
+        leaves the review in place.
         """
         workflow_id = uuid4().hex
         with self.uow.transaction():
@@ -102,6 +107,12 @@ class WorkflowCoordinator:
 
         def checkpoint(name: str, details: dict[str, Any] | None = None) -> Workflow:
             with self.uow.transaction():
+                current = self.journal.get(workflow_id)
+                if current.status is not WorkflowStatus.RUNNING:
+                    raise ConflictError(
+                        f"workflow {workflow_id!r} is {current.status.value}; it "
+                        "was taken out of this worker's hands"
+                    )
                 return self.journal.advance(
                     workflow_id,
                     WorkflowStatus.RUNNING,
@@ -125,24 +136,40 @@ class WorkflowCoordinator:
                     workflow_kind=kind,
                     resource_id=resource_id,
                 )
-            with self.uow.transaction():
-                self.journal.advance(
-                    workflow_id,
-                    WorkflowStatus.FAILED,
-                    error=recorded_error(exc),
-                )
+            self._close(
+                workflow_id, WorkflowStatus.FAILED, recorded_error(exc), prune=False
+            )
             raise
         else:
-            with self.uow.transaction():
-                self.journal.advance(
-                    workflow_id,
-                    (
-                        WorkflowStatus.FAILED
-                        if progress.error
-                        else WorkflowStatus.SUCCEEDED
-                    ),
-                    error=progress.error,
+            self._close(
+                workflow_id,
+                WorkflowStatus.FAILED if progress.error else WorkflowStatus.SUCCEEDED,
+                progress.error,
+                prune=True,
+            )
+
+    def _close(
+        self,
+        workflow_id: str,
+        status: WorkflowStatus,
+        error: str | None,
+        *,
+        prune: bool,
+    ) -> None:
+        """Finish a workflow this worker still owns; leave one recovery took over."""
+        with self.uow.transaction():
+            current = self.journal.get(workflow_id)
+            if current.status is not WorkflowStatus.RUNNING:
+                _LOGGER.warning(
+                    "workflow finished after recovery took it over; its outcome "
+                    "was not recorded",
+                    workflow_id=workflow_id,
+                    status=current.status.value,
+                    discarded=status.value,
                 )
+                return
+            self.journal.advance(workflow_id, status, error=error)
+            if prune:
                 self.journal.prune_finished(self.retention)
 
     def acknowledge(self, workflow_id: str, operator: str) -> Workflow:

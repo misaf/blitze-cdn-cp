@@ -164,6 +164,9 @@ def test_killed_worker_resumes_its_saved_checkpoint(practice):
         interrupted = child(original, "snapshot")
         assert interrupted["deployments"][0]["status"] == "running"
         assert interrupted["deployments"][0]["targets"][0]["phase"] == "stage"
+        [killed] = interrupted["workflows"]
+        assert killed["resource_id"] == deployment_id
+        assert killed["status"] == "running" and killed["steps"] == []
         job = interrupted["jobs"][0]
         assert job["status"] == "running" and job["attempts"] == 1
         assert job["leased_by"].endswith(f":{worker.pid}")
@@ -197,6 +200,14 @@ def test_killed_worker_resumes_its_saved_checkpoint(practice):
     assert len(resumed["deployments"]) == len(resumed["jobs"]) == 1
     assert resumed["deployments"][0]["id"] == deployment_id
     assert resumed["deployments"][0]["status"] == "succeeded"
+    assert {target["phase"] for target in resumed["deployments"][0]["targets"]} == {
+        "verify"
+    }
+    # The killed worker's journal waits for review; the takeover's closed.
+    reviewed, finished = resumed["workflows"]
+    assert reviewed == {**killed, "status": "needs_review"}
+    assert finished["resource_id"] == deployment_id
+    assert finished["status"] == "succeeded" and finished["steps"] == ["converged"]
     assert served.read_text().strip() == resumed["release_digest"]
     print(
         "RECOVERY: SIGKILL worker -> fresh worker; same job/deployment, "
