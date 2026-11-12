@@ -5456,6 +5456,88 @@
         "summary": "Renew Certificates"
       }
     },
+    "/v3/certificates/ssl-modes/reconcile": {
+      "post": {
+        "description": "Queue probing origins from every edge and applying upgrade-only\nrecommendations; the result is an SslAutomaticReconciliation.\n\nOne scan may be queued or running at a time. A result naming a\n``deployment`` ran it: poll ``GET /v3/deployments/{id}`` for the record.",
+        "operationId": "reconcile_automatic_ssl_v3_certificates_ssl_modes_reconcile_post",
+        "parameters": [
+          {
+            "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "pattern": "^[\\x21-\\x7e]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            },
+            "description": "Work accepted, not completed. Poll the URL in Location.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Do not cache operation status.",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the authenticated status resource.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Suggested seconds before polling again; absent when finished.",
+                "example": 2,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Reconcile Automatic Ssl"
+      }
+    },
     "/v3/deployments": {
       "get": {
         "operationId": "deployments_v3_deployments_get",
@@ -7898,88 +7980,6 @@
           }
         ],
         "summary": "Request Certificate"
-      }
-    },
-    "/v3/ssl/automatic/reconcile": {
-      "post": {
-        "description": "Queue probing origins from every edge and applying upgrade-only\nrecommendations; the result is an SslAutomaticReconciliation.\n\nOne scan may be queued or running at a time. A result naming a\n``deployment`` ran it: poll ``GET /v3/deployments/{id}`` for the record.",
-        "operationId": "reconcile_automatic_ssl_v3_ssl_automatic_reconcile_post",
-        "parameters": [
-          {
-            "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 255,
-                  "minLength": 1,
-                  "pattern": "^[\\x21-\\x7e]+$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
-              "title": "Idempotency-Key"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Operation"
-                }
-              }
-            },
-            "description": "Work accepted, not completed. Poll the URL in Location.",
-            "headers": {
-              "Cache-Control": {
-                "description": "Do not cache operation status.",
-                "schema": {
-                  "enum": [
-                    "no-store"
-                  ],
-                  "type": "string"
-                }
-              },
-              "Location": {
-                "description": "Relative URL of the authenticated status resource.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Retry-After": {
-                "description": "Suggested seconds before polling again; absent when finished.",
-                "example": 2,
-                "schema": {
-                  "minimum": 1,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Reconcile Automatic Ssl"
       }
     },
     "/v3/status": {
