@@ -19,8 +19,22 @@ A drift check is a deployment in check mode, `POST /v3/deployments` with
 `POST /v3/deployments/rollback`, is a deployment too.
 
 `GET /v3/releases/current/diff` answers "what would change on the edges if I
-deployed now": a unified diff, per rendered file, between the release the fleet
-runs and the one current state compiles to. It records nothing. Each deployment
+deployed now": a unified diff, per rendered file, between one baseline and the
+release current state compiles to. It records nothing. The baseline,
+`baseline_release`, is the release of the newest real run that reached any
+edge, so after a canary, or a rollout that failed once earlier edges had
+committed, it is not what every edge runs. `fleet` says what deployment history
+records for each registered edge: its release, the run that verified it there,
+and a `state` of `recorded`, `unverified` (a newer run failed or stopped on it
+after activating) or `unknown` (no verified run on record, or no deployment
+yet). `fleet.releases` groups the edges by release, marks the baseline, and
+says per release whether deploying would change it (`changed`, `null` for edges
+with nothing verified). `fleet.mixed` is true when the edges sit in more than
+one group, and `fleet.warnings` says in words every way the baseline falls
+short, an empty fleet included. `fleet.source` is always `deployment_records`:
+this is what deployments recorded, not a probe of what an edge serves now; run
+a drift check for that. For one group's files, write its tree with
+`blitzecdn release render --release <id>` and compare it with the current one. Each deployment
 records the release the fleet ran when it was queued, and
 `GET /v3/deployments/{id}/diff` shows what that deployment changed. Secrets are
 never in a rendered bundle, so never in a diff.

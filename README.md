@@ -78,7 +78,9 @@ playbooks are shaped as they are.
 Inspect recent deployments with `uv run blitzecdn deployment status`, or pass a
 deployment ID for its per-edge progress. Before deploying an edit, `uv run
 blitzecdn release diff` prints the unified diff of the rendered edge
-configuration against what the fleet runs; `uv run blitzecdn deployment diff
+configuration against the release of the newest run that reached an edge, and
+first warns, edge by edge, when deployment records place the fleet on more
+than one release; `uv run blitzecdn deployment diff
 <id>` shows what a past deployment changed. Read stored hourly cache effectiveness with
 `uv run blitzecdn cache stats --start ... --end ...`. Controller diagnostics
 use `blitzecdn overview`.

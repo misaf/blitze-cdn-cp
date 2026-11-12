@@ -15,6 +15,7 @@ from blitzecdn.capabilities.deployments.adapters.tables import (
     DeploymentTargetRow,
 )
 from blitzecdn.capabilities.deployments.domain import (
+    PHASE_ORDER,
     TERMINAL_STATUSES,
     ConvergenceHealth,
     ConvergenceKind,
@@ -26,10 +27,23 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetStatus,
     abandoned_run,
 )
+from blitzecdn.capabilities.releases import EdgeRelease, EdgeReleaseState
 from blitzecdn.core.domain.pagination import PageResult
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.pagination import read_page
+
+
+def _touched_serving(phase: str | None) -> bool:
+    """Whether a run that failed or stopped with ``phase`` done may have activated.
+
+    ``phase`` is the last one completed, so an edge past ``STAGE`` was activating
+    or verifying: it was withdrawn, or not yet committed, and either way what it
+    serves is not on record as verified.
+    """
+    return phase is not None and PHASE_ORDER.index(
+        TargetPhase(phase)
+    ) >= PHASE_ORDER.index(TargetPhase.STAGE)
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -372,6 +386,55 @@ class DeploymentStore:
                 .order_by(DeploymentRow.created_at.desc())
                 .limit(1)
             ).first()
+
+    def edge_releases(self) -> dict[str, EdgeRelease]:
+        # Newest first, so each edge's first verified row is its release and any
+        # serving-phase failure or interruption seen before it is newer than it.
+        touched = (
+            select(
+                DeploymentTargetRow.edge,
+                DeploymentTargetRow.status,
+                DeploymentTargetRow.phase,
+                DeploymentRow.id,
+                DeploymentRow.release_id,
+            )
+            .join(DeploymentRow, DeploymentRow.id == DeploymentTargetRow.deployment_id)
+            .where(
+                DeploymentRow.check_mode.is_(False),
+                DeploymentTargetRow.status.in_(
+                    (
+                        TargetStatus.SUCCEEDED.value,
+                        TargetStatus.FAILED.value,
+                        TargetStatus.RUNNING.value,
+                    )
+                ),
+            )
+            .order_by(DeploymentRow.created_at.desc(), DeploymentRow.id.desc())
+        )
+        unsettled: set[str] = set()
+        found: dict[str, EdgeRelease] = {}
+        with self._db.reader() as session:
+            for edge, status, phase, deployment_id, release_id in session.execute(
+                touched
+            ):
+                if edge in found:
+                    continue
+                if status == TargetStatus.SUCCEEDED.value:
+                    found[edge] = EdgeRelease(
+                        edge=edge,
+                        state=(
+                            EdgeReleaseState.UNVERIFIED
+                            if edge in unsettled
+                            else EdgeReleaseState.RECORDED
+                        ),
+                        release=release_id,
+                        deployment=deployment_id,
+                    )
+                elif _touched_serving(phase):
+                    unsettled.add(edge)
+        for edge in unsettled - found.keys():
+            found[edge] = EdgeRelease(edge=edge, state=EdgeReleaseState.UNVERIFIED)
+        return found
 
     def successful_rollback_target(self, current_release: str) -> Deployment:
         # `host_limit IS NULL` keeps canaries out of the automatic choice: one edge

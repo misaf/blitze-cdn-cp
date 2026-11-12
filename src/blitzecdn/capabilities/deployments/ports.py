@@ -16,7 +16,7 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.capabilities.releases import Release, ReleaseInputs
+from blitzecdn.capabilities.releases import EdgeRelease, Release, ReleaseInputs
 from blitzecdn.capabilities.sites import Rule, ZoneEditor, ZoneStore
 from blitzecdn.capabilities.workflows import Workflow, WorkflowKind
 from blitzecdn.core.domain.configuration import ConfigurationBundle
@@ -171,6 +171,15 @@ class DeploymentStore(Protocol):
 
         A run that succeeded, or one that failed after committing some edges, which
         stay on it. ``None`` when no real run has reached an edge.
+        """
+        ...
+
+    def edge_releases(self) -> Mapping[str, EdgeRelease]:
+        """What history records for every edge a real run ever touched, by name.
+
+        Each edge's release is the one its newest verified run applied. A newer real
+        run that failed or stopped on it after activating marks it ``UNVERIFIED``.
+        Check-mode runs and edges a run skipped or never reached count for nothing.
         """
         ...
 
