@@ -57,6 +57,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   unchanged; generated clients rename their arguments. `host_limit` on
   `GET /v3/releases/current` is documented as the edge selector it is
   everywhere, not pagination (#382).
+- `POST /v3/domains` takes a `DomainCreate` body and `POST /v3/edges` an
+  `EdgeCreate` body, so every resource is created with `XCreate`, updated
+  with `XPatch` and read back as `X`. The fields are unchanged; `Domain` and
+  `Edge` are now only response models (#381).
 - `GET /v3/dns/export` is now `GET /v3/domains/export`, with
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
@@ -65,6 +69,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   `403`, `404`, `409`, `413` and the rest, with an `ErrorResponse`
   schema for their `{"detail": "message"}` body, so generated clients expect
   them (#375).
+- Cache statistics and collection freshness moved under `/v3/traffic`:
+  `GET /v3/cache/stats` is now `GET /v3/traffic/cache`, and
+  `GET /v3/traffic/status/{edge}` is now `GET /v3/traffic/collection`, a page
+  of every edge's status that `?edge=` narrows to one (#378).
 - The API has one noun per resource and one prefix per area (#289).
 - The `dns` capability is now `sites` (#302), and Automatic SSL is its own
   capability (#227).

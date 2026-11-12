@@ -127,7 +127,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     # -- Traffic -----------------------------------------------------------
     ("blitzecdn", "traffic usage", "GET /v3/traffic/usage", ""),
-    ("blitzecdn", "traffic status", "GET /v3/traffic/status/{edge}", ""),
+    ("blitzecdn", "traffic status", "GET /v3/traffic/collection", ""),
     ("blitzecdn", "analytics site", "GET /v3/traffic/sites/{site}", ""),
     ("blitzecdn", "analytics paths", "GET /v3/traffic/sites/{site}/paths", ""),
     # -- Durable work ------------------------------------------------------
@@ -296,7 +296,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "nothing to poll.",
     ),
     ("blitzecdn", "cache purge", "POST /v3/cache/purge", ""),
-    ("blitzecdn", "cache stats", "GET /v3/cache/stats", ""),
+    ("blitzecdn", "cache stats", "GET /v3/traffic/cache", ""),
     ("blitzecdn", "cache connections", "POST /v3/cache/connections", ""),
     ("blitzecdn", "origin check", "POST /v3/origins/check", ""),
     (

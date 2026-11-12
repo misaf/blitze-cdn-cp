@@ -12,17 +12,24 @@ from blitzecdn.delivery.api.models import Model
 from blitzecdn.delivery.api.requests import PatchValue
 
 
-class Edge(Model):
+class EdgeBody(Model):
+    """Edge fields shared by the creation request and the response."""
+
     name: str
     host: str
     user: str = "deploy"
     port: int = Field(default=22, ge=1, le=65535)
+    #: A path on the controller, never the key itself.
     private_key_file: str | None = None
     public_addresses: tuple[str, ...] = Field(default=(), max_length=20)
     ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
     #: Capability tokens this edge's runtime provides; ``None`` means the
     #: controller's installed set.
     capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
+
+
+class EdgeCreate(EdgeBody):
+    """The body that registers an edge."""
 
     @model_validator(mode="after")
     def valid_edge(self) -> Self:
@@ -31,6 +38,10 @@ class Edge(Model):
 
     def to_domain(self) -> DomainEdge:
         return DomainEdge.model_validate(self.model_dump())
+
+
+class Edge(EdgeBody):
+    """One registered edge, as it is read back."""
 
     @classmethod
     def from_domain(cls, value: DomainEdge) -> Self:
@@ -50,4 +61,4 @@ class EdgePatch(Model):
         return DomainEdgePatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-__all__ = ["Edge", "EdgePatch"]
+__all__ = ["Edge", "EdgeCreate", "EdgePatch"]

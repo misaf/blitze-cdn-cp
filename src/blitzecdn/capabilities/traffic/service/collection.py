@@ -1,12 +1,14 @@
 """Collect outside transactions; commit each edge's increments with its progress."""
 
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from uuid import uuid4
 
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.traffic.domain import (
     CollectedUsage,
+    CollectionRecord,
     CollectionStatus,
     EdgeCollection,
     FreshnessState,
@@ -65,7 +67,31 @@ class TrafficService:
             raise NotFoundError(
                 f"edge {edge!r} has no collection history and is not registered"
             )
+        return self._judge(edge, record, registered=registered, now=self.clock())
+
+    def statuses(self, edge: str | None = None) -> list[CollectionStatus]:
+        """How fresh every edge's collected traffic is, judged now, by edge name.
+
+        Covers registered edges and removed edges with collection history.
+        ``edge`` narrows the list to that one name; an unknown name gives none.
+        """
+        registered = set(self.edge_names())
+        records = {record.edge: record for record in self.store.collection_statuses()}
         now = self.clock()
+        return [
+            self._judge(name, records.get(name), registered=name in registered, now=now)
+            for name in sorted(registered | records.keys())
+            if edge is None or name == edge
+        ]
+
+    def _judge(
+        self,
+        edge: str,
+        record: CollectionRecord | None,
+        *,
+        registered: bool,
+        now: datetime,
+    ) -> CollectionStatus:
         interval = self.config.collection_interval_seconds
         threshold = max(60, interval * 2)
         enabled = registered and interval > 0
