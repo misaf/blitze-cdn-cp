@@ -26,13 +26,16 @@ from blitzecdn.delivery.api.errors import (
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
+    tags=["traffic"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
 )
 
 
-@router.get("/v3/traffic/usage", response_model=Page[TrafficUsage])
+@router.get(
+    "/v3/traffic/usage", response_model=Page[TrafficUsage], operation_id="traffic_usage"
+)
 def usage(
     traffic: FromDishka[TrafficService],
     params: PaginationParams,
@@ -80,6 +83,7 @@ Edge = Annotated[
     "/v3/traffic/sites/{site}",
     response_model=Page[SiteBucket],
     responses=NOT_FOUND_RESPONSES,
+    operation_id="traffic_site",
 )
 def site_analytics(
     site: str,
@@ -121,6 +125,7 @@ def site_analytics(
     "/v3/traffic/sites/{site}/paths",
     response_model=Page[SitePath],
     responses=NOT_FOUND_RESPONSES,
+    operation_id="traffic_site_paths",
 )
 def site_paths(
     site: str,
@@ -176,6 +181,7 @@ def _validated[Q: BaseModel](model: type[Q], **values: object) -> Q:
     "/v3/traffic/status/{edge}",
     response_model=CollectionStatus,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="traffic_collection_status",
 )
 def collection_status(
     edge: str, response: Response, traffic: FromDishka[TrafficService]

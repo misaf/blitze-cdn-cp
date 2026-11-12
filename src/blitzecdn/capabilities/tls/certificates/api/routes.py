@@ -45,6 +45,7 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["certificates"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -55,6 +56,7 @@ router = APIRouter(
     "/v3/sites/{name}/certificate",
     response_model=CertificateInfo,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="certificates_site_get",
 )
 def certificate(
     name: str, certificates: FromDishka[CertificateService]
@@ -62,10 +64,22 @@ def certificate(
     return as_operation(certificates.certificate(name), CertificateInfo)
 
 
-@router.get("/v3/certificates", response_model=Page[CertificateStatus])
+@router.get(
+    "/v3/certificates",
+    response_model=Page[CertificateStatus],
+    operation_id="certificates_list",
+)
 def list_certificates(
     certificates: FromDishka[CertificateService],
-    expiring_in: Annotated[int | None, Query(ge=0, le=3650)] = None,
+    expiring_in: Annotated[
+        int | None,
+        Query(
+            ge=0,
+            le=3650,
+            description="Only certificates that expire within this many days. "
+            "Omit it to list every managed certificate.",
+        ),
+    ] = None,
 ) -> Page[CertificateStatus]:
     """Managed certificates against the clock, soonest expiry first."""
     if expiring_in is None:
@@ -85,6 +99,7 @@ def list_certificates(
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="certificates_renew",
 )
 def renew_certificates(
     response: Response,
@@ -124,6 +139,7 @@ def renew_certificates(
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES},
+    operation_id="certificates_reconcile",
 )
 def reconcile_certificates(
     response: Response,
@@ -156,6 +172,7 @@ def reconcile_certificates(
     "/v3/sites/{name}/certificate",
     response_model=CertificateInfo,
     responses={**NOT_FOUND_RESPONSES, **BUSY_RESPONSES, **BODY_RESPONSES},
+    operation_id="certificates_site_upload",
 )
 def upload_certificate(
     name: str,
@@ -191,6 +208,7 @@ def upload_certificate(
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="certificates_site_request",
 )
 def request_certificate(
     response: Response,
@@ -230,6 +248,7 @@ def request_certificate(
     "/v3/sites/{name}/certificate/preflight",
     response_model=PreflightReport,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="certificates_site_preflight",
 )
 def certificate_preflight(
     name: str, certificates: FromDishka[CertificateService]

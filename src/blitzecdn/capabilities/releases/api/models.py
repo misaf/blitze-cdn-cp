@@ -38,6 +38,16 @@ class ArtifactDigest(Model):
     digest: str
 
 
+class Artifact(ArtifactDigest):
+    """One artifact as the edges were handed it.
+
+    ``document`` is the artifact's own content, deliberately unmodelled: its
+    shape belongs to the edge renderer that reads it, not to this API.
+    """
+
+    document: Any
+
+
 class Release(Model):
     id: str
     digest: str

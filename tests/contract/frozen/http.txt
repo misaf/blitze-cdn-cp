@@ -69,6 +69,9 @@ blitzecdn	schema	AnsibleRun.return_code	integer|null optional
 blitzecdn	schema	AnsibleRun.started_at	string required
 blitzecdn	schema	AnsibleRun.status	RunStatus required
 blitzecdn	schema	AnsibleRun.targeted	array[string] optional
+blitzecdn	schema	Artifact.digest	string required
+blitzecdn	schema	Artifact.document	any required
+blitzecdn	schema	Artifact.name	string required
 blitzecdn	schema	ArtifactDigest.digest	string required
 blitzecdn	schema	ArtifactDigest.name	string required
 blitzecdn	schema	AuditEvent.action	string required
@@ -82,8 +85,8 @@ blitzecdn	schema	BackupStatistics.last_age_seconds	number|null required
 blitzecdn	schema	BackupStatistics.last_archive	string|null required
 blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
 blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
-blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.certificate	string required
-blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.private_key	string required
+blitzecdn	schema	Body_certificates_site_upload.certificate	string required
+blitzecdn	schema	Body_certificates_site_upload.private_key	string required
 blitzecdn	schema	CacheCounters.bytes_sent	integer required
 blitzecdn	schema	CacheCounters.requests	integer required
 blitzecdn	schema	CacheHour.byte_hit_ratio	number|null required
@@ -325,6 +328,7 @@ blitzecdn	schema	FleetReleases.mixed	boolean required
 blitzecdn	schema	FleetReleases.releases	array[ReleaseGroup] optional
 blitzecdn	schema	FleetReleases.source	string required
 blitzecdn	schema	FleetReleases.warnings	array[string] optional
+blitzecdn	schema	HealthOk.status	string required
 blitzecdn	schema	HealthUnavailable.check	string required
 blitzecdn	schema	HealthUnavailable.detail	string required
 blitzecdn	schema	HealthUnavailable.status	string required

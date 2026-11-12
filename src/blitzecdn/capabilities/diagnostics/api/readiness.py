@@ -3,8 +3,8 @@ from typing import Literal
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
-from fastapi import APIRouter, Depends, Response, status
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from blitzecdn.capabilities.deployments import DeploymentService
@@ -21,11 +21,16 @@ from blitzecdn.core.features import Operations
 from blitzecdn.delivery.api.dependencies import require_operator
 from blitzecdn.delivery.api.errors import GLOBAL_RESPONSES, OPERATOR_RESPONSES
 from blitzecdn.delivery.api.models import Model
-from blitzecdn.delivery.api.validation import VALIDATION_RESPONSE
 
-router = APIRouter(route_class=DishkaSyncRoute)
+router = APIRouter(tags=["status"], route_class=DishkaSyncRoute)
 _LOGGER = logging.getLogger(__name__)
 _METRICS_WINDOW = 100
+
+
+class HealthOk(Model):
+    """Every health check passed."""
+
+    status: Literal["ok"]
 
 
 class HealthUnavailable(Model):
@@ -40,14 +45,16 @@ class HealthUnavailable(Model):
 
 @router.get(
     "/health",
+    response_model=HealthOk,
     responses={
         503: {
             "model": HealthUnavailable,
             "description": "A health check failed; `check` names the first.",
         }
     },
+    operation_id="status_health",
 )
-def health(response: Response, operations: FromDishka[Operations]) -> dict[str, str]:
+def health(operations: FromDishka[Operations]) -> HealthOk | JSONResponse:
     """Whether this controller can actually answer, not merely respond.
 
     Every check is a feature contribution; the first failure decides, and is named
@@ -58,13 +65,14 @@ def health(response: Response, operations: FromDishka[Operations]) -> dict[str, 
             check.check()
         except Exception as exc:
             _LOGGER.exception("health check %s failed", check.name)
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return {
-                "status": "unavailable",
-                "check": check.name,
-                "detail": type(exc).__name__,
-            }
-    return {"status": "ok"}
+            unavailable = HealthUnavailable(
+                status="unavailable", check=check.name, detail=type(exc).__name__
+            )
+            return JSONResponse(
+                unavailable.model_dump(mode="json"),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+    return HealthOk(status="ok")
 
 
 @router.get(
@@ -72,8 +80,9 @@ def health(response: Response, operations: FromDishka[Operations]) -> dict[str, 
     response_class=PlainTextResponse,
     # Restated without a model, so a text route documents its errors as JSON
     # rather than as `text/plain`.
-    responses={422: VALIDATION_RESPONSE, **GLOBAL_RESPONSES, **OPERATOR_RESPONSES},
+    responses={**GLOBAL_RESPONSES, **OPERATOR_RESPONSES},
     dependencies=[Depends(require_operator)],
+    operation_id="status_metrics",
 )
 def metrics(
     deployments: FromDishka[DeploymentService],

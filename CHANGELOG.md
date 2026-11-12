@@ -49,6 +49,13 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Changed
 
+- `docs/openapi.json` groups operations by tag (`domains`, `certificates`,
+  `deployments`…) and gives each a stable, explicit `operationId` such as
+  `domains_list` or `cache_purge`, in place of ids derived from the path. The
+  uploaded-certificate body schema is renamed to match. `/health` and the
+  release artifact route publish response models, `expiring_in` on
+  `GET /v3/certificates` says it counts days, and operations that read no
+  input no longer declare a `422` (#370).
 - `GET /v3/dns/export` is now `GET /v3/domains/export`, with
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
