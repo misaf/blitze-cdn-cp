@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.releases.domain.diff import ReleaseDiff
+from blitzecdn.capabilities.releases.domain.diff import (
+    FLEET_OBSERVATION_SOURCE,
+    EdgeRelease,
+    EdgeReleaseState,
+    FleetReleases,
+    ReleaseDiff,
+    ReleaseGroup,
+)
 from blitzecdn.capabilities.releases.domain.explanation import (
     HostExplanation,
     SettingOrigin,
@@ -27,14 +34,19 @@ from blitzecdn.capabilities.releases.domain.release import (
 __all__ = [
     "COMPILER_VERSION",
     "DESIRED_STATE_ARTIFACT",
+    "FLEET_OBSERVATION_SOURCE",
     "INPUTS_SCHEMA_VERSION",
     "Artifact",
     "CompiledSite",
     "EdgeCapabilities",
+    "EdgeRelease",
+    "EdgeReleaseState",
+    "FleetReleases",
     "HostExplanation",
     "Release",
     "ReleaseDiff",
     "ReleaseFinding",
+    "ReleaseGroup",
     "ReleaseInputs",
     "SettingOrigin",
     "SettingSource",
