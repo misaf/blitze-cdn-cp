@@ -66,6 +66,43 @@ For example, `origin_sni: null` clears the override, whereas
 `cache_enabled: null` is invalid. Send `cache_enabled: true` to restore that
 setting's creation default. A rejected update leaves stored state intact.
 
+## Concurrent edits
+
+Two writers changing different fields of one resource at the same moment both
+keep their change: the service reads the resource inside its transaction and
+merges only the fields that were sent. What that cannot catch is an edit built
+from an earlier read, such as a `firewall` list sent whole with one address
+added, or a record `value` worked out from the old one. If another writer
+changed the resource in between, the second write silently drops the first.
+
+Single resources carry an `ETag` so a client can say which version its edit
+was based on:
+
+| Resource | `ETag` on | `If-Match` on |
+| --- | --- | --- |
+| Zone `/v3/domains/{domain}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Record `/v3/domains/{domain}/records/{type}/{record}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Rule `/v3/domains/{domain}/rules/{rule}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Edge `/v3/edges/{edge}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+
+Send the `ETag` of the read back as `If-Match`. If the resource has changed
+since, the request answers `412` with `{"detail": ...}` and writes nothing;
+read it again and reapply the edit. The tag is strong and changes exactly when
+the stored resource does, so a `PATCH` that changes nothing keeps it.
+`If-Match: *` matches any current version, a list of tags matches any of them,
+and a weak tag (`W/"..."`) never matches. The check is made against the version
+the write is made against, inside the same transaction. For edge removal it is
+made when the removal is queued.
+
+`If-Match` is optional. Without it a write behaves as it always has: the last
+write wins, field by field. A missing resource answers `404`, not `412`, and a
+request that fails validation answers `422` whether or not its tag matches.
+
+The CLI sends no `If-Match`. Each command sends the values given on its
+command line rather than an edit built from an earlier read, and the service
+merges them into the version it reads inside its transaction, so there is no
+stale read to guard.
+
 ## Validation errors
 
 Request validation and validation after merging a PATCH both return HTTP 422
@@ -105,6 +142,7 @@ Every other error answers `{"detail": "message"}`, published as
 | `404` | A named resource does not exist | Operations with a path parameter; rollback, cache purge and certificate renewal |
 | `409` | The request conflicts with current state, or reuses an `Idempotency-Key` | Every write, and the drift report of a deployment that was not a check |
 | `409` + `Retry-After` | Another deployment holds the deployment lock | `POST /v3/deployments`, `POST /v3/deployments/rollback`, `PUT /v3/sites/{site}/certificate` |
+| `412` | The resource changed since the version named in `If-Match` | `PATCH` and `DELETE` of zones, records, rules and edges |
 | `413` | Body over `api_max_body_bytes` | Operations with a request body |
 | `500` | The installation is wrong; retrying will not help | Every operation |
 | `503` | No API keys are configured | Every operation behind an API key |
@@ -172,7 +210,9 @@ This replaces every firewall list: lists not supplied become empty, and
 entire `firewall` field to preserve existing rules; send `{}` to clear them.
 `rate_limit: {}` removes the limit. Likewise, `visitor_headers: {}` restores both header switches to their defaults.
 Read the current block and include all values you want to retain when replacing
-it. A rule PATCH also replaces its entire `overrides` object when supplied.
+it, and send the read's `ETag` as `If-Match` so a change made in between is
+refused rather than overwritten (see [concurrent edits](#concurrent-edits)). A
+rule PATCH also replaces its entire `overrides` object when supplied.
 
 ### Rate limits
 

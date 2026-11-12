@@ -17,6 +17,7 @@ from blitzecdn.capabilities.sites.ports import (
     ZoneReader,
 )
 from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.preconditions import IfMatch, require_current
 from blitzecdn.core.domain.values import url_path
 
 __all__ = ["RuleService"]
@@ -86,7 +87,13 @@ class RuleService:
         return created
 
     def update_rule(
-        self, domain: str, name: str, patch: RulePatch, operator: str
+        self,
+        domain: str,
+        name: str,
+        patch: RulePatch,
+        operator: str,
+        *,
+        if_match: IfMatch | None = None,
     ) -> Rule:
         """Merge a partial change into a rule; ``overrides`` replaces wholesale."""
         changes = patch.model_dump(exclude_unset=True)
@@ -97,6 +104,7 @@ class RuleService:
         with self.uow.transaction():
             # Read and written under one boundary, since the issuer writes rules too.
             current = self.rules.get_rule(domain, name)
+            require_current(if_match, current, f"rule {domain}/{name}")
             updated = Rule.model_validate({**current.model_dump(), **changes})
             # Asked of the whole rule, not only of a patch that touches ``overrides``:
             # the zone may have moved since the rule was written.
@@ -128,12 +136,23 @@ class RuleService:
         """
         merge_overrides(self.zones.get_domain(rule.domain), rule.overrides)
 
-    def delete_rule(self, domain: str, name: str, operator: str) -> None:
+    def delete_rule(
+        self,
+        domain: str,
+        name: str,
+        operator: str,
+        *,
+        if_match: IfMatch | None = None,
+    ) -> None:
         """Remove a rule and record who did; its hostnames fall back to the zone.
 
         Raises ``NotFoundError`` if there is no such rule.
         """
         with self.uow.transaction():
+            if if_match is not None:
+                if_match.require(
+                    self.rules.get_rule(domain, name), f"rule {domain}/{name}"
+                )
             self.rules.delete_rule(domain, name)
             self.events.record(
                 domain_event(operator, "rule.deleted", "rule", f"{domain}/{name}")
