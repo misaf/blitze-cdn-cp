@@ -8,16 +8,16 @@ by capability validation, without one edit to `sites` or core.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ConfigDict, Field, ValidationError
+from support.composition import PolicyComposer
 from support.control_plane import API_HEADERS, seed_site_over_http
 
 from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.domain import DomainPatch, Rule
-from blitzecdn.composition import BUILTIN_REGISTRY, compose_registry
 from blitzecdn.core.domain.policy import CapabilityPolicy
 from blitzecdn.core.domain.site import CdnSite
 from blitzecdn.core.domain.site_policy import SitePolicy
@@ -68,12 +68,9 @@ def _feature(*, provides: bool) -> Feature:
 
 
 @pytest.fixture
-def registry() -> Iterator[FeatureRegistry]:
+def registry(policy_composition: PolicyComposer) -> FeatureRegistry:
     """The built-in features plus rate limiting; the real policy is restored after."""
-    saved = SitePolicy._schema
-    builtin = BUILTIN_REGISTRY.features
-    yield compose_registry((*builtin, _feature(provides=True)))
-    SitePolicy._schema = saved
+    return policy_composition.features(_feature(provides=True))
 
 
 def test_the_policy_stores_validates_and_requests_the_contributed_setting(registry):
@@ -176,13 +173,10 @@ def test_the_http_api_serves_patches_and_publishes_the_setting(registry, setting
             assert schemas[name]["properties"]["request_quota"]["minimum"] == 0, name
 
 
-def test_a_site_asking_for_an_absent_capability_is_refused_by_name():
-    saved = SitePolicy._schema
-    try:
-        builtin = BUILTIN_REGISTRY.features
-        registry = compose_registry((*builtin, _feature(provides=False)))
-        policy = SitePolicy.from_settings({"request_quota": 5})
+def test_a_site_asking_for_an_absent_capability_is_refused_by_name(
+    policy_composition: PolicyComposer,
+):
+    registry = policy_composition.features(_feature(provides=False))
+    policy = SitePolicy.from_settings({"request_quota": 5})
 
-        assert registry.missing(policy.required_capabilities) == ("edge_rate_limits",)
-    finally:
-        SitePolicy._schema = saved
+    assert registry.missing(policy.required_capabilities) == ("edge_rate_limits",)
