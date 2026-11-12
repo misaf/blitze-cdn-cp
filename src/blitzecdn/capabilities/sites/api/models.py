@@ -61,12 +61,8 @@ def _patch_fields() -> dict[str, tuple[Any, Any]]:
     return fields
 
 
-class Domain(Model, ComposedModel):
-    """A delegated zone and its serving policy.
-
-    On creation, omitted policy fields use the documented defaults. Records
-    inherit this policy unless a matching rule overrides it.
-    """
+class DomainBody(Model, ComposedModel):
+    """Zone fields shared by the creation request and the response."""
 
     name: str
 
@@ -78,6 +74,14 @@ class Domain(Model, ComposedModel):
     def compose(cls, source: Any) -> type[Self]:
         return cls.compose_fields(_policy_fields())
 
+
+class DomainCreate(DomainBody):
+    """The body that delegates a zone.
+
+    Omitted policy fields use the documented defaults. Records inherit this
+    policy unless a matching rule overrides it.
+    """
+
     @model_validator(mode="after")
     def valid_domain(self) -> Self:
         self.to_domain()
@@ -88,6 +92,10 @@ class Domain(Model, ComposedModel):
             name=self.name,
             policy=SitePolicy.from_settings(self.model_dump(exclude={"name"})),
         )
+
+
+class Domain(DomainBody):
+    """A delegated zone and its serving policy, as it is read back."""
 
     @classmethod
     def from_domain(cls, value: DomainDomain) -> Self:
@@ -394,6 +402,7 @@ __all__ = [
     "DnsExport",
     "DnsRecord",
     "Domain",
+    "DomainCreate",
     "DomainPatch",
     "PathLocation",
     "PathRedirect",

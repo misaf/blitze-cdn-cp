@@ -5,7 +5,7 @@ from dishka.integrations.fastapi import DishkaSyncRoute
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.edges.api.models import Edge, EdgePatch
+from blitzecdn.capabilities.edges.api.models import Edge, EdgeCreate, EdgePatch
 from blitzecdn.capabilities.edges.service.operations import (
     EdgeRemovalJob,
     remove_dedupe_key,
@@ -72,7 +72,7 @@ def get_edge(
 )
 def add_edge(
     response: Response,
-    edge: Edge,
+    edge: EdgeCreate,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
 ) -> Edge:

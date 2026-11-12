@@ -100,7 +100,7 @@ def purge_cache(
     return queued
 
 
-@router.get("/v3/cache/stats", response_model=Page[CacheHour])
+@router.get("/v3/traffic/cache", response_model=Page[CacheHour])
 def cache_stats(
     cache: FromDishka[CacheService],
     params: PaginationParams,
