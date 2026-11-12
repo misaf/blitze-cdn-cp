@@ -129,6 +129,7 @@ class JobQueue:
             worker=self.worker_id,
             now=self.clock(),
             lease_seconds=lease_seconds or self.lease_seconds,
+            on_abandon=self._abandoned,
         )
 
     def run_one(self, *, lease_seconds: int | None = None) -> Job | None:
@@ -253,6 +254,28 @@ class JobQueue:
         return self.jobs.prune(self.retention)
 
     # -- Internals -----------------------------------------------------
+
+    def _abandoned(self, job: Job) -> None:
+        """Let the kind's handler close out what an abandoned job was driving."""
+        _LOGGER.warning(
+            "job abandoned: every attempt ended with its worker gone",
+            job_id=job.id,
+            job_kind=job.kind,
+            attempts=job.attempts,
+        )
+        handler = self.handlers.get(job.kind)
+        if handler is None or handler.abandon is None:
+            return
+        try:
+            payload = handler.payload.model_validate(job.payload)
+        except ValidationError as exc:
+            _LOGGER.warning(
+                "abandoned job's payload does not fit its model; nothing to close out",
+                job_id=job.id,
+                reason=_invalid_payload(job.kind, exc),
+            )
+            return
+        handler.abandon(payload, job.last_error or "abandoned")
 
     def _defer(self, claim: JobClaim, reason: str) -> None:
         job = claim.job

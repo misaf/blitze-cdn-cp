@@ -196,6 +196,31 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
+    def abandon(self, deployment_id: str, reason: str) -> Deployment | None:
+        """Finish one unfinished deployment as abandoned; ``None`` if it was not."""
+        now = self._db.now()
+        with self._db.writer() as session:
+            row = session.execute(
+                update(DeploymentRow)
+                .where(
+                    DeploymentRow.id == deployment_id,
+                    DeploymentRow.status.in_(
+                        (
+                            DeploymentStatus.QUEUED.value,
+                            DeploymentStatus.RUNNING.value,
+                        )
+                    ),
+                )
+                .values(
+                    status=DeploymentStatus.ABANDONED.value,
+                    finished_at=now,
+                    result=abandoned_run(reason, now=now).model_dump(mode="json"),
+                    error=reason,
+                )
+                .returning(DeploymentRow)
+            ).scalar_one_or_none()
+            return None if row is None else self._deployment(row)
+
     def abandon_running(self) -> int:
         """Close out deployments a dead controller process left running."""
         now = self._db.now()

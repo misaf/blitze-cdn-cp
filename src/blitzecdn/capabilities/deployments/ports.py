@@ -150,6 +150,13 @@ class DeploymentStore(Protocol):
         """Deployments recorded as running, oldest first."""
         ...
 
+    def abandon(self, deployment_id: str, reason: str) -> Deployment | None:
+        """Finish a queued or running deployment as abandoned, saying why.
+
+        ``None`` when it is unknown or already finished, which is left alone.
+        """
+        ...
+
     def prune_history(self, keep: int, *, keep_applied: int) -> int:
         """Drop finished deployments history and rollback no longer need.
 
