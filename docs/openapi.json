@@ -2196,6 +2196,20 @@
         "title": "EdgeReleaseState",
         "type": "string"
       },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "ExportedRecord": {
         "additionalProperties": false,
         "description": "One record as whatever is authoritative for its zone should publish it.",
@@ -2324,6 +2338,32 @@
         ],
         "title": "Granularity",
         "type": "string"
+      },
+      "HealthUnavailable": {
+        "additionalProperties": false,
+        "description": "A failed health check: not an error message, so not `ErrorResponse`.",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "status": {
+            "const": "unavailable",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "check",
+          "detail"
+        ],
+        "title": "HealthUnavailable",
+        "type": "object"
       },
       "HostExplanation": {
         "additionalProperties": false,
@@ -4906,6 +4946,16 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4915,6 +4965,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthUnavailable"
+                }
+              }
+            },
+            "description": "A health check failed; `check` names the first."
           }
         },
         "summary": "Health"
@@ -4935,6 +5005,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4944,6 +5045,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -4994,6 +5115,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5003,6 +5155,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5086,6 +5258,67 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5095,6 +5328,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5178,6 +5431,77 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5187,6 +5511,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5298,6 +5642,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5307,6 +5682,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5376,6 +5771,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5385,6 +5811,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5458,6 +5904,47 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5467,6 +5954,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5550,6 +6057,77 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5559,6 +6137,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5609,6 +6207,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5618,6 +6247,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5699,6 +6348,76 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5708,6 +6427,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5791,6 +6530,86 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5800,6 +6619,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5854,6 +6693,47 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5863,6 +6743,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5899,6 +6799,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5908,6 +6849,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -5943,6 +6904,57 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5952,6 +6964,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6012,6 +7044,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6021,6 +7094,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6071,6 +7164,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6080,6 +7204,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6112,6 +7256,67 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6121,6 +7326,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6146,6 +7371,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6155,6 +7411,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6183,6 +7459,57 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6192,6 +7519,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6225,6 +7572,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6234,6 +7622,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6277,6 +7685,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6286,6 +7765,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6322,6 +7821,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6331,6 +7871,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6390,6 +7950,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6399,6 +8000,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6442,6 +8063,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6451,6 +8143,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6496,6 +8208,57 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6505,6 +8268,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6555,6 +8338,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6564,6 +8388,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6624,6 +8468,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6633,6 +8548,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6698,6 +8633,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6707,6 +8683,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6766,6 +8762,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6775,6 +8812,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6818,6 +8875,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6827,6 +8955,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6864,6 +9012,57 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6873,6 +9072,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6915,6 +9134,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6924,6 +9184,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -6976,6 +9256,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6985,6 +9336,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7036,6 +9407,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7045,6 +9447,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7078,6 +9500,67 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7087,6 +9570,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7193,6 +9696,57 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7202,6 +9756,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7235,6 +9809,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7244,6 +9859,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7287,6 +9922,77 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7296,6 +10002,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7351,6 +10077,47 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7360,6 +10127,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7443,6 +10230,67 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7452,6 +10300,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7502,6 +10370,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7511,6 +10410,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7555,6 +10474,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7564,6 +10514,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7589,6 +10559,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7598,6 +10599,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7634,6 +10655,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7643,6 +10705,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7690,6 +10772,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7699,6 +10822,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7750,6 +10893,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7759,6 +10933,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7794,6 +10988,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7803,6 +11038,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7838,6 +11093,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7847,6 +11143,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7891,6 +11207,86 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; sent only while busy.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7900,6 +11296,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -7936,6 +11352,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -7945,6 +11402,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8037,6 +11514,77 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Content-Length header is not a valid length."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request body exceeds `api_max_body_bytes`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8046,6 +11594,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8119,6 +11687,47 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8128,6 +11737,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8153,6 +11782,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8162,6 +11822,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8275,6 +11955,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8284,6 +12005,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8386,6 +12127,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8395,6 +12177,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8431,6 +12233,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8440,6 +12283,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8551,6 +12414,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8560,6 +12454,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8610,6 +12524,37 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8619,6 +12564,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8654,6 +12619,47 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8663,6 +12669,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [
@@ -8699,6 +12725,57 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The X-API-Key header is missing or matches no operator.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `ApiKey`.",
+                "schema": {
+                  "enum": [
+                    "ApiKey"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The client's IP address is not in `allowed_ips`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A resource the request names does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with current state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -8708,6 +12785,26 @@
               }
             },
             "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The installation is wrong; retrying will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No API keys are configured, so no request can authenticate."
           }
         },
         "security": [

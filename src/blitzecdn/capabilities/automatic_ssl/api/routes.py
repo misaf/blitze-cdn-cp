@@ -14,6 +14,7 @@ from blitzecdn.delivery.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.delivery.api.errors import CONFLICT_RESPONSES, OPERATOR_RESPONSES
 from blitzecdn.delivery.api.idempotency import (
     IdempotencyKeyDependency,
     idempotent,
@@ -25,7 +26,9 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -33,7 +36,7 @@ router = APIRouter(
     "/v3/ssl/automatic/reconcile",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={202: ACCEPTED_RESPONSE},
+    responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES},
 )
 def reconcile_automatic_ssl(
     response: Response,

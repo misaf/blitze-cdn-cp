@@ -53,6 +53,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
   `GET /v3/domains/{domain}/export` for one zone, and both return the named
   `DnsExport` model. A proxied record's `value` is `null` rather than omitted.
   `blitzecdn dns export` is now `blitzecdn domain export [NAME]` (#377).
+- `docs/openapi.json` declares each operation's error responses, `401`,
+  `403`, `404`, `409`, `413` and the rest, with an `ErrorResponse`
+  schema for their `{"detail": "message"}` body, so generated clients expect
+  them (#375).
 - The API has one noun per resource and one prefix per area (#289).
 - The `dns` capability is now `sites` (#302), and Automatic SSL is its own
   capability (#227).
