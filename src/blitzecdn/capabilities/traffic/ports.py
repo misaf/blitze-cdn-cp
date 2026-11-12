@@ -27,6 +27,10 @@ class TrafficStore(Protocol):
         """``edge``'s last collection attempt, or ``None`` if it was never collected."""
         ...
 
+    def collection_statuses(self) -> Sequence[CollectionRecord]:
+        """Every edge's last collection attempt, ordered by edge name."""
+        ...
+
     def start_collection(
         self, edges: Sequence[str], attempt_id: str, started_at: datetime
     ) -> None:

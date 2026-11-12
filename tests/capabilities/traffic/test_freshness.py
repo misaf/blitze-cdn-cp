@@ -210,6 +210,24 @@ def test_disabled_retired_and_unknown_edges_and_restart(tracked, settings):
         repository.close()
 
 
+def test_statuses_list_registered_and_removed_edges_by_name(tracked):
+    control, service, _ = tracked
+    report(service)
+    control.repository.edges.delete_edge("edge-a")
+    seed_edge(control, name="edge-c", host="192.0.2.12")
+    seed_edge(control, name="edge-b", host="192.0.2.11")
+
+    statuses = service.statuses()
+
+    assert [(item.edge, item.registered, item.state) for item in statuses] == [
+        ("edge-a", False, "disabled"),
+        ("edge-b", True, "never_collected"),
+        ("edge-c", True, "never_collected"),
+    ]
+    assert service.statuses("edge-a") == [statuses[0]]
+    assert service.statuses("unknown") == []
+
+
 def test_api_and_cli_match_and_status_reads_do_not_write(
     tracked, settings, monkeypatch
 ):
@@ -219,20 +237,28 @@ def test_api_and_cli_match_and_status_reads_do_not_write(
     monkeypatch.setattr(common, "container", lambda: control.container)
     before = control.repository.audit_log.list_audit_events()
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v3/traffic/status/edge-a").status_code == 401
-        response = client.get("/v3/traffic/status/edge-a", headers=API_HEADERS)
-        assert response.status_code == 200, response.text
-        assert response.headers["cache-control"] == "no-store"
-        assert response.json()["state"] == "current"
-        assert (
-            client.get("/v3/traffic/status/unknown", headers=API_HEADERS).status_code
-            == 404
+        assert client.get("/v3/traffic/collection").status_code == 401
+        everything = client.get("/v3/traffic/collection", headers=API_HEADERS)
+        response = client.get(
+            "/v3/traffic/collection", params={"edge": "edge-a"}, headers=API_HEADERS
+        )
+        unknown = client.get(
+            "/v3/traffic/collection", params={"edge": "unknown"}, headers=API_HEADERS
         )
         assert (
-            client.post("/v3/traffic/status/edge-a", headers=API_HEADERS).status_code
+            client.post("/v3/traffic/collection", headers=API_HEADERS).status_code
             == 405
         )
+    assert everything.status_code == 200, everything.text
+    assert everything.headers["cache-control"] == "no-store"
+    assert [item["edge"] for item in everything.json()["items"]] == sorted(
+        edge.name for edge in control.repository.edges.list_edges()
+    )
+    assert response.status_code == 200, response.text
+    (status,) = response.json()["items"]
+    assert status["state"] == "current"
+    assert unknown.json()["items"] == []
     result = runner.invoke(cli.app, ["traffic", "status", "edge-a", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == response.json()
+    assert json.loads(result.output) == status
     assert control.repository.audit_log.list_audit_events() == before
