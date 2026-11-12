@@ -388,8 +388,11 @@ class DeploymentStore:
             ).first()
 
     def edge_releases(self) -> dict[str, EdgeRelease]:
-        # Newest first, so each edge's first verified row is its release and any
-        # serving-phase failure or interruption seen before it is newer than it.
+        # Newest first by when the edge itself began, not when its run was queued:
+        # an older queued run can execute after a newer synchronous one. Each
+        # edge's first verified row is then its release, and any serving-phase
+        # failure or interruption seen before it is newer than it.
+        began = func.coalesce(DeploymentTargetRow.started_at, DeploymentRow.created_at)
         touched = (
             select(
                 DeploymentTargetRow.edge,
@@ -409,7 +412,7 @@ class DeploymentStore:
                     )
                 ),
             )
-            .order_by(DeploymentRow.created_at.desc(), DeploymentRow.id.desc())
+            .order_by(began.desc(), DeploymentRow.created_at.desc())
         )
         unsettled: set[str] = set()
         found: dict[str, EdgeRelease] = {}
