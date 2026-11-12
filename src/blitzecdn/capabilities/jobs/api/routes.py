@@ -24,5 +24,5 @@ def operation(
 ) -> Operation:
     """How a queued edge operation stands, and its result once it has one."""
     current = as_queued(queued_operations.get(operation_id))
-    polling_headers(response, active=current.status in {"pending", "running"})
+    polling_headers(response, active=not current.done)
     return current

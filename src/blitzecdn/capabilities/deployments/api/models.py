@@ -7,8 +7,9 @@ started defines its own representation of it, so a change here stays here.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, ClassVar, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
@@ -16,12 +17,22 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetStatus,
 )
 from blitzecdn.core.domain.configuration import ConfigurationChangeKind
-from blitzecdn.delivery.api.models import AnsibleRun, HostRun, Model
+from blitzecdn.delivery.api.models import AnsibleRun, HostRun, Model, QueuedWork
 from blitzecdn.delivery.api.requests import FleetRequest, RequestModel
 
 
-class Deployment(Model):
-    id: str
+class Deployment(QueuedWork):
+    """A convergence, or a rollback when ``rollback_of`` names the one it repeats.
+
+    ``kind`` is ``rollback`` for a rollback and ``deployment`` otherwise; with
+    ``check_mode`` either is a drift check.
+    """
+
+    ACTIVE_STATUSES: ClassVar[frozenset[str]] = frozenset(
+        {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
+    )
+
+    kind: Literal["deployment", "rollback"]
     status: DeploymentStatus
     operator: str
     check_mode: bool
@@ -32,11 +43,16 @@ class Deployment(Model):
     host_limit: str | None = None
     rollback_of: str | None = None
     canonical_digest: str | None = None
-    created_at: datetime
     started_at: datetime | None = None
-    finished_at: datetime | None = None
     result: AnsibleRun | None = None
-    error: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_kind(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "kind" not in data:
+            kind = "rollback" if data.get("rollback_of") else "deployment"
+            return {**data, "kind": kind}
+        return data
 
 
 class DeploymentTarget(Model):

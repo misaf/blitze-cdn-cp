@@ -63,6 +63,26 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/deployments` | `/v3/deployments/{id}` | `Deployment` |
 | `POST /v3/deployments/rollback` | `/v3/deployments/{id}` | Rollback `Deployment` |
 
+## One shape to wait on
+
+`Operation`, `Deployment` and `Workflow` all start with the same fields, in
+this order, so a client that waits on any accepted request reads one shape:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable across reads |
+| `kind` | What the work is: the operation's job kind, `deployment` or `rollback`, or the workflow's kind |
+| `status` | The resource's own lifecycle state; values are listed below |
+| `done` | `false` while the work is still to run or running; poll until it is `true` |
+| `created_at` | When the work was accepted |
+| `finished_at` | When it stopped, or `null` while it has not |
+| `error` | Why it failed, or `null` |
+| `result` | What it produced, or `null`; its shape depends on the resource |
+
+`done` is enough to stop polling without knowing any resource's status values;
+read `status`, `error` and `result` to learn how it ended. Each resource adds
+its own fields after these.
+
 Operations use `pending`, `running`, `succeeded`, and `failed`. On success,
 inspect the operation-specific `result`: a completed purge can still report
 `complete: false` and list `failed_hosts`. Origin reports describe reachability
