@@ -12,6 +12,11 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Added
 
+- Every queued resource (`Operation`, `Deployment`, `Workflow`) starts with
+  the same fields: `id`, `kind`, `status`, `done`, `created_at`,
+  `finished_at`, `error` and `result`. `done` says when to stop polling
+  without knowing the resource's status values; deployments gain `kind`
+  (`deployment` or `rollback`) and workflows gain `finished_at` (#373).
 - Daily scheduled backups with retention and freshness metrics (#86), encrypted
   to age recipients when written (#313). `--identity` also takes an RSA key in
   the PEM form `ssh-keygen -m PEM` writes, as the `age` tool does, and the
@@ -45,7 +50,7 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 ### Changed
 
 - `docs/openapi.json` declares each operation's error responses, `401`,
-  `403`, `404`, `409`, `413`, `502` and the rest, with an `ErrorResponse`
+  `403`, `404`, `409`, `413` and the rest, with an `ErrorResponse`
   schema for their `{"detail": "message"}` body, so generated clients expect
   them (#375).
 - The API has one noun per resource and one prefix per area (#289).
@@ -55,6 +60,8 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - Certificates are issued in-process with the `acme` library instead of
   certbot (#298); issuance, renewal and reconciliation run on the worker
   (#224).
+- `POST /v3/ssl/automatic/reconcile` is queued and answers `202` with an
+  `Operation`; the scan is its `result` (#361).
 - Certificate DNS preflight resolves at the authoritative nameservers (#142)
   and blocks a hostname that also resolves off-edge (#141). HTTP-01 challenges
   are placed only on edges the hostname resolves to (#233).
@@ -101,6 +108,8 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 - `allow_sources` is exempt from country and method rules (#131), and
   firewall path rules match regardless of letter case (#206).
 - The firewall and rate limit apply before a path-rule redirect (#300).
+- `firewall.case_insensitive_paths` on its own makes `rate_limit.paths` match
+  regardless of letter case (#372).
 - A proxied hostname may have both an A and an AAAA record (#311).
 - Nginx name hashes are sized for the longest names (#216).
 - Disabled sites are skipped in serving verification (#307).

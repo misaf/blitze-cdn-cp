@@ -24,6 +24,7 @@ REQUIRES_CAPABILITIES = {
     "test_allowed_sources_and_unlisted_paths_are_not_counted": ("security",),
     "test_without_exemptions_or_paths_every_request_counts": ("security",),
     "test_case_insensitive_firewall_paths_apply_to_the_limit": ("security",),
+    "test_the_case_flag_alone_applies_to_the_limit": ("security",),
     "test_the_acme_challenge_path_is_never_rate_limited": ("security",),
     "test_sites_on_one_rate_share_one_zone": ("security",),
     "test_every_zone_a_site_reads_is_declared": ("security",),
@@ -118,6 +119,22 @@ def test_case_insensitive_firewall_paths_apply_to_the_limit():
         [_site(rate_limit={"rate": "10r/m", "paths": ["/login"]})],
     )
     assert '"~^0:(/login$)" "limited:$binary_remote_addr";' in sensitive
+
+
+def test_the_case_flag_alone_applies_to_the_limit():
+    """A firewall holding only the flag still reaches the map, and filters nothing."""
+    site = _site(
+        rate_limit={"rate": "1r/s", "paths": ["/login"]},
+        firewall={"case_insensitive_paths": True},
+    )
+    assert site["firewall"]["case_insensitive_paths"] is True
+    snippet = render_http_fragment("security-http.conf.j2", [site])
+    assert '"~*^0:(/login$)" "limited:$binary_remote_addr";' in snippet
+    location = _location(render_site(site))
+    assert "return 403" not in location
+    assert "allow " not in location and "deny " not in location
+    rendered = render_site(site)
+    assert "location ~*" not in rendered
 
 
 def test_the_acme_challenge_path_is_never_rate_limited():

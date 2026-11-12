@@ -1126,6 +1126,7 @@
       },
       "Deployment": {
         "additionalProperties": false,
+        "description": "A convergence, or a rollback when ``rollback_of`` names the one it repeats.\n\n``kind`` is ``rollback`` for a rollback and ``deployment`` otherwise; with\n``check_mode`` either is a drift check.",
         "properties": {
           "canonical_digest": {
             "anyOf": [
@@ -1146,6 +1147,10 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -1183,6 +1188,14 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "deployment",
+              "rollback"
+            ],
+            "title": "Kind",
             "type": "string"
           },
           "operator": {
@@ -1243,11 +1256,13 @@
         },
         "required": [
           "id",
+          "kind",
           "status",
+          "done",
+          "created_at",
           "operator",
           "check_mode",
-          "release_id",
-          "created_at"
+          "release_id"
         ],
         "title": "Deployment",
         "type": "object"
@@ -1340,40 +1355,6 @@
           "after"
         ],
         "title": "DeploymentDiff",
-        "type": "object"
-      },
-      "DeploymentReference": {
-        "description": "The deployment a scan started, as Automatic SSL/TLS reports it.\n\nThis capability owns the representation rather than reusing the\ndeployments API's: a change to how deployments are published must not\nchange this response. Follow ``GET /v3/deployments/{id}`` for the record.",
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "release_id": {
-            "title": "Release Id",
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/DeploymentStatus"
-          }
-        },
-        "required": [
-          "id",
-          "status",
-          "release_id"
-        ],
-        "title": "DeploymentReference",
         "type": "object"
       },
       "DeploymentStatus": {
@@ -2419,6 +2400,10 @@
             "title": "Created At",
             "type": "string"
           },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
           "error": {
             "anyOf": [
               {
@@ -2477,6 +2462,7 @@
           "id",
           "kind",
           "status",
+          "done",
           "created_at"
         ],
         "title": "Operation",
@@ -4307,45 +4293,6 @@
         "title": "SslAutomaticMode",
         "type": "string"
       },
-      "SslAutomaticReconciliation": {
-        "additionalProperties": false,
-        "properties": {
-          "deployment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DeploymentReference"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "scanned": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Scanned",
-            "type": "array"
-          },
-          "skipped": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Skipped",
-            "type": "object"
-          },
-          "upgraded": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/SslMode"
-            },
-            "title": "Upgraded",
-            "type": "object"
-          }
-        },
-        "title": "SslAutomaticReconciliation",
-        "type": "object"
-      },
       "SslMode": {
         "description": "How TLS is used on both sides of an edge connection.",
         "enum": [
@@ -4669,11 +4616,16 @@
       },
       "Workflow": {
         "additionalProperties": false,
+        "description": "Crash-visible progress for work that crosses transaction systems.\n\n``needs_review`` and ``reviewed`` are finished too: nothing runs until an\noperator looks. ``finished_at`` is when it stopped, and a workflow keeps\nits progress in ``steps`` rather than a ``result``.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -4685,6 +4637,18 @@
               }
             ],
             "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           },
           "id": {
             "title": "Id",
@@ -4711,6 +4675,10 @@
             ],
             "title": "Resource Id"
           },
+          "result": {
+            "title": "Result",
+            "type": "null"
+          },
           "status": {
             "$ref": "#/components/schemas/WorkflowStatus"
           },
@@ -4732,8 +4700,9 @@
           "id",
           "kind",
           "status",
-          "operator",
+          "done",
           "created_at",
+          "operator",
           "updated_at"
         ],
         "title": "Workflow",
@@ -11357,18 +11326,66 @@
     },
     "/v3/ssl/automatic/reconcile": {
       "post": {
-        "description": "Probe origins from every edge and apply upgrade-only recommendations.",
+        "description": "Queue probing origins from every edge and applying upgrade-only\nrecommendations; the result is an SslAutomaticReconciliation.\n\nOne scan may be queued or running at a time. A result naming a\n``deployment`` ran it: poll ``GET /v3/deployments/{id}`` for the record.",
         "operationId": "reconcile_automatic_ssl_v3_ssl_automatic_reconcile_post",
+        "parameters": [
+          {
+            "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "pattern": "^[\\x21-\\x7e]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SslAutomaticReconciliation"
+                  "$ref": "#/components/schemas/Operation"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Work accepted, not completed. Poll the URL in Location.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Do not cache operation status.",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the authenticated status resource.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Suggested seconds before polling again; absent when finished.",
+                "example": 2,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -11409,16 +11426,7 @@
                 }
               }
             },
-            "description": "The request conflicts with current state, or another deployment holds the deployment lock. Only the latter carries Retry-After; retry then.",
-            "headers": {
-              "Retry-After": {
-                "description": "Seconds before retrying; sent only while busy.",
-                "schema": {
-                  "minimum": 1.0,
-                  "type": "integer"
-                }
-              }
-            }
+            "description": "The request conflicts with current state."
           },
           "422": {
             "content": {
@@ -11439,16 +11447,6 @@
               }
             },
             "description": "The installation is wrong; retrying will not help."
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A command against the edges did not succeed."
           },
           "503": {
             "content": {

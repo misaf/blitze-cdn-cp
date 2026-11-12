@@ -90,26 +90,3 @@ def test_every_error_but_validation_is_a_detail_message(app):
         and response.get("content") != {"application/json": {"schema": ERROR_SCHEMA}}
     ]
     assert wrong == []
-
-
-def test_only_an_operation_that_takes_the_deployment_lock_advertises_retry_after(
-    app,
-):
-    """The busy 409 is the one a client should retry; the others will not clear."""
-    retrying = {
-        f"{method.upper()} {path}"
-        for path, operations in app.openapi()["paths"].items()
-        for method, operation in operations.items()
-        if "Retry-After" in operation["responses"].get("409", {}).get("headers", {})
-    }
-    assert retrying == {"POST /v3/ssl/automatic/reconcile"}
-
-
-def test_synchronous_edge_work_declares_a_gateway_error(app):
-    gateway = {
-        f"{method.upper()} {path}"
-        for path, operations in app.openapi()["paths"].items()
-        for method, operation in operations.items()
-        if "502" in operation["responses"]
-    }
-    assert gateway == {"POST /v3/ssl/automatic/reconcile"}

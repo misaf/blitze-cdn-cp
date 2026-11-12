@@ -14,6 +14,18 @@ from support.control_plane import (
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 
+#: The fields every queued resource starts with, in this order (``QueuedWork``).
+SHARED_FIELDS = [
+    "id",
+    "kind",
+    "status",
+    "done",
+    "created_at",
+    "finished_at",
+    "error",
+    "result",
+]
+
 SUBMISSIONS = [
     ("POST", "/v3/cache/purge", {"purge_all": True}, "operations"),
     ("POST", "/v3/cache/connections", {}, "operations"),
@@ -24,6 +36,7 @@ SUBMISSIONS = [
     ("POST", "/v3/deployments/rollback", {}, "deployments"),
     ("POST", "/v3/certificates/renew", {}, "operations"),
     ("POST", "/v3/certificates/reconcile", None, "operations"),
+    ("POST", "/v3/ssl/automatic/reconcile", None, "operations"),
     (
         "POST",
         "/v3/sites/{name}/certificate/request",
@@ -69,6 +82,9 @@ def test_accepted_work_points_to_an_authenticated_polling_resource(
         assert polled.status_code == 200
         assert polled.json()["id"] == accepted.json()["id"]
         assert polled.json()["status"] in {"pending", "queued"}
+        for body in (accepted.json(), polled.json()):
+            assert list(body)[: len(SHARED_FIELDS)] == SHARED_FIELDS
+            assert body["done"] is False
         assert polled.headers["Retry-After"] == "2"
         assert polled.headers["Cache-Control"] == "no-store"
 
@@ -99,6 +115,7 @@ def test_operation_polling_stops_retry_hints_for_terminal_work(
         assert polled.status_code == 200
         assert polled.json()["status"] == state
         assert ("Retry-After" in polled.headers) == (state in {"pending", "running"})
+        assert polled.json()["done"] is (state not in {"pending", "running"})
         assert polled.headers["Cache-Control"] == "no-store"
         if state == "failed":
             assert polled.json()["error"] == "probe failed"
@@ -121,9 +138,10 @@ def test_deployment_polling_stops_retry_hints_for_every_terminal_state(
         polled = client.get(accepted.headers["Location"], headers=API_HEADERS)
         assert polled.status_code == 200
         assert polled.json()["status"] == state.value
-        assert ("Retry-After" in polled.headers) == (
-            state in {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
-        )
+        active = state in {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
+        assert ("Retry-After" in polled.headers) == active
+        assert polled.json()["done"] is not active
+        assert polled.json()["kind"] == "deployment"
         assert polled.headers["Cache-Control"] == "no-store"
 
 
@@ -157,3 +175,29 @@ def test_rejected_work_does_not_advertise_a_polling_resource(settings):
             assert response.status_code == expected
             assert "Location" not in response.headers
             assert "Retry-After" not in response.headers
+
+
+def test_a_rollback_is_a_deployment_of_kind_rollback(settings, seeded, monkeypatch):
+    control, _ = seeded()
+    seed_edge(control)
+    target = control.deployments.deploy("tester")
+    serve(monkeypatch, control)
+    with TestClient(control_plane_app(settings)) as client:
+        accepted = client.post(
+            "/v3/deployments/rollback",
+            json={"deployment_id": target.id},
+            headers=API_HEADERS,
+        )
+        assert accepted.status_code == 202, accepted.text
+        assert accepted.json()["kind"] == "rollback"
+        assert accepted.json()["rollback_of"] == target.id
+
+
+@pytest.mark.parametrize("schema", ["Operation", "Deployment", "Workflow"])
+def test_openapi_publishes_one_shape_every_queued_resource_starts_with(
+    settings, schema
+):
+    document = control_plane_app(settings).openapi()
+    properties = document["components"]["schemas"][schema]["properties"]
+    assert list(properties)[: len(SHARED_FIELDS)] == SHARED_FIELDS
+    assert "done" in document["components"]["schemas"][schema]["required"]
