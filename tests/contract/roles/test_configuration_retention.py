@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from support.paths import CORE_ANSIBLE
+from support.pinned_collections import pinned_collections
 
 _HELPER = CORE_ANSIBLE / "roles/blitzecdn_config_release/files/configuration_release.py"
 ConfigurationRelease = runpy.run_path(str(_HELPER))["ConfigurationRelease"]
@@ -239,7 +240,6 @@ def test_negative_retention_is_rejected_before_commit(tmp_path):
 @pytest.mark.parametrize("check", [False, True])
 def test_ansible_commit_applies_retention_only_outside_check_mode(tmp_path, check):
     import yaml
-    from support.paths import REPO_ROOT
 
     root = tmp_path / "releases"
     for number in range(1, 5):
@@ -289,7 +289,7 @@ def test_ansible_commit_applies_retention_only_outside_check_mode(tmp_path, chec
             "ANSIBLE_CONFIG": str(CORE_ANSIBLE / "ansible.cfg"),
             "ANSIBLE_ROLES_PATH": str(CORE_ANSIBLE / "roles"),
             "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-temp"),
-            "ANSIBLE_COLLECTIONS_PATH": str(REPO_ROOT / ".state/collections"),
+            "ANSIBLE_COLLECTIONS_PATH": str(pinned_collections()),
             "ANSIBLE_STDOUT_CALLBACK": "ansible.builtin.default",
         },
         capture_output=True,

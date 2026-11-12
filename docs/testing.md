@@ -20,6 +20,8 @@ The recipes set `ANSIBLE_HOME` to `.state/ansible-home`, so collections in
 `~/.ansible` are never used, ansible-lint's included: local lint checks against
 the same pinned versions as CI. If the pinned collections are missing,
 `just ansible-check` stops before linting and tells you to run `just collections`.
+The role-contract tests that run a real `ansible-playbook` ask the same question
+first and fail with the same instruction, rather than as an unresolved module.
 
 `just doctor` reports every task this machine can run and gives a fix for each
 missing prerequisite:

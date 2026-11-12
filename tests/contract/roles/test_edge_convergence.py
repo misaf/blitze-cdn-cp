@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import yaml
 from support.contracts import PROJECT_DIR, ROLES_DIR, role_path, runtime_defaults
+from support.pinned_collections import pinned_collections
 from support.role_contracts import (
     defaults_of,
 )
@@ -64,7 +65,7 @@ def _run_contract(
             # The role carries the Nginx reload handler, which uses `community.docker`.
             # Ansible resolves handlers when it loads the role, so the collection must
             # be reachable.
-            "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
+            "ANSIBLE_COLLECTIONS_PATH": str(pinned_collections()),
         },
         check=False,
     )
