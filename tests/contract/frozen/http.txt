@@ -205,10 +205,6 @@ blitzecdn	schema	DeploymentDiff.changes	array[DeploymentChange] optional
 blitzecdn	schema	DeploymentDiff.deployment_id	string required
 blitzecdn	schema	DeploymentDiff.previous_release_id	string|null optional
 blitzecdn	schema	DeploymentDiff.release_id	string required
-blitzecdn	schema	DeploymentReference.error	string|null optional
-blitzecdn	schema	DeploymentReference.id	string required
-blitzecdn	schema	DeploymentReference.release_id	string required
-blitzecdn	schema	DeploymentReference.status	DeploymentStatus required
 blitzecdn	schema	DeploymentTarget.attempts	integer required
 blitzecdn	schema	DeploymentTarget.edge	string required
 blitzecdn	schema	DeploymentTarget.finished_at	string|null optional
@@ -539,10 +535,6 @@ blitzecdn	schema	SiteRateLimit.rate	string|null optional
 blitzecdn	schema	SiteRateLimit.status	integer optional
 blitzecdn	schema	SiteVisitorHeaders.connecting_ip	boolean optional
 blitzecdn	schema	SiteVisitorHeaders.ip_country	boolean optional
-blitzecdn	schema	SslAutomaticReconciliation.deployment	DeploymentReference|null optional
-blitzecdn	schema	SslAutomaticReconciliation.scanned	array[string] optional
-blitzecdn	schema	SslAutomaticReconciliation.skipped	object optional
-blitzecdn	schema	SslAutomaticReconciliation.upgraded	object optional
 blitzecdn	schema	TaskResult.action	string optional
 blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required

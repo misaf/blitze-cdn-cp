@@ -457,10 +457,10 @@ def test_domain_models_do_not_render_adapter_documents():
 #: on sites for its `blitzecdn domain` commands.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     # A workflow over sites, origin probes (edges, origins) and the deploy
-    # that applies an upgrade. TLS is reached only through its contract (the
-    # contract graph below); the upgrade write is a port the composition root
-    # binds to TLS's site editor.
-    "automatic_ssl": {"deployments", "sites", "edges", "origins"},
+    # that applies an upgrade, queued on `jobs`. TLS is reached only through
+    # its contract (the contract graph below); the upgrade write is a port the
+    # composition root binds to TLS's site editor.
+    "automatic_ssl": {"deployments", "sites", "edges", "origins", "jobs"},
     "traffic": set(),
     "backup": set(),
     "origins": {"jobs"},
