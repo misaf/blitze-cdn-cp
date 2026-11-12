@@ -59,6 +59,10 @@ project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
 image_archive=$(mktemp -t blitzecdn-control-plane-XXXXXX).tar
 pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
+# The rollback suite's backup keys and the pinned age CLI. Both stay on the
+# machine running this script, never on the controller: the identity reaches
+# the controller only on a command's standard input.
+backup_keys=$(mktemp -d -t blitzecdn-backup-keys-XXXXXX)
 
 cleanup() {
   local status=$?
@@ -77,6 +81,7 @@ cleanup() {
     docker rm -f -v "${container}" >/dev/null 2>&1 || true
   fi
   rm -f -- "${image_archive}" "${pebble_config}"
+  rm -rf -- "${backup_keys}"
 }
 trap cleanup EXIT
 
@@ -236,6 +241,14 @@ control_plane_state() {
 database_state() {
   in_container 'cd / && blitzecdn config list --json && blitzecdn domain list --json && blitzecdn edge list --json'
 }
+# The certificate and ACME material, by content, and the certificates the
+# controller reports from it.
+certificate_material() {
+  # shellcheck disable=SC2016
+  in_container 'cd /var/lib/blitzecdn &&
+    find certificates acme-account -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum &&
+    blitzecdn cert list --json'
+}
 
 if [[ ${SUITE} != lifecycle ]]; then
   say "Recovering from an update that fails health"
@@ -293,7 +306,30 @@ EOF
   # install the release to return to, and restore the full backup taken before.
   # The release here is the commit under test on both sides; returning across
   # releases is the same steps with the older installer.
-  rollback_backup=/var/backups/blitzecdn/before-rollback.tar.gz
+  rollback_backup=/var/backups/blitzecdn/before-rollback.tar.gz.age
+
+  # The backup is sealed to keys made here, off the controller, by tools other
+  # than the application: a native age key from the pinned age CLI, and both
+  # SSH key types from ssh-keygen. Only the public halves go to the host.
+  age_dir="${backup_keys}/age-cli"
+  bash "${project_dir}/scripts/fetch-age.sh" "${age_dir}" >/dev/null ||
+    fail "could not fetch the pinned age CLI"
+  "${age_dir}/age-keygen" -o "${backup_keys}/age" 2>/dev/null ||
+    fail "could not generate the age backup key"
+  ssh-keygen -q -t ed25519 -N '' -C '' -f "${backup_keys}/ssh-ed25519" ||
+    fail "could not generate the ssh-ed25519 backup key"
+  ssh-keygen -q -t rsa -b 3072 -N '' -C '' -f "${backup_keys}/ssh-rsa" ||
+    fail "could not generate the ssh-rsa backup key"
+  "${age_dir}/age-keygen" -o "${backup_keys}/stranger" 2>/dev/null ||
+    fail "could not generate the unrelated age key"
+  backup_recipients="$("${age_dir}/age-keygen" -y "${backup_keys}/age"),$(<"${backup_keys}/ssh-ed25519.pub"),$(<"${backup_keys}/ssh-rsa.pub")"
+  # One line from the middle of each private key, to search the host for.
+  for key in age ssh-ed25519 ssh-rsa; do
+    grep -v -e '^#' -e '^-----' -e '^$' "${backup_keys}/${key}" |
+      awk '{ lines[NR] = $0 } END { print lines[int((NR + 1) / 2)] }'
+  done >"${backup_keys}/secret-lines"
+  [[ $(grep -c . "${backup_keys}/secret-lines") == 3 ]] ||
+    fail "could not pick a line from each backup key"
 
   # State a fresh install would not have, in each place it lives: a fleet
   # setting, a zone with a record and a second edge in the database, and a
@@ -306,6 +342,30 @@ EOF
     fail "could not seed a zone"
   in_container 'cd / && blitzecdn edge add edge-rollback --host 192.0.2.10 --ssh-source 203.0.113.8/32 --skip-host-key >/dev/null' ||
     fail "could not register a second edge"
+  # Certificate material for the zone's site, installed the way an operator
+  # uploads one, and an ACME account key in the layout the ACME client writes.
+  # The files pass through the backup directory, the one path the CLI
+  # container shares with the host, and are removed again.
+  # shellcheck disable=SC2016
+  in_container 'cd /var/backups/blitzecdn &&
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+      -subj /CN=rollback.example.org \
+      -addext "subjectAltName=DNS:rollback.example.org,DNS:*.rollback.example.org" \
+      -keyout rollback-key.pem -out rollback-cert.pem 2>/dev/null &&
+    chown --reference=. rollback-key.pem rollback-cert.pem &&
+    cd / && blitzecdn cert upload rollback-example-org \
+      --certificate /var/backups/blitzecdn/rollback-cert.pem \
+      --private-key /var/backups/blitzecdn/rollback-key.pem >/dev/null' ||
+    fail "could not upload a certificate"
+  in_container 'rm -f /var/backups/blitzecdn/rollback-key.pem /var/backups/blitzecdn/rollback-cert.pem'
+  in_container 'install -d -m 0700 /var/lib/blitzecdn/acme-account &&
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+      -out /var/lib/blitzecdn/acme-account/account-key.pem &&
+    chmod 0600 /var/lib/blitzecdn/acme-account/account-key.pem &&
+    chown -R --reference=/var/lib/blitzecdn /var/lib/blitzecdn/acme-account' ||
+    fail "could not seed an ACME account key"
+  in_container "printf '\nBLITZE_BACKUP_RECIPIENTS=%s\n' '${backup_recipients}' >> /etc/blitzecdn/blitzecdn.env" ||
+    fail "could not configure the backup recipients"
   in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = \"192.0.2.53\"|" \
     /etc/blitzecdn/blitzecdn.toml' ||
     fail "could not change the configuration file"
@@ -316,11 +376,52 @@ EOF
     up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null ||
     fail "the control plane did not come back with the changed configuration"
   saved_state=$(control_plane_state) || fail "could not read the state to roll back to"
+  saved_material=$(certificate_material) || fail "could not read the certificate material"
+  [[ ${saved_material} == *privkey-* && ${saved_material} == *account-key.pem* ]] ||
+    fail "the certificate and ACME material to roll back to is missing"
   [[ $(api_status_with_current_key) == 200 ]] ||
     fail "the API refused its own operator key before the rollback"
 
   in_container "cd / && blitzecdn backup create -o ${rollback_backup}" ||
     fail "the backup to roll back to failed"
+
+  say "Opening the sealed backup with the independent age CLI"
+  in_container "test \"\$(stat -c %a ${rollback_backup})\" = 600" ||
+    fail "the encrypted backup is not 0600"
+  # The plaintext tar existed only in the private workspace, and is gone.
+  # shellcheck disable=SC2016
+  in_container 'test -z "$(find /var/lib/blitzecdn/backup-work -mindepth 1 2>/dev/null)"' ||
+    fail "the encrypted backup left plaintext in the workspace"
+  docker cp "${container}:${rollback_backup}" "${backup_keys}/sealed.tar.gz.age" >/dev/null ||
+    fail "could not copy the encrypted backup off the host"
+  [[ $(head -c 21 "${backup_keys}/sealed.tar.gz.age") == age-encryption.org/v1 ]] ||
+    fail "the backup is not an age file"
+  tar -tzf "${backup_keys}/sealed.tar.gz.age" >/dev/null 2>&1 &&
+    fail "the encrypted backup is readable as a plain archive"
+  for key in age ssh-ed25519 ssh-rsa; do
+    "${age_dir}/age" --decrypt --identity "${backup_keys}/${key}" \
+      --output "${backup_keys}/opened.tar.gz" "${backup_keys}/sealed.tar.gz.age" ||
+      fail "the age CLI could not open the backup with the ${key} key"
+    tar -tzf "${backup_keys}/opened.tar.gz" | sort >"${backup_keys}/members-${key}" ||
+      fail "what the age CLI decrypted with the ${key} key is not an archive"
+    for member in manifest.json database/blitzecdn.db config/env config/blitzecdn.toml \
+      acme/account-key.pem tls/rollback-example-org/metadata.json; do
+      grep -qx "${member}" "${backup_keys}/members-${key}" ||
+        fail "the backup opened with the ${key} key has no ${member}"
+    done
+    grep -q '^tls/rollback-example-org/privkey-[0-9a-f]*\.pem$' "${backup_keys}/members-${key}" ||
+      fail "the backup opened with the ${key} key has no certificate private key"
+    cmp -s "${backup_keys}/members-age" "${backup_keys}/members-${key}" ||
+      fail "the ${key} key opened a different archive"
+    # The keys that open it are nowhere inside it.
+    grep -qaF -f "${backup_keys}/secret-lines" < <(tar -xOzf "${backup_keys}/opened.tar.gz") &&
+      fail "the backup contains a private key that opens it"
+    rm -f -- "${backup_keys}/opened.tar.gz"
+  done
+  "${age_dir}/age" --decrypt --identity "${backup_keys}/stranger" \
+    --output "${backup_keys}/opened.tar.gz" "${backup_keys}/sealed.tar.gz.age" 2>/dev/null &&
+    fail "the age CLI opened the backup with an unrelated key"
+  rm -f -- "${backup_keys}/opened.tar.gz"
 
   in_container 'blitzecdn-install --uninstall --yes' ||
     fail "the uninstall before reinstalling failed"
@@ -332,11 +433,93 @@ EOF
   in_container "cd / && BLITZECDN_CONTROL_PLANE_ARCHIVE=/root/control-plane.tar /root/install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}" ||
     fail "the reinstall failed"
   # A fresh installation, so the restore below is what brings the state back.
-  [[ $(control_plane_state) != "${saved_state}" ]] ||
+  fresh_state=$(control_plane_state) || fail "could not read the reinstalled state"
+  [[ ${fresh_state} != "${saved_state}" ]] ||
     fail "the reinstall already had the saved state, so the restore proves nothing"
+  fresh_material=$(certificate_material) || fail "could not read the reinstalled material"
+  [[ ${fresh_material} != *privkey-* && ${fresh_material} != *account-key.pem* ]] ||
+    fail "the reinstall already had certificate or ACME material"
+  # Nothing on the clean controller can open the archive.
+  in_container '! grep -q "^BLITZE_BACKUP_RECIPIENTS=" /etc/blitzecdn/blitzecdn.env' ||
+    fail "the reinstall kept the backup recipients"
 
-  in_container "cd / && blitzecdn backup restore ${rollback_backup} --yes" ||
+  say "Refusing keys and archives that do not open the backup"
+  # Every refusal must leave the clean controller exactly as it was. Damaged
+  # copies go next to the real one, as an operator's copy would.
+  python3 - "${backup_keys}/sealed.tar.gz.age" "${backup_keys}/tampered.tar.gz.age" <<'PY'
+import sys
+payload = bytearray(open(sys.argv[1], "rb").read())
+payload[-20] ^= 0x01
+open(sys.argv[2], "wb").write(payload)
+PY
+  head -c "$(($(stat -c %s "${backup_keys}/sealed.tar.gz.age") / 2))" \
+    "${backup_keys}/sealed.tar.gz.age" >"${backup_keys}/truncated.tar.gz.age"
+  for damaged in tampered truncated; do
+    into_container "cat > /var/backups/blitzecdn/${damaged}.tar.gz.age &&
+      chown --reference=/var/backups/blitzecdn /var/backups/blitzecdn/${damaged}.tar.gz.age &&
+      chmod 0600 /var/backups/blitzecdn/${damaged}.tar.gz.age" \
+      <"${backup_keys}/${damaged}.tar.gz.age" ||
+      fail "could not place the ${damaged} archive on the host"
+  done
+  refused_restore() {
+    local archive=$1 identity=$2 expected=$3 output
+    if output=$(into_container "cd / && blitzecdn backup restore ${archive} --identity - --yes" \
+      <"${identity}" 2>&1); then
+      printf '%s\n' "${output}"
+      fail "restoring ${archive##*/} with ${identity##*/} succeeded"
+    fi
+    grep -q "${expected}" <<<"${output}" || {
+      printf '%s\n' "${output}"
+      fail "restoring ${archive##*/} with ${identity##*/} failed for another reason"
+    }
+    grep -qF -f "${backup_keys}/secret-lines" <<<"${output}" &&
+      fail "the refusal echoed the private key"
+    return 0
+  }
+  refused_restore "${rollback_backup}" "${backup_keys}/stranger" 'cannot decrypt'
+  refused_restore /var/backups/blitzecdn/tampered.tar.gz.age "${backup_keys}/age" 'failed authentication'
+  refused_restore /var/backups/blitzecdn/truncated.tar.gz.age "${backup_keys}/age" 'failed authentication'
+  if output=$(in_container "cd / && blitzecdn backup restore ${rollback_backup} --yes" 2>&1); then
+    fail "a restore without the key succeeded"
+  fi
+  grep -q 'is encrypted' <<<"${output}" || {
+    printf '%s\n' "${output}"
+    fail "a restore without the key did not say it needs one"
+  }
+  in_container 'rm -f /var/backups/blitzecdn/tampered.tar.gz.age /var/backups/blitzecdn/truncated.tar.gz.age'
+  in_container 'test ! -e /var/lib/blitzecdn/restore-recovery' ||
+    fail "a refused restore left a recovery checkpoint"
+  for service in blitzecdn-api blitzecdn-worker; do
+    in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
+      fail "${service} is not healthy after the refused restores"
+  done
+  [[ $(control_plane_state) == "${fresh_state}" ]] ||
+    fail "a refused restore changed the controller's state"
+  [[ $(certificate_material) == "${fresh_material}" ]] ||
+    fail "a refused restore changed the certificate or ACME material"
+
+  say "Restoring the sealed backup with a key given on standard input"
+  # Either SSH key reads the archive, through the same standard-input path.
+  for key in ssh-ed25519 ssh-rsa; do
+    into_container "cd / && blitzecdn backup inspect ${rollback_backup} --identity -" \
+      <"${backup_keys}/${key}" | grep -q '^  acme$' ||
+      fail "the ${key} key does not open the backup on the controller"
+  done
+  into_container "cd / && blitzecdn backup restore ${rollback_backup} --identity - --yes" \
+    <"${backup_keys}/age" ||
     fail "restoring the backup after the reinstall failed"
+  # The key was only ever on standard input: it is not on the host's disks,
+  # in its journal, or in a container's log. grep's 1 is "not found"; 0 is a
+  # hit and anything else means the search itself failed.
+  status=0
+  into_container 'grep -rsIqF -D skip -f /dev/stdin /etc/blitzecdn /var/lib/blitzecdn \
+    /var/backups/blitzecdn /var/lib/docker/containers /root /tmp /run' \
+    <"${backup_keys}/secret-lines" || status=$?
+  [[ ${status} == 1 ]] || fail "a backup private key was left on the controller (grep ${status})"
+  status=0
+  into_container 'exec 3<&0; journalctl --no-pager --output cat </dev/null | grep -qF -f /dev/fd/3' \
+    <"${backup_keys}/secret-lines" || status=$?
+  [[ ${status} == 1 ]] || fail "a backup private key reached the controller's journal (grep ${status})"
   for service in blitzecdn-api blitzecdn-worker; do
     in_container "docker inspect -f '{{.State.Health.Status}}' ${service} | grep -qx healthy" ||
       fail "${service} is not healthy after the rollback"
@@ -350,6 +533,20 @@ EOF
   }
   in_container "grep -qx 'BLITZE_ALLOWED_IPS=${ALLOWED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
     fail "the rollback lost the API access list"
+  restored_material=$(certificate_material) || fail "could not read the restored material"
+  [[ ${restored_material} == "${saved_material}" ]] || {
+    diff <(printf '%s\n' "${saved_material}") <(printf '%s\n' "${restored_material}") || true
+    fail "the rollback did not restore the certificate and ACME material"
+  }
+  # shellcheck disable=SC2016
+  in_container 'cd /var/lib/blitzecdn &&
+    test "$(stat -c %a certificates/rollback-example-org/privkey-*.pem)" = 600 &&
+    test "$(stat -c %a acme-account/account-key.pem)" = 600' ||
+    fail "the restored private keys are not 0600"
+  # shellcheck disable=SC2016
+  in_container 'cd /var/lib/blitzecdn/certificates/rollback-example-org &&
+    cmp -s <(openssl x509 -in fullchain-*.pem -noout -pubkey) <(openssl pkey -in privkey-*.pem -pubout)' ||
+    fail "the restored certificate and private key do not match"
   # The restored credential is the one the running API accepts.
   [[ $(api_status_with_current_key) == 200 ]] ||
     fail "the API does not accept the restored operator key"
@@ -381,8 +578,12 @@ EOF
 
   # The lifecycle stages below expect a host with only the local edge: the
   # second one has no machine behind it, and a deploy would try to reach it.
+  # Its seeded certificate and ACME material, and the recipients, go too: the
+  # lifecycle stages request their own certificates and read plain archives.
   in_container 'cd / && blitzecdn edge remove edge-rollback --no-decommission --yes >/dev/null &&
-    blitzecdn domain remove rollback.example.org --yes >/dev/null' ||
+    blitzecdn domain remove rollback.example.org --yes >/dev/null &&
+    rm -rf /var/lib/blitzecdn/certificates/rollback-example-org /var/lib/blitzecdn/acme-account &&
+    sed -i "/^BLITZE_BACKUP_RECIPIENTS=/d" /etc/blitzecdn/blitzecdn.env' ||
     fail "could not remove the rollback fixtures"
 fi
 

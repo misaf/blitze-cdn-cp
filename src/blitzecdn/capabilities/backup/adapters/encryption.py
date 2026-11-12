@@ -21,7 +21,12 @@ from blitzecdn.core.exceptions import ConfigurationError
 #: Every age file begins with one of these: binary, or ASCII-armored.
 _HEADERS = (b"age-encryption.org/", b"-----BEGIN AGE ENCRYPTED FILE-----")
 
-_OPENSSH_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----"
+#: The SSH private key encodings ``age`` reads: OpenSSH's own, and the PEM
+#: form ``ssh-keygen -m PEM`` writes for RSA.
+_SSH_KEYS = (
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+)
 
 
 def parse_recipient(text: str) -> Any:
@@ -45,16 +50,16 @@ def parse_recipient(text: str) -> Any:
 
 
 def parse_identities(text: str) -> list[Any]:
-    """The keys in an identity file: age secret keys, or one OpenSSH private key.
+    """The keys in an identity file: age secret keys, or one SSH private key.
 
     Never echoes the input: it is a private key.
     """
-    if _OPENSSH_KEY in text:
+    if any(header in text for header in _SSH_KEYS):
         try:
             return [ssh.Identity.from_buffer(text.encode("utf-8"))]
         except pyrage.IdentityError as exc:
             raise ConfigurationError(
-                "the identity is not a usable OpenSSH private key; a "
+                "the identity is not a usable SSH private key; a "
                 "passphrase-protected key must be decrypted first"
             ) from exc
     keys = [
@@ -69,7 +74,7 @@ def parse_identities(text: str) -> list[Any]:
     except pyrage.IdentityError as exc:
         raise ConfigurationError(
             "the identity is neither an age secret key (AGE-SECRET-KEY-1...) "
-            "nor an unencrypted OpenSSH private key"
+            "nor an unencrypted SSH private key"
         ) from exc
 
 
