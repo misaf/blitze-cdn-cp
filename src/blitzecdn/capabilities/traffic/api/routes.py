@@ -19,10 +19,16 @@ from blitzecdn.capabilities.traffic.domain import UsageQuery
 from blitzecdn.capabilities.traffic.domain.analytics import Granularity, SiteQuery
 from blitzecdn.capabilities.traffic.service.collection import TrafficService
 from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.errors import (
+    NOT_FOUND_RESPONSES,
+    OPERATOR_RESPONSES,
+)
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
-    route_class=DishkaSyncRoute, dependencies=[Depends(require_operator)]
+    route_class=DishkaSyncRoute,
+    dependencies=[Depends(require_operator)],
+    responses=OPERATOR_RESPONSES,
 )
 
 
@@ -70,7 +76,11 @@ Edge = Annotated[
 ]
 
 
-@router.get("/v3/traffic/sites/{site}", response_model=Page[SiteBucket])
+@router.get(
+    "/v3/traffic/sites/{site}",
+    response_model=Page[SiteBucket],
+    responses=NOT_FOUND_RESPONSES,
+)
 def site_analytics(
     site: str,
     traffic: FromDishka[TrafficService],
@@ -107,7 +117,11 @@ def site_analytics(
     )
 
 
-@router.get("/v3/traffic/sites/{site}/paths", response_model=Page[SitePath])
+@router.get(
+    "/v3/traffic/sites/{site}/paths",
+    response_model=Page[SitePath],
+    responses=NOT_FOUND_RESPONSES,
+)
 def site_paths(
     site: str,
     traffic: FromDishka[TrafficService],
@@ -158,7 +172,11 @@ def _validated[Q: BaseModel](model: type[Q], **values: object) -> Q:
         ) from exc
 
 
-@router.get("/v3/traffic/status/{edge}", response_model=CollectionStatus)
+@router.get(
+    "/v3/traffic/status/{edge}",
+    response_model=CollectionStatus,
+    responses=NOT_FOUND_RESPONSES,
+)
 def collection_status(
     edge: str, response: Response, traffic: FromDishka[TrafficService]
 ) -> CollectionStatus:

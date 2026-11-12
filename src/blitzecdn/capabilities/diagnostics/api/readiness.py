@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaSyncRoute
@@ -18,6 +19,8 @@ from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.sites import SiteReader
 from blitzecdn.core.features import Operations
 from blitzecdn.delivery.api.dependencies import require_operator
+from blitzecdn.delivery.api.errors import GLOBAL_RESPONSES, OPERATOR_RESPONSES
+from blitzecdn.delivery.api.models import Model
 from blitzecdn.delivery.api.validation import VALIDATION_RESPONSE
 
 router = APIRouter(route_class=DishkaSyncRoute)
@@ -25,7 +28,25 @@ _LOGGER = logging.getLogger(__name__)
 _METRICS_WINDOW = 100
 
 
-@router.get("/health")
+class HealthUnavailable(Model):
+    """A failed health check: not an error message, so not `ErrorResponse`."""
+
+    status: Literal["unavailable"]
+    #: The name of the first check that failed.
+    check: str
+    #: The exception's type, never its message, which can carry credentials.
+    detail: str
+
+
+@router.get(
+    "/health",
+    responses={
+        503: {
+            "model": HealthUnavailable,
+            "description": "A health check failed; `check` names the first.",
+        }
+    },
+)
 def health(response: Response, operations: FromDishka[Operations]) -> dict[str, str]:
     """Whether this controller can actually answer, not merely respond.
 
@@ -49,7 +70,9 @@ def health(response: Response, operations: FromDishka[Operations]) -> dict[str, 
 @router.get(
     "/metrics",
     response_class=PlainTextResponse,
-    responses={422: VALIDATION_RESPONSE},
+    # Restated without a model, so a text route documents its errors as JSON
+    # rather than as `text/plain`.
+    responses={422: VALIDATION_RESPONSE, **GLOBAL_RESPONSES, **OPERATOR_RESPONSES},
     dependencies=[Depends(require_operator)],
 )
 def metrics(
