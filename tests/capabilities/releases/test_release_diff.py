@@ -340,3 +340,21 @@ def test_the_fleet_view_leaves_past_deployment_diffs_and_retention_alone(
         assert {first.release_id, canary.release_id} <= set(in_use)
     finally:
         control.container.close()
+
+
+def test_an_edge_is_placed_by_when_it_ran_not_when_its_run_was_queued(control):
+    control.deployments.deploy("alice")
+    _edit(control, always_use_https=True)
+    queued = control.deployments.submit_deployment("alice")
+    _edit(control, always_use_https=False)
+    newer = control.deployments.deploy("alice")
+    assert newer.release_id != queued.release_id
+
+    # The older run executes last, so its release is what the edge now runs.
+    ran = control.deployments.run_queued(queued.id)
+    assert ran.status is DeploymentStatus.SUCCEEDED
+
+    assert _placed(control.releases.diff())["edge-a"] == (
+        EdgeReleaseState.RECORDED,
+        queued.release_id,
+    )
