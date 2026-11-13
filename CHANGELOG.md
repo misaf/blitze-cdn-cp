@@ -13,6 +13,8 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 ### Changed
 
 - The edge image is built on Nginx 1.31.7 (from 1.31.4) (#399).
+- The control plane runs on SQLAlchemy 2.1.8 (from 2.0.52), and the package
+  accepts SQLAlchemy up to 2.1 (`sqlalchemy>=2.0.52,<2.2`) (#391).
 
 ## [7.0.0] - 2026-11-13
 
