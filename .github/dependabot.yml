@@ -1,11 +1,12 @@
 ---
 version: 2
-# Every entry names master: GitHub's default branch is a release line (7.x),
-# and Dependabot otherwise opens its pull requests against the default branch.
+# Every entry names the current release line, 7.x, so dependency updates ship
+# in its patch releases and reach master when 7.x is merged up. Move all three
+# to the new line in the change that opens it.
 updates:
   - package-ecosystem: uv
     directory: /
-    target-branch: master
+    target-branch: 7.x
     schedule:
       interval: weekly
       day: monday
@@ -19,7 +20,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    target-branch: master
+    target-branch: 7.x
     schedule:
       interval: weekly
       day: monday
@@ -39,7 +40,7 @@ updates:
     directories:
       - /src/blitzecdn/assets/docker/control-plane
       - /src/blitzecdn/assets/docker/edge
-    target-branch: master
+    target-branch: 7.x
     schedule:
       interval: weekly
       day: monday
