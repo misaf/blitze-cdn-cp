@@ -1,0 +1,79 @@
+name: Bug report
+description: Report a problem with BlitzeCDN
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not report security vulnerabilities here. Report them privately as
+        described in the [security policy](https://github.com/misaf/blitze-cdn-cp/security/policy).
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the problem and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: >-
+        Include relevant error messages or logs. Remove API keys, credentials,
+        IP addresses, and other sensitive information before posting.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: BlitzeCDN version or commit
+      placeholder: "7.0.0"
+    validations:
+      required: true
+  - type: input
+    id: install-method
+    attributes:
+      label: Installation method
+      placeholder: install.sh standalone
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: Ubuntu 26.04
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - API
+        - Worker
+        - CLI
+        - Edge
+        - Installer
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: edge-runtime
+    attributes:
+      label: Edge runtime version, if relevant
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
