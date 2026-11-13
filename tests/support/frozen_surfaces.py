@@ -17,8 +17,9 @@ Ownership is derived from callbacks, route endpoints and resource paths.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args, get_origin
 
 import click
 import yaml
@@ -87,16 +88,50 @@ def _parameter(param: click.Parameter) -> str:
         name = f"<{param.name}>"
     else:
         name = "/".join(param.opts + param.secondary_opts)
-    kind = getattr(param.type, "name", type(param.type).__name__)
-    choices = getattr(param.type, "choices", None)
-    if choices:
-        kind = f"choice[{','.join(str(choice) for choice in choices)}]"
-    parts = [name, f"type={kind}"]
+    parts = [name, f"type={_parameter_type(param)}"]
     if param.required:
         parts.append("required")
     if param.default is not None and param.param_type_name != "argument":
         parts.append(f"default={param.default!r}")
     return " ".join(parts)
+
+
+#: Names for the annotations Typer accepts, as an operator reads them in help.
+_TYPE_NAMES = {bool: "boolean", int: "int", float: "float", str: "str"}
+
+
+def _parameter_type(param: click.Parameter) -> str:
+    """The value a parameter takes, named the same whatever Typer's internals.
+
+    Typer describes each parameter by its annotation and declared options
+    (`type_descriptor`), not by a click `ParamType`. A list takes one value of
+    its element type per occurrence; a `Path` says whether it must be a file or
+    a directory; a bounded number is a range.
+    """
+    descriptor = param.type_descriptor  # type: ignore[attr-defined]
+    if descriptor.is_choice:
+        values = (
+            choice.value if isinstance(choice, Enum) else choice
+            for choice in descriptor.choices or ()
+        )
+        return f"choice[{','.join(str(value) for value in values)}]"
+    annotation = descriptor.annotation
+    if get_origin(annotation) is list:
+        (annotation,) = get_args(annotation)
+    if annotation is Path:
+        info = descriptor.parameter_info
+        if info.file_okay and not info.dir_okay:
+            return "file"
+        if info.dir_okay and not info.file_okay:
+            return "directory"
+        return "path"
+    kind = _TYPE_NAMES.get(annotation, getattr(annotation, "__name__", str(annotation)))
+    if annotation in (int, float):
+        info = descriptor.parameter_info
+        if info.min is not None or info.max is not None:
+            # A bound is part of the contract: tightening it rejects values.
+            return f"{kind} range"
+    return kind
 
 
 def _walk_commands(

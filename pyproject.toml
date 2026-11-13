@@ -38,7 +38,7 @@ dependencies = [
   # so a dependency that is really required has to say so here.
   "ansible-core>=2.22,<2.23",
   "pydantic-settings>=2.12,<3",
-  "sqlalchemy>=2.0.52,<2.1",
+  "sqlalchemy>=2.0.52,<2.2",
   "ansible-runner>=2.4,<3",
   "dishka>=1.10.1,<2",
   # Renders /metrics: escaping, number formatting and the exposition content

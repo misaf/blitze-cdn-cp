@@ -440,7 +440,7 @@ class TrafficStore:
     def site_paths(self, query: SiteQuery) -> PageResult[PathTotals]:
         """A site's busiest paths over the range, most requested first."""
         requests = func.sum(TrafficPathHourRow.requests)
-        statement: Select[Any] = self._in_range(
+        statement: Select[*tuple[Any, ...]] = self._in_range(
             select(
                 TrafficPathHourRow.path,
                 requests,
@@ -503,7 +503,7 @@ class TrafficStore:
         return datetime.fromisoformat(key)
 
     @staticmethod
-    def _in_range[S: Select[Any]](
+    def _in_range[S: Select[*tuple[Any, ...]]](
         statement: S,
         table: type[TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow],
         query: SiteQuery,
@@ -518,7 +518,7 @@ class TrafficStore:
         return statement
 
     @staticmethod
-    def _retained[S: Select[Any]](
+    def _retained[S: Select[*tuple[Any, ...]]](
         session: Session,
         statement: S,
         table: type[TrafficHourRow | TrafficCacheHourRow | TrafficPathHourRow],
