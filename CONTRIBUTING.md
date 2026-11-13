@@ -149,7 +149,7 @@ just release-tag X.Y.Z && git push origin vX.Y.Z
 
 `just release-tag` makes the one kind of tag CI accepts: annotated, signed
 with a key GitHub verifies (add yours under Settings → SSH and GPG keys), with
-the message `BlitzeCDN X.Y.Z`, on a commit already pushed to a release line.
+the message `BlitzeCDN vX.Y.Z`, on a commit already pushed to a release line.
 Every workflow that publishes from a tag runs `scripts/release_tag_check.py`
 first and refuses a lightweight or unverified tag, a different message, or a
 tag that doesn't match `pyproject.toml`.
