@@ -25,7 +25,7 @@ class _Params(AbstractParams):
 
 def read_page[Row, Item](
     session: Session,
-    query: Select[tuple[Row]],
+    query: Select[Row],
     convert: Callable[[Row], Item],
     *,
     limit: int,
