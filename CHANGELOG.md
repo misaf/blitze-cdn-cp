@@ -417,6 +417,9 @@ onward, installs upgrade in place to later 7.x releases and to future majors.
 
 ## [2.9.0] - 2026-08-30
 
+There is no 2.8.0: the version went from 2.7.0 straight to 2.9.0, and 2.8.0
+was never released.
+
 ### Changed
 
 - The control plane runs as dedicated Docker Compose containers, and restore
@@ -679,7 +682,8 @@ repository; their changes are included here.
 
 ## [1.1.0] - 2026-08-05
 
-First tagged release.
+First tagged release. There is no 1.0.0: the version went from the untagged
+0.1.0 straight to 1.1.0, and 1.0.0 was never released.
 
 ### Added
 
