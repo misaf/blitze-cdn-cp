@@ -34,8 +34,8 @@ Report conduct problems to GitHub. On the comment, issue or pull request, open
 the `…` menu and choose **Report content**, or report the account from its
 profile. The report goes privately to GitHub, which reviews it under its
 [Community Guidelines](https://docs.github.com/site-policy/github-terms/github-community-guidelines).
-Do not use a public issue for this. Security vulnerabilities go through [SECURITY.md](SECURITY.md)
-instead.
+Do not use a public issue for this. Security vulnerabilities go through
+[SECURITY.md](SECURITY.md) instead.
 
 This project has no separate private channel for conduct reports, and the
 maintainers do not see reports made to GitHub. They act on what happens in the
