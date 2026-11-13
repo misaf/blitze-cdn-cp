@@ -76,7 +76,7 @@ new rollout: canary first, then the same batches. That costs the same as the
 
 ## Results
 
-Environment: commit `02f18c1e`, macOS 15.8 on x86_64 with 16 CPUs, Python
+Environment: commit `dab89fba`, macOS 15.8 on x86_64 with 16 CPUs, Python
 3.15.2, seed 1, default cost model, run with `just bench-rollout`. The full
 table is the script's output. These are the rows the conclusions rest on.
 
