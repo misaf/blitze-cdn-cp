@@ -5,7 +5,8 @@ themselves are in the README, `docs/`, the justfile and the tests. Read them
 there, because those copies are the ones the checks enforce.
 
 Report security problems privately, as [SECURITY.md](SECURITY.md) describes,
-and not in a public issue.
+and not in a public issue. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## Set up
 

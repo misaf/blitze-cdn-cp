@@ -1,0 +1,32 @@
+name: Documentation issue
+description: Report incorrect, unclear, or missing documentation
+labels: [documentation]
+body:
+  - type: textarea
+    id: affected
+    attributes:
+      label: Affected documentation
+      description: >-
+        Link to the page or identify the file and section. If documentation is
+        missing, describe where you expected to find it.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe what is incorrect, unclear, or missing and how it affects you.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Describe the correction or information you would like to see.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: >-
+        Include relevant examples or version information. Remove credentials
+        and other sensitive information before posting.
