@@ -167,12 +167,12 @@ def test_every_edit_that_takes_if_match_publishes_412_and_its_reads_publish_etag
     assert edits == {
         (ZONE.replace("example.com", "{domain}"), "patch"),
         (ZONE.replace("example.com", "{domain}"), "delete"),
-        ("/v3/domains/{domain}/records/{type}/{name}", "patch"),
-        ("/v3/domains/{domain}/records/{type}/{name}", "delete"),
-        ("/v3/domains/{domain}/rules/{name}", "patch"),
-        ("/v3/domains/{domain}/rules/{name}", "delete"),
-        ("/v3/edges/{name}", "patch"),
-        ("/v3/edges/{name}", "delete"),
+        ("/v3/domains/{domain}/records/{type}/{record}", "patch"),
+        ("/v3/domains/{domain}/records/{type}/{record}", "delete"),
+        ("/v3/domains/{domain}/rules/{rule}", "patch"),
+        ("/v3/domains/{domain}/rules/{rule}", "delete"),
+        ("/v3/edges/{edge}", "patch"),
+        ("/v3/edges/{edge}", "delete"),
     }
     for path, method in edits:
         assert "412" in paths[path][method]["responses"], (path, method)

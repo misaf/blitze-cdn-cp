@@ -1,7 +1,7 @@
 blitzecdn	route	DELETE /v3/domains/{domain}
-blitzecdn	route	DELETE /v3/domains/{domain}/records/{type}/{name}
-blitzecdn	route	DELETE /v3/domains/{domain}/rules/{name}
-blitzecdn	route	DELETE /v3/edges/{name}
+blitzecdn	route	DELETE /v3/domains/{domain}/records/{type}/{record}
+blitzecdn	route	DELETE /v3/domains/{domain}/rules/{rule}
+blitzecdn	route	DELETE /v3/edges/{edge}
 blitzecdn	route	GET /health
 blitzecdn	route	GET /metrics
 blitzecdn	route	GET /v3/audit-events
@@ -16,22 +16,22 @@ blitzecdn	route	GET /v3/domains/export
 blitzecdn	route	GET /v3/domains/{domain}
 blitzecdn	route	GET /v3/domains/{domain}/export
 blitzecdn	route	GET /v3/domains/{domain}/records
-blitzecdn	route	GET /v3/domains/{domain}/records/{type}/{name}
+blitzecdn	route	GET /v3/domains/{domain}/records/{type}/{record}
 blitzecdn	route	GET /v3/domains/{domain}/resolve
 blitzecdn	route	GET /v3/domains/{domain}/rules
-blitzecdn	route	GET /v3/domains/{domain}/rules/{name}
+blitzecdn	route	GET /v3/domains/{domain}/rules/{rule}
 blitzecdn	route	GET /v3/edges
-blitzecdn	route	GET /v3/edges/{name}
+blitzecdn	route	GET /v3/edges/{edge}
 blitzecdn	route	GET /v3/operations/{operation_id}
 blitzecdn	route	GET /v3/releases
 blitzecdn	route	GET /v3/releases/current
 blitzecdn	route	GET /v3/releases/current/diff
 blitzecdn	route	GET /v3/releases/{release_id}
-blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{name}
+blitzecdn	route	GET /v3/releases/{release_id}/artifacts/{artifact}
 blitzecdn	route	GET /v3/sites
-blitzecdn	route	GET /v3/sites/{name}
-blitzecdn	route	GET /v3/sites/{name}/certificate
-blitzecdn	route	GET /v3/sites/{name}/certificate/preflight
+blitzecdn	route	GET /v3/sites/{site}
+blitzecdn	route	GET /v3/sites/{site}/certificate
+blitzecdn	route	GET /v3/sites/{site}/certificate/preflight
 blitzecdn	route	GET /v3/status
 blitzecdn	route	GET /v3/traffic/cache
 blitzecdn	route	GET /v3/traffic/collection
@@ -41,9 +41,9 @@ blitzecdn	route	GET /v3/traffic/usage
 blitzecdn	route	GET /v3/workflows
 blitzecdn	route	GET /v3/workflows/{workflow_id}
 blitzecdn	route	PATCH /v3/domains/{domain}
-blitzecdn	route	PATCH /v3/domains/{domain}/records/{type}/{name}
-blitzecdn	route	PATCH /v3/domains/{domain}/rules/{name}
-blitzecdn	route	PATCH /v3/edges/{name}
+blitzecdn	route	PATCH /v3/domains/{domain}/records/{type}/{record}
+blitzecdn	route	PATCH /v3/domains/{domain}/rules/{rule}
+blitzecdn	route	PATCH /v3/edges/{edge}
 blitzecdn	route	POST /v3/cache/connections
 blitzecdn	route	POST /v3/cache/purge
 blitzecdn	route	POST /v3/certificates/reconcile
@@ -56,9 +56,9 @@ blitzecdn	route	POST /v3/domains/{domain}/records
 blitzecdn	route	POST /v3/domains/{domain}/rules
 blitzecdn	route	POST /v3/edges
 blitzecdn	route	POST /v3/origins/check
-blitzecdn	route	POST /v3/sites/{name}/certificate/request
+blitzecdn	route	POST /v3/sites/{site}/certificate/request
 blitzecdn	route	POST /v3/workflows/{workflow_id}/acknowledge
-blitzecdn	route	PUT /v3/sites/{name}/certificate
+blitzecdn	route	PUT /v3/sites/{site}/certificate
 blitzecdn	schema	AnsibleRun.error	string|null optional
 blitzecdn	schema	AnsibleRun.finished_at	string required
 blitzecdn	schema	AnsibleRun.hosts	array[HostRun] optional
@@ -82,8 +82,8 @@ blitzecdn	schema	BackupStatistics.last_age_seconds	number|null required
 blitzecdn	schema	BackupStatistics.last_archive	string|null required
 blitzecdn	schema	BackupStatistics.last_completed_at	string|null required
 blitzecdn	schema	BackupStatistics.last_size_bytes	integer|null required
-blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.certificate	string required
-blitzecdn	schema	Body_upload_certificate_v3_sites__name__certificate_put.private_key	string required
+blitzecdn	schema	Body_upload_certificate_v3_sites__site__certificate_put.certificate	string required
+blitzecdn	schema	Body_upload_certificate_v3_sites__site__certificate_put.private_key	string required
 blitzecdn	schema	CacheCounters.bytes_sent	integer required
 blitzecdn	schema	CacheCounters.requests	integer required
 blitzecdn	schema	CacheHour.byte_hit_ratio	number|null required

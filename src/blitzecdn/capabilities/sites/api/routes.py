@@ -153,9 +153,9 @@ def list_sites(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
-@router.get("/v3/sites/{name}", response_model=CdnSite, responses=NOT_FOUND_RESPONSES)
-def get_site(name: str, sites: FromDishka[SiteReader]) -> CdnSite:
-    return CdnSite.from_domain(sites.get_site(name))
+@router.get("/v3/sites/{site}", response_model=CdnSite, responses=NOT_FOUND_RESPONSES)
+def get_site(site: str, sites: FromDishka[SiteReader]) -> CdnSite:
+    return CdnSite.from_domain(sites.get_site(site))
 
 
 @router.get(
@@ -194,9 +194,9 @@ def create_record(
     return created
 
 
-#: One record is addressed by its type as well as its name: an A and an AAAA
-#: record share a name, and no type is assumed.
-RECORD_PATH = "/v3/domains/{domain}/records/{type}/{name}"
+#: One record is addressed by its type as well as its name, ``{record}``: an A
+#: and an AAAA record share a name, and no type is assumed.
+RECORD_PATH = "/v3/domains/{domain}/records/{type}/{record}"
 RecordTypePath = Annotated[RecordType, Path(alias="type")]
 
 
@@ -209,11 +209,11 @@ def get_record(
     response: Response,
     domain: str,
     type_: RecordTypePath,
-    name: str,
+    record: str,
     dns: FromDishka[SiteService],
 ) -> DnsRecord:
     return DnsRecord.from_domain(
-        tag(response, dns.get_record(domain, name, type_.to_domain()))
+        tag(response, dns.get_record(domain, record, type_.to_domain()))
     )
 
 
@@ -232,7 +232,7 @@ def update_record(
     response: Response,
     domain: str,
     type_: RecordTypePath,
-    name: str,
+    record: str,
     patch: RecordPatch,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
@@ -240,7 +240,7 @@ def update_record(
 ) -> DnsRecord:
     updated = dns.update_record(
         domain,
-        name,
+        record,
         type_.to_domain(),
         patch.to_domain(),
         operator,
@@ -261,13 +261,13 @@ def update_record(
 def delete_record(
     domain: str,
     type_: RecordTypePath,
-    name: str,
+    record: str,
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
     precondition: IfMatchHeader = None,
 ) -> None:
     dns.delete_record(
-        domain, name, type_.to_domain(), operator, if_match=if_match(precondition)
+        domain, record, type_.to_domain(), operator, if_match=if_match(precondition)
     )
 
 
@@ -316,18 +316,18 @@ def create_rule(
 
 
 @router.get(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     response_model=Rule,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
 )
 def get_rule(
-    response: Response, domain: str, name: str, rules: FromDishka[RuleService]
+    response: Response, domain: str, rule: str, rules: FromDishka[RuleService]
 ) -> Rule:
-    return Rule.from_domain(tag(response, rules.get_rule(domain, name)))
+    return Rule.from_domain(tag(response, rules.get_rule(domain, rule)))
 
 
 @router.patch(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     response_model=Rule,
     responses={
         200: ETAG_RESPONSE,
@@ -340,20 +340,20 @@ def get_rule(
 def update_rule(
     response: Response,
     domain: str,
-    name: str,
+    rule: str,
     patch: RulePatch,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
     precondition: IfMatchHeader = None,
 ) -> Rule:
     updated = rules.update_rule(
-        domain, name, patch.to_domain(), operator, if_match=if_match(precondition)
+        domain, rule, patch.to_domain(), operator, if_match=if_match(precondition)
     )
     return Rule.from_domain(tag(response, updated))
 
 
 @router.delete(
-    "/v3/domains/{domain}/rules/{name}",
+    "/v3/domains/{domain}/rules/{rule}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         **NOT_FOUND_RESPONSES,
@@ -363,12 +363,12 @@ def update_rule(
 )
 def delete_rule(
     domain: str,
-    name: str,
+    rule: str,
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
     precondition: IfMatchHeader = None,
 ) -> None:
-    rules.delete_rule(domain, name, operator, if_match=if_match(precondition))
+    rules.delete_rule(domain, rule, operator, if_match=if_match(precondition))
 
 
 @router.get(
