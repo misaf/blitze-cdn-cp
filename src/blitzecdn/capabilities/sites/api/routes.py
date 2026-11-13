@@ -50,7 +50,12 @@ router = APIRouter(
 )
 
 
-@router.get("/v3/domains", response_model=Page[Domain])
+@router.get(
+    "/v3/domains",
+    response_model=Page[Domain],
+    operation_id="domains_list",
+    tags=["domains"],
+)
 def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
     return paginate(dns.list_domains(), Domain.from_domain)
 
@@ -64,6 +69,8 @@ def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_create",
+    tags=["domains"],
 )
 def create_domain(
     response: Response,
@@ -79,7 +86,12 @@ def create_domain(
 
 
 # Declared before ``/v3/domains/{domain}`` so ``export`` is not read as a zone.
-@router.get("/v3/domains/export", response_model=DnsExport)
+@router.get(
+    "/v3/domains/export",
+    response_model=DnsExport,
+    operation_id="domains_export_all",
+    tags=["domains"],
+)
 def export_domains(dns: FromDishka[SiteService]) -> DnsExport:
     """Desired DNS state for whatever is authoritative for these zones.
 
@@ -92,6 +104,8 @@ def export_domains(dns: FromDishka[SiteService]) -> DnsExport:
     "/v3/domains/{domain}",
     response_model=Domain,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="domains_get",
+    tags=["domains"],
 )
 def get_domain(response: Response, domain: str, dns: FromDishka[SiteService]) -> Domain:
     return Domain.from_domain(tag(response, dns.get_domain(domain)))
@@ -107,6 +121,8 @@ def get_domain(response: Response, domain: str, dns: FromDishka[SiteService]) ->
         **PRECONDITION_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_update",
+    tags=["domains"],
 )
 def update_domain(
     response: Response,
@@ -133,6 +149,8 @@ def update_domain(
         **CONFLICT_RESPONSES,
         **PRECONDITION_RESPONSES,
     },
+    operation_id="domains_delete",
+    tags=["domains"],
 )
 def delete_domain(
     domain: str,
@@ -143,7 +161,9 @@ def delete_domain(
     dns.delete_domain(domain, operator, if_match=if_match(precondition))
 
 
-@router.get("/v3/sites", response_model=Page[CdnSite])
+@router.get(
+    "/v3/sites", response_model=Page[CdnSite], operation_id="sites_list", tags=["sites"]
+)
 def list_sites(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     """The sites the zones and their rules resolve to; read-only.
 
@@ -153,7 +173,13 @@ def list_sites(sites: FromDishka[SiteReader]) -> Page[CdnSite]:
     return paginate(sites.list_sites(), CdnSite.from_domain)
 
 
-@router.get("/v3/sites/{site}", response_model=CdnSite, responses=NOT_FOUND_RESPONSES)
+@router.get(
+    "/v3/sites/{site}",
+    response_model=CdnSite,
+    responses=NOT_FOUND_RESPONSES,
+    operation_id="sites_get",
+    tags=["sites"],
+)
 def get_site(site: str, sites: FromDishka[SiteReader]) -> CdnSite:
     return CdnSite.from_domain(sites.get_site(site))
 
@@ -162,6 +188,8 @@ def get_site(site: str, sites: FromDishka[SiteReader]) -> CdnSite:
     "/v3/domains/{domain}/records",
     response_model=Page[DnsRecord],
     responses=NOT_FOUND_RESPONSES,
+    operation_id="domains_records_list",
+    tags=["domains"],
 )
 def list_records(domain: str, dns: FromDishka[SiteService]) -> Page[DnsRecord]:
     return paginate(dns.list_records(domain), DnsRecord.from_domain)
@@ -177,6 +205,8 @@ def list_records(domain: str, dns: FromDishka[SiteService]) -> Page[DnsRecord]:
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_records_create",
+    tags=["domains"],
 )
 def create_record(
     response: Response,
@@ -204,6 +234,8 @@ RecordTypePath = Annotated[RecordType, Path(alias="type")]
     RECORD_PATH,
     response_model=DnsRecord,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="domains_records_get",
+    tags=["domains"],
 )
 def get_record(
     response: Response,
@@ -227,6 +259,8 @@ def get_record(
         **PRECONDITION_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_records_update",
+    tags=["domains"],
 )
 def update_record(
     response: Response,
@@ -257,6 +291,8 @@ def update_record(
         **CONFLICT_RESPONSES,
         **PRECONDITION_RESPONSES,
     },
+    operation_id="domains_records_delete",
+    tags=["domains"],
 )
 def delete_record(
     domain: str,
@@ -275,6 +311,8 @@ def delete_record(
     "/v3/domains/{domain}/export",
     response_model=DnsExport,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="domains_export",
+    tags=["domains"],
 )
 def export_domain(domain: str, dns: FromDishka[SiteService]) -> DnsExport:
     """One zone's desired DNS state; see ``GET /v3/domains/export``."""
@@ -285,6 +323,8 @@ def export_domain(domain: str, dns: FromDishka[SiteService]) -> DnsExport:
     "/v3/domains/{domain}/rules",
     response_model=Page[Rule],
     responses=NOT_FOUND_RESPONSES,
+    operation_id="domains_rules_list",
+    tags=["domains"],
 )
 def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
     return paginate(rules.list_rules(domain), Rule.from_domain)
@@ -300,6 +340,8 @@ def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_rules_create",
+    tags=["domains"],
 )
 def create_rule(
     response: Response,
@@ -319,6 +361,8 @@ def create_rule(
     "/v3/domains/{domain}/rules/{rule}",
     response_model=Rule,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="domains_rules_get",
+    tags=["domains"],
 )
 def get_rule(
     response: Response, domain: str, rule: str, rules: FromDishka[RuleService]
@@ -336,6 +380,8 @@ def get_rule(
         **PRECONDITION_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="domains_rules_update",
+    tags=["domains"],
 )
 def update_rule(
     response: Response,
@@ -360,6 +406,8 @@ def update_rule(
         **CONFLICT_RESPONSES,
         **PRECONDITION_RESPONSES,
     },
+    operation_id="domains_rules_delete",
+    tags=["domains"],
 )
 def delete_rule(
     domain: str,
@@ -375,6 +423,8 @@ def delete_rule(
     "/v3/domains/{domain}/resolve",
     response_model=ResolvedPolicy,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="domains_resolve",
+    tags=["domains"],
 )
 def resolve_hostname(
     domain: str,

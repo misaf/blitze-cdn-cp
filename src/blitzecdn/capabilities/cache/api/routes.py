@@ -58,6 +58,8 @@ router = APIRouter(
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="cache_purge",
+    tags=["cache"],
 )
 def purge_cache(
     response: Response,
@@ -100,7 +102,12 @@ def purge_cache(
     return queued
 
 
-@router.get("/v3/traffic/cache", response_model=Page[CacheHour])
+@router.get(
+    "/v3/traffic/cache",
+    response_model=Page[CacheHour],
+    operation_id="traffic_cache",
+    tags=["traffic"],
+)
 def cache_stats(
     cache: FromDishka[CacheService],
     params: PaginationParams,
@@ -153,6 +160,8 @@ def cache_stats(
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    operation_id="cache_connections",
+    tags=["cache"],
 )
 def cache_connections(
     response: Response,

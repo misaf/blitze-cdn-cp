@@ -11,6 +11,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.dependencies.models import Dependant
+from fastapi.dependencies.utils import get_flat_params
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from support.control_plane import API_HEADERS, configured_settings, control_plane_app
@@ -33,9 +34,10 @@ def _calls(dependant: Dependant) -> Iterator[object]:
 
 def _required(route: APIRoute) -> set[str]:
     """The error statuses ``route`` must declare, from its shape alone."""
-    # Every operation sits behind the IP gate, can fail unexpectedly, and
-    # validates its request.
-    codes = {"403", "422", "500"}
+    # Every operation sits behind the IP gate and can fail unexpectedly.
+    codes = {"403", "500"}
+    if get_flat_params(route.dependant) or route.body_field is not None:
+        codes.add("422")
     if require_operator in set(_calls(route.dependant)):
         codes |= {"401", "503"}
     if route.dependant.path_params:
@@ -77,6 +79,17 @@ def test_every_operation_declares_the_errors_its_route_can_produce(app):
         for route, method, operation in _operations(app)
     }
     assert {name: codes for name, codes in missing.items() if codes} == {}
+
+
+def test_only_an_operation_that_reads_input_declares_validation(app):
+    """Nothing to validate, nothing to reject: no 422 without parameters or body."""
+    stray = [
+        f"{method} {route.path}"
+        for route, method, operation in _operations(app)
+        if "422" in operation["responses"] and "422" not in _required(route)
+    ]
+    assert stray == []
+    assert "422" not in app.openapi()["paths"]["/health"]["get"]["responses"]
 
 
 def test_every_error_but_validation_is_a_detail_message(app):

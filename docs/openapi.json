@@ -85,6 +85,30 @@
         "title": "AnsibleRun",
         "type": "object"
       },
+      "Artifact": {
+        "additionalProperties": false,
+        "description": "One artifact as the edges were handed it.\n\n``document`` is the artifact's own content, deliberately unmodelled: its\nshape belongs to the edge renderer that reads it, not to this API.",
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "document": {
+            "title": "Document"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "digest",
+          "document"
+        ],
+        "title": "Artifact",
+        "type": "object"
+      },
       "ArtifactDigest": {
         "additionalProperties": false,
         "description": "An artifact's name and digest, without the document; fetch that separately.",
@@ -214,7 +238,7 @@
         "title": "BackupStatistics",
         "type": "object"
       },
-      "Body_upload_certificate_v3_sites__site__certificate_put": {
+      "Body_certificates_site_upload": {
         "properties": {
           "certificate": {
             "contentMediaType": "application/octet-stream",
@@ -231,7 +255,7 @@
           "certificate",
           "private_key"
         ],
-        "title": "Body_upload_certificate_v3_sites__site__certificate_put",
+        "title": "Body_certificates_site_upload",
         "type": "object"
       },
       "CacheCounters": {
@@ -2647,6 +2671,22 @@
         ],
         "title": "Granularity",
         "type": "string"
+      },
+      "HealthOk": {
+        "additionalProperties": false,
+        "description": "Every health check passed.",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthOk",
+        "type": "object"
       },
       "HealthUnavailable": {
         "additionalProperties": false,
@@ -5273,17 +5313,13 @@
     "/health": {
       "get": {
         "description": "Whether this controller can actually answer, not merely respond.\n\nEvery check is a feature contribution; the first failure decides, and is named\nin the body.",
-        "operationId": "health_health_get",
+        "operationId": "status_health",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Health Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthOk"
                 }
               }
             },
@@ -5298,16 +5334,6 @@
               }
             },
             "description": "The client's IP address is not in `allowed_ips`."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
           },
           "500": {
             "content": {
@@ -5330,13 +5356,16 @@
             "description": "A health check failed; `check` names the first."
           }
         },
-        "summary": "Health"
+        "summary": "Health",
+        "tags": [
+          "status"
+        ]
       }
     },
     "/metrics": {
       "get": {
         "description": "Prometheus gauges derived from persisted control-plane state.",
-        "operationId": "metrics_metrics_get",
+        "operationId": "status_metrics",
         "responses": {
           "200": {
             "content": {
@@ -5379,16 +5408,6 @@
             },
             "description": "The client's IP address is not in `allowed_ips`."
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
           "500": {
             "content": {
               "application/json": {
@@ -5415,12 +5434,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Metrics"
+        "summary": "Metrics",
+        "tags": [
+          "status"
+        ]
       }
     },
     "/v3/audit-events": {
       "get": {
-        "operationId": "audit_events_v3_audit_events_get",
+        "operationId": "audit_events_list",
         "parameters": [
           {
             "in": "query",
@@ -5525,13 +5547,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Audit Events"
+        "summary": "Audit Events",
+        "tags": [
+          "audit"
+        ]
       }
     },
     "/v3/cache/connections": {
       "post": {
         "description": "Queue a live read of nginx's connection counters; the result is a report.",
-        "operationId": "cache_connections_v3_cache_connections_post",
+        "operationId": "cache_connections",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -5698,13 +5723,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Cache Connections"
+        "summary": "Cache Connections",
+        "tags": [
+          "cache"
+        ]
       }
     },
     "/v3/cache/purge": {
       "post": {
         "description": "Queue a purge on the edges; the operation's result is a PurgeResult.\n\nA request that could only purge nothing is refused here, before queueing.\nThe result's ``complete`` and ``failed_hosts`` name edges that may still\nserve the cached copy.",
-        "operationId": "purge_cache_v3_cache_purge_post",
+        "operationId": "cache_purge",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -5881,15 +5909,19 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Purge Cache"
+        "summary": "Purge Cache",
+        "tags": [
+          "cache"
+        ]
       }
     },
     "/v3/certificates": {
       "get": {
         "description": "Managed certificates against the clock, soonest expiry first.",
-        "operationId": "list_certificates_v3_certificates_get",
+        "operationId": "certificates_list",
         "parameters": [
           {
+            "description": "Only certificates that expire within this many days. Omit it to list every managed certificate.",
             "in": "query",
             "name": "expiring_in",
             "required": false,
@@ -5904,6 +5936,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Only certificates that expire within this many days. Omit it to list every managed certificate.",
               "title": "Expiring In"
             }
           },
@@ -6010,13 +6043,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Certificates"
+        "summary": "List Certificates",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/certificates/reconcile": {
       "post": {
         "description": "Queue issuing ready first certificates; the result is a ReconciliationResult.\n\nEvery waiting site is checked, even one the scheduled run is backing off.\nA result naming a ``deployment`` has queued it: poll\n``GET /v3/deployments/{id}`` for its outcome.",
-        "operationId": "reconcile_certificates_v3_certificates_reconcile_post",
+        "operationId": "certificates_reconcile",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -6153,13 +6189,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Reconcile Certificates"
+        "summary": "Reconcile Certificates",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/certificates/renew": {
       "post": {
         "description": "Queue reissuing ACME certificates due renewal; the result is a RenewalResult.\n\nThe sweep stops between sites once the configured renewal budget is spent\nand reports the rest as skipped. One sweep runs at a time.",
-        "operationId": "renew_certificates_v3_certificates_renew_post",
+        "operationId": "certificates_renew",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -6336,13 +6375,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Renew Certificates"
+        "summary": "Renew Certificates",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/certificates/ssl-modes/reconcile": {
       "post": {
         "description": "Queue probing origins from every edge and applying upgrade-only\nrecommendations; the result is an SslAutomaticReconciliation.\n\nOne scan may be queued or running at a time. A result naming a\n``deployment`` ran it: poll ``GET /v3/deployments/{id}`` for the record.",
-        "operationId": "reconcile_automatic_ssl_v3_certificates_ssl_modes_reconcile_post",
+        "operationId": "certificates_ssl_modes_reconcile",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -6479,12 +6521,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Reconcile Automatic Ssl"
+        "summary": "Reconcile Automatic Ssl",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/deployments": {
       "get": {
-        "operationId": "deployments_v3_deployments_get",
+        "operationId": "deployments_list",
         "parameters": [
           {
             "in": "query",
@@ -6589,11 +6634,14 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Deployments"
+        "summary": "Deployments",
+        "tags": [
+          "deployments"
+        ]
       },
       "post": {
         "description": "Queue a convergence; poll GET /v3/deployments/{id} for the outcome.\n\nWith ``check`` it is a drift check: nothing changes, and\n``GET /v3/deployments/{id}/drift`` reports what would have.",
-        "operationId": "deploy_v3_deployments_post",
+        "operationId": "deployments_create",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -6769,13 +6817,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Deploy"
+        "summary": "Deploy",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/deployments/rollback": {
       "post": {
         "description": "Queue reapplying an earlier deployment's release; it is a deployment too.\n\nWithout ``deployment_id`` the target is the newest successful full-fleet\ndeployment of a release other than the one the newest real run that reached\nany edge applied, so a partial rollout is repaired. Success adopts that\nrelease as desired state, discarding undeployed changes.",
-        "operationId": "rollback_v3_deployments_rollback_post",
+        "operationId": "deployments_rollback",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -6961,12 +7012,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Rollback"
+        "summary": "Rollback",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/deployments/{deployment_id}": {
       "get": {
-        "operationId": "deployment_v3_deployments__deployment_id__get",
+        "operationId": "deployments_get",
         "parameters": [
           {
             "in": "path",
@@ -7085,13 +7139,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Deployment"
+        "summary": "Deployment",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/deployments/{deployment_id}/diff": {
       "get": {
         "description": "What this deployment changed on the edges, as a unified diff per file.\n\nAgainst the release the fleet was running when it was queued.",
-        "operationId": "deployment_diff_v3_deployments__deployment_id__diff_get",
+        "operationId": "deployments_diff",
         "parameters": [
           {
             "in": "path",
@@ -7191,12 +7248,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Deployment Diff"
+        "summary": "Deployment Diff",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/deployments/{deployment_id}/drift": {
       "get": {
-        "operationId": "drift_report_v3_deployments__deployment_id__drift_get",
+        "operationId": "deployments_drift",
         "parameters": [
           {
             "in": "path",
@@ -7306,13 +7366,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Drift Report"
+        "summary": "Drift Report",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/deployments/{deployment_id}/targets": {
       "get": {
         "description": "How far each edge got in a rollout.",
-        "operationId": "deployment_targets_v3_deployments__deployment_id__targets_get",
+        "operationId": "deployments_targets",
         "parameters": [
           {
             "in": "path",
@@ -7436,12 +7499,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Deployment Targets"
+        "summary": "Deployment Targets",
+        "tags": [
+          "deployments"
+        ]
       }
     },
     "/v3/domains": {
       "get": {
-        "operationId": "list_domains_v3_domains_get",
+        "operationId": "domains_list",
         "parameters": [
           {
             "in": "query",
@@ -7546,10 +7612,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Domains"
+        "summary": "List Domains",
+        "tags": [
+          "domains"
+        ]
       },
       "post": {
-        "operationId": "create_domain_v3_domains_post",
+        "operationId": "domains_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7682,13 +7751,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Create Domain"
+        "summary": "Create Domain",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/export": {
       "get": {
         "description": "Desired DNS state for whatever is authoritative for these zones.\n\nAn envelope, so ``publication`` makes plain that nothing here publishes it.",
-        "operationId": "export_domains_v3_domains_export_get",
+        "operationId": "domains_export_all",
         "responses": {
           "200": {
             "content": {
@@ -7731,16 +7803,6 @@
             },
             "description": "The client's IP address is not in `allowed_ips`."
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
           "500": {
             "content": {
               "application/json": {
@@ -7767,12 +7829,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Export Domains"
+        "summary": "Export Domains",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}": {
       "delete": {
-        "operationId": "delete_domain_v3_domains__domain__delete",
+        "operationId": "domains_delete",
         "parameters": [
           {
             "in": "path",
@@ -7903,10 +7968,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Delete Domain"
+        "summary": "Delete Domain",
+        "tags": [
+          "domains"
+        ]
       },
       "get": {
-        "operationId": "get_domain_v3_domains__domain__get",
+        "operationId": "domains_get",
         "parameters": [
           {
             "in": "path",
@@ -8014,10 +8082,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Domain"
+        "summary": "Get Domain",
+        "tags": [
+          "domains"
+        ]
       },
       "patch": {
-        "operationId": "update_domain_v3_domains__domain__patch",
+        "operationId": "domains_update",
         "parameters": [
           {
             "in": "path",
@@ -8193,13 +8264,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Update Domain"
+        "summary": "Update Domain",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/export": {
       "get": {
         "description": "One zone's desired DNS state; see ``GET /v3/domains/export``.",
-        "operationId": "export_domain_v3_domains__domain__export_get",
+        "operationId": "domains_export",
         "parameters": [
           {
             "in": "path",
@@ -8299,12 +8373,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Export Domain"
+        "summary": "Export Domain",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/records": {
       "get": {
-        "operationId": "list_records_v3_domains__domain__records_get",
+        "operationId": "domains_records_list",
         "parameters": [
           {
             "in": "path",
@@ -8428,10 +8505,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Records"
+        "summary": "List Records",
+        "tags": [
+          "domains"
+        ]
       },
       "post": {
-        "operationId": "create_record_v3_domains__domain__records_post",
+        "operationId": "domains_records_create",
         "parameters": [
           {
             "in": "path",
@@ -8585,12 +8665,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Create Record"
+        "summary": "Create Record",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/records/{type}/{record}": {
       "delete": {
-        "operationId": "delete_record_v3_domains__domain__records__type___record__delete",
+        "operationId": "domains_records_delete",
         "parameters": [
           {
             "in": "path",
@@ -8738,10 +8821,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Delete Record"
+        "summary": "Delete Record",
+        "tags": [
+          "domains"
+        ]
       },
       "get": {
-        "operationId": "get_record_v3_domains__domain__records__type___record__get",
+        "operationId": "domains_records_get",
         "parameters": [
           {
             "in": "path",
@@ -8866,10 +8952,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Record"
+        "summary": "Get Record",
+        "tags": [
+          "domains"
+        ]
       },
       "patch": {
-        "operationId": "update_record_v3_domains__domain__records__type___record__patch",
+        "operationId": "domains_records_update",
         "parameters": [
           {
             "in": "path",
@@ -9062,13 +9151,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Update Record"
+        "summary": "Update Record",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/resolve": {
       "get": {
         "description": "How a hostname, or one path on it, is served, and which rules decided it.",
-        "operationId": "resolve_hostname_v3_domains__domain__resolve_get",
+        "operationId": "domains_resolve",
         "parameters": [
           {
             "in": "path",
@@ -9197,12 +9289,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Resolve Hostname"
+        "summary": "Resolve Hostname",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/rules": {
       "get": {
-        "operationId": "list_rules_v3_domains__domain__rules_get",
+        "operationId": "domains_rules_list",
         "parameters": [
           {
             "in": "path",
@@ -9326,10 +9421,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Rules"
+        "summary": "List Rules",
+        "tags": [
+          "domains"
+        ]
       },
       "post": {
-        "operationId": "create_rule_v3_domains__domain__rules_post",
+        "operationId": "domains_rules_create",
         "parameters": [
           {
             "in": "path",
@@ -9483,12 +9581,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Create Rule"
+        "summary": "Create Rule",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/domains/{domain}/rules/{rule}": {
       "delete": {
-        "operationId": "delete_rule_v3_domains__domain__rules__rule__delete",
+        "operationId": "domains_rules_delete",
         "parameters": [
           {
             "in": "path",
@@ -9628,10 +9729,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Delete Rule"
+        "summary": "Delete Rule",
+        "tags": [
+          "domains"
+        ]
       },
       "get": {
-        "operationId": "get_rule_v3_domains__domain__rules__rule__get",
+        "operationId": "domains_rules_get",
         "parameters": [
           {
             "in": "path",
@@ -9748,10 +9852,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Rule"
+        "summary": "Get Rule",
+        "tags": [
+          "domains"
+        ]
       },
       "patch": {
-        "operationId": "update_rule_v3_domains__domain__rules__rule__patch",
+        "operationId": "domains_rules_update",
         "parameters": [
           {
             "in": "path",
@@ -9936,13 +10043,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Update Rule"
+        "summary": "Update Rule",
+        "tags": [
+          "domains"
+        ]
       }
     },
     "/v3/edges": {
       "get": {
         "description": "Every registered edge, which is exactly what Ansible will be given.",
-        "operationId": "list_edges_v3_edges_get",
+        "operationId": "edges_list",
         "parameters": [
           {
             "in": "query",
@@ -10047,11 +10157,14 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Edges"
+        "summary": "List Edges",
+        "tags": [
+          "edges"
+        ]
       },
       "post": {
         "description": "Register an edge without converging or contacting it.",
-        "operationId": "add_edge_v3_edges_post",
+        "operationId": "edges_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10184,13 +10297,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Add Edge"
+        "summary": "Add Edge",
+        "tags": [
+          "edges"
+        ]
       }
     },
     "/v3/edges/{edge}": {
       "delete": {
         "description": "Queue tearing the host down, then deregistering it, in that order.\n\nThe result is ``{name, decommissioned, hosts}``. A failed teardown fails the\noperation and keeps the edge registered unless ``force`` was given.",
-        "operationId": "remove_edge_v3_edges__edge__delete",
+        "operationId": "edges_delete",
         "parameters": [
           {
             "in": "path",
@@ -10398,10 +10514,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Remove Edge"
+        "summary": "Remove Edge",
+        "tags": [
+          "edges"
+        ]
       },
       "get": {
-        "operationId": "get_edge_v3_edges__edge__get",
+        "operationId": "edges_get",
         "parameters": [
           {
             "in": "path",
@@ -10509,10 +10628,13 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Edge"
+        "summary": "Get Edge",
+        "tags": [
+          "edges"
+        ]
       },
       "patch": {
-        "operationId": "update_edge_v3_edges__edge__patch",
+        "operationId": "edges_update",
         "parameters": [
           {
             "in": "path",
@@ -10688,13 +10810,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Update Edge"
+        "summary": "Update Edge",
+        "tags": [
+          "edges"
+        ]
       }
     },
     "/v3/operations/{operation_id}": {
       "get": {
         "description": "How a queued edge operation stands, and its result once it has one.",
-        "operationId": "operation_v3_operations__operation_id__get",
+        "operationId": "operations_get",
         "parameters": [
           {
             "in": "path",
@@ -10813,13 +10938,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Operation"
+        "summary": "Operation",
+        "tags": [
+          "operations"
+        ]
       }
     },
     "/v3/origins/check": {
       "post": {
         "description": "Queue the edges connecting to their origins; the result is an OriginReport.",
-        "operationId": "check_origins_v3_origins_check_post",
+        "operationId": "origins_check",
         "parameters": [
           {
             "description": "A unique value per intended action, such as a UUID. Repeating the request with the same key within 24 hours returns the resource the first one queued instead of queueing it again. Keys are per API key; reusing one for a different request is `409`.",
@@ -10986,12 +11114,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Check Origins"
+        "summary": "Check Origins",
+        "tags": [
+          "origins"
+        ]
       }
     },
     "/v3/releases": {
       "get": {
-        "operationId": "releases_v3_releases_get",
+        "operationId": "releases_list",
         "parameters": [
           {
             "in": "query",
@@ -11096,13 +11227,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Releases"
+        "summary": "Releases",
+        "tags": [
+          "releases"
+        ]
       }
     },
     "/v3/releases/current": {
       "get": {
         "description": "What canonical state compiles to right now, without recording it.\n\n``host_limit`` validates against just those edges, such as a canary.",
-        "operationId": "current_release_v3_releases_current_get",
+        "operationId": "releases_current",
         "parameters": [
           {
             "description": "Edges to validate against, as on POST /v3/deployments; omitted means every registered edge. A selector, not a page.",
@@ -11202,13 +11336,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Current Release"
+        "summary": "Current Release",
+        "tags": [
+          "releases"
+        ]
       }
     },
     "/v3/releases/current/diff": {
       "get": {
         "description": "What deploying now would change on the edges, as a unified diff per file.\n\nThe rendered tree current state compiles to, against the one the fleet is\nrunning. Records nothing; secrets are never in a bundle, so never in a diff.",
-        "operationId": "current_release_diff_v3_releases_current_diff_get",
+        "operationId": "releases_current_diff",
         "responses": {
           "200": {
             "content": {
@@ -11251,16 +11388,6 @@
             },
             "description": "The client's IP address is not in `allowed_ips`."
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
           "500": {
             "content": {
               "application/json": {
@@ -11287,13 +11414,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Current Release Diff"
+        "summary": "Current Release Diff",
+        "tags": [
+          "releases"
+        ]
       }
     },
     "/v3/releases/{release_id}": {
       "get": {
         "description": "One recorded release, with the explanation of every host in it.",
-        "operationId": "release_v3_releases__release_id__get",
+        "operationId": "releases_get",
         "parameters": [
           {
             "in": "path",
@@ -11393,13 +11523,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Release"
+        "summary": "Release",
+        "tags": [
+          "releases"
+        ]
       }
     },
     "/v3/releases/{release_id}/artifacts/{artifact}": {
       "get": {
-        "description": "One artifact document, exactly as the edges were handed it; unmodelled.",
-        "operationId": "artifact_v3_releases__release_id__artifacts__artifact__get",
+        "description": "One artifact document, exactly as the edges were handed it.",
+        "operationId": "releases_artifact",
         "parameters": [
           {
             "in": "path",
@@ -11425,9 +11558,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Artifact V3 Releases  Release Id  Artifacts  Artifact  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Artifact"
                 }
               }
             },
@@ -11510,13 +11641,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Artifact"
+        "summary": "Artifact",
+        "tags": [
+          "releases"
+        ]
       }
     },
     "/v3/sites": {
       "get": {
         "description": "The sites the zones and their rules resolve to; read-only.\n\nIts own collection, because a site belongs to a zone and to whichever rule\nclaimed its hostnames. Change it through those.",
-        "operationId": "list_sites_v3_sites_get",
+        "operationId": "sites_list",
         "parameters": [
           {
             "in": "query",
@@ -11621,12 +11755,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Sites"
+        "summary": "List Sites",
+        "tags": [
+          "sites"
+        ]
       }
     },
     "/v3/sites/{site}": {
       "get": {
-        "operationId": "get_site_v3_sites__site__get",
+        "operationId": "sites_get",
         "parameters": [
           {
             "in": "path",
@@ -11726,12 +11863,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Site"
+        "summary": "Get Site",
+        "tags": [
+          "sites"
+        ]
       }
     },
     "/v3/sites/{site}/certificate": {
       "get": {
-        "operationId": "certificate_v3_sites__site__certificate_get",
+        "operationId": "certificates_site_get",
         "parameters": [
           {
             "in": "path",
@@ -11831,11 +11971,14 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Certificate"
+        "summary": "Certificate",
+        "tags": [
+          "certificates"
+        ]
       },
       "put": {
         "description": "Install an operator's certificate for this site and activate it.\n\nSynchronous, unlike the certificate actions: it writes controller state\nonly, contacting neither ACME nor an edge. Edges pick it up on the next\ndeployment.",
-        "operationId": "upload_certificate_v3_sites__site__certificate_put",
+        "operationId": "certificates_site_upload",
         "parameters": [
           {
             "in": "path",
@@ -11851,7 +11994,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_certificate_v3_sites__site__certificate_put"
+                "$ref": "#/components/schemas/Body_certificates_site_upload"
               }
             }
           },
@@ -11984,13 +12127,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Upload Certificate"
+        "summary": "Upload Certificate",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/sites/{site}/certificate/preflight": {
       "get": {
         "description": "Whether HTTP-01 could validate this site right now.",
-        "operationId": "certificate_preflight_v3_sites__site__certificate_preflight_get",
+        "operationId": "certificates_site_preflight",
         "parameters": [
           {
             "in": "path",
@@ -12090,13 +12236,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Certificate Preflight"
+        "summary": "Certificate Preflight",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/sites/{site}/certificate/request": {
       "post": {
         "description": "Queue issuing this site's certificate; the result is a CertificateInfo.\n\nPreflight runs in the job: a blocked check fails the operation, with the\nreason in ``error``. One request per site runs at a time.",
-        "operationId": "request_certificate_v3_sites__site__certificate_request_post",
+        "operationId": "certificates_site_request",
         "parameters": [
           {
             "in": "path",
@@ -12282,13 +12431,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Request Certificate"
+        "summary": "Request Certificate",
+        "tags": [
+          "certificates"
+        ]
       }
     },
     "/v3/status": {
       "get": {
         "description": "Local queue, worker, workflow and certificate observations.",
-        "operationId": "operational_status_v3_status_get",
+        "operationId": "status_get",
         "responses": {
           "200": {
             "content": {
@@ -12331,16 +12483,6 @@
             },
             "description": "The client's IP address is not in `allowed_ips`."
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed."
-          },
           "500": {
             "content": {
               "application/json": {
@@ -12367,13 +12509,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Operational Status"
+        "summary": "Operational Status",
+        "tags": [
+          "status"
+        ]
       }
     },
     "/v3/traffic/cache": {
       "get": {
         "description": "Stored hourly cache outcomes, ordered by hour, hostname and edge.\n\nCounted by traffic collection from every log record exactly once; no edge\nis contacted. Empty hours are omitted, and counters may lag while\ncollection is pending. The hit ratio counts only requests that consulted\nthe cache; redirects, errors nginx served itself and sites with caching\ndisabled are NONE, not misses.",
-        "operationId": "cache_stats_v3_traffic_cache_get",
+        "operationId": "traffic_cache",
         "parameters": [
           {
             "description": "Inclusive UTC hour; timezone required.",
@@ -12538,13 +12683,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Cache Stats"
+        "summary": "Cache Stats",
+        "tags": [
+          "traffic"
+        ]
       }
     },
     "/v3/traffic/collection": {
       "get": {
         "description": "Last observed collection state of every edge; this does not trigger collection.\n\nOrdered by edge name: registered edges, and removed edges with collection\nhistory. Current means recently caught up with available logs, not complete\nbilling coverage or proof of zero traffic.",
-        "operationId": "collection_status_v3_traffic_collection_get",
+        "operationId": "traffic_collection",
         "parameters": [
           {
             "description": "Exact edge name, including removed edges with history.",
@@ -12667,13 +12815,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Collection Status"
+        "summary": "Collection Status",
+        "tags": [
+          "traffic"
+        ]
       }
     },
     "/v3/traffic/sites/{site}": {
       "get": {
         "description": "A served hostname's requests, bytes, cache hits and status classes.\n\nOne item per UTC hour or day with traffic, oldest first, summed across\nedges from stored hourly rows; no edge is contacted. Empty buckets are\nomitted, and counters may lag while collection is pending. Hours collected\nbefore status classes were counted have no status counts.",
-        "operationId": "site_analytics_v3_traffic_sites__site__get",
+        "operationId": "traffic_site",
         "parameters": [
           {
             "in": "path",
@@ -12850,13 +13001,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Site Analytics"
+        "summary": "Site Analytics",
+        "tags": [
+          "traffic"
+        ]
       }
     },
     "/v3/traffic/sites/{site}/paths": {
       "get": {
         "description": "A served hostname's busiest paths, most requested first.\n\nEach edge keeps only its busiest paths per hour, without query strings, so\ncounts are lower bounds and a path busy in few hours may be missing.",
-        "operationId": "site_paths_v3_traffic_sites__site__paths_get",
+        "operationId": "traffic_site_paths",
         "parameters": [
           {
             "in": "path",
@@ -13022,13 +13176,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Site Paths"
+        "summary": "Site Paths",
+        "tags": [
+          "traffic"
+        ]
       }
     },
     "/v3/traffic/usage": {
       "get": {
         "description": "Saved hourly counters, ordered by hour, hostname and edge.\n\nEmpty hours are omitted. Counters may lag while collection is pending.\nbytes_sent includes HTTP headers; body_bytes_sent excludes them.",
-        "operationId": "usage_v3_traffic_usage_get",
+        "operationId": "traffic_usage",
         "parameters": [
           {
             "description": "Inclusive UTC hour; timezone required.",
@@ -13193,12 +13350,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Usage"
+        "summary": "Usage",
+        "tags": [
+          "traffic"
+        ]
       }
     },
     "/v3/workflows": {
       "get": {
-        "operationId": "list_workflows_v3_workflows_get",
+        "operationId": "workflows_list",
         "parameters": [
           {
             "in": "query",
@@ -13303,12 +13463,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List Workflows"
+        "summary": "List Workflows",
+        "tags": [
+          "workflows"
+        ]
       }
     },
     "/v3/workflows/{workflow_id}": {
       "get": {
-        "operationId": "get_workflow_v3_workflows__workflow_id__get",
+        "operationId": "workflows_get",
         "parameters": [
           {
             "in": "path",
@@ -13408,13 +13571,16 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get Workflow"
+        "summary": "Get Workflow",
+        "tags": [
+          "workflows"
+        ]
       }
     },
     "/v3/workflows/{workflow_id}/acknowledge": {
       "post": {
         "description": "Mark a ``needs_review`` workflow ``reviewed`` once its checkpoints are checked.\n\nUntil then it is never pruned. Any other status is a 409.",
-        "operationId": "acknowledge_workflow_v3_workflows__workflow_id__acknowledge_post",
+        "operationId": "workflows_acknowledge",
         "parameters": [
           {
             "in": "path",
@@ -13524,7 +13690,10 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Acknowledge Workflow"
+        "summary": "Acknowledge Workflow",
+        "tags": [
+          "workflows"
+        ]
       }
     }
   }

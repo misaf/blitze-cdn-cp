@@ -43,13 +43,14 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["edges"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
 )
 
 
-@router.get("/v3/edges", response_model=Page[Edge])
+@router.get("/v3/edges", response_model=Page[Edge], operation_id="edges_list")
 def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
     return paginate(edges.list_edges(), Edge.from_domain)
@@ -59,6 +60,7 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
     "/v3/edges/{edge}",
     response_model=Edge,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="edges_get",
 )
 def get_edge(
     response: Response, edge: str, edges: FromDishka[EdgeOperationsService]
@@ -71,6 +73,7 @@ def get_edge(
     response_model=Edge,
     status_code=status.HTTP_201_CREATED,
     responses={201: TAGGED_CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    operation_id="edges_create",
 )
 def add_edge(
     response: Response,
@@ -96,6 +99,7 @@ def add_edge(
         **PRECONDITION_RESPONSES,
         **BODY_RESPONSES,
     },
+    operation_id="edges_update",
 )
 def update_edge(
     response: Response,
@@ -121,6 +125,7 @@ def update_edge(
         **CONFLICT_RESPONSES,
         **PRECONDITION_RESPONSES,
     },
+    operation_id="edges_delete",
 )
 def remove_edge(
     response: Response,

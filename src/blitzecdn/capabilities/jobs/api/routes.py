@@ -12,6 +12,7 @@ from blitzecdn.delivery.api.models import Operation, as_queued
 from blitzecdn.delivery.api.responses import POLL_RESPONSE, polling_headers
 
 router = APIRouter(
+    tags=["operations"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -22,6 +23,7 @@ router = APIRouter(
     "/v3/operations/{operation_id}",
     response_model=Operation,
     responses={200: POLL_RESPONSE, **NOT_FOUND_RESPONSES},
+    operation_id="operations_get",
 )
 def operation(
     response: Response,

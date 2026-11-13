@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager
+from typing import Any
 
 from dishka.integrations.starlette import SyncContainerMiddleware
 from fastapi import FastAPI, status
@@ -99,7 +100,32 @@ def create_app(
     for router in registry.api_routers():
         application.include_router(router)
     add_pagination(application)
+    _publish_validation_only_where_input_is_read(application)
     return application
+
+
+def _publish_validation_only_where_input_is_read(application: FastAPI) -> None:
+    """Drop the application-wide 422 from operations that read no input.
+
+    The 422 is declared once for every operation so it carries
+    `ValidationErrorResponse` rather than FastAPI's own shape, but an operation
+    without parameters or a body has nothing to validate and cannot answer it.
+    """
+    generate = application.openapi
+
+    def openapi() -> dict[str, Any]:
+        built = application.openapi_schema is not None
+        document = generate()
+        if not built:
+            for operations in document["paths"].values():
+                for operation in operations.values():
+                    if not operation.get("parameters") and (
+                        "requestBody" not in operation
+                    ):
+                        operation["responses"].pop("422", None)
+        return document
+
+    application.openapi = openapi  # type: ignore[method-assign]
 
 
 #: How a failure reaches a client: `FailureKind` projected onto status codes,

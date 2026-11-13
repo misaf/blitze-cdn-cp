@@ -112,9 +112,12 @@ def test_cross_field_validation_matches_on_create_and_patch_and_rolls_back(setti
 
 
 def test_every_route_documents_the_runtime_validation_shape(settings):
+    """`test_error_responses.py` says which operations answer 422; this, how."""
     schema = control_plane_app(settings).openapi()
     for operations in schema["paths"].values():
         for operation in operations.values():
+            if "422" not in operation["responses"]:
+                continue
             assert set(operation["responses"]["422"]["content"]) == {"application/json"}
             assert operation["responses"]["422"]["content"]["application/json"][
                 "schema"
