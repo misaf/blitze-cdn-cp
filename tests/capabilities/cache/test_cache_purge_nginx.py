@@ -31,6 +31,7 @@ from __future__ import annotations
 import http.client
 import importlib.util
 import io
+import itertools
 import json
 import os
 import random
@@ -237,6 +238,10 @@ class Edge:
         self.conf = workdir / "nginx.conf"
         self.error_log = workdir / "error.log"
         self.access_log = workdir / "access.log"
+        self._requests = itertools.count(1)
+        self._finished: set[str] = set()
+        self._log_offset = 0
+        self._log_lock = threading.Lock()
         self.conf.write_text(self._config(max_size, inactive), encoding="utf-8")
         self.process = subprocess.Popen(  # noqa: S603 - nginx over files this test wrote
             [
@@ -267,7 +272,8 @@ http {{
     log_format purge '$msec $request_method $host$request_uri '
                      'variant=$http_x_variant refill=$http_x_refill '
                      '$upstream_cache_status $status '
-                     'rt=$request_time urt=$upstream_response_time';
+                     'rt=$request_time urt=$upstream_response_time '
+                     'request=$http_x_test_request';
     access_log {self.access_log} purge;
     client_body_temp_path {work}/client_body;
     proxy_temp_path {work}/proxy;
@@ -344,6 +350,8 @@ http {{
             headers["Accept-Encoding"] = encoding
         if refill:
             headers["X-Refill"] = "1"
+        request_id = str(next(self._requests))
+        headers["X-Test-Request"] = request_id
         own = connection is None
         if connection is None:
             connection = self.connect()
@@ -358,7 +366,36 @@ http {{
         assert response.status == 200, (response.status, body[:200])
         version = re.search(rb" v=(\d+)\n", body)
         assert version, body[:200]
+        self._wait_until_finished(request_id)
         return Seen(status, int(version.group(1)))
+
+    def _wait_until_finished(self, request_id: str) -> None:
+        """Wait until nginx has finished the request, stored file included.
+
+        nginx sends the last byte of a response it is caching before it
+        renames the cache file into place, so a visitor can have the whole
+        response while the entry is not yet in the cache. It logs the request
+        after the rename, so once the line is in the access log, what the
+        request stored is on disk.
+        """
+        deadline = time.monotonic() + PATIENCE
+        while time.monotonic() < deadline:
+            with self._log_lock:
+                with self.access_log.open("rb") as log:
+                    log.seek(self._log_offset)
+                    data = log.read()
+                complete = data.rpartition(b"\n")[0]
+                if complete:
+                    self._log_offset += len(complete) + 1
+                    self._finished.update(
+                        found.group(1).decode()
+                        for found in re.finditer(rb" request=(\d+)$", complete, re.M)
+                    )
+                if request_id in self._finished:
+                    self._finished.discard(request_id)
+                    return
+            time.sleep(0.002)
+        raise AssertionError(f"nginx never logged request {request_id}")
 
     def connect(self) -> http.client.HTTPConnection:
         return http.client.HTTPConnection("127.0.0.1", self.port, timeout=PATIENCE)
@@ -750,7 +787,8 @@ def test_named_prefix_and_tag_purges_remove_every_representation_from_a_real_cac
     if index_state != "cold":
         # An index from an earlier purge, before most of the cache existed.
         edge.get(A, "/unrelated")
-        assert purge(scanner, edge, tags=("nothing",))["removed"] == 0
+        early = purge(scanner, edge, tags=("nothing",))
+        assert early["removed"] == 0 and early["read"] == 1, early
     stored = _fill(edge)
     if index_state == "rebuilt":
         edge.index.write_bytes(b"not a database, " * 64)
