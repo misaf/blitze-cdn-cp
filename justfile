@@ -186,7 +186,8 @@ release-version version:
     echo "Moved to {{version}}. Commit, then tag v{{version}} to publish both images."
 
 # Print the GitHub release notes for a version: its CHANGELOG.md section with
-# BREAKING entries first. Feed it to `gh release create`/`edit --notes-file -`.
+# BREAKING entries first. Write it to a file before `gh release create`/`edit`
+# reads it, so a failure here never publishes empty notes (see CONTRIBUTING).
 release-notes version:
     @python3 -I scripts/release_notes.py {{version}}
 
