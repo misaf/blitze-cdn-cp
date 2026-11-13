@@ -9,8 +9,8 @@ Each area has one prefix, and a resource one name:
 | Area | Paths |
 | --- | --- |
 | Zones, records, rules | `/v3/domains/...` |
-| Sites (what zones and rules resolve to; read-only) | `/v3/sites`, `/v3/sites/{name}` |
-| A site's certificate | `/v3/sites/{name}/certificate/...` |
+| Sites (what zones and rules resolve to; read-only) | `/v3/sites`, `/v3/sites/{site}` |
+| A site's certificate | `/v3/sites/{site}/certificate/...` |
 | The fleet's certificates and SSL modes | `/v3/certificates/...`, including `/v3/certificates/ssl-modes/reconcile` |
 | Traffic and analytics | `/v3/traffic/...`, a site's under `/v3/traffic/sites/{site}` |
 | Deployments, drift checks, rollbacks | `/v3/deployments/...` |
@@ -42,7 +42,7 @@ never in a rendered bundle, so never in a diff.
 
 A request that only writes controller state answers synchronously: resource
 creation, `PATCH`, `DELETE` of controller records, and installing an uploaded
-certificate with `PUT /v3/sites/{name}/certificate`. A request that contacts
+certificate with `PUT /v3/sites/{site}/certificate`. A request that contacts
 ACME, an origin or an edge is queued and answers `202`; see
 [queued operations](queued-operations.md). The API models publish defaults in `/openapi.json`
 and `/docs`; the owning policy and domain models define their meaning. Tests
@@ -81,9 +81,9 @@ was based on:
 | Resource | `ETag` on | `If-Match` on |
 | --- | --- | --- |
 | Zone `/v3/domains/{domain}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
-| Record `/v3/domains/{domain}/records/{type}/{name}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
-| Rule `/v3/domains/{domain}/rules/{name}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
-| Edge `/v3/edges/{name}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Record `/v3/domains/{domain}/records/{type}/{record}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Rule `/v3/domains/{domain}/rules/{rule}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
+| Edge `/v3/edges/{edge}` | `GET`, `POST`, `PATCH` | `PATCH`, `DELETE` |
 
 Send the `ETag` of the read back as `If-Match`. If the resource has changed
 since, the request answers `412` with `{"detail": ...}` and writes nothing;
@@ -141,7 +141,7 @@ Every other error answers `{"detail": "message"}`, published as
 | `403` | Client IP not in `allowed_ips` | Every operation |
 | `404` | A named resource does not exist | Operations with a path parameter; rollback, cache purge and certificate renewal |
 | `409` | The request conflicts with current state, or reuses an `Idempotency-Key` | Every write, and the drift report of a deployment that was not a check |
-| `409` + `Retry-After` | Another deployment holds the deployment lock | `POST /v3/deployments`, `POST /v3/deployments/rollback`, `PUT /v3/sites/{name}/certificate` |
+| `409` + `Retry-After` | Another deployment holds the deployment lock | `POST /v3/deployments`, `POST /v3/deployments/rollback`, `PUT /v3/sites/{site}/certificate` |
 | `412` | The resource changed since the version named in `If-Match` | `PATCH` and `DELETE` of zones, records, rules and edges |
 | `413` | Body over `api_max_body_bytes` | Operations with a request body |
 | `500` | The installation is wrong; retrying will not help | Every operation |
@@ -257,7 +257,7 @@ AAAA record with the same `value`, since one virtual host has one origin.
 Record PATCH fields do not accept explicit `null`.
 
 One record is addressed by type and name,
-`/v3/domains/{domain}/records/{type}/{name}`, for `GET`, `PATCH` and `DELETE`.
+`/v3/domains/{domain}/records/{type}/{record}`, for `GET`, `PATCH` and `DELETE`.
 An A and an AAAA record can share a name, so the type is part of the path and
 never assumed; an unknown type is a `422`.
 

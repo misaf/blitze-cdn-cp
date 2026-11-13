@@ -38,7 +38,7 @@ rolls out and verifies it.
 
 ### 1. The edit is stored
 
-`POST /v3/domains/{domain}/records` and `PATCH .../records/{type}/{name}` are
+`POST /v3/domains/{domain}/records` and `PATCH .../records/{type}/{record}` are
 in `capabilities/sites/api/routes.py`. The route turns the request model into
 a domain `DnsRecord` and calls `SiteService` (`capabilities/sites/service/zones.py`).
 

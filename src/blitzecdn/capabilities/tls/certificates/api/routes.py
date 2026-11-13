@@ -53,15 +53,15 @@ router = APIRouter(
 
 
 @router.get(
-    "/v3/sites/{name}/certificate",
+    "/v3/sites/{site}/certificate",
     response_model=CertificateInfo,
     responses=NOT_FOUND_RESPONSES,
     operation_id="certificates_site_get",
 )
 def certificate(
-    name: str, certificates: FromDishka[CertificateService]
+    site: str, certificates: FromDishka[CertificateService]
 ) -> CertificateInfo:
-    return as_operation(certificates.certificate(name), CertificateInfo)
+    return as_operation(certificates.certificate(site), CertificateInfo)
 
 
 @router.get(
@@ -169,13 +169,13 @@ def reconcile_certificates(
 
 
 @router.put(
-    "/v3/sites/{name}/certificate",
+    "/v3/sites/{site}/certificate",
     response_model=CertificateInfo,
     responses={**NOT_FOUND_RESPONSES, **BUSY_RESPONSES, **BODY_RESPONSES},
     operation_id="certificates_site_upload",
 )
 def upload_certificate(
-    name: str,
+    site: str,
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
     certificate: Annotated[UploadFile, File()],
@@ -189,7 +189,7 @@ def upload_certificate(
     """
     return as_operation(
         certificates.upload_certificate(
-            name,
+            site,
             certificate.file.read(1_048_577),
             private_key.file.read(262_145),
             operator,
@@ -199,7 +199,7 @@ def upload_certificate(
 
 
 @router.post(
-    "/v3/sites/{name}/certificate/request",
+    "/v3/sites/{site}/certificate/request",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={
@@ -212,7 +212,7 @@ def upload_certificate(
 )
 def request_certificate(
     response: Response,
-    name: str,
+    site: str,
     request: CertificateRequest,
     operator: OperatorDependency,
     certificates: FromDishka[CertificateService],
@@ -227,15 +227,15 @@ def request_certificate(
     """
 
     def submit() -> Job:
-        certificates.admit_request(name, request.email)
+        certificates.admit_request(site, request.email)
         return queued_operations.submit(
             CertificateRequestJob(
                 operator=operator,
-                name=name,
+                name=site,
                 email=request.email,
                 skip_preflight=request.skip_preflight,
             ),
-            dedupe_key=request_dedupe_key(name),
+            dedupe_key=request_dedupe_key(site),
         )
 
     return _accepted(
@@ -245,16 +245,16 @@ def request_certificate(
 
 
 @router.get(
-    "/v3/sites/{name}/certificate/preflight",
+    "/v3/sites/{site}/certificate/preflight",
     response_model=PreflightReport,
     responses=NOT_FOUND_RESPONSES,
     operation_id="certificates_site_preflight",
 )
 def certificate_preflight(
-    name: str, certificates: FromDishka[CertificateService]
+    site: str, certificates: FromDishka[CertificateService]
 ) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
-    return as_operation(certificates.certificate_preflight(name), PreflightReport)
+    return as_operation(certificates.certificate_preflight(site), PreflightReport)
 
 
 def _accepted(response: Response, job: object) -> Operation:

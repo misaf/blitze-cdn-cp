@@ -8671,7 +8671,7 @@
         ]
       }
     },
-    "/v3/domains/{domain}/records/{type}/{name}": {
+    "/v3/domains/{domain}/records/{type}/{record}": {
       "delete": {
         "operationId": "domains_records_delete",
         "parameters": [
@@ -8694,10 +8694,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           },
@@ -8848,10 +8848,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           }
@@ -8979,10 +8979,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "record",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Record",
               "type": "string"
             }
           },
@@ -9587,7 +9587,7 @@
         ]
       }
     },
-    "/v3/domains/{domain}/rules/{name}": {
+    "/v3/domains/{domain}/rules/{rule}": {
       "delete": {
         "operationId": "domains_rules_delete",
         "parameters": [
@@ -9602,10 +9602,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           },
@@ -9748,10 +9748,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           }
@@ -9871,10 +9871,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "rule",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Rule",
               "type": "string"
             }
           },
@@ -10303,17 +10303,17 @@
         ]
       }
     },
-    "/v3/edges/{name}": {
+    "/v3/edges/{edge}": {
       "delete": {
         "description": "Queue tearing the host down, then deregistering it, in that order.\n\nThe result is ``{name, decommissioned, hosts}``. A failed teardown fails the\noperation and keeps the edge registered unless ``force`` was given.",
         "operationId": "edges_delete",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           },
@@ -10524,10 +10524,10 @@
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           }
@@ -10638,10 +10638,10 @@
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "edge",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Edge",
               "type": "string"
             }
           },
@@ -11239,6 +11239,7 @@
         "operationId": "releases_current",
         "parameters": [
           {
+            "description": "Edges to validate against, as on POST /v3/deployments; omitted means every registered edge. A selector, not a page.",
             "in": "query",
             "name": "host_limit",
             "required": false,
@@ -11252,6 +11253,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Edges to validate against, as on POST /v3/deployments; omitted means every registered edge. A selector, not a page.",
               "title": "Host Limit"
             }
           }
@@ -11527,7 +11529,7 @@
         ]
       }
     },
-    "/v3/releases/{release_id}/artifacts/{name}": {
+    "/v3/releases/{release_id}/artifacts/{artifact}": {
       "get": {
         "description": "One artifact document, exactly as the edges were handed it.",
         "operationId": "releases_artifact",
@@ -11543,10 +11545,10 @@
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "artifact",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Artifact",
               "type": "string"
             }
           }
@@ -11759,16 +11761,16 @@
         ]
       }
     },
-    "/v3/sites/{name}": {
+    "/v3/sites/{site}": {
       "get": {
         "operationId": "sites_get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11867,16 +11869,16 @@
         ]
       }
     },
-    "/v3/sites/{name}/certificate": {
+    "/v3/sites/{site}/certificate": {
       "get": {
         "operationId": "certificates_site_get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -11980,10 +11982,10 @@
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -12131,17 +12133,17 @@
         ]
       }
     },
-    "/v3/sites/{name}/certificate/preflight": {
+    "/v3/sites/{site}/certificate/preflight": {
       "get": {
         "description": "Whether HTTP-01 could validate this site right now.",
         "operationId": "certificates_site_preflight",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           }
@@ -12240,17 +12242,17 @@
         ]
       }
     },
-    "/v3/sites/{name}/certificate/request": {
+    "/v3/sites/{site}/certificate/request": {
       "post": {
         "description": "Queue issuing this site's certificate; the result is a CertificateInfo.\n\nPreflight runs in the job: a blocked check fails the operation, with the\nreason in ``error``. One request per site runs at a time.",
         "operationId": "certificates_site_request",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "site",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Site",
               "type": "string"
             }
           },

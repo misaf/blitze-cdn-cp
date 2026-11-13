@@ -47,7 +47,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         None,
-        "GET /v3/sites/{name}",
+        "GET /v3/sites/{site}",
         "one derived site by name. `domain hosts` prints the whole set and an "
         "operator greps it; a client fetching one site by name would rather "
         "not receive the fleet.",
@@ -66,25 +66,25 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "record proxy",
-        "PATCH /v3/domains/{domain}/records/{type}/{name}",
+        "PATCH /v3/domains/{domain}/records/{type}/{record}",
         "",
     ),
     (
         "blitzecdn",
         "record unproxy",
-        "PATCH /v3/domains/{domain}/records/{type}/{name}",
+        "PATCH /v3/domains/{domain}/records/{type}/{record}",
         "",
     ),
     (
         "blitzecdn",
         "record remove",
-        "DELETE /v3/domains/{domain}/records/{type}/{name}",
+        "DELETE /v3/domains/{domain}/records/{type}/{record}",
         "",
     ),
     (
         "blitzecdn",
         None,
-        "GET /v3/domains/{domain}/records/{type}/{name}",
+        "GET /v3/domains/{domain}/records/{type}/{record}",
         "one record by type and name, for a client that reads before it "
         "writes. `record list` prints the zone's few records, which is what "
         "an operator reads.",
@@ -94,14 +94,14 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     # -- Rules -------------------------------------------------------------
     ("blitzecdn", "rule add", "POST /v3/domains/{domain}/rules", ""),
     ("blitzecdn", "rule list", "GET /v3/domains/{domain}/rules", ""),
-    ("blitzecdn", "rule show", "GET /v3/domains/{domain}/rules/{name}", ""),
-    ("blitzecdn", "rule set", "PATCH /v3/domains/{domain}/rules/{name}", ""),
-    ("blitzecdn", "rule remove", "DELETE /v3/domains/{domain}/rules/{name}", ""),
+    ("blitzecdn", "rule show", "GET /v3/domains/{domain}/rules/{rule}", ""),
+    ("blitzecdn", "rule set", "PATCH /v3/domains/{domain}/rules/{rule}", ""),
+    ("blitzecdn", "rule remove", "DELETE /v3/domains/{domain}/rules/{rule}", ""),
     # -- Edges -------------------------------------------------------------
     ("blitzecdn", "edge add", "POST /v3/edges", ""),
     ("blitzecdn", "edge list", "GET /v3/edges", ""),
-    ("blitzecdn", "edge update", "PATCH /v3/edges/{name}", ""),
-    ("blitzecdn", "edge remove", "DELETE /v3/edges/{name}", ""),
+    ("blitzecdn", "edge update", "PATCH /v3/edges/{edge}", ""),
+    ("blitzecdn", "edge remove", "DELETE /v3/edges/{edge}", ""),
     (
         "blitzecdn",
         "edge host-key",
@@ -114,8 +114,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         None,
-        "GET /v3/edges/{name}",
-        "one edge by name; see GET /v3/sites/{name}.",
+        "GET /v3/edges/{edge}",
+        "one edge by name; see GET /v3/sites/{site}.",
     ),
     (
         "blitzecdn",
@@ -160,7 +160,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "release artifact",
-        "GET /v3/releases/{release_id}/artifacts/{name}",
+        "GET /v3/releases/{release_id}/artifacts/{artifact}",
         "",
     ),
     (
@@ -316,7 +316,7 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "cert preflight",
-        "GET /v3/sites/{name}/certificate/preflight",
+        "GET /v3/sites/{site}/certificate/preflight",
         "",
     ),
     ("blitzecdn", "cert renew", "POST /v3/certificates/renew", ""),
@@ -324,22 +324,22 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     (
         "blitzecdn",
         "cert upload",
-        "PUT /v3/sites/{name}/certificate",
+        "PUT /v3/sites/{site}/certificate",
         "",
     ),
     (
         "blitzecdn",
         "cert request",
-        "POST /v3/sites/{name}/certificate/request",
+        "POST /v3/sites/{site}/certificate/request",
         "",
     ),
     ("blitzecdn", "ssl reconcile", "POST /v3/certificates/ssl-modes/reconcile", ""),
     (
         "blitzecdn",
         None,
-        "GET /v3/sites/{name}/certificate",
+        "GET /v3/sites/{site}/certificate",
         "one site's certificate. `cert list` prints the fleet's, sorted by "
-        "expiry, which is the form a human wants; see GET /v3/sites/{name}.",
+        "expiry, which is the form a human wants; see GET /v3/sites/{site}.",
     ),
     (
         "blitzecdn",
