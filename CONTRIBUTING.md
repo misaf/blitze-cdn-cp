@@ -135,5 +135,18 @@ git tag -s vX.Y.Z -m "BlitzeCDN X.Y.Z" && git push origin vX.Y.Z
 ```
 
 A release is a major when its Unreleased notes contain a **BREAKING** entry.
-Publish a GitHub release for the tag with the changelog section, breaking
-changes first.
+Publish a GitHub release for the tag with its changelog section as the notes.
+`just release-notes X.Y.Z` prints them, breaking changes first. Write them to
+a file and publish only if that succeeded. Piping straight into `gh` would
+still publish, with empty notes, when the version has no changelog section:
+
+```sh
+notes=$(mktemp) && just release-notes X.Y.Z > "$notes" && gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes-file "$notes"
+```
+
+To correct a published release, edit its changelog section rather than the
+release, then regenerate its notes the same way, so the two never drift apart:
+
+```sh
+notes=$(mktemp) && just release-notes X.Y.Z > "$notes" && gh release edit vX.Y.Z --notes-file "$notes"
+```
