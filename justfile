@@ -185,6 +185,11 @@ release-version version:
     uv run python scripts/refreeze.py
     echo "Moved to {{version}}. Commit, then tag v{{version}} to publish both images."
 
+# Print the GitHub release notes for a version: its CHANGELOG.md section with
+# BREAKING entries first. Feed it to `gh release create`/`edit --notes-file -`.
+release-notes version:
+    @python3 -I scripts/release_notes.py {{version}}
+
 # --- the gates, in CI order ---------------------------------------------
 
 # Format and lint every distribution in the workspace, and check the import
