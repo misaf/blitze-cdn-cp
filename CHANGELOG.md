@@ -18,10 +18,18 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ## [7.0.0] - 2026-11-13
 
-7.0.0 is a fresh install. There is no upgrade path from 6.x or any earlier
-version: install it on a new control plane and edges with `install.sh`, since
-existing installs and their databases cannot be carried forward. From 7.0.0
-onward, installs upgrade in place to later 7.x releases and to future majors.
+BlitzeCDN 7.0.0 makes the v3 API consistent (one noun per resource, one prefix
+per area, explicit OpenAPI operation ids) and adds optimistic concurrency, a
+shared shape for queued work, and a long list of operator features.
+
+> [!IMPORTANT]
+> **7.0.0 is a fresh install. There is no upgrade path from 6.x or any earlier
+> version.** Install it on a new control plane and edges with `install.sh`,
+> since existing installs and their databases cannot be carried forward. From
+> 7.0.0 onward, installs upgrade in place to later 7.x releases and to future
+> majors.
+
+The **BREAKING** changes matter to API clients and scripts written against 6.x.
 
 ### Added
 
@@ -197,15 +205,29 @@ onward, installs upgrade in place to later 7.x releases and to future majors.
 
 ## [6.1.0] - 2026-10-27
 
+6.1.0 adds controller visibility and strengthens configuration, rendering and
+transaction handling. Existing environment variable names and flat TOML
+settings remain supported, and worker heartbeat records need no schema
+migration: upgrade with the normal installer update, which migrates the
+database and keeps persistent state. The release publishes
+`ghcr.io/misaf/blitzecdn-control-plane:6.1.0` and
+`ghcr.io/misaf/blitzecdn-edge:6.1.0`.
+
 ### Added
 
-- Controller operational status and metrics.
-- Structured job execution and recovery logs.
+- Controller operational status and metrics: `blitzecdn overview`, an
+  authenticated `/v1/status`, worker heartbeats, and queue, workflow and
+  certificate metrics.
+- Structured job execution and recovery logs, with warnings for interrupted
+  workflows.
 - Developer onboarding and architecture guide.
 
 ### Changed
 
-- Capability configuration is defined in typed models.
+- Capability configuration is defined in typed models, and environment-file
+  parsing is shared by the application, host and backup paths.
+- Transaction ownership is explicit, and host configuration is read from one
+  database snapshot.
 - Ansible templating compatibility is isolated in one module.
 - The HTTP/3 integration harness converges the edge through the shipped play
   and a real release.

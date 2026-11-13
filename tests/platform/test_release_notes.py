@@ -113,3 +113,23 @@ def test_the_command_line_takes_a_v_prefix(
     assert release_notes.main(["v1.0.0", "--changelog", str(path)]) == 0
     assert capsys.readouterr().out.startswith("### Fixed")
     assert release_notes.main(["1.0", "--changelog", str(path)]) == 2
+
+
+def test_a_github_alert_keeps_its_marker_on_its_own_line() -> None:
+    changelog = (
+        "## [1.0.0] - 2026-01-01\n\n"
+        "> [!IMPORTANT]\n"
+        "> **A fresh\n"
+        "> install.** Really.\n\n"
+        "> A plain\n"
+        "> quote.\n\n"
+        "### Fixed\n\n"
+        "- A crash.\n"
+    )
+    assert release_notes.notes(changelog, "1.0.0") == (
+        "> [!IMPORTANT]\n"
+        "> **A fresh install.** Really.\n\n"
+        "> A plain quote.\n\n"
+        "### Fixed\n\n"
+        "- A crash.\n"
+    )

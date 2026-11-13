@@ -6,6 +6,8 @@ Run through `just release-notes X.Y.Z`. The notes are the section itself,
 reordered so every **BREAKING** entry comes first under "Breaking changes",
 with the hard-wrapped lines joined (GitHub renders a single newline in a
 release body as a line break), and the section's compare link at the end.
+Blockquotes, including GitHub alerts such as `> [!IMPORTANT]`, keep their
+quoting.
 
 Standard library only, so it runs without the project's environment.
 """
@@ -34,9 +36,21 @@ class _Subsection:
     entries: list[str] = field(default_factory=list)
 
 
+_ALERT = re.compile(r"\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]")
+
+
 def _join(lines: list[str]) -> str:
-    """One paragraph or bullet, its wrapped lines joined with single spaces."""
-    return " ".join(line.strip() for line in lines)
+    """One paragraph or bullet, its wrapped lines joined with single spaces.
+
+    A blockquote stays quoted, and a GitHub alert marker such as
+    `[!IMPORTANT]` keeps its own line, which the alert syntax requires.
+    """
+    if not lines[0].startswith(">"):
+        return " ".join(line.strip() for line in lines)
+    quoted = [line.removeprefix(">").strip() for line in lines]
+    if _ALERT.fullmatch(quoted[0]):
+        return f"> {quoted[0]}\n> " + " ".join(quoted[1:])
+    return "> " + " ".join(quoted)
 
 
 def _blocks(text: str) -> list[str]:
