@@ -121,3 +121,60 @@ def test_openapi_generation_is_deterministic(settings):
     first = json.dumps(_schemas(settings), sort_keys=False)
     second = json.dumps(_schemas(settings), sort_keys=False)
     assert first == second
+
+
+#: Path segments that address a resource without being its collection's name.
+#: `/v3/traffic/status/{edge}` is a report about an edge, so `status` reads as
+#: `edges` here, and the edge keeps the one parameter name it has everywhere.
+_SEGMENT_RESOURCE = {"status": "edges"}
+
+
+def _path_parameters(path: str) -> list[tuple[str, str, bool]]:
+    """``(collection, parameter, identifies)`` for each parameter in ``path``.
+
+    A parameter belongs to the literal segment before it. In a run of several,
+    such as ``records/{type}/{record}``, the last one identifies the resource
+    and the rest qualify it.
+    """
+    found: list[tuple[str, str, bool]] = []
+    collection = ""
+    segments = path.strip("/").split("/")
+    for index, segment in enumerate(segments):
+        if not segment.startswith("{"):
+            collection = _SEGMENT_RESOURCE.get(segment, segment)
+            continue
+        following = segments[index + 1] if index + 1 < len(segments) else ""
+        found.append((collection, segment[1:-1], not following.startswith("{")))
+    return found
+
+
+def test_a_resource_has_one_path_parameter_name(settings):
+    """Generated clients name arguments after path parameters, so one site
+    must not be ``name`` in one call and ``site`` in another.
+
+    Each parameter is named after its resource, never a bare ``name`` or ``id``,
+    which would be ambiguous in a path holding two, such as a zone's rule.
+    """
+    with TestClient(control_plane_app(settings)) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+    collections_by_parameter: dict[str, set[str]] = {}
+    identifiers_by_collection: dict[str, set[str]] = {}
+    generic: set[str] = set()
+    for path in paths:
+        for collection, parameter, identifies in _path_parameters(path):
+            if parameter in {"name", "id"}:
+                generic.add(path)
+            collections_by_parameter.setdefault(parameter, set()).add(collection)
+            if identifies:
+                identifiers_by_collection.setdefault(collection, set()).add(parameter)
+    assert sorted(generic) == []
+    assert {
+        parameter: sorted(collections)
+        for parameter, collections in collections_by_parameter.items()
+        if len(collections) > 1
+    } == {}
+    assert {
+        collection: sorted(parameters)
+        for collection, parameters in identifiers_by_collection.items()
+        if len(parameters) > 1
+    } == {}

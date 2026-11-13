@@ -72,7 +72,16 @@ def releases(
 )
 def current_release(
     releases: FromDishka[ReleaseService],
-    host_limit: Annotated[str | None, Query(max_length=512)] = None,
+    host_limit: Annotated[
+        str | None,
+        Query(
+            max_length=512,
+            description=(
+                "Edges to validate against, as on POST /v3/deployments; "
+                "omitted means every registered edge. A selector, not a page."
+            ),
+        ),
+    ] = None,
 ) -> ReleaseDetail:
     """What canonical state compiles to right now, without recording it.
 
@@ -109,16 +118,16 @@ def release(release_id: str, releases: FromDishka[ReleaseService]) -> ReleaseDet
 
 
 @router.get(
-    "/v3/releases/{release_id}/artifacts/{name}",
+    "/v3/releases/{release_id}/artifacts/{artifact}",
     response_model=Artifact,
     responses=NOT_FOUND_RESPONSES,
     operation_id="releases_artifact",
 )
 def artifact(
-    release_id: str, name: str, releases: FromDishka[ReleaseService]
+    release_id: str, artifact: str, releases: FromDishka[ReleaseService]
 ) -> Artifact:
     """One artifact document, exactly as the edges were handed it."""
-    document = releases.get(release_id).artifact(name)
+    document = releases.get(release_id).artifact(artifact)
     return Artifact(
         name=document.name, digest=document.digest, document=document.document
     )
