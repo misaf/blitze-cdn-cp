@@ -56,8 +56,8 @@ server work. Polling does not resubmit the original request.
 | `POST /v3/cache/purge` | `/v3/operations/{id}` | `Operation`; result is `PurgeResult` |
 | `POST /v3/cache/connections` | `/v3/operations/{id}` | `Operation`; result is `ConnectionsReport` |
 | `POST /v3/origins/check` | `/v3/operations/{id}` | `Operation`; result is `OriginReport` |
-| `DELETE /v3/edges/{name}` | `/v3/operations/{id}` | `Operation`; result describes removal and decommissioning |
-| `POST /v3/sites/{name}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
+| `DELETE /v3/edges/{edge}` | `/v3/operations/{id}` | `Operation`; result describes removal and decommissioning |
+| `POST /v3/sites/{site}/certificate/request` | `/v3/operations/{id}` | `Operation`; result is `CertificateInfo` |
 | `POST /v3/certificates/renew` | `/v3/operations/{id}` | `Operation`; result is a renewal report |
 | `POST /v3/certificates/reconcile` | `/v3/operations/{id}` | `Operation`; result is a reconciliation report |
 | `POST /v3/certificates/ssl-modes/reconcile` | `/v3/operations/{id}` | `Operation`; result is an Automatic SSL/TLS reconciliation |

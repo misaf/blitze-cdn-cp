@@ -56,14 +56,14 @@ def list_edges(edges: FromDishka[EdgeOperationsService]) -> Page[Edge]:
 
 
 @router.get(
-    "/v3/edges/{name}",
+    "/v3/edges/{edge}",
     response_model=Edge,
     responses={200: ETAG_RESPONSE, **NOT_FOUND_RESPONSES},
 )
 def get_edge(
-    response: Response, name: str, edges: FromDishka[EdgeOperationsService]
+    response: Response, edge: str, edges: FromDishka[EdgeOperationsService]
 ) -> Edge:
-    return Edge.from_domain(tag(response, edges.get_edge(name)))
+    return Edge.from_domain(tag(response, edges.get_edge(edge)))
 
 
 @router.post(
@@ -87,7 +87,7 @@ def add_edge(
 
 
 @router.patch(
-    "/v3/edges/{name}",
+    "/v3/edges/{edge}",
     response_model=Edge,
     responses={
         200: ETAG_RESPONSE,
@@ -99,20 +99,20 @@ def add_edge(
 )
 def update_edge(
     response: Response,
-    name: str,
+    edge: str,
     patch: EdgePatch,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
     precondition: IfMatchHeader = None,
 ) -> Edge:
     updated = edges.update_edge(
-        name, patch.to_domain(), operator, if_match=if_match(precondition)
+        edge, patch.to_domain(), operator, if_match=if_match(precondition)
     )
     return Edge.from_domain(tag(response, updated))
 
 
 @router.delete(
-    "/v3/edges/{name}",
+    "/v3/edges/{edge}",
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={
@@ -124,7 +124,7 @@ def update_edge(
 )
 def remove_edge(
     response: Response,
-    name: str,
+    edge: str,
     operator: OperatorDependency,
     edges: FromDishka[EdgeOperationsService],
     queued_operations: FromDishka[OperationService],
@@ -161,12 +161,12 @@ def remove_edge(
         # Checked when the removal is queued, in the transaction that queues it.
         # A replay of the same key answers from the job.
         return edges.admit_removal(
-            name,
+            edge,
             lambda: queued_operations.submit(
                 EdgeRemovalJob(
-                    operator=operator, name=name, decommission=decommission, force=force
+                    operator=operator, name=edge, decommission=decommission, force=force
                 ),
-                dedupe_key=remove_dedupe_key(name),
+                dedupe_key=remove_dedupe_key(edge),
             ),
             if_match=if_match(precondition),
         )

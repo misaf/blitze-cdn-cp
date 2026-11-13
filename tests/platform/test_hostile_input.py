@@ -110,21 +110,21 @@ BASELINES: dict[str, Callable[[int], dict[str, Any]]] = {
 
 #: Request bodies that are not JSON. The certificate upload is two PEM files,
 #: parsed as X.509 before anything reads them as text.
-NOT_JSON = {"Body_upload_certificate_v3_sites__name__certificate_put"}
+NOT_JSON = {"Body_upload_certificate_v3_sites__site__certificate_put"}
 
 #: What the seeded state names each path parameter.
 PARAMETERS = {
     "/v3/domains/{domain}": {"domain": "example.com"},
     "/v3/domains/{domain}/records": {"domain": "example.com"},
     "/v3/domains/{domain}/rules": {"domain": "example.com"},
-    "/v3/domains/{domain}/records/{type}/{name}": {
+    "/v3/domains/{domain}/records/{type}/{record}": {
         "domain": "example.com",
         "type": "A",
-        "name": "cdn",
+        "record": "cdn",
     },
-    "/v3/domains/{domain}/rules/{name}": {"domain": "example.com", "name": "rule"},
-    "/v3/edges/{name}": {"name": "edge-1"},
-    "/v3/sites/{name}/certificate/request": {"name": "example-com"},
+    "/v3/domains/{domain}/rules/{rule}": {"domain": "example.com", "rule": "rule"},
+    "/v3/edges/{edge}": {"edge": "edge-1"},
+    "/v3/sites/{site}/certificate/request": {"site": "example-com"},
 }
 
 #: Required members of nested objects, filled in when a path passes through one.
@@ -312,13 +312,14 @@ class Api:
         self.numbers = itertools.count(2)
         seed_site_over_http(client)
         # What `PARAMETERS` names: rule `rule` and edge `edge-1`.
-        for route, body in (
-            ("/v3/domains/example.com/rules", BASELINES["RuleCreate"](0)),
-            ("/v3/edges", BASELINES["EdgeCreate"](1)),
+        for route, body, parameter in (
+            ("/v3/domains/example.com/rules", BASELINES["RuleCreate"](0), "rule"),
+            ("/v3/edges", BASELINES["EdgeCreate"](1), "edge"),
         ):
-            name = PARAMETERS[f"{route.replace('example.com', '{domain}')}/{{name}}"]
+            template = f"{route.replace('example.com', '{domain}')}/{{{parameter}}}"
+            name = PARAMETERS[template][parameter]
             response = client.post(
-                route, json=body | {"name": name["name"]}, headers=API_HEADERS
+                route, json=body | {"name": name}, headers=API_HEADERS
             )
             assert response.is_success, response.text
         self.database = database

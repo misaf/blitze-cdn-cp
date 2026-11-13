@@ -30,7 +30,7 @@ SUBMISSIONS = [
     ("POST", "/v3/cache/purge", {"purge_all": True}, "operations"),
     ("POST", "/v3/cache/connections", {}, "operations"),
     ("POST", "/v3/origins/check", {}, "operations"),
-    ("DELETE", "/v3/edges/{name}", None, "operations"),
+    ("DELETE", "/v3/edges/{edge}", None, "operations"),
     ("POST", "/v3/deployments", {}, "deployments"),
     ("POST", "/v3/deployments", {"check": True}, "deployments"),
     ("POST", "/v3/deployments/rollback", {}, "deployments"),
@@ -39,7 +39,7 @@ SUBMISSIONS = [
     ("POST", "/v3/certificates/ssl-modes/reconcile", None, "operations"),
     (
         "POST",
-        "/v3/sites/{name}/certificate/request",
+        "/v3/sites/{site}/certificate/request",
         {"email": "ops@example.com"},
         "operations",
     ),
@@ -47,8 +47,8 @@ SUBMISSIONS = [
 
 #: The resource each submission path names, where it names one.
 PATH_NAMES = {
-    "/v3/edges/{name}": "edge-a",
-    "/v3/sites/{name}/certificate/request": "example-com",
+    "/v3/edges/{edge}": {"edge": "edge-a"},
+    "/v3/sites/{site}/certificate/request": {"site": "example-com"},
 }
 
 
@@ -66,7 +66,7 @@ def test_accepted_work_points_to_an_authenticated_polling_resource(
     with TestClient(control_plane_app(settings)) as client:
         accepted = client.request(
             method,
-            path.format(name=PATH_NAMES.get(path, "")),
+            path.format(**PATH_NAMES.get(path, {})),
             json=body,
             headers=API_HEADERS,
         )
