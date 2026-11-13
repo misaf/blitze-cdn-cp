@@ -10,6 +10,8 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-11-13
+
 ### Added
 
 - Every `201 Created` response sends `Location` with the new resource's path
@@ -684,7 +686,8 @@ First tagged release.
 
 - SSH between the control plane and edges is public-key only.
 
-[Unreleased]: https://github.com/misaf/blitze-cdn-cp/compare/v6.1.0...HEAD
+[Unreleased]: https://github.com/misaf/blitze-cdn-cp/compare/v7.0.0...HEAD
+[7.0.0]: https://github.com/misaf/blitze-cdn-cp/compare/v6.1.0...v7.0.0
 [6.1.0]: https://github.com/misaf/blitze-cdn-cp/compare/v6.0.1...v6.1.0
 [6.0.1]: https://github.com/misaf/blitze-cdn-cp/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/misaf/blitze-cdn-cp/compare/v5.0.0...v6.0.0
