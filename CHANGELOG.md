@@ -10,6 +10,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ## [Unreleased]
 
+### Changed
+
+- The edge image is built on Nginx 1.31.7 (from 1.31.4).
+
 ## [7.0.0] - 2026-11-13
 
 7.0.0 is a fresh install. There is no upgrade path from 6.x or any earlier

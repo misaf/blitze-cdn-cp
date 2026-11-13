@@ -22,7 +22,7 @@
 # test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules
 # fails if the two stages ever name different references — the builder and
 # the runtime being the same image is what the ABI guarantee rests on.
-FROM nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913 AS module-builder
+FROM nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d AS module-builder
 
 # The pkg-oss module names to build, space separated. Empty builds nothing,
 # which is a valid image: everything BlitzeCDN needs from Nginx itself —
@@ -68,7 +68,7 @@ RUN mkdir -p /tmp/packages \
           done; \
       fi
 
-FROM nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+FROM nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
 
 # The shared objects the image's own module list loads, space separated, and
 # one directive per module for the build-time probe below. Both are emitted by
