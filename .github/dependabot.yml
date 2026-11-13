@@ -1,6 +1,6 @@
 ---
 version: 2
-# Every entry names master: GitHub's default branch is a release line (6.x),
+# Every entry names master: GitHub's default branch is a release line (7.x),
 # and Dependabot otherwise opens its pull requests against the default branch.
 updates:
   - package-ecosystem: uv
