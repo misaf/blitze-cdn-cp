@@ -67,6 +67,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A tag publishes an image an edge can pin, so it must be the signed,
+      # annotated tag of the version this tree says it is (CONTRIBUTING).
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/release_tag_check.py
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Which modules this image carries is not written in the build context:
       # each capability declares its own, and the control plane composes them.
