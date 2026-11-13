@@ -122,6 +122,17 @@ by removing it from the same lists.
   change an operator or API client would notice.
 - Keep comments about the current reason for the code. Do not narrate its
   history; git records that.
+- Pull requests are squash-merged, the only method the repository allows, so
+  each one is a single `Title (#N)` commit on the release line, and the
+  changelog's `(#N)` references point at exactly one commit.
+
+## Issues
+
+Give every issue at least one type label: `bug`, `enhancement`,
+`documentation` or `tests`. The issue forms apply the first three. Add an
+`area:` label for the part of the project it touches: `area: api`,
+`area: cli`, `area: control-plane`, `area: edge`, `area: ansible`,
+`area: installer` or `area: ci`.
 
 ## Releases
 
