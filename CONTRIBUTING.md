@@ -145,9 +145,9 @@ A release ships its two images, `ghcr.io/misaf/blitzecdn-control-plane:X.Y.Z`
 and `ghcr.io/misaf/blitzecdn-edge:X.Y.Z`, and nothing else: attach no files to
 the GitHub release. Hosts install from the control-plane image and never from
 PyPI or a wheel. The one file a server downloads, `install.sh`, is fetched
-from the tag and verified against its build attestation
-([operations](docs/operations.md#installing-updating-and-removing-a-server)), so a copy attached to the release would be
-a second, unattested source of it.
+from the tag and verified against its build attestation (see
+[Installing, updating and removing a server](docs/operations.md#installing-updating-and-removing-a-server)),
+so a copy attached to the release would be a second, unattested source of it.
 
 A release is a major when its Unreleased notes contain a **BREAKING** entry.
 Publish a GitHub release for the tag with its changelog section as the notes.
