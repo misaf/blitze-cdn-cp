@@ -30,13 +30,16 @@ someone represents the project elsewhere.
 
 ## Reporting
 
-Report conduct problems privately. On the comment, issue or pull request, open
-the `…` menu, choose **Report content**, and report it to the repository's
-maintainers. Do not use a public issue for this. Security vulnerabilities go
-through [SECURITY.md](SECURITY.md) instead.
+Report conduct problems to GitHub. On the comment, issue or pull request, open
+the `…` menu and choose **Report content**, or report the account from its
+profile. The report goes privately to GitHub, which reviews it under its
+[Community Guidelines](https://docs.github.com/site-policy/github-terms/github-community-guidelines).
+Do not use a public issue for this. Security vulnerabilities go through
+[SECURITY.md](SECURITY.md) instead.
 
-Reports are read by the maintainers only and kept confidential. A reporter is
-not identified to the person reported.
+This project has no separate private channel for conduct reports, and the
+maintainers do not see reports made to GitHub. They act on what happens in the
+repository itself, as described below.
 
 ## Enforcement
 
