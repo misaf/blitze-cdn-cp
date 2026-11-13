@@ -155,8 +155,9 @@ the earlier purge has finished.
   holds whether the index was cold, warm or rebuilt. nginx then fetches those
   URLs from the origin again.
 * **Fills that land later.** nginx writes an entry to a temporary file and
-  renames it into place once the origin's response is complete. A purge
-  ignores temporary files, because nothing is served from them. So an entry
+  renames it into place once the origin's response is complete, which can be
+  a moment after the visitor has received all of it. A purge ignores
+  temporary files, because nothing is served from them. So an entry
   renamed into place after the scan began can survive the purge, even if its
   request reached the origin before the purge started and it holds content
   from before the change. A `Vary` representation that survives this way is
