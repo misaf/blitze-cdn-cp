@@ -12,6 +12,10 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ### Added
 
+- Every `201 Created` response sends `Location` with the new resource's path
+  (`POST /v3/domains`, `/v3/domains/{domain}/records`,
+  `/v3/domains/{domain}/rules` and `/v3/edges`), as `202` responses already
+  did, and OpenAPI declares the header (#383).
 - Optimistic concurrency for zones, records, rules and edges. Single-resource
   reads and writes return a strong `ETag`; `PATCH` and `DELETE` accept
   `If-Match` and answer `412` without writing when the resource has changed
