@@ -37,6 +37,8 @@ from blitzecdn.delivery.api.preconditions import (
 )
 from blitzecdn.delivery.api.responses import (
     ACCEPTED_RESPONSE,
+    TAGGED_CREATED_RESPONSE,
+    created_at,
     polling_headers,
 )
 
@@ -70,7 +72,7 @@ def get_edge(
     "/v3/edges",
     response_model=Edge,
     status_code=status.HTTP_201_CREATED,
-    responses={201: ETAG_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={201: TAGGED_CREATED_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
     operation_id="edges_create",
 )
 def add_edge(
@@ -80,7 +82,11 @@ def add_edge(
     edges: FromDishka[EdgeOperationsService],
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    return Edge.from_domain(tag(response, edges.add_edge(edge.to_domain(), operator)))
+    created = Edge.from_domain(
+        tag(response, edges.add_edge(edge.to_domain(), operator))
+    )
+    created_at(response, "/v3/edges", created.name)
+    return created
 
 
 @router.patch(
