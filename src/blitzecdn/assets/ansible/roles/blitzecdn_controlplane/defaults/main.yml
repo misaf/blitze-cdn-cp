@@ -46,7 +46,7 @@ blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 # registry gave one, so the services and the CLI wrapper run exactly the bytes
 # that were pulled. A source build (BLITZECDN_CONTROL_PLANE_BUILD=1) passes its
 # local tag instead.
-blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:6.1.0
+blitzecdn_controlplane_image: ghcr.io/misaf/blitzecdn-control-plane:7.0.0
 # Where the CLI wrapper stages backup configuration, on the host's tmpfs.
 # File helpers see this host path; application containers see /run/blitzecdn-backup.
 blitzecdn_controlplane_runtime_dir: /run/blitzecdn
