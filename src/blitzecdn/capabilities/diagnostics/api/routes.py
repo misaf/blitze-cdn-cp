@@ -17,7 +17,12 @@ router = APIRouter(
 )
 
 
-@router.get("/v3/status", response_model=OperationalStatus)
+@router.get(
+    "/v3/status",
+    response_model=OperationalStatus,
+    operation_id="status_get",
+    tags=["status"],
+)
 def operational_status(
     diagnostics: FromDishka[DiagnosticsService],
 ) -> OperationalStatus:
@@ -25,7 +30,12 @@ def operational_status(
     return diagnostics.status()
 
 
-@router.get("/v3/audit-events", response_model=Page[AuditEvent])
+@router.get(
+    "/v3/audit-events",
+    response_model=Page[AuditEvent],
+    operation_id="audit_events_list",
+    tags=["audit"],
+)
 def audit_events(
     audit: FromDishka[AuditTrail],
     params: PaginationParams,

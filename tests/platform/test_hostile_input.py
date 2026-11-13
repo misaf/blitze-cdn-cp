@@ -110,7 +110,7 @@ BASELINES: dict[str, Callable[[int], dict[str, Any]]] = {
 
 #: Request bodies that are not JSON. The certificate upload is two PEM files,
 #: parsed as X.509 before anything reads them as text.
-NOT_JSON = {"Body_upload_certificate_v3_sites__site__certificate_put"}
+NOT_JSON = {"Body_certificates_site_upload"}
 
 #: What the seeded state names each path parameter.
 PARAMETERS = {

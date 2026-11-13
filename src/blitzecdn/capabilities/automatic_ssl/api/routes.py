@@ -26,6 +26,7 @@ from blitzecdn.delivery.api.responses import (
 )
 
 router = APIRouter(
+    tags=["certificates"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
@@ -37,6 +38,7 @@ router = APIRouter(
     response_model=Operation,
     status_code=status.HTTP_202_ACCEPTED,
     responses={202: ACCEPTED_RESPONSE, **CONFLICT_RESPONSES},
+    operation_id="certificates_ssl_modes_reconcile",
 )
 def reconcile_automatic_ssl(
     response: Response,

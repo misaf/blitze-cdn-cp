@@ -20,13 +20,16 @@ from blitzecdn.delivery.api.models import as_operation
 from blitzecdn.delivery.api.pagination import Page, PaginationParams, stored_page
 
 router = APIRouter(
+    tags=["workflows"],
     route_class=DishkaSyncRoute,
     dependencies=[Depends(require_operator)],
     responses=OPERATOR_RESPONSES,
 )
 
 
-@router.get("/v3/workflows", response_model=Page[Workflow])
+@router.get(
+    "/v3/workflows", response_model=Page[Workflow], operation_id="workflows_list"
+)
 def list_workflows(
     workflow_history: FromDishka[WorkflowHistory],
     params: PaginationParams,
@@ -42,6 +45,7 @@ def list_workflows(
     "/v3/workflows/{workflow_id}",
     response_model=Workflow,
     responses=NOT_FOUND_RESPONSES,
+    operation_id="workflows_get",
 )
 def get_workflow(
     workflow_id: str,
@@ -54,6 +58,7 @@ def get_workflow(
     "/v3/workflows/{workflow_id}/acknowledge",
     response_model=Workflow,
     responses={**NOT_FOUND_RESPONSES, **CONFLICT_RESPONSES},
+    operation_id="workflows_acknowledge",
 )
 def acknowledge_workflow(
     workflow_id: str,
