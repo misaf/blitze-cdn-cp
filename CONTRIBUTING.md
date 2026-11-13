@@ -84,6 +84,34 @@ Docker daemon. Push the branch, and use `just ci-run` to run CI on it. The
 justfile is the authority for every gate, because CI calls its recipes and does
 not repeat their commands.
 
+## Branches
+
+| Branch | Holds | Released as |
+| --- | --- | --- |
+| `7.x` (default) | Fixes, security fixes, docs, dependency updates and non-breaking features | 7.0.1, 7.1.0 |
+| `master` | Breaking changes for the next major | 8.0.0 |
+| `1.x`-`6.x` | Retired release lines | Nothing, unless revived |
+
+Open a pull request against `7.x` unless the change breaks a public surface;
+`gh pr create` and the GitHub UI target it by default. A breaking change goes
+to `master`, so pass `--base master`. Dependabot opens its pull requests
+against `7.x`.
+
+After a pull request merges into `7.x`, merge `7.x` up into `master`, so every
+fix reaches the next major and none has to be ported by hand:
+
+```sh
+git switch master && git pull && git merge origin/7.x && git push
+```
+
+Opening a new major line, `8.x` from `master`, is one change that adds it to
+the push `branches` in `.github/workflows/ci.yml` and
+`.github/workflows/edge-image.yml`, moves every `target-branch` in
+`.github/dependabot.yml` to it, and updates this section. A line missing from
+those lists runs no CI and publishes no edge image when it is pushed. After it
+merges, push the branch and make it the default; the previous line is retired
+by removing it from the same lists.
+
 ## Pull requests
 
 - Fill in the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). The
@@ -95,7 +123,17 @@ not repeat their commands.
 
 ## Releases
 
-`just release-version X.Y.Z` moves the version and every image pin. It turns
-the Unreleased notes into the release's section and regenerates
-`docs/openapi.json`. It refuses to run while Unreleased is empty. Commit the
-result, then push the `vX.Y.Z` tag, which publishes the images.
+Cut a release from the branch that holds it: `7.x` for 7.y.z, `master` for the
+first release of a new major. `just release-version X.Y.Z` moves the version
+and every image pin. It turns the Unreleased notes into the release's section
+and regenerates `docs/openapi.json`. It refuses to run while Unreleased is
+empty. Commit the result, merge it, then push a signed `vX.Y.Z` tag on that
+commit, which publishes the images:
+
+```sh
+git tag -s vX.Y.Z -m "BlitzeCDN X.Y.Z" && git push origin vX.Y.Z
+```
+
+A release is a major when its Unreleased notes contain a **BREAKING** entry.
+Publish a GitHub release for the tag with the changelog section, breaking
+changes first.
