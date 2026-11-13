@@ -12,6 +12,11 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ## [7.0.0] - 2026-11-13
 
+7.0.0 is a fresh install. There is no upgrade path from 6.x or any earlier
+version: install it on a new control plane and edges with `install.sh`, since
+existing installs and their databases cannot be carried forward. From 7.0.0
+onward, installs upgrade in place to later 7.x releases and to future majors.
+
 ### Added
 
 - Every `201 Created` response sends `Location` with the new resource's path
