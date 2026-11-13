@@ -49,18 +49,9 @@ jobs:
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          python3 - <<'PY'
-          import os
-          import pathlib
-          import tomllib
-
-          tag = os.environ["GITHUB_REF_NAME"]
-          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
-          version = project["project"]["version"]
-          if tag != f"v{version}":
-              raise SystemExit(f"release tag {tag!r} must equal v{version}")
-          PY
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/release_tag_check.py
       # Every gate below is a justfile recipe, and `just check` runs all of
       # them in this order. Nothing here duplicates a command: a gate added to
       # the justfile is a gate this workflow picks up without a second edit,

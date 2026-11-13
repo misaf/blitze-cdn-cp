@@ -191,6 +191,31 @@ release-version version:
 release-notes version:
     @python3 -I scripts/release_notes.py {{version}}
 
+# Make the signed, annotated `vX.Y.Z` tag CI accepts, with the message
+# `BlitzeCDN X.Y.Z`, on the committed release commit. Pushing it publishes the
+# images, so that stays a separate, deliberate `git push origin vX.Y.Z`.
+release-tag version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="{{version}}"
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "error: expected MAJOR.MINOR.PATCH, got '$version'" >&2; exit 2
+    fi
+    current=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+    if [ "$current" != "$version" ]; then
+        echo "error: pyproject.toml says $current; run 'just release-version $version' and merge it first" >&2; exit 1
+    fi
+    if ! git diff --quiet HEAD --; then
+        echo "error: the working tree has uncommitted changes" >&2; exit 1
+    fi
+    git fetch --quiet origin
+    if ! git branch --remotes --contains HEAD | grep -qE '^ *origin/([0-9]+\.x|master)$'; then
+        echo "error: HEAD is not on a pushed release line (origin/N.x or origin/master)" >&2; exit 1
+    fi
+    git tag --sign "v$version" --message "BlitzeCDN $version"
+    git tag --verify "v$version"
+    echo "Signed v$version. Publish it with: git push origin v$version"
+
 # --- the gates, in CI order ---------------------------------------------
 
 # Format and lint every distribution in the workspace, and check the import
