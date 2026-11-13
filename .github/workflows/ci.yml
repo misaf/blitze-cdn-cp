@@ -17,8 +17,8 @@ run-name: >-
     # is not obviously missing: pull requests into it still run, because the
     # trigger above is unfiltered, so the gap shows only as a direct push that
     # nothing checked. Add a new major in the change that opens its branch;
-    # retired lines (1.x-5.x) are left out and come back only if revived.
-    branches: [master, 6.x, 7.x]
+    # retired lines (1.x-6.x) are left out and come back only if revived.
+    branches: [master, 7.x]
     tags: ['v*.*.*']
 
 permissions:

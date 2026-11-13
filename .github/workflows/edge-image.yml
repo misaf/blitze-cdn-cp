@@ -32,8 +32,8 @@ name: Edge image
     # they ship with — so a new major must be added here in the same change
     # that opens its branch, not on the first deploy that cannot pull.
     # master is here to be built and checked, not published (see `publish`).
-    # Retired lines (1.x-5.x) are left out and come back only if revived.
-    branches: [master, 6.x, 7.x]
+    # Retired lines (1.x-6.x) are left out and come back only if revived.
+    branches: [master, 7.x]
     paths:
       - src/blitzecdn/assets/docker/edge/**
       - src/blitzecdn/capabilities/**
