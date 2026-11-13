@@ -2,14 +2,15 @@
 
 ## Supported versions
 
-Security fixes are made on `master` and shipped in the next release. Only the
-latest release receives them; older releases are not patched, so upgrade to the
-latest release to pick up a fix.
+Security fixes are made on `7.x`, the default branch, and shipped in the next
+7.y.z release; they are then merged up into `master`, which holds the next
+major. Only the latest 7.x release receives them. Earlier 7.x releases are not
+patched, so upgrade in place to the latest 7.x release to pick up a fix.
 
 | Version | Supported |
 | --- | --- |
-| Latest release (currently 6.1.x) | Yes |
-| Earlier releases | No |
+| 7.x (the latest 7.y.z release) | Yes |
+| 6.x and earlier | No. 7.0.0 is a fresh install with no upgrade path from 6.x, so move to 7.x with a new install |
 
 ## Reporting a vulnerability
 
