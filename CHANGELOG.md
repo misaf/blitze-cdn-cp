@@ -419,6 +419,10 @@ database and keeps persistent state. The release publishes
 
 ## [2.10.0] - 2026-08-31
 
+The `v2.10.0` tag points at a commit whose `pyproject.toml` still says 2.9.1,
+so the Python package built from it reports itself as 2.9.1. The edge image
+`blitzecdn-edge:2.10.0` is labelled 2.10.0.
+
 ### Added
 
 - Edge rollouts start with a single canary edge.
@@ -441,8 +445,10 @@ database and keeps persistent state. The release publishes
 
 ## [2.9.0] - 2026-08-30
 
-There is no 2.8.0: the version went from 2.7.0 straight to 2.9.0, and 2.8.0
-was never released.
+2.8.0 was published only as the edge image `blitzecdn-edge:2.8.0`, built from
+db7a72ee, which already has the fresh-host change below. Its tag and GitHub
+release no longer exist, and `pyproject.toml` at that commit still says 2.7.0.
+Its changes are included here.
 
 ### Changed
 
