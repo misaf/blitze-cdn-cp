@@ -7569,10 +7569,16 @@
                 }
               }
             },
-            "description": "Successful Response",
+            "description": "Created. Location is the new resource's canonical URL.",
             "headers": {
               "ETag": {
                 "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the created resource.",
                 "schema": {
                   "type": "string"
                 }
@@ -8456,10 +8462,16 @@
                 }
               }
             },
-            "description": "Successful Response",
+            "description": "Created. Location is the new resource's canonical URL.",
             "headers": {
               "ETag": {
                 "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the created resource.",
                 "schema": {
                   "type": "string"
                 }
@@ -9348,10 +9360,16 @@
                 }
               }
             },
-            "description": "Successful Response",
+            "description": "Created. Location is the new resource's canonical URL.",
             "headers": {
               "ETag": {
                 "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the created resource.",
                 "schema": {
                   "type": "string"
                 }
@@ -10053,10 +10071,16 @@
                 }
               }
             },
-            "description": "Successful Response",
+            "description": "Created. Location is the new resource's canonical URL.",
             "headers": {
               "ETag": {
                 "description": "Strong tag of the version returned. Send it back as `If-Match` on a PATCH or DELETE built from this representation.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative URL of the created resource.",
                 "schema": {
                   "type": "string"
                 }
