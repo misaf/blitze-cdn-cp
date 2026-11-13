@@ -41,6 +41,7 @@ from blitzecdn.delivery.api.preconditions import (
     if_match,
     tag,
 )
+from blitzecdn.delivery.api.responses import TAGGED_CREATED_RESPONSE, created_at
 
 router = APIRouter(
     route_class=DishkaSyncRoute,
@@ -58,7 +59,11 @@ def list_domains(dns: FromDishka[SiteService]) -> Page[Domain]:
     "/v3/domains",
     response_model=Domain,
     status_code=status.HTTP_201_CREATED,
-    responses={201: ETAG_RESPONSE, **CONFLICT_RESPONSES, **BODY_RESPONSES},
+    responses={
+        201: TAGGED_CREATED_RESPONSE,
+        **CONFLICT_RESPONSES,
+        **BODY_RESPONSES,
+    },
 )
 def create_domain(
     response: Response,
@@ -66,9 +71,11 @@ def create_domain(
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> Domain:
-    return Domain.from_domain(
+    created = Domain.from_domain(
         tag(response, dns.create_domain(domain.to_domain(), operator))
     )
+    created_at(response, "/v3/domains", created.name)
+    return created
 
 
 # Declared before ``/v3/domains/{domain}`` so ``export`` is not read as a zone.
@@ -165,7 +172,7 @@ def list_records(domain: str, dns: FromDishka[SiteService]) -> Page[DnsRecord]:
     response_model=DnsRecord,
     status_code=status.HTTP_201_CREATED,
     responses={
-        201: ETAG_RESPONSE,
+        201: TAGGED_CREATED_RESPONSE,
         **NOT_FOUND_RESPONSES,
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
@@ -178,9 +185,13 @@ def create_record(
     operator: OperatorDependency,
     dns: FromDishka[SiteService],
 ) -> DnsRecord:
-    return DnsRecord.from_domain(
+    created = DnsRecord.from_domain(
         tag(response, dns.create_record(record.to_domain(domain), operator))
     )
+    created_at(
+        response, "/v3/domains", created.domain, "records", created.type, created.name
+    )
+    return created
 
 
 #: One record is addressed by its type as well as its name: an A and an AAAA
@@ -284,7 +295,7 @@ def list_rules(domain: str, rules: FromDishka[RuleService]) -> Page[Rule]:
     response_model=Rule,
     status_code=status.HTTP_201_CREATED,
     responses={
-        201: ETAG_RESPONSE,
+        201: TAGGED_CREATED_RESPONSE,
         **NOT_FOUND_RESPONSES,
         **CONFLICT_RESPONSES,
         **BODY_RESPONSES,
@@ -297,9 +308,11 @@ def create_rule(
     operator: OperatorDependency,
     rules: FromDishka[RuleService],
 ) -> Rule:
-    return Rule.from_domain(
+    created = Rule.from_domain(
         tag(response, rules.create_rule(rule.to_domain(domain), operator))
     )
+    created_at(response, "/v3/domains", created.domain, "rules", created.name)
+    return created
 
 
 @router.get(
