@@ -107,7 +107,8 @@ git switch master && git pull && git merge origin/7.x && git push
 Opening a new major line, `8.x` from `master`, is one change that adds it to
 the push `branches` in `.github/workflows/ci.yml` and
 `.github/workflows/edge-image.yml`, moves every `target-branch` in
-`.github/dependabot.yml` to it, and updates this section. A line missing from
+`.github/dependabot.yml` to it, and updates this section and the supported
+versions in [SECURITY.md](SECURITY.md). A line missing from
 those lists runs no CI and publishes no edge image when it is pushed. After it
 merges, push the branch and make it the default; the previous line is retired
 by removing it from the same lists.
