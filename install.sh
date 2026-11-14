@@ -20,7 +20,7 @@ readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
 # The control-plane image this release installs, moved with the version by
 # `just release-version`. The image tag is the release: an update reads the
 # installed one back from the Compose project and moves it forward.
-readonly CONTROL_PLANE_IMAGE=ghcr.io/misaf/blitzecdn-control-plane:7.0.0
+readonly CONTROL_PLANE_IMAGE=ghcr.io/misaf/blitzecdn-control-plane:7.0.1
 # `blitzecdn.assets.docker.CONTROL_PLANE_DOCKERFILE`, for a source build.
 readonly CONTROL_PLANE_DOCKERFILE=src/blitzecdn/assets/docker/control-plane/Dockerfile
 readonly CONTROL_PLANE_SOURCE_TAG=blitzecdn-control-plane:local

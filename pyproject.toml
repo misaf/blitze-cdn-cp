@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn"
-version = "7.0.0"
+version = "7.0.1"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
 # Deliberate floor: the control plane runs from its image, and uv fetches the
 # interpreter for development. See "Local development" in README.md.
