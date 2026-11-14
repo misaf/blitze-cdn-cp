@@ -2,7 +2,7 @@
 
 Every workflow that publishes from a `v*.*.*` tag runs it first. A lightweight
 or unverified tag, a tag naming another version, or a tag whose message is not
-`BlitzeCDN X.Y.Z` is refused before anything reaches the registry.
+`BlitzeCDN vX.Y.Z` is refused before anything reaches the registry.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _github(
     points_at: str = COMMIT,
     verified: bool = True,
     reason: str = "valid",
-    message: str = "BlitzeCDN 7.1.0\n-----BEGIN PGP SIGNATURE-----\n",
+    message: str = "BlitzeCDN v7.1.0\n-----BEGIN PGP SIGNATURE-----\n",
 ) -> Any:
     responses: dict[str, Mapping[str, Any]] = {
         "git/ref/tags/v7.1.0": {
@@ -77,12 +77,15 @@ def test_a_signature_github_cannot_verify_is_refused() -> None:
 
 def test_another_message_is_refused() -> None:
     assert _problems(message="release: 7.1.0\n") == [
-        "v7.1.0's message is 'release: 7.1.0', not 'BlitzeCDN 7.1.0'"
+        "v7.1.0's message is 'release: 7.1.0', not 'BlitzeCDN v7.1.0'"
+    ]
+    assert _problems(message="BlitzeCDN 7.1.0\n") == [
+        "v7.1.0's message is 'BlitzeCDN 7.1.0', not 'BlitzeCDN v7.1.0'"
     ]
 
 
 def test_a_tag_for_another_version_or_commit_is_refused() -> None:
-    assert _problems(version="7.0.0", message="BlitzeCDN 7.0.0\n") == [
+    assert _problems(version="7.0.0", message="BlitzeCDN v7.0.0\n") == [
         "release tag 'v7.1.0' must equal v7.0.0"
     ]
     assert _problems(points_at="d" * 40) == [

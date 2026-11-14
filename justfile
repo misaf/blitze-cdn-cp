@@ -192,7 +192,7 @@ release-notes version:
     @python3 -I scripts/release_notes.py {{version}}
 
 # Make the signed, annotated `vX.Y.Z` tag CI accepts, with the message
-# `BlitzeCDN X.Y.Z`, on the committed release commit. Pushing it publishes the
+# `BlitzeCDN vX.Y.Z`, on the committed release commit. Pushing it publishes the
 # images, so that stays a separate, deliberate `git push origin vX.Y.Z`.
 release-tag version:
     #!/usr/bin/env bash
@@ -212,7 +212,7 @@ release-tag version:
     if ! git branch --remotes --contains HEAD | grep -qE '^ *origin/([0-9]+\.x|master)$'; then
         echo "error: HEAD is not on a pushed release line (origin/N.x or origin/master)" >&2; exit 1
     fi
-    git tag --sign "v$version" --message "BlitzeCDN $version"
+    git tag --sign "v$version" --message "BlitzeCDN v$version"
     git tag --verify "v$version"
     echo "Signed v$version. Publish it with: git push origin v$version"
 

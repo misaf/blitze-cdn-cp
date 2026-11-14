@@ -10,7 +10,7 @@ It reads the tag from GitHub Actions' environment (`GITHUB_REF_NAME`,
   published under a version its own code does not report;
 - the tag is annotated, not lightweight, and points at the commit being built;
 - GitHub verifies the tag's signature;
-- the tag message is `BlitzeCDN X.Y.Z`, which `just release-tag` writes.
+- the tag message is `BlitzeCDN vX.Y.Z`, which `just release-tag` writes.
 
 Standard library only, and no newer than the runner's system `python3`.
 """
@@ -56,8 +56,8 @@ def problems(
         reason = verification.get("reason", "unsigned")
         found.append(f"GitHub does not verify the signature on {tag} ({reason})")
     subject = str(obj.get("message", "")).split("\n", 1)[0].strip()
-    if subject != f"BlitzeCDN {version}":
-        found.append(f"{tag}'s message is {subject!r}, not 'BlitzeCDN {version}'")
+    if subject != f"BlitzeCDN v{version}":
+        found.append(f"{tag}'s message is {subject!r}, not 'BlitzeCDN v{version}'")
     return found
 
 
