@@ -446,7 +446,7 @@ so the Python package built from it reports itself as 2.9.1. The edge image
 ## [2.9.0] - 2026-08-30
 
 2.8.0 was published only as the edge image `blitzecdn-edge:2.8.0`, built from
-db7a72ee, which already has the fresh-host change below. Its tag and GitHub
+71304f51, which already has the fresh-host change below. Its tag and GitHub
 release no longer exist, and `pyproject.toml` at that commit still says 2.7.0.
 Its changes are included here.
 
