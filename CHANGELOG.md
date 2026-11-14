@@ -10,11 +10,20 @@ and refuses to run while it is empty. Numbers in parentheses are pull requests.
 
 ## [Unreleased]
 
+## [7.0.1] - 2026-11-14
+
 ### Changed
 
 - The edge image is built on Nginx 1.31.7 (from 1.31.4) (#399).
 - The control plane runs on SQLAlchemy 2.1.8 (from 2.0.52), and the package
   accepts SQLAlchemy up to 2.1 (`sqlalchemy>=2.0.52,<2.2`) (#391).
+
+### Security
+
+- The control plane ships Mako 1.4.2 (from 1.4.1), which fixes
+  [GHSA-5639-2j2p-m4mx](https://github.com/advisories/GHSA-5639-2j2p-m4mx), a
+  template path traversal. It applies only on Windows, so control planes, which
+  run on Linux, were not exposed (#413).
 
 ## [7.0.0] - 2026-11-13
 
@@ -729,7 +738,8 @@ First tagged release. There is no 1.0.0: the version went from the untagged
 
 - SSH between the control plane and edges is public-key only.
 
-[Unreleased]: https://github.com/misaf/blitze-cdn-cp/compare/v7.0.0...HEAD
+[Unreleased]: https://github.com/misaf/blitze-cdn-cp/compare/v7.0.1...HEAD
+[7.0.1]: https://github.com/misaf/blitze-cdn-cp/compare/v7.0.0...v7.0.1
 [7.0.0]: https://github.com/misaf/blitze-cdn-cp/compare/v6.1.0...v7.0.0
 [6.1.0]: https://github.com/misaf/blitze-cdn-cp/compare/v6.0.1...v6.1.0
 [6.0.1]: https://github.com/misaf/blitze-cdn-cp/compare/v6.0.0...v6.0.1
